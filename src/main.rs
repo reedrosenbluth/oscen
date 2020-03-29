@@ -8,12 +8,52 @@ fn main() {
 }
 
 struct Model {
-    stream: audio::Stream<Audio>,
+    stream: audio::Stream<Synth>,
 }
 
-struct Audio {
+struct Synth {
+    voices: [Oscillator; 4]
+}
+
+enum Waveshape {
+    Sin,
+    Square,
+}
+
+struct Oscillator {
     phase: f64,
     hz: f64,
+    volume: f32,
+    shape: Waveshape
+}
+
+impl Oscillator {
+    fn adjust_phase(&mut self, sample_rate: f64) {
+        self.phase += self.hz / sample_rate;
+        self.phase %= sample_rate;
+    }
+
+    fn sine_wave(&mut self, sample_rate: f64) -> f32 {
+        let amp = (2. * PI * self.phase).sin() as f32;
+        self.adjust_phase(sample_rate);
+        amp
+    }
+
+    fn square_wave(&mut self, sample_rate: f64) -> f32 {
+        let sine_amp = self.sine_wave(sample_rate);
+        if sine_amp > 0. {
+            self.volume
+        } else {
+            -self.volume
+        }
+    }
+
+    fn sample(&mut self, sample_rate: f64) -> f32 {
+        match self.shape {
+            Waveshape::Sin => self.sine_wave(sample_rate),
+            Waveshape::Square => self.square_wave(sample_rate),
+        }
+    }
 }
 
 fn model(app: &App) -> Model {
@@ -26,9 +66,33 @@ fn model(app: &App) -> Model {
     // Initialise the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
-    let model = Audio {
-        phase: 0.0,
-        hz: 440.0,
+    let model = Synth {
+        voices: [
+            Oscillator {
+                phase: 0.0,
+                hz: 261.63,
+                volume: 0.5,
+                shape: Waveshape::Sin
+            },
+            Oscillator {
+                phase: 0.0,
+                hz: 155.56,
+                volume: 0.5,
+                shape: Waveshape::Sin
+            },
+            Oscillator {
+                phase: 0.0,
+                hz: 196.00,
+                volume: 0.5,
+                shape: Waveshape::Sin
+            },
+            Oscillator {
+                phase: 0.0,
+                hz: 261.63,
+                volume: 0.5,
+                shape: Waveshape::Sin
+            },
+        ]
     };
     let stream = audio_host
         .new_output_stream(model)
@@ -40,15 +104,15 @@ fn model(app: &App) -> Model {
 
 // A function that renders the given `Audio` to the given `Buffer`.
 // In this case we play a simple sine wave at the audio's current frequency in `hz`.
-fn audio(audio: &mut Audio, buffer: &mut Buffer) {
+fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
-    let volume = 0.5;
     for frame in buffer.frames_mut() {
-        let sine_amp = (2.0 * PI * audio.phase).sin() as f32;
-        audio.phase += audio.hz / sample_rate;
-        audio.phase %= sample_rate;
+        let mut amp = 0.;
+        for voice in &mut synth.voices {
+            amp += voice.sample(sample_rate) * voice.volume;
+        }
         for channel in frame {
-            *channel = sine_amp * volume;
+            *channel = amp / synth.voices.len() as f32;
         }
     }
 }
@@ -67,8 +131,10 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
         Key::Up => {
             model
                 .stream
-                .send(|audio| {
-                    audio.hz += 10.0;
+                .send(|synth| {
+                    for voice in &mut synth.voices {
+                        voice.hz += 10.0;
+                    }
                 })
                 .unwrap();
         }
@@ -76,8 +142,10 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
         Key::Down => {
             model
                 .stream
-                .send(|audio| {
-                    audio.hz -= 10.0;
+                .send(|synth| {
+                    for voice in &mut synth.voices {
+                        voice.hz -= 10.0;
+                    }
                 })
                 .unwrap();
         }
