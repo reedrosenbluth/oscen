@@ -98,20 +98,20 @@ fn model(app: &App) -> Model {
             phase: 0.0,
             hz: 261.63,
             volume: 0.5,
-            shape: Waveshape::Saw
+            shape: Waveshape::Sine
         },
-        // Oscillator {
-        //     phase: 0.0,
-        //     hz: 155.56,
-        //     volume: 0.5,
-        //     shape: Waveshape::Sine,
-        // },
-        // Oscillator {
-        //     phase: 0.0,
-        //     hz: 196.00,
-        //     volume: 0.5,
-        //     shape: Waveshape::Sine,
-        // },
+        Oscillator {
+            phase: 0.0,
+            hz: 155.56,
+            volume: 0.5,
+            shape: Waveshape::Sine,
+        },
+        Oscillator {
+            phase: 0.0,
+            hz: 196.00,
+            volume: 0.5,
+            shape: Waveshape::Sine,
+        },
     ];
     let model = Synth { voices, sender };
     let stream = audio_host
@@ -138,6 +138,8 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     }
 }
 
+
+
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
     match key {
@@ -155,7 +157,9 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 .stream
                 .send(|synth| {
                     for voice in synth.voices.iter_mut() {
-                        voice.hz += 50.0;
+                        let start_freq = voice.hz;
+                        let new_freq = start_freq * (2.0.powf(1. / 12.));
+                        voice.hz = new_freq;
                     }
                 })
                 .unwrap();
@@ -166,7 +170,9 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 .stream
                 .send(|synth| {
                     for voice in synth.voices.iter_mut() {
-                        voice.hz -= 50.0;
+                        let start_freq = voice.hz;
+                        let new_freq = start_freq * (2.0.powf(1. / 12.).powf(-1.));
+                        voice.hz = new_freq;
                     }
                 })
                 .unwrap();
