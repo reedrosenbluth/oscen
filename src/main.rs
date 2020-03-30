@@ -26,6 +26,7 @@ struct Synth {
 enum Waveshape {
     Sine,
     Square,
+    Ramp,
     Saw,
     Triangle,
 }
@@ -47,8 +48,12 @@ impl Oscillator {
         if sine_amp > 0. { self.volume } else { -self.volume }
     }
 
-    fn saw_wave(&mut self) -> f32 {
+    fn ramp_wave(&mut self) -> f32 {
         (2. * (self.phase - floor(0.5 + self.phase, 0))) as f32
+    }
+
+    fn saw_wave(&mut self) -> f32 {
+        self.volume - self.ramp_wave()
     }
 
     fn triangle_wave(&mut self) -> f32 {
@@ -60,6 +65,7 @@ impl Oscillator {
         let amp = match self.shape {
             Waveshape::Sine => self.sine_wave(),
             Waveshape::Square => self.square_wave(),
+            Waveshape::Ramp => self.ramp_wave(),
             Waveshape::Saw => self.saw_wave(),
             Waveshape::Triangle => self.triangle_wave(),
         };
@@ -92,7 +98,7 @@ fn model(app: &App) -> Model {
             phase: 0.0,
             hz: 261.63,
             volume: 0.5,
-            shape: Waveshape::Triangle
+            shape: Waveshape::Saw
         },
         // Oscillator {
         //     phase: 0.0,
