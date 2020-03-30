@@ -2,6 +2,7 @@ use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use crossbeam::crossbeam_channel::{unbounded, Sender, Receiver, TryIter};
+use core::cmp::Ordering;
 use std::f64::consts::PI;
 use core::time::Duration;
 
@@ -12,7 +13,8 @@ fn main() {
 struct Model {
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
-    amps: Vec<f32>
+    amps: Vec<f32>,
+    max_amp: f32
 }
 
 struct Synth {
@@ -88,36 +90,30 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
     let voices = vec![
+        // Oscillator {
+        //     phase: 0.0,
+        //     hz: 440.,
+        //     volume: 0.5,
+        //     shape: Waveshape::Sine,
+        // },
         Oscillator {
             phase: 0.0,
-            hz: 440.,
+            hz: 261.63,
             volume: 0.5,
-            shape: Waveshape::Sine,
+            shape: Waveshape::Square,
         },
-        // Oscillator {
-        //     phase: 0.0,
-        //     hz: 261.63,
-        //     volume: 0.5,
-        //     shape: Waveshape::Sine,
-        // },
-        // Oscillator {
-        //     phase: 0.0,
-        //     hz: 155.56,
-        //     volume: 0.5,
-        //     shape: Waveshape::Sine,
-        // },
-        // Oscillator {
-        //     phase: 0.0,
-        //     hz: 196.00,
-        //     volume: 0.5,
-        //     shape: Waveshape::Sine,
-        // },
-        // Oscillator {
-        //     phase: 0.0,
-        //     hz: 261.63,
-        //     volume: 0.5,
-        //     shape: Waveshape::Sine,
-        // },
+        Oscillator {
+            phase: 0.0,
+            hz: 155.56,
+            volume: 0.5,
+            shape: Waveshape::Square,
+        },
+        Oscillator {
+            phase: 0.0,
+            hz: 196.00,
+            volume: 0.5,
+            shape: Waveshape::Square,
+        },
     ];
     let model = Synth { voices, sender };
     let stream = audio_host
@@ -125,7 +121,7 @@ fn model(app: &App) -> Model {
         .render(audio)
         .build()
         .unwrap();
-    Model { stream, receiver, amps: vec![] }
+    Model { stream, receiver, amps: vec![], max_amp: 0. }
 }
 
 // A function that renders the given `Audio` to the given `Buffer`.
@@ -145,6 +141,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 }
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
+    model.max_amp = 0.;
     match key {
         // Pause or unpause the audio when Space is pressed.
         Key::Space => {
@@ -160,7 +157,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 .stream
                 .send(|synth| {
                     for voice in synth.voices.iter_mut() {
-                        voice.hz += 10.0;
+                        voice.hz += 50.0;
                     }
                 })
                 .unwrap();
@@ -171,7 +168,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 .stream
                 .send(|synth| {
                     for voice in synth.voices.iter_mut() {
-                        voice.hz -= 10.0;
+                        voice.hz -= 50.0;
                     }
                 })
                 .unwrap();
@@ -181,29 +178,40 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
 }
 
 fn update(_app: &App, model: &mut Model, _update: Update) {
-    let v: Vec<f32> = model.receiver.try_iter().collect();
-    model.amps = v;
+    let amps: Vec<f32> = model.receiver.try_iter().collect();
+    let clone = amps.clone();
+
+    let max = amps.iter().max_by(|x, y| if x > y { Ordering::Greater } else { Ordering::Less });
+    if max.is_some() && *max.unwrap() > model.max_amp {
+        model.max_amp = *max.unwrap();
+    }
+
+    model.amps = clone;
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
     let mut shifted: Vec<f32> = vec![];
-    for (i, amp) in model.amps.iter().enumerate() {
-        if amp.abs() < 0.01 && model.amps[i+1] > *amp {
+    let iter = model.amps.iter();
+
+    for (i, amp) in iter.enumerate() {
+        if *amp < model.max_amp + 0.05 && *amp > model.max_amp - 0.05 {
             shifted = model.amps[i..].to_vec();
             break;
         }
     }
 
-    let l = 300;
+    let l = 600;
     let mut points: Vec<Point2> = vec![];
     for (i, amp) in shifted.iter().enumerate() {
         if i == l { break; }
-        points.push(pt2(i as f32, amp * 100.));
+        points.push(pt2(i as f32, amp * 80.));
     }
 
-    let draw = app.draw();
-    frame.clear(BLACK);
-    draw.path().stroke().weight(1.).points(points);
+    if points.len() == 600 {
+        let draw = app.draw();
+        frame.clear(BLACK);
+        draw.path().stroke().weight(1.).points(points).x_y(-300., 0.);
 
-    draw.to_frame(app, &frame).unwrap();
+        draw.to_frame(app, &frame).unwrap();
+    }
 }
