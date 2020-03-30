@@ -5,6 +5,7 @@ use crossbeam::crossbeam_channel::{unbounded, Sender, Receiver, TryIter};
 use core::cmp::Ordering;
 use std::f64::consts::PI;
 use core::time::Duration;
+use math::round::floor;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -26,6 +27,7 @@ enum Waveshape {
     Sine,
     Square,
     Saw,
+    Triangle,
 }
 
 struct Oscillator {
@@ -46,24 +48,20 @@ impl Oscillator {
     }
 
     fn saw_wave(&mut self) -> f32 {
-        fn saw(p: f64) -> f32 {
-            let q = p % (2. * PI);
-            let n = (2. * q / 3.) as f32;
-            if q <= (1.5 * PI) { n } else { 2. - n }
-        }
-        saw(2. * PI * self.phase)
+        (2. * (self.phase - floor(0.5 + self.phase, 0))) as f32
     }
 
-    // fn triangle_wave(&mut self) -> f32 {
-    //     let saw_amp = self.saw_wave();
-
-    // }
+    fn triangle_wave(&mut self) -> f32 {
+        let saw_amp = self.saw_wave();
+        2. * saw_amp.abs() - self.volume
+    }
 
     fn sample(&mut self, sample_rate: f64) -> f32 {
         let amp = match self.shape {
             Waveshape::Sine => self.sine_wave(),
             Waveshape::Square => self.square_wave(),
             Waveshape::Saw => self.saw_wave(),
+            Waveshape::Triangle => self.triangle_wave(),
         };
 
         self.phase += self.hz / sample_rate;
@@ -90,30 +88,24 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
     let voices = vec![
-        // Oscillator {
-        //     phase: 0.0,
-        //     hz: 440.,
-        //     volume: 0.5,
-        //     shape: Waveshape::Sine,
-        // },
         Oscillator {
             phase: 0.0,
             hz: 261.63,
             volume: 0.5,
-            shape: Waveshape::Square,
+            shape: Waveshape::Triangle
         },
-        Oscillator {
-            phase: 0.0,
-            hz: 155.56,
-            volume: 0.5,
-            shape: Waveshape::Square,
-        },
-        Oscillator {
-            phase: 0.0,
-            hz: 196.00,
-            volume: 0.5,
-            shape: Waveshape::Square,
-        },
+        // Oscillator {
+        //     phase: 0.0,
+        //     hz: 155.56,
+        //     volume: 0.5,
+        //     shape: Waveshape::Sine,
+        // },
+        // Oscillator {
+        //     phase: 0.0,
+        //     hz: 196.00,
+        //     volume: 0.5,
+        //     shape: Waveshape::Sine,
+        // },
     ];
     let model = Synth { voices, sender };
     let stream = audio_host
