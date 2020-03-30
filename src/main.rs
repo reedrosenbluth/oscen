@@ -96,7 +96,7 @@ fn model(app: &App) -> Model {
     let voices = vec![
         Oscillator {
             phase: 0.0,
-            hz: 261.63,
+            hz: 130.81,
             volume: 0.5,
             shape: Waveshape::Sine
         },
@@ -185,7 +185,10 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     let amps: Vec<f32> = model.receiver.try_iter().collect();
     let clone = amps.clone();
 
+    // find max amplitude in waveform
     let max = amps.iter().max_by(|x, y| if x > y { Ordering::Greater } else { Ordering::Less });
+
+    // store if it's greater than the previously stored max
     if max.is_some() && *max.unwrap() > model.max_amp {
         model.max_amp = *max.unwrap();
     }
@@ -198,6 +201,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
     let iter = model.amps.iter();
 
     for (i, amp) in iter.enumerate() {
+        // look for peaks and start plot there (to mitigate jumpiness)
         if *amp < model.max_amp + 0.05 && *amp > model.max_amp - 0.05 {
             shifted = model.amps[i..].to_vec();
             break;
@@ -211,6 +215,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
         points.push(pt2(i as f32, amp * 80.));
     }
 
+    // only draw if we got enough info back from the audio thread
     if points.len() == 600 {
         let draw = app.draw();
         frame.clear(BLACK);
