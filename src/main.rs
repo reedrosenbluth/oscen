@@ -1,9 +1,7 @@
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use crossbeam::crossbeam_channel::unbounded;
-use crossbeam::crossbeam_channel::Sender;
-use crossbeam::crossbeam_channel::Receiver;
+use crossbeam::crossbeam_channel::{unbounded, Sender, Receiver, TryIter};
 use std::f64::consts::PI;
 use core::time::Duration;
 
@@ -94,7 +92,7 @@ fn model(app: &App) -> Model {
             phase: 0.0,
             hz: 440.,
             volume: 0.5,
-            shape: Waveshape::Saw,
+            shape: Waveshape::Sine,
         },
         // Oscillator {
         //     phase: 0.0,
@@ -188,16 +186,23 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
-    frame.clear(BLACK);
-
-    let draw = app.draw();
-
-    let mut points: Vec<Point2> = vec![];
-
+    let mut shifted: Vec<f32> = vec![];
     for (i, amp) in model.amps.iter().enumerate() {
-        points.push(pt2(i as f32, *amp * 100.));
+        if amp.abs() < 0.01 && model.amps[i+1] > *amp {
+            shifted = model.amps[i..].to_vec();
+            break;
+        }
     }
 
+    let l = 300;
+    let mut points: Vec<Point2> = vec![];
+    for (i, amp) in shifted.iter().enumerate() {
+        if i == l { break; }
+        points.push(pt2(i as f32, amp * 100.));
+    }
+
+    let draw = app.draw();
+    frame.clear(BLACK);
     draw.path().stroke().weight(1.).points(points);
 
     draw.to_frame(app, &frame).unwrap();
