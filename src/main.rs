@@ -53,11 +53,13 @@ impl Oscillator {
     }
 
     fn saw_wave(&mut self) -> f32 {
-        self.volume - self.ramp_wave()
+        let t = self.phase - 0.5;
+        (2. * (-t - floor(0.5 - t, 0))) as f32
     }
 
     fn triangle_wave(&mut self) -> f32 {
-        let saw_amp = self.saw_wave();
+        let t = self.phase - 0.5 - 0.25;
+        let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
         2. * saw_amp.abs() - self.volume
     }
 
@@ -94,6 +96,12 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
     let voices = vec![
+        // Oscillator {
+        //     phase: 0.0,
+        //     hz: 220.00,
+        //     volume: 0.5,
+        //     shape: Waveshape::Sine,
+        // },
         Oscillator {
             phase: 0.0,
             hz: 130.81,
@@ -183,30 +191,23 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
 
 fn update(_app: &App, model: &mut Model, _update: Update) {
     let amps: Vec<f32> = model.receiver.try_iter().collect();
-    let clone = amps.clone();
-
-    // find max amplitude in waveform
-    let max = amps.iter().max_by(|x, y| if x > y { Ordering::Greater } else { Ordering::Less });
-
-    // store if it's greater than the previously stored max
-    if max.is_some() && *max.unwrap() > model.max_amp {
-        model.max_amp = *max.unwrap();
-    }
-
-    model.amps = clone;
+    model.amps = amps;
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
     let mut shifted: Vec<f32> = vec![];
-    let iter = model.amps.iter();
+    let mut iter = model.amps.iter().peekable();
 
-    for (i, amp) in iter.enumerate() {
-        // look for peaks and start plot there (to mitigate jumpiness)
-        if *amp < model.max_amp + 0.05 && *amp > model.max_amp - 0.05 {
+    let mut i = 0;
+    while iter.len() > 0 { 
+        let amp = iter.next().unwrap();
+        if amp.abs() < 0.01 && **iter.peek().unwrap() > *amp {
             shifted = model.amps[i..].to_vec();
             break;
         }
+        i += 1;
     }
+
 
     let l = 600;
     let mut points: Vec<Point2> = vec![];
