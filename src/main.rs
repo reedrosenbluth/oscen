@@ -6,6 +6,7 @@ use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::f64::consts::PI;
+use derive_more::Constructor;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -15,15 +16,10 @@ trait Wave {
     fn sample(&self, t: f64) -> f32;
 }
 
+#[derive(Constructor)]
 struct WaveParams {
     hz: f64,
     volume: f32,
-}
-
-impl WaveParams {
-    fn new(hz: f64, volume: f32) -> Self {
-        WaveParams { hz, volume }
-    }
 }
 
 struct SineWave(WaveParams);
@@ -108,6 +104,7 @@ impl Wave for TriangleWave {
     }
 }
 
+#[derive(Constructor)]
 struct LerpWave {
     wave1: Box<dyn Wave + Send>,
     wave2: Box<dyn Wave + Send>,
@@ -120,6 +117,7 @@ impl Wave for LerpWave {
     }
 }
 
+#[derive(Constructor)]
 struct Model {
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
@@ -127,6 +125,7 @@ struct Model {
     max_amp: f32,
 }
 
+#[derive(Constructor)]
 struct Synth {
     voice: Box<dyn Wave + Send>,
     sender: Sender<f32>,
