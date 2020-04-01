@@ -211,7 +211,7 @@ impl Wave for LerpWave {
 }
 
 struct AvgWave {
-    waves: Vec<Box<dyn Wave + Send>>
+    waves: Vec<Box<dyn Wave + Send>>,
 }
 
 impl Wave for AvgWave {
@@ -267,12 +267,15 @@ fn model(app: &App) -> Model {
     // Initialise the state that we want to live on the audio thread.
     let wave1 = Box::new(SineWave::new(130.81, 0.5, 0.0));
     let wave2 = Box::new(SquareWave::new(130.81, 0.5, 0.0));
+    let wave3 = Box::new(TriangleWave::new(130.81, 0.5, 0.0));
     // let lerp_voice = LerpWave {
     //     wave1,
     //     wave2,
     //     alpha: 0.5,
     // };
-    let avg_voice = AvgWave { waves: vec![wave1, wave2] };
+    let avg_voice = AvgWave {
+        waves: vec![wave1, wave2, wave3],
+    };
     let model = Synth {
         voice: Box::new(avg_voice),
         sender,
@@ -307,6 +310,16 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
+    let change_hz = |i| {
+        model
+            .stream
+            .send(move |synth| {
+                let start_freq = synth.voice.hz();
+                let new_freq = start_freq * (2.0.powf(i / 12.));
+                synth.voice.set_hz(new_freq);
+            })
+            .unwrap();
+    };
     match key {
         // Pause or unpause the audio when Space is pressed.
         Key::Space => {
@@ -317,26 +330,8 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             }
         }
         // Raise the frequency when the up key is pressed.
-        Key::Up => {
-            model
-                .stream
-                .send(|synth| {
-                    let start_freq = synth.voice.hz();
-                    let new_freq = start_freq * (2.0.powf(1. / 12.));
-                    synth.voice.set_hz(new_freq);
-                })
-                .unwrap();
-        }
-        Key::Down => {
-            model
-                .stream
-                .send(|synth| {
-                    let start_freq = synth.voice.hz();
-                    let new_freq = start_freq * (2.0.powf(-1. / 12.));
-                    synth.voice.set_hz(new_freq);
-                })
-                .unwrap();
-        }
+        Key::Up => change_hz(1.),
+        Key::Down => change_hz(-1.),
         _ => {}
     }
 }
