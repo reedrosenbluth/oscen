@@ -1,12 +1,12 @@
 use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
+use derive_more::Constructor;
 use math::round::floor;
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::f64::consts::PI;
-use derive_more::Constructor;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -18,7 +18,6 @@ trait Wave {
     fn hz(&self) -> f64;
     fn set_hz(&mut self, hz: f64);
 }
-
 
 #[derive(Constructor)]
 struct WaveParams {
@@ -81,7 +80,6 @@ impl Wave for SquareWave {
     fn hz(&self) -> f64 {
         self.0.hz
     }
-    
     fn set_hz(&mut self, hz: f64) {
         self.0.hz = hz;
     }
@@ -199,9 +197,8 @@ impl Wave for LerpWave {
     fn set_hz(&mut self, hz: f64) {
         self.wave1.set_hz(hz);
         self.wave2.set_hz(hz);
-    } 
+    }
 }
-
 
 #[derive(Constructor)]
 struct Model {
@@ -287,22 +284,20 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             model
                 .stream
                 .send(|synth| {
-                        let start_freq = synth.voice.hz();
-                        let new_freq = start_freq * (2.0.powf(1. / 12.));
-                        synth.voice.set_hz(new_freq);
-                    }
-                )
+                    let start_freq = synth.voice.hz();
+                    let new_freq = start_freq * (2.0.powf(1. / 12.));
+                    synth.voice.set_hz(new_freq);
+                })
                 .unwrap();
         }
         Key::Down => {
             model
                 .stream
                 .send(|synth| {
-                        let start_freq = synth.voice.hz();
-                        let new_freq = start_freq * (2.0.powf(-1. / 12.));
-                        synth.voice.set_hz(new_freq);
-                    }
-                )
+                    let start_freq = synth.voice.hz();
+                    let new_freq = start_freq * (2.0.powf(-1. / 12.));
+                    synth.voice.set_hz(new_freq);
+                })
                 .unwrap();
         }
         _ => {}
