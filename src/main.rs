@@ -1,28 +1,34 @@
+use core::cmp::Ordering;
+use core::time::Duration;
+use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender, TryIter};
+use math::round::floor;
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use crossbeam::crossbeam_channel::{unbounded, Sender, Receiver, TryIter};
-use core::cmp::Ordering;
 use std::f64::consts::PI;
-use core::time::Duration;
-use math::round::floor;
 
 fn main() {
     nannou::app(model).update(update).run();
 }
 
+const WAVE_TABLE_LEN: usize = 2048;
+type Wavetable = [f64; WAVE_TABLE_LEN];
+type Sprite = Vec<Wavetable>; // Ableton calls collections of Wavetables "sprites"
+
 struct Model {
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     amps: Vec<f32>,
-    max_amp: f32
+    max_amp: f32,
 }
 
 struct Synth {
     voices: Vec<Oscillator>,
-    sender: Sender<f32>
+    sender: Sender<f32>,
+    sprite: Sprite,
 }
 
+#[derive(Copy, Clone)]
 enum Waveshape {
     Sine,
     Square,
@@ -36,16 +42,31 @@ struct Oscillator {
     hz: f64,
     volume: f32,
     shape: Waveshape,
+    sprite_position: i32,
 }
 
 impl Oscillator {
+    fn new(phase: f64, hz: f64, volume: f32, shape: Waveshape) -> Self {
+        Oscillator {
+            phase: phase,
+            hz: hz,
+            volume: volume,
+            shape: shape,
+            sprite_position: 0,
+        }
+    }
+
     fn sine_wave(&mut self) -> f32 {
         (2. * PI * self.phase).sin() as f32
     }
 
     fn square_wave(&mut self) -> f32 {
         let sine_amp = self.sine_wave();
-        if sine_amp > 0. { self.volume } else { -self.volume }
+        if sine_amp > 0. {
+            self.volume
+        } else {
+            -self.volume
+        }
     }
 
     fn ramp_wave(&mut self) -> f32 {
@@ -63,71 +84,119 @@ impl Oscillator {
         2. * saw_amp.abs() - self.volume
     }
 
-    fn sample(&mut self, sample_rate: f64) -> f32 {
-        let amp = match self.shape {
-            Waveshape::Sine => self.sine_wave(),
-            Waveshape::Square => self.square_wave(),
-            Waveshape::Ramp => self.ramp_wave(),
-            Waveshape::Saw => self.saw_wave(),
-            Waveshape::Triangle => self.triangle_wave(),
-        };
+    fn sample(&mut self, sample_rate: f64, sprite: &Sprite) -> f32 {
+        // let amp = match self.shape {
+        //     Waveshape::Sine => self.sine_wave(),
+        //     Waveshape::Square => self.square_wave(),
+        //     Waveshape::Ramp => self.ramp_wave(),
+        //     Waveshape::Saw => self.saw_wave(),
+        //     Waveshape::Triangle => self.triangle_wave(),
+        // };
 
-        self.phase += self.hz / sample_rate;
-        self.phase %= sample_rate;
+        // self.phase += self.hz / sample_rate;
+        // self.phase %= sample_rate;
 
-        amp
+        // Find wavetable in sprite based on sprite_position
+        // TODO: Somehow interpolate between different wavetables? Would be cool
+        let wavetable = sprite[self.sprite_position as usize];
+
+        // Get sample point from wavetable
+        // TODO: Polynomial interpolation
+        // Linear interpolation:
+        // p(x) = f(x0) + (f(x1) - f(x0)) / (x1 - x0) * (x - x0);
+        let x0 = self.phase.floor();
+        let x1 = self.phase.ceil();
+
+        let y0 = wavetable[x0 as usize];
+        let y1 = wavetable[x1 as usize % WAVE_TABLE_LEN];
+        let amp = interpolate(self.phase, x0, y0, x1, y1);
+
+        // Update phase accumulator
+        self.phase += WAVE_TABLE_LEN as f64 * self.hz / sample_rate;
+        self.phase %= WAVE_TABLE_LEN as f64;
+
+        amp as f32
     }
 }
 
-fn model(app: &App) -> Model {
+fn interpolate(x: f64, x0: f64, y0: f64, x1: f64, y1: f64) -> f64 {
+    y0 + (y1 - y0) / (x1 - x0) * (x - x0)
+}
 
+fn gen_table(waveshape: Waveshape) -> Wavetable {
+    fn gen_sin(t: f64) -> f64 {
+        (2. * PI * t).sin()
+    }
+    fn gen_sqr(t: f64) -> f64 {
+        2. * (2. * t.floor() - (2. * t).floor()) + 1.
+    }
+    fn gen_saw(t: f64) -> f64 {
+        2. * (t - (0.5 + t).floor())
+    }
+    fn gen_tri(t: f64) -> f64 {
+        2. * (2. * (t - (t + 0.5).floor())).abs() - 1.
+    }
+
+    let wave_func = match waveshape {
+        Waveshape::Sine => gen_sin,
+        Waveshape::Square => gen_sqr,
+        Waveshape::Saw | Waveshape::Ramp => gen_saw,
+        Waveshape::Triangle => gen_tri,
+    };
+
+    let mut table = [0.; WAVE_TABLE_LEN];
+    for i in 0..WAVE_TABLE_LEN {
+        let t = i as f64 / WAVE_TABLE_LEN as f64;
+        table[i] = wave_func(t);
+    }
+    table
+}
+
+fn model(app: &App) -> Model {
     let (sender, receiver) = unbounded();
 
     // Create a window to receive key pressed events.
     app.set_loop_mode(LoopMode::Rate {
-        update_interval: Duration::from_millis(1)
+        update_interval: Duration::from_millis(1),
     });
     app.new_window()
         .key_pressed(key_pressed)
         .view(view)
+        .size(1536, 768)
         .build()
         .unwrap();
-    // Initialise the audio API so we can spawn an audio stream.
+
+    // Initialize the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
-    // Initialise the state that we want to live on the audio thread.
+
+    // Initialize the state that we want to live on the audio thread.
     let voices = vec![
-        // Oscillator {
-        //     phase: 0.0,
-        //     hz: 220.00,
-        //     volume: 0.5,
-        //     shape: Waveshape::Sine,
-        // },
-        Oscillator {
-            phase: 0.0,
-            hz: 130.81,
-            volume: 0.5,
-            shape: Waveshape::Sine
-        },
-        Oscillator {
-            phase: 0.0,
-            hz: 155.56,
-            volume: 0.5,
-            shape: Waveshape::Sine,
-        },
-        Oscillator {
-            phase: 0.0,
-            hz: 196.00,
-            volume: 0.5,
-            shape: Waveshape::Sine,
-        },
+        Oscillator::new(0.0, 220.00, 0.5, Waveshape::Sine),
+        // Oscillator::new(0.0, 130.81, 0.5, Waveshape::Sine),
+        // Oscillator::new(0.0, 155.56, 0.5, Waveshape::Sine),
+        // Oscillator::new(0.0, 196.00, 0.5, Waveshape::Sine),
     ];
-    let model = Synth { voices, sender };
+    let model = Synth {
+        voices,
+        sender,
+        sprite: vec![
+            gen_table(Waveshape::Sine),
+            gen_table(Waveshape::Square),
+            gen_table(Waveshape::Saw),
+            gen_table(Waveshape::Triangle),
+        ],
+    };
     let stream = audio_host
         .new_output_stream(model)
         .render(audio)
         .build()
         .unwrap();
-    Model { stream, receiver, amps: vec![], max_amp: 0. }
+    Model {
+        stream,
+        receiver,
+        amps: vec![],
+        max_amp: 0.,
+    }
 }
 
 // A function that renders the given `Audio` to the given `Buffer`.
@@ -137,7 +206,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
         for voice in synth.voices.iter_mut() {
-            amp += voice.sample(sample_rate) * voice.volume;
+            amp += voice.sample(sample_rate, &synth.sprite) * voice.volume;
         }
         for channel in frame {
             *channel = amp / synth.voices.len() as f32;
@@ -145,8 +214,6 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
         synth.sender.send(amp).unwrap();
     }
 }
-
-
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
@@ -185,6 +252,32 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 })
                 .unwrap();
         }
+        // Increase sprite position when the right key is pressed.
+        Key::Right => {
+            model
+                .stream
+                .send(|synth| {
+                    for voice in synth.voices.iter_mut() {
+                        voice.sprite_position += 1;
+                        voice.sprite_position %= synth.sprite.len() as i32;
+                    }
+                })
+                .unwrap();
+        }
+        // Increase sprite position when the right key is pressed.
+        Key::Left => {
+            model
+                .stream
+                .send(|synth| {
+                    for voice in synth.voices.iter_mut() {
+                        voice.sprite_position -= 1;
+                        if voice.sprite_position < 0 {
+                            voice.sprite_position = synth.sprite.len() as i32 - 1;
+                        }
+                    }
+                })
+                .unwrap();
+        }
         _ => {}
     }
 }
@@ -198,21 +291,25 @@ fn view(app: &App, model: &Model, frame: Frame) {
     let mut shifted: Vec<f32> = vec![];
     let mut iter = model.amps.iter().peekable();
 
+    // I think the amp.abs() < 0.01 is messing up square waves. But also,
+    // I don't really understand how this code works lol
     let mut i = 0;
-    while iter.len() > 0 { 
+    while iter.len() > 0 {
         let amp = iter.next().unwrap();
-        if amp.abs() < 0.01 && **iter.peek().unwrap() > *amp {
+        // if amp.abs() < 0.01 && **iter.peek().unwrap() > *amp {
+        if iter.peek().is_some() && **iter.peek().unwrap() > *amp {
             shifted = model.amps[i..].to_vec();
             break;
         }
         i += 1;
     }
 
-
     let l = 600;
     let mut points: Vec<Point2> = vec![];
     for (i, amp) in shifted.iter().enumerate() {
-        if i == l { break; }
+        if i == l {
+            break;
+        }
         points.push(pt2(i as f32, amp * 80.));
     }
 
@@ -220,7 +317,11 @@ fn view(app: &App, model: &Model, frame: Frame) {
     if points.len() == 600 {
         let draw = app.draw();
         frame.clear(BLACK);
-        draw.path().stroke().weight(1.).points(points).x_y(-300., 0.);
+        draw.path()
+            .stroke()
+            .weight(1.)
+            .points(points)
+            .x_y(-300., 0.);
 
         draw.to_frame(app, &frame).unwrap();
     }
