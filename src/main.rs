@@ -359,15 +359,18 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
 fn view(app: &App, model: &Model, frame: Frame) {
     let mut shifted: Vec<f32> = vec![];
-    let iter = model.amps.iter();
+    let mut iter = model.amps.iter().peekable();
 
-    for (i, amp) in iter.enumerate() {
-        // look for peaks and start plot there (to mitigate jumpiness)
-        if *amp < model.max_amp + 0.05 && *amp > model.max_amp - 0.05 {
+    let mut i = 0;
+    while iter.len() > 0 { 
+        let amp = iter.next().unwrap();
+        if amp.abs() < 0.01 && **iter.peek().unwrap() > *amp {
             shifted = model.amps[i..].to_vec();
             break;
         }
+        i += 1;
     }
+
 
     let l = 600;
     let mut points: Vec<Point2> = vec![];
