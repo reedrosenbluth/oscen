@@ -26,6 +26,21 @@ struct WaveParams {
     phase: f64,
 }
 
+impl WaveParams {
+    fn update_phase(&mut self, sample_rate: f64) {
+        self.phase += self.hz / sample_rate;
+        self.phase %= sample_rate;
+    }
+
+    fn hz(&self) -> f64 {
+        self.hz
+    }
+
+    fn set_hz(&mut self, hz: f64) {
+        self.hz = hz;
+    }
+}
+
 struct SineWave(WaveParams);
 
 impl SineWave {
@@ -40,16 +55,15 @@ impl Wave for SineWave {
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.0.phase += self.0.hz / sample_rate;
-        self.0.phase %= sample_rate;
+        self.0.update_phase(sample_rate)
     }
 
     fn hz(&self) -> f64 {
-        self.0.hz
+        self.0.hz()
     }
 
     fn set_hz(&mut self, hz: f64) {
-        self.0.hz = hz;
+        self.0.set_hz(hz);
     }
 }
 
@@ -73,15 +87,14 @@ impl Wave for SquareWave {
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.0.phase += self.0.hz / sample_rate;
-        self.0.phase %= sample_rate;
+        self.0.update_phase(sample_rate)
     }
 
     fn hz(&self) -> f64 {
-        self.0.hz
+        self.0.hz()
     }
     fn set_hz(&mut self, hz: f64) {
-        self.0.hz = hz;
+        self.0.set_hz(hz);
     }
 }
 
@@ -99,16 +112,15 @@ impl Wave for RampWave {
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.0.phase += self.0.hz / sample_rate;
-        self.0.phase %= sample_rate;
+        self.0.update_phase(sample_rate);
     }
 
     fn hz(&self) -> f64 {
-        self.0.hz
+        self.0.hz()
     }
 
     fn set_hz(&mut self, hz: f64) {
-        self.0.hz = hz;
+        self.0.set_hz(hz);
     }
 }
 
@@ -127,16 +139,15 @@ impl Wave for SawWave {
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.0.phase += self.0.hz / sample_rate;
-        self.0.phase %= sample_rate;
+        self.0.update_phase(sample_rate);
     }
 
     fn hz(&self) -> f64 {
-        self.0.hz
+        self.0.hz()
     }
 
     fn set_hz(&mut self, hz: f64) {
-        self.0.hz = hz;
+        self.0.set_hz(hz);
     }
 }
 
@@ -157,16 +168,15 @@ impl Wave for TriangleWave {
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.0.phase += self.0.hz / sample_rate;
-        self.0.phase %= sample_rate;
+        self.0.update_phase(sample_rate);
     }
 
     fn hz(&self) -> f64 {
-        self.0.hz
+        self.0.hz()
     }
 
     fn set_hz(&mut self, hz: f64) {
-        self.0.hz = hz;
+        self.0.set_hz(hz);
     }
 }
 
@@ -197,6 +207,32 @@ impl Wave for LerpWave {
     fn set_hz(&mut self, hz: f64) {
         self.wave1.set_hz(hz);
         self.wave2.set_hz(hz);
+    }
+}
+
+struct AvgWave {
+    waves: Vec<Box<dyn Wave + Send>>
+}
+
+impl Wave for AvgWave {
+    fn sample(&self) -> f32 {
+        self.waves.iter().fold(0.0, |acc, x| acc + x.sample()) / self.waves.len() as f32
+    }
+
+    fn update_phase(&mut self, sample_rate: f64) {
+        for wave in self.waves.iter_mut() {
+            wave.update_phase(sample_rate);
+        }
+    }
+
+    fn hz(&self) -> f64 {
+        self.waves[0].hz()
+    }
+
+    fn set_hz(&mut self, hz: f64) {
+        for wave in self.waves.iter_mut() {
+            wave.set_hz(hz);
+        }
     }
 }
 
@@ -231,13 +267,14 @@ fn model(app: &App) -> Model {
     // Initialise the state that we want to live on the audio thread.
     let wave1 = Box::new(SineWave::new(130.81, 0.5, 0.0));
     let wave2 = Box::new(SquareWave::new(130.81, 0.5, 0.0));
-    let voice = LerpWave {
-        wave1,
-        wave2,
-        alpha: 0.5,
-    };
+    // let lerp_voice = LerpWave {
+    //     wave1,
+    //     wave2,
+    //     alpha: 0.5,
+    // };
+    let avg_voice = AvgWave { waves: vec![wave1, wave2] };
     let model = Synth {
-        voice: Box::new(voice),
+        voice: Box::new(avg_voice),
         sender,
     };
     let stream = audio_host
