@@ -178,6 +178,27 @@ impl Wave for LerpWave {
     }
 }
 
+struct MultWave {
+    base_wave: Box<dyn Wave + Send>,
+    mod_wave: Box<dyn Wave + Send>,
+}
+
+impl Wave for MultWave {
+    fn sample(&self) -> f32 {
+        self.base_wave.sample() * self.mod_wave.sample()
+    }
+
+    fn update_phase(&mut self, sample_rate: f64) {
+        self.base_wave.update_phase(sample_rate);
+        self.mod_wave.update_phase(sample_rate);
+    }
+
+    fn mult_hz(&mut self, factor: f64) {
+        self.base_wave.mult_hz(factor);
+        // only change the frequency of the base wave.
+    }
+}
+
 struct AvgWave {
     waves: Vec<Box<dyn Wave + Send>>,
 }
@@ -230,18 +251,19 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
     let wave1 = Box::new(SineWave::new(130.81, 0.5, 0.0));
-    let wave2 = Box::new(SquareWave::new(155.56, 0.5, 0.0));
+    let wave2 = Box::new(SquareWave::new(260., 0.5, 0.0));
     let wave3 = Box::new(TriangleWave::new(196.00, 0.5, 0.0));
     // let lerp_voice = LerpWave {
     //     wave1,
     //     wave2,
     //     alpha: 0.5,
     // };
-    let avg_voice = AvgWave {
-        waves: vec![wave1, wave2, wave3],
-    };
+    // let avg_voice = AvgWave {
+    //     waves: vec![wave1, wave2, wave3],
+    // };
+    let mult_wave = MultWave { base_wave: wave1, mod_wave: wave2};
     let model = Synth {
-        voice: Box::new(avg_voice),
+        voice: Box::new(mult_wave),
         sender,
     };
     let stream = audio_host
@@ -325,7 +347,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
     let mut iter = model.amps.iter().peekable();
 
     let mut i = 0;
-    while iter.len() > 0 { 
+    while iter.len() > 0 {
         let amp = iter.next().unwrap_or(&0.);
         if amp.abs() < 0.01 && **iter.peek().unwrap_or(&amp) > *amp {
             shifted = model.amps[i..].to_vec();
@@ -333,7 +355,6 @@ fn view(app: &App, model: &Model, frame: Frame) {
         }
         i += 1;
     }
-
 
     let l = 600;
     let mut points: Vec<Point2> = vec![];
