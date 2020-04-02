@@ -15,8 +15,7 @@ fn main() {
 trait Wave {
     fn sample(&self) -> f32;
     fn update_phase(&mut self, sample_rate: f64);
-    fn hz(&self) -> f64;
-    fn set_hz(&mut self, hz: f64);
+    fn mult_hz(&mut self, factor: f64);
 }
 
 #[derive(Constructor)]
@@ -32,12 +31,8 @@ impl WaveParams {
         self.phase %= sample_rate;
     }
 
-    fn hz(&self) -> f64 {
-        self.hz
-    }
-
-    fn set_hz(&mut self, hz: f64) {
-        self.hz = hz;
+    fn mult_hz(&mut self, factor: f64) {
+        self.hz *= factor;
     }
 }
 
@@ -58,12 +53,8 @@ impl Wave for SineWave {
         self.0.update_phase(sample_rate)
     }
 
-    fn hz(&self) -> f64 {
-        self.0.hz()
-    }
-
-    fn set_hz(&mut self, hz: f64) {
-        self.0.set_hz(hz);
+    fn mult_hz(&mut self, factor: f64) {
+        self.0.mult_hz(factor);
     }
 }
 
@@ -90,11 +81,8 @@ impl Wave for SquareWave {
         self.0.update_phase(sample_rate)
     }
 
-    fn hz(&self) -> f64 {
-        self.0.hz()
-    }
-    fn set_hz(&mut self, hz: f64) {
-        self.0.set_hz(hz);
+    fn mult_hz(&mut self, factor: f64) {
+        self.0.mult_hz(factor);
     }
 }
 
@@ -115,12 +103,8 @@ impl Wave for RampWave {
         self.0.update_phase(sample_rate);
     }
 
-    fn hz(&self) -> f64 {
-        self.0.hz()
-    }
-
-    fn set_hz(&mut self, hz: f64) {
-        self.0.set_hz(hz);
+    fn mult_hz(&mut self, factor: f64) {
+        self.0.mult_hz(factor);
     }
 }
 
@@ -142,12 +126,8 @@ impl Wave for SawWave {
         self.0.update_phase(sample_rate);
     }
 
-    fn hz(&self) -> f64 {
-        self.0.hz()
-    }
-
-    fn set_hz(&mut self, hz: f64) {
-        self.0.set_hz(hz);
+    fn mult_hz(&mut self, factor: f64) {
+        self.0.mult_hz(factor);
     }
 }
 
@@ -171,12 +151,8 @@ impl Wave for TriangleWave {
         self.0.update_phase(sample_rate);
     }
 
-    fn hz(&self) -> f64 {
-        self.0.hz()
-    }
-
-    fn set_hz(&mut self, hz: f64) {
-        self.0.set_hz(hz);
+    fn mult_hz(&mut self, factor: f64) {
+        self.0.mult_hz(factor);
     }
 }
 
@@ -197,16 +173,9 @@ impl Wave for LerpWave {
         self.wave2.update_phase(sample_rate);
     }
 
-    fn hz(&self) -> f64 {
-        if self.wave1.hz() != self.wave2.hz() {
-            panic!("Can't interpolate between waves of different frequencies.")
-        }
-        self.wave1.hz()
-    }
-
-    fn set_hz(&mut self, hz: f64) {
-        self.wave1.set_hz(hz);
-        self.wave2.set_hz(hz);
+    fn mult_hz(&mut self, factor: f64) {
+        self.wave1.mult_hz(factor);
+        self.wave2.mult_hz(factor);
     }
 }
 
@@ -225,13 +194,9 @@ impl Wave for AvgWave {
         }
     }
 
-    fn hz(&self) -> f64 {
-        self.waves[0].hz()
-    }
-
-    fn set_hz(&mut self, hz: f64) {
+    fn mult_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
-            wave.set_hz(hz);
+            wave.mult_hz(factor);
         }
     }
 }
@@ -266,8 +231,8 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
     let wave1 = Box::new(SineWave::new(130.81, 0.5, 0.0));
-    let wave2 = Box::new(SquareWave::new(130.81, 0.5, 0.0));
-    let wave3 = Box::new(TriangleWave::new(130.81, 0.5, 0.0));
+    let wave2 = Box::new(SquareWave::new(155.56, 0.5, 0.0));
+    let wave3 = Box::new(TriangleWave::new(196.00, 0.5, 0.0));
     // let lerp_voice = LerpWave {
     //     wave1,
     //     wave2,
@@ -314,9 +279,8 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
         model
             .stream
             .send(move |synth| {
-                let start_freq = synth.voice.hz();
-                let new_freq = start_freq * (2.0.powf(i / 12.));
-                synth.voice.set_hz(new_freq);
+                let factor = (2.0.powf(i / 12.));
+                synth.voice.mult_hz(factor);
             })
             .unwrap();
     };
@@ -362,7 +326,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
     let mut iter = model.amps.iter().peekable();
 
     let mut i = 0;
-    while iter.len() > 0 { 
+    while iter.len() > 0 {
         let amp = iter.next().unwrap();
         if amp.abs() < 0.01 && **iter.peek().unwrap() > *amp {
             shifted = model.amps[i..].to_vec();
@@ -370,7 +334,6 @@ fn view(app: &App, model: &Model, frame: Frame) {
         }
         i += 1;
     }
-
 
     let l = 600;
     let mut points: Vec<Point2> = vec![];
