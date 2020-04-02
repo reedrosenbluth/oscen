@@ -141,7 +141,6 @@ impl TriangleWave {
 
 impl Wave for TriangleWave {
     fn sample(&self) -> f32 {
-        let saw_wave = SawWave(WaveParams::new(self.0.hz, self.0.volume, self.0.phase));
         let t = self.0.phase - 0.75;
         let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
         2. * saw_amp.abs() - self.0.volume
@@ -279,7 +278,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
         model
             .stream
             .send(move |synth| {
-                let factor = (2.0.powf(i / 12.));
+                let factor = 2.0.powf(i / 12.);
                 synth.voice.mult_hz(factor);
             })
             .unwrap();
@@ -326,7 +325,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
     let mut iter = model.amps.iter().peekable();
 
     let mut i = 0;
-    while iter.len() > 0 {
+    while iter.len() > 0 { 
         let amp = iter.next().unwrap();
         if amp.abs() < 0.01 && **iter.peek().unwrap() > *amp {
             shifted = model.amps[i..].to_vec();
@@ -334,6 +333,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
         }
         i += 1;
     }
+
 
     let l = 600;
     let mut points: Vec<Point2> = vec![];
