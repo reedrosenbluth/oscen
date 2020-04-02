@@ -326,8 +326,8 @@ fn view(app: &App, model: &Model, frame: Frame) {
 
     let mut i = 0;
     while iter.len() > 0 { 
-        let amp = iter.next().unwrap();
-        if amp.abs() < 0.01 && **iter.peek().unwrap() > *amp {
+        let amp = iter.next().unwrap_or(&0.);
+        if amp.abs() < 0.01 && **iter.peek().unwrap_or(&amp) > *amp {
             shifted = model.amps[i..].to_vec();
             break;
         }
