@@ -18,9 +18,8 @@ fn main() {
 trait Wave {
     fn sample(&self) -> f32;
     fn update_phase(&mut self, sample_rate: f64);
-    fn mult_hz(&mut self, factor: f64);
     fn set_hz(&mut self, hz: f64);
-    fn get_hz(&self) -> f64;
+    fn hz(&self) -> f64;
 }
 
 #[derive(Constructor)]
@@ -36,15 +35,11 @@ impl WaveParams {
         self.phase %= sample_rate;
     }
 
-    fn mult_hz(&mut self, factor: f64) {
-        self.hz *= factor;
-    }
-
     fn set_hz(&mut self, hz: f64) {
         self.hz = hz;
     }
 
-    fn get_hz(&self) -> f64 {
+    fn hz(&self) -> f64 {
         self.hz
     }
 }
@@ -66,16 +61,12 @@ impl Wave for SineWave {
         self.0.update_phase(sample_rate)
     }
 
-    fn mult_hz(&mut self, factor: f64) {
-        self.0.mult_hz(factor);
-    }
-
     fn set_hz(&mut self, hz: f64) {
         self.0.set_hz(hz);
     }
 
-    fn get_hz(&self) -> f64 {
-        self.0.get_hz()
+    fn hz(&self) -> f64 {
+        self.0.hz()
     }
 }
 
@@ -102,16 +93,12 @@ impl Wave for SquareWave {
         self.0.update_phase(sample_rate)
     }
 
-    fn mult_hz(&mut self, factor: f64) {
-        self.0.mult_hz(factor);
-    }
-
     fn set_hz(&mut self, hz: f64) {
         self.0.set_hz(hz);
     }
 
-    fn get_hz(&self) -> f64 {
-        self.0.get_hz()
+    fn hz(&self) -> f64 {
+        self.0.hz()
     }
 }
 
@@ -132,16 +119,12 @@ impl Wave for RampWave {
         self.0.update_phase(sample_rate);
     }
 
-    fn mult_hz(&mut self, factor: f64) {
-        self.0.mult_hz(factor);
-    }
-
     fn set_hz(&mut self, hz: f64) {
         self.0.set_hz(hz);
     }
 
-    fn get_hz(&self) -> f64 {
-        self.0.get_hz()
+    fn hz(&self) -> f64 {
+        self.0.hz()
     }
 }
 
@@ -163,16 +146,12 @@ impl Wave for SawWave {
         self.0.update_phase(sample_rate);
     }
 
-    fn mult_hz(&mut self, factor: f64) {
-        self.0.mult_hz(factor);
-    }
-
     fn set_hz(&mut self, hz: f64) {
         self.0.set_hz(hz);
     }
 
-    fn get_hz(&self) -> f64 {
-        self.0.get_hz()
+    fn hz(&self) -> f64 {
+        self.0.hz()
     }
 }
 
@@ -195,16 +174,12 @@ impl Wave for TriangleWave {
         self.0.update_phase(sample_rate);
     }
 
-    fn mult_hz(&mut self, factor: f64) {
-        self.0.mult_hz(factor);
-    }
-
     fn set_hz(&mut self, hz: f64) {
         self.0.set_hz(hz);
     }
 
-    fn get_hz(&self) -> f64 {
-        self.0.get_hz()
+    fn hz(&self) -> f64 {
+        self.0.hz()
     }
 }
 
@@ -225,18 +200,13 @@ impl Wave for LerpWave {
         self.wave2.update_phase(sample_rate);
     }
 
-    fn mult_hz(&mut self, factor: f64) {
-        self.wave1.mult_hz(factor);
-        self.wave2.mult_hz(factor);
-    }
-
     fn set_hz(&mut self, hz: f64) {
         self.wave1.set_hz(hz);
         self.wave2.set_hz(hz);
     }
 
     //TODO: fix this...
-    fn get_hz(&self) -> f64 {
+    fn hz(&self) -> f64 {
         0.
     }
 }
@@ -256,18 +226,13 @@ impl Wave for MultWave {
         self.mod_wave.update_phase(sample_rate);
     }
 
-    fn mult_hz(&mut self, factor: f64) {
-        self.base_wave.mult_hz(factor);
-        // only change the frequency of the base wave.
-    }
-
     fn set_hz(&mut self, hz: f64) {
         self.base_wave.set_hz(hz);
     }
 
     //TODO: fix this...
-    fn get_hz(&self) -> f64 {
-        self.base_wave.get_hz()
+    fn hz(&self) -> f64 {
+        self.base_wave.hz()
     }
 }
 
@@ -288,17 +253,13 @@ impl Wave for FMod {
         self.carrier_wave.set_hz((self.mod_wave.sample() * 440.) as f64);
     }
 
-    fn mult_hz(&mut self, factor: f64) {
-        self.mod_wave.mult_hz(factor);
-    }
-
     fn set_hz(&mut self, hz: f64) {
         self.carrier_wave.set_hz(hz);
     }
 
     //TODO: fix this...
-    fn get_hz(&self) -> f64 {
-        self.carrier_wave.get_hz()
+    fn hz(&self) -> f64 {
+        self.carrier_wave.hz()
     }
 }
 
@@ -350,16 +311,12 @@ impl Wave for ADSRWave {
         self.wave_params.update_phase(sample_rate);
     }
 
-    fn mult_hz(&mut self, factor: f64) {
-        self.wave_params.mult_hz(factor);
-    }
-
     fn set_hz(&mut self, hz: f64) {
         self.wave_params.set_hz(hz);
     }
 
-    fn get_hz(&self) -> f64 {
-        self.wave_params.get_hz()
+    fn hz(&self) -> f64 {
+        self.wave_params.hz()
     }
 }
 
@@ -378,20 +335,14 @@ impl Wave for AvgWave {
         }
     }
 
-    fn mult_hz(&mut self, factor: f64) {
-        for wave in self.waves.iter_mut() {
-            wave.mult_hz(factor);
-        }
-    }
-
     fn set_hz(&mut self, hz: f64) {
         for wave in self.waves.iter_mut() {
             wave.set_hz(hz);
         }
     }
 
-    fn get_hz(&self) -> f64 {
-        self.waves.iter().fold(0.0, |acc, x| acc + x.get_hz()) / self.waves.len() as f64
+    fn hz(&self) -> f64 {
+        self.waves.iter().fold(0.0, |acc, x| acc + x.hz()) / self.waves.len() as f64
     }
 }
 
@@ -450,12 +401,12 @@ fn model(app: &App) -> Model {
     // };
     let carrier_wave = Box::new(SineWave::new(220., 0.5, 0.0));
     let mod_wave = Box::new(SquareWave::new(220., 0.5, 0.0));
-    let fm_wave = FMod {
-        carrier_wave,
-        mod_wave: Box::new(avg_voice),
-    };
+    // let fm_wave = FMod {
+    //     carrier_wave,
+    //     mod_wave: Box::new(avg_voice),
+    // };
     let model = Synth {
-        voice: Box::new(fm_wave),
+        voice: Box::new(avg_voice),
         sender,
     };
     let stream = audio_host
@@ -493,7 +444,8 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.mult_hz(factor);
+                let hz = synth.voice.hz();
+                synth.voice.set_hz(hz * factor);
             })
             .unwrap();
     };
