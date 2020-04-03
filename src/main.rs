@@ -6,7 +6,7 @@ use math::round::floor;
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use std::f64::consts::PI;
+// use std::f64::consts::PI;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -46,7 +46,7 @@ impl SineWave {
 
 impl Wave for SineWave {
     fn sample(&self) -> f32 {
-        self.0.volume * (2. * PI * self.0.phase).sin() as f32
+        self.0.volume * (TAU * self.0.phase as f32).sin()
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
@@ -199,6 +199,63 @@ impl Wave for MultWave {
     }
 }
 
+fn adsr(
+    attack: f32,
+    decay: f32,
+    sustain_time: f32,
+    sustain_level: f32,
+    release: f32,
+) -> Box<dyn Fn(f32) -> f32> {
+    let a = attack * TAU;
+    let d = decay * TAU;
+    let s = sustain_time * TAU;
+    let r = release * TAU;
+    Box::new(move |t: f32| {
+        let t = t % TAU;
+        if t < a {
+            t / a
+        } else if t < a + d {
+            1.0 + (t - a) * (sustain_level - 1.0) / d
+        } else if t < a + d + s {
+            sustain_level
+        } else if t < a + d + s + r {
+            sustain_level - (t - a - d - s) * sustain_level / r
+        } else {
+            0.0
+        }
+    })
+}
+
+struct ADSRWave {
+    wave_params: WaveParams,
+    attack: f32,
+    decay: f32,
+    sustain_time: f32,
+    sustain_level: f32,
+    release: f32,
+}
+
+impl Wave for ADSRWave {
+    fn sample(&self) -> f32 {
+        let f = adsr(
+            self.attack,
+            self.decay,
+            self.sustain_time,
+            self.sustain_level,
+            self.release,
+        );
+        self.wave_params.volume * f(TAU * self.wave_params.phase as f32)
+    }
+
+    fn update_phase(&mut self, sample_rate: f64) {
+        self.wave_params.update_phase(sample_rate);
+    }
+
+    fn mult_hz(&mut self, factor: f64) {
+        self.wave_params.mult_hz(factor);
+    }
+}
+
 struct AvgWave {
     waves: Vec<Box<dyn Wave + Send>>,
 }
@@ -253,6 +310,15 @@ fn model(app: &App) -> Model {
     let wave1 = Box::new(SineWave::new(130.81, 0.5, 0.0));
     let wave2 = Box::new(SquareWave::new(260., 0.5, 0.0));
     let wave3 = Box::new(TriangleWave::new(196.00, 0.5, 0.0));
+    let wave_params = WaveParams::new(1., 1.0, 0.0);
+    let envelope = ADSRWave {
+        wave_params,
+        attack: 0.2,
+        decay: 0.1,
+        sustain_time: 0.5,
+        sustain_level: 0.5,
+        release: 0.2,
+    };
     // let lerp_voice = LerpWave {
     //     wave1,
     //     wave2,
@@ -261,7 +327,10 @@ fn model(app: &App) -> Model {
     // let avg_voice = AvgWave {
     //     waves: vec![wave1, wave2, wave3],
     // };
-    let mult_wave = MultWave { base_wave: wave1, mod_wave: wave2};
+    let mult_wave = MultWave {
+        base_wave: wave1,
+        mod_wave: Box::new(envelope),
+    };
     let model = Synth {
         voice: Box::new(mult_wave),
         sender,
