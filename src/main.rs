@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Don't forget to remove.
+
 use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
@@ -6,7 +8,8 @@ use math::round::floor;
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-// use std::f64::consts::PI;
+
+
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -212,16 +215,12 @@ fn adsr(
     let r = release * TAU;
     Box::new(move |t: f32| {
         let t = t % TAU;
-        if t < a {
-            t / a
-        } else if t < a + d {
-            1.0 + (t - a) * (sustain_level - 1.0) / d
-        } else if t < a + d + s {
-            sustain_level
-        } else if t < a + d + s + r {
-            sustain_level - (t - a - d - s) * sustain_level / r
-        } else {
-            0.0
+        match t {
+            x if x < a => t / a,
+            x if x < a + d => 1.0 + (t - a) * (sustain_level - 1.0) / d,
+            x if x < a + d + s => sustain_level,
+            x if x < a + d + s + r => sustain_level - (t - a - d - s) * sustain_level / r,
+            _ => 0.0,
         }
     })
 }
