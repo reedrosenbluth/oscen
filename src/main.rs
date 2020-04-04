@@ -265,29 +265,6 @@ impl Wave for VCO {
     }
 }
 
-// fn adsr(
-//     attack: f32,
-//     decay: f32,
-//     sustain_time: f32,
-//     sustain_level: f32,
-//     release: f32,
-// ) -> Box<dyn Fn(f32) -> f32> {
-//     let a = attack * TAU;
-//     let d = decay * TAU;
-//     let s = sustain_time * TAU;
-//     let r = release * TAU;
-//     Box::new(move |t: f32| {
-//         let t = t % TAU;
-//         match t {
-//             x if x < a => t / a,
-//             x if x < a + d => 1.0 + (t - a) * (sustain_level - 1.0) / d,
-//             x if x < a + d + s => sustain_level,
-//             x if x < a + d + s + r => sustain_level - (t - a - d - s) * sustain_level / r,
-//             _ => 0.0,
-//         }
-//     })
-// }
-
 struct ADSRWave {
     wave_params: WaveParams,
     attack: f32,
