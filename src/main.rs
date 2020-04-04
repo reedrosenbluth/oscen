@@ -43,6 +43,7 @@ impl WaveParams {
 
     fn mul_hz(&mut self, factor: f64) {
         self.hz *= factor;
+        self.hz0 *= factor; 
     }
 
     fn mod_hz(&mut self, factor: f64) {
@@ -216,6 +217,7 @@ impl Wave for LerpWave {
     }
 }
 
+/// Voltage Controlled Amplifier
 struct VCA {
     wave: Box<dyn Wave + Send>,
     control_voltage: Box<dyn Wave + Send>,
@@ -239,6 +241,7 @@ impl Wave for VCA {
     }
 }
 
+/// Voltage Controlled Oscillator
 struct VCO {
     wave: Box<dyn Wave + Send>,
     control_voltage: Box<dyn Wave + Send>,
