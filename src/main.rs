@@ -265,28 +265,28 @@ impl Wave for VCO {
     }
 }
 
-fn adsr(
-    attack: f32,
-    decay: f32,
-    sustain_time: f32,
-    sustain_level: f32,
-    release: f32,
-) -> Box<dyn Fn(f32) -> f32> {
-    let a = attack * TAU;
-    let d = decay * TAU;
-    let s = sustain_time * TAU;
-    let r = release * TAU;
-    Box::new(move |t: f32| {
-        let t = t % TAU;
-        match t {
-            x if x < a => t / a,
-            x if x < a + d => 1.0 + (t - a) * (sustain_level - 1.0) / d,
-            x if x < a + d + s => sustain_level,
-            x if x < a + d + s + r => sustain_level - (t - a - d - s) * sustain_level / r,
-            _ => 0.0,
-        }
-    })
-}
+// fn adsr(
+//     attack: f32,
+//     decay: f32,
+//     sustain_time: f32,
+//     sustain_level: f32,
+//     release: f32,
+// ) -> Box<dyn Fn(f32) -> f32> {
+//     let a = attack * TAU;
+//     let d = decay * TAU;
+//     let s = sustain_time * TAU;
+//     let r = release * TAU;
+//     Box::new(move |t: f32| {
+//         let t = t % TAU;
+//         match t {
+//             x if x < a => t / a,
+//             x if x < a + d => 1.0 + (t - a) * (sustain_level - 1.0) / d,
+//             x if x < a + d + s => sustain_level,
+//             x if x < a + d + s + r => sustain_level - (t - a - d - s) * sustain_level / r,
+//             _ => 0.0,
+//         }
+//     })
+// }
 
 struct ADSRWave {
     wave_params: WaveParams,
@@ -296,17 +296,27 @@ struct ADSRWave {
     sustain_level: f32,
     release: f32,
 }
+impl ADSRWave {
+    fn adsr(&self, t: f32) -> f32 {
+        let a = self.attack * TAU;
+        let d = self.decay * TAU;
+        let s = self.sustain_time * TAU;
+        let r = self.release * TAU;
+        let sl = self.sustain_level;
+        let t = t % TAU;
+        match t {
+            x if x < a => t / a,
+            x if x < a + d => 1.0 + (t - a) * (sl - 1.0) / d,
+            x if x < a + d + s => sl,
+            x if x < a + d + s + r => sl - (t - a - d - s) * sl / r,
+            _ => 0.0,
+        }
+    }
+}
 
 impl Wave for ADSRWave {
     fn sample(&self) -> f32 {
-        let f = adsr(
-            self.attack,
-            self.decay,
-            self.sustain_time,
-            self.sustain_level,
-            self.release,
-        );
-        self.wave_params.volume * f(TAU * self.wave_params.phase as f32)
+        self.wave_params.volume * self.adsr(TAU * self.wave_params.phase as f32)
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
