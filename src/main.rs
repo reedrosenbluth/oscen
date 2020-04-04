@@ -18,37 +18,40 @@ fn main() {
 trait Wave {
     fn sample(&self) -> f32;
     fn update_phase(&mut self, sample_rate: f64);
-    fn set_hz(&mut self, hz: f64);
-    fn hz(&self) -> f64;
+    fn mul_hz(&mut self, factor: f64);
+    fn mod_hz(&mut self, factor: f64);
 }
 
-#[derive(Constructor)]
 struct WaveParams {
     hz: f64,
     volume: f32,
     phase: f64,
+    hz0: f64
 }
 
 impl WaveParams {
+    fn new(hz: f64, volume: f32) -> Self {
+        WaveParams { hz, volume, phase: 0.0, hz0: hz}
+    }
     fn update_phase(&mut self, sample_rate: f64) {
         self.phase += self.hz / sample_rate;
         self.phase %= sample_rate;
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.hz = hz;
+    fn mul_hz(&mut self, factor: f64) {
+        self.hz *= factor;
     }
 
-    fn hz(&self) -> f64 {
-        self.hz
+    fn mod_hz(&mut self, factor: f64) {
+        self.hz = self.hz0 * factor;
     }
 }
 
 struct SineWave(WaveParams);
 
 impl SineWave {
-    fn new(hz: f64, volume: f32, phase: f64) -> Self {
-        SineWave(WaveParams::new(hz, volume, phase))
+    fn new(hz: f64, volume: f32) -> Self {
+        SineWave(WaveParams::new(hz, volume))
     }
 }
 
@@ -61,26 +64,26 @@ impl Wave for SineWave {
         self.0.update_phase(sample_rate)
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.0.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.0.mul_hz(factor);
     }
 
-    fn hz(&self) -> f64 {
-        self.0.hz()
+    fn mod_hz(&mut self, factor: f64) {
+        self.0.mod_hz(factor);
     }
 }
 
 struct SquareWave(WaveParams);
 
 impl SquareWave {
-    fn new(hz: f64, volume: f32, phase: f64) -> Self {
-        SquareWave(WaveParams::new(hz, volume, phase))
+    fn new(hz: f64, volume: f32) -> Self {
+        SquareWave(WaveParams::new(hz, volume))
     }
 }
 
 impl Wave for SquareWave {
     fn sample(&self) -> f32 {
-        let sine_wave = SineWave(WaveParams::new(self.0.hz, self.0.volume, self.0.phase));
+        let sine_wave = SineWave(WaveParams::new(self.0.hz, self.0.volume));
         let sine_amp = sine_wave.sample();
         if sine_amp > 0. {
             self.0.volume
@@ -93,20 +96,20 @@ impl Wave for SquareWave {
         self.0.update_phase(sample_rate)
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.0.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.0.mul_hz(factor);
     }
 
-    fn hz(&self) -> f64 {
-        self.0.hz()
+    fn mod_hz(&mut self, factor: f64) {
+        self.0.mod_hz(factor);
     }
 }
 
 struct RampWave(WaveParams);
 
 impl RampWave {
-    fn new(hz: f64, volume: f32, phase: f64) -> Self {
-        RampWave(WaveParams::new(hz, volume, phase))
+    fn new(hz: f64, volume: f32) -> Self {
+        RampWave(WaveParams::new(hz, volume))
     }
 }
 
@@ -119,20 +122,20 @@ impl Wave for RampWave {
         self.0.update_phase(sample_rate);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.0.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.0.mul_hz(factor);
     }
-
-    fn hz(&self) -> f64 {
-        self.0.hz()
+    
+    fn mod_hz(&mut self, factor: f64) {
+        self.0.mod_hz(factor);
     }
 }
 
 struct SawWave(WaveParams);
 
 impl SawWave {
-    fn new(hz: f64, volume: f32, phase: f64) -> Self {
-        SawWave(WaveParams::new(hz, volume, phase))
+    fn new(hz: f64, volume: f32) -> Self {
+        SawWave(WaveParams::new(hz, volume))
     }
 }
 
@@ -146,20 +149,20 @@ impl Wave for SawWave {
         self.0.update_phase(sample_rate);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.0.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.0.mul_hz(factor);
     }
 
-    fn hz(&self) -> f64 {
-        self.0.hz()
+    fn mod_hz(&mut self, factor: f64) {
+        self.0.mod_hz(factor);
     }
 }
 
 struct TriangleWave(WaveParams);
 
 impl TriangleWave {
-    fn new(hz: f64, volume: f32, phase: f64) -> Self {
-        TriangleWave(WaveParams::new(hz, volume, phase))
+    fn new(hz: f64, volume: f32) -> Self {
+        TriangleWave(WaveParams::new(hz, volume))
     }
 }
 
@@ -174,12 +177,12 @@ impl Wave for TriangleWave {
         self.0.update_phase(sample_rate);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.0.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.0.mul_hz(factor);
     }
 
-    fn hz(&self) -> f64 {
-        self.0.hz()
+    fn mod_hz(&mut self, factor: f64) {
+        self.0.mod_hz(factor);
     }
 }
 
@@ -200,66 +203,64 @@ impl Wave for LerpWave {
         self.wave2.update_phase(sample_rate);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.wave1.set_hz(hz);
-        self.wave2.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.wave1.mul_hz(factor);
+        self.wave2.mul_hz(factor);
     }
 
-    //TODO: fix this...
-    fn hz(&self) -> f64 {
-        0.
+    fn mod_hz(&mut self, factor: f64) {
+        self.wave1.mod_hz(factor);
+        self.wave2.mod_hz(factor);
     }
 }
 
-struct MultWave {
-    base_wave: Box<dyn Wave + Send>,
-    mod_wave: Box<dyn Wave + Send>,
+struct VCA {
+    wave: Box<dyn Wave + Send>,
+    control_voltage: Box<dyn Wave + Send>,
 }
 
-impl Wave for MultWave {
+impl Wave for VCA {
     fn sample(&self) -> f32 {
-        self.base_wave.sample() * self.mod_wave.sample()
+        self.wave.sample() * self.control_voltage.sample()
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.base_wave.update_phase(sample_rate);
-        self.mod_wave.update_phase(sample_rate);
+        self.wave.update_phase(sample_rate);
+        self.control_voltage.update_phase(sample_rate);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.base_wave.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.wave.mul_hz(factor);
     }
-
-    //TODO: fix this...
-    fn hz(&self) -> f64 {
-        self.base_wave.hz()
+    
+    fn mod_hz(&mut self, factor: f64) {
+        self.wave.mod_hz(factor);
     }
 }
 
-struct FMod {
-    carrier_wave: Box<dyn Wave + Send>,
-    mod_wave: Box<dyn Wave + Send>,
+struct VCO {
+    wave: Box<dyn Wave + Send>,
+    control_voltage: Box<dyn Wave + Send>,
 }
 
-impl Wave for FMod {
+impl Wave for VCO {
     fn sample(&self) -> f32 {
-        self.carrier_wave.sample()
+        self.wave.sample()
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.carrier_wave.update_phase(sample_rate);
-        self.mod_wave.update_phase(sample_rate);
-
-        self.carrier_wave.set_hz((self.mod_wave.sample() * 440.) as f64);
+        self.wave.update_phase(sample_rate);
+        self.control_voltage.update_phase(sample_rate);
+        let factor = 2.0.powf(self.control_voltage.sample()) as f64;
+        self.wave.mod_hz(factor);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.carrier_wave.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.wave.mul_hz(factor);
     }
 
-    //TODO: fix this...
-    fn hz(&self) -> f64 {
-        self.carrier_wave.hz()
+    fn mod_hz(&mut self, factor: f64) {
+        self.wave.mod_hz(factor);
     }
 }
 
@@ -311,12 +312,12 @@ impl Wave for ADSRWave {
         self.wave_params.update_phase(sample_rate);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.wave_params.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.wave_params.mul_hz(factor);
     }
-
-    fn hz(&self) -> f64 {
-        self.wave_params.hz()
+    
+    fn mod_hz(&mut self, factor: f64) {
+        self.wave_params.mod_hz(factor);
     }
 }
 
@@ -335,14 +336,16 @@ impl Wave for AvgWave {
         }
     }
 
-    fn set_hz(&mut self, hz: f64) {
+    fn mul_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
-            wave.set_hz(hz);
+            wave.mul_hz(factor);
         }
     }
 
-    fn hz(&self) -> f64 {
-        self.waves.iter().fold(0.0, |acc, x| acc + x.hz()) / self.waves.len() as f64
+    fn mod_hz(&mut self, factor: f64) {
+        for wave in self.waves.iter_mut() {
+            wave.mod_hz(factor);
+        }
     }
 }
 
@@ -375,38 +378,43 @@ fn model(app: &App) -> Model {
     // Initialise the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
-    let wave1 = Box::new(SineWave::new(130.81, 0.5, 0.0));
-    let wave2 = Box::new(SquareWave::new(260., 0.5, 0.0));
-    let wave3 = Box::new(TriangleWave::new(196.00, 0.5, 0.0));
-    let wave_params = WaveParams::new(1., 1.0, 0.0);
-    let envelope = ADSRWave {
-        wave_params,
-        attack: 0.2,
-        decay: 0.1,
-        sustain_time: 0.5,
-        sustain_level: 0.5,
-        release: 0.2,
+    let wave1 = Box::new(SineWave::new(130.81, 0.5));
+    let wave2 = Box::new(SquareWave::new(260., 0.5));
+    let wave3 = Box::new(TriangleWave::new(196.00, 0.5));
+    let control_voltage = Box::new(SineWave::new(5.0, 1.0));
+    let wave_params = WaveParams::new(1., 1.0);
+    let osc = VCO {
+        wave: wave1,
+        control_voltage,
     };
+    // let envelope = ADSRWave {
+    //     wave_params,
+    //     attack: 0.2,
+    //     decay: 0.1,
+    //     sustain_time: 0.5,
+    //     sustain_level: 0.5,
+    //     release: 0.2,
+    // };
     // let lerp_voice = LerpWave {
     //     wave1,
     //     wave2,
     //     alpha: 0.5,
     // };
-    let avg_voice = AvgWave {
-        waves: vec![wave1, wave2, wave3],
-    };
+    // let avg_voice = AvgWave {
+    //     waves: vec![wave1, wave2, wave3],
+    // };
     // let mult_wave = MultWave {
     //     base_wave: wave1,
     //     mod_wave: Box::new(envelope),
     // };
-    let carrier_wave = Box::new(SineWave::new(220., 0.5, 0.0));
-    let mod_wave = Box::new(SquareWave::new(220., 0.5, 0.0));
+    // let carrier_wave = Box::new(SineWave::new(220., 0.5, 0.0));
+    // let mod_wave = Box::new(SquareWave::new(220., 0.5, 0.0));
     // let fm_wave = FMod {
     //     carrier_wave,
     //     mod_wave: Box::new(avg_voice),
     // };
     let model = Synth {
-        voice: Box::new(avg_voice),
+        voice: Box::new(osc),
         sender,
     };
     let stream = audio_host
@@ -444,8 +452,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                let hz = synth.voice.hz();
-                synth.voice.set_hz(hz * factor);
+                synth.voice.mul_hz(factor);
             })
             .unwrap();
     };
