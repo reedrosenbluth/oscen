@@ -9,8 +9,6 @@ use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 
-
-
 fn main() {
     nannou::app(model).update(update).run();
 }
@@ -26,12 +24,17 @@ struct WaveParams {
     hz: f64,
     volume: f32,
     phase: f64,
-    hz0: f64
+    hz0: f64,
 }
 
 impl WaveParams {
     fn new(hz: f64, volume: f32) -> Self {
-        WaveParams { hz, volume, phase: 0.0, hz0: hz}
+        WaveParams {
+            hz,
+            volume,
+            phase: 0.0,
+            hz0: hz,
+        }
     }
     fn update_phase(&mut self, sample_rate: f64) {
         self.phase += self.hz / sample_rate;
@@ -125,7 +128,6 @@ impl Wave for RampWave {
     fn mul_hz(&mut self, factor: f64) {
         self.0.mul_hz(factor);
     }
-    
     fn mod_hz(&mut self, factor: f64) {
         self.0.mod_hz(factor);
     }
@@ -232,7 +234,6 @@ impl Wave for VCA {
     fn mul_hz(&mut self, factor: f64) {
         self.wave.mul_hz(factor);
     }
-    
     fn mod_hz(&mut self, factor: f64) {
         self.wave.mod_hz(factor);
     }
@@ -315,7 +316,6 @@ impl Wave for ADSRWave {
     fn mul_hz(&mut self, factor: f64) {
         self.wave_params.mul_hz(factor);
     }
-    
     fn mod_hz(&mut self, factor: f64) {
         self.wave_params.mod_hz(factor);
     }
@@ -378,41 +378,12 @@ fn model(app: &App) -> Model {
     // Initialise the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
-    let wave1 = Box::new(SineWave::new(130.81, 0.5));
-    let wave2 = Box::new(SquareWave::new(260., 0.5));
-    let wave3 = Box::new(TriangleWave::new(196.00, 0.5));
-    let control_voltage = Box::new(SineWave::new(5.0, 1.0));
-    let wave_params = WaveParams::new(1., 1.0);
+    let wave = Box::new(SineWave::new(130.81, 0.5));
+    let control_voltage = Box::new(SineWave::new(0.5, 1.0));
     let osc = VCO {
-        wave: wave1,
+        wave,
         control_voltage,
     };
-    // let envelope = ADSRWave {
-    //     wave_params,
-    //     attack: 0.2,
-    //     decay: 0.1,
-    //     sustain_time: 0.5,
-    //     sustain_level: 0.5,
-    //     release: 0.2,
-    // };
-    // let lerp_voice = LerpWave {
-    //     wave1,
-    //     wave2,
-    //     alpha: 0.5,
-    // };
-    // let avg_voice = AvgWave {
-    //     waves: vec![wave1, wave2, wave3],
-    // };
-    // let mult_wave = MultWave {
-    //     base_wave: wave1,
-    //     mod_wave: Box::new(envelope),
-    // };
-    // let carrier_wave = Box::new(SineWave::new(220., 0.5, 0.0));
-    // let mod_wave = Box::new(SquareWave::new(220., 0.5, 0.0));
-    // let fm_wave = FMod {
-    //     carrier_wave,
-    //     mod_wave: Box::new(avg_voice),
-    // };
     let model = Synth {
         voice: Box::new(osc),
         sender,
