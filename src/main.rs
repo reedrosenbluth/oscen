@@ -36,6 +36,7 @@ impl WaveParams {
             hz0: hz,
         }
     }
+
     fn update_phase(&mut self, sample_rate: f64) {
         self.phase += self.hz / sample_rate;
         self.phase %= sample_rate;
@@ -43,7 +44,7 @@ impl WaveParams {
 
     fn mul_hz(&mut self, factor: f64) {
         self.hz *= factor;
-        self.hz0 *= factor; 
+        self.hz0 *= factor;
     }
 
     fn mod_hz(&mut self, factor: f64) {
@@ -320,7 +321,10 @@ struct AvgWave {
 impl Wave for AvgWave {
     fn sample(&self) -> f32 {
         let total_weight = self.waves.iter().fold(0.0, |acc, x| acc + x.1);
-        self.waves.iter().fold(0.0, |acc, x| acc + x.1 * x.0.sample()) / total_weight
+        self.waves
+            .iter()
+            .fold(0.0, |acc, x| acc + x.1 * x.0.sample())
+            / total_weight
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
@@ -460,7 +464,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
 fn view(app: &App, model: &Model, frame: Frame) {
     let draw = app.draw();
-    let c = rgb(9./255., 9./255., 44./255.);
+    let c = rgb(9. / 255., 9. / 255., 44. / 255.);
     draw.background().color(c);
     let mut shifted: Vec<f32> = vec![];
     let mut iter = model.amps.iter().peekable();
@@ -488,7 +492,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
     if points.len() == 600 {
         draw.path()
             .stroke()
-            .weight(1.)
+            .weight(2.)
             .points(points)
             .color(CORNFLOWERBLUE)
             .x_y(-300., 0.);
