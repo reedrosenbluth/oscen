@@ -311,30 +311,33 @@ impl Wave for ADSRWave {
     }
 }
 
+struct WeightedWave(Box<dyn Wave + Send>, f32);
+
 struct AvgWave {
-    waves: Vec<Box<dyn Wave + Send>>,
+    waves: Vec<WeightedWave>,
 }
 
 impl Wave for AvgWave {
     fn sample(&self) -> f32 {
-        self.waves.iter().fold(0.0, |acc, x| acc + x.sample()) / self.waves.len() as f32
+        let total_weight = self.waves.iter().fold(0.0, |acc, x| acc + x.1);
+        self.waves.iter().fold(0.0, |acc, x| acc + x.1 * x.0.sample()) / total_weight
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
         for wave in self.waves.iter_mut() {
-            wave.update_phase(sample_rate);
+            wave.0.update_phase(sample_rate);
         }
     }
 
     fn mul_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
-            wave.mul_hz(factor);
+            wave.0.mul_hz(factor);
         }
     }
 
     fn mod_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
-            wave.mod_hz(factor);
+            wave.0.mod_hz(factor);
         }
     }
 }
@@ -369,7 +372,7 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
     let wave = Box::new(SineWave::new(130.81, 0.5));
-    let control_voltage = Box::new(SineWave::new(0.5, 1.0));
+    let control_voltage = Box::new(SineWave::new(130.5, 1.0));
     let osc = VCO {
         wave,
         control_voltage,
