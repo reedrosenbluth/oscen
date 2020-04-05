@@ -364,6 +364,7 @@ fn model(app: &App) -> Model {
         update_interval: Duration::from_millis(1),
     });
     app.new_window()
+        .size(600, 340)
         .key_pressed(key_pressed)
         .view(view)
         .build()
@@ -458,6 +459,9 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
+    let draw = app.draw();
+    let c = rgb(9./255., 9./255., 44./255.);
+    draw.background().color(c);
     let mut shifted: Vec<f32> = vec![];
     let mut iter = model.amps.iter().peekable();
 
@@ -477,17 +481,16 @@ fn view(app: &App, model: &Model, frame: Frame) {
         if i == l {
             break;
         }
-        points.push(pt2(i as f32, amp * 80.));
+        points.push(pt2(i as f32, amp * 120.));
     }
 
     // only draw if we got enough info back from the audio thread
     if points.len() == 600 {
-        let draw = app.draw();
-        frame.clear(BLACK);
         draw.path()
             .stroke()
             .weight(1.)
             .points(points)
+            .color(CORNFLOWERBLUE)
             .x_y(-300., 0.);
 
         draw.to_frame(app, &frame).unwrap();
