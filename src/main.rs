@@ -3,26 +3,36 @@ use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use derive_more::Constructor;
 use nannou::prelude::*;
+use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 
 use swell::*;
 
 fn main() {
+    // nannou::app(model).update(update).simple_window(view).run();
     nannou::app(model).update(update).run();
 }
 
 #[derive(Constructor)]
 struct Model {
+    ui: Ui,
+    ids: Ids,
+    fm_mult: i32,
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     amps: Vec<f32>,
     max_amp: f32,
 }
 
+struct Ids {
+    fm_hz: widget::Id,
+}
+
 #[derive(Constructor)]
 struct Synth {
-    voice: Box<dyn Wave + Send>,
+    // voice: Box<dyn Wave + Send>,
+    voice: VCO,
     sender: Sender<f32>,
 }
 
@@ -33,31 +43,50 @@ fn model(app: &App) -> Model {
     app.set_loop_mode(LoopMode::Rate {
         update_interval: Duration::from_millis(1),
     });
-    app.new_window()
-        .size(600, 340)
+
+    let _window = app
+        .new_window()
         .key_pressed(key_pressed)
         .view(view)
         .build()
         .unwrap();
-    // Initialise the audio API so we can spawn an audio stream.
+
+    let mut ui = app.new_ui().build().unwrap();
+
+    let ids = Ids {
+        fm_hz: ui.generate_widget_id(),
+    };
+
     let audio_host = audio::Host::new();
-    // Initialise the state that we want to live on the audio thread.
-    let wave = Box::new(SineWave::new(130.81, 0.5));
-    let control_voltage = Box::new(SineWave::new(130.5, 1.0));
+
+    let carrier = Box::new(SineWave::new(220., 0.5));
+    let modulator = Box::new(SineWave::new(220., 1.0));
     let osc = VCO {
+<<<<<<< HEAD
         wave,
         cv: control_voltage,
+=======
+        wave: carrier,
+        cv: modulator,
+        fm_mult: 1
+>>>>>>> fce26bcedfed1dfca28256e74f4652543b2ece34
     };
-    let model = Synth {
-        voice: Box::new(osc),
+
+    let synth = Synth {
+        voice: osc,
         sender,
     };
+
     let stream = audio_host
-        .new_output_stream(model)
+        .new_output_stream(synth)
         .render(audio)
         .build()
         .unwrap();
+
     Model {
+        ui,
+        ids,
+        fm_mult: 1,
         stream,
         receiver,
         amps: vec![],
@@ -126,6 +155,32 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     }
 
     model.amps = clone;
+
+    //UI
+    let ui = &mut model.ui.set_widgets();
+
+    fn slider(val: f32, min: f32, max: f32) -> widget::Slider<'static, f32> {
+        widget::Slider::new(val, min, max)
+            .w_h(200.0, 30.0)
+            .label_font_size(15)
+            .rgb(0.3, 0.3, 0.3)
+            .label_rgb(1.0, 1.0, 1.0)
+            .border(0.0)
+    }
+
+    for value in slider(model.fm_mult as f32, 0., 12.)
+        .top_left_with_margin(20.0)
+        .label("FM Multiplier")
+        .set(model.ids.fm_hz, ui)
+    {
+        model.fm_mult = (value as f64).round() as i32;
+        model
+            .stream
+            .send(move |synth| {
+                synth.voice.set_fm_mult((value as f64).round() as i32);
+            })
+            .unwrap();
+    }
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
@@ -165,4 +220,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
 
         draw.to_frame(app, &frame).unwrap();
     }
+
+    // Draw the state of the `Ui` to the frame.
+    model.ui.draw_to_frame(app, &frame).unwrap();
 }

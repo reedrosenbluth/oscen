@@ -144,8 +144,19 @@ pub_struct!(
     struct VCO {
         wave: Box<dyn Wave + Send>,
         cv: Box<dyn Wave + Send>,
+        fm_mult: i32,
     }
 );
+
+impl VCO {
+    pub fn fm_mult(&mut self) -> i32 {
+        self.fm_mult
+    }
+
+    pub fn set_fm_mult(&mut self, mult: i32) {
+        self.fm_mult = mult;
+    }
+}
 
 impl Wave for VCO {
     fn sample(&self) -> f32 {
@@ -155,12 +166,15 @@ impl Wave for VCO {
     fn update_phase(&mut self, sample_rate: f64) {
         self.wave.update_phase(sample_rate);
         self.cv.update_phase(sample_rate);
-        let factor = 2.0.powf(self.cv.sample()) as f64;
+
+        //Frequency Modulation
+        let factor = 2.0.powf(self.cv.sample() * self.fm_mult as f32) as f64;
         self.wave.mod_hz(factor);
     }
 
     fn mul_hz(&mut self, factor: f64) {
         self.wave.mul_hz(factor);
+        self.cv.mul_hz(factor);
     }
 
     fn mod_hz(&mut self, factor: f64) {
