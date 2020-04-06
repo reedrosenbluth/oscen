@@ -70,7 +70,7 @@ basic_wave!(SawWave, |wave: &SawWave| {
 
 basic_wave!(TriangleWave, |wave: &TriangleWave| {
     let t = wave.0.phase - 0.75;
-    let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
+    let saw_amp = (-t - floor(0.5 - t, 0)) as f32;
     2. * saw_amp.abs() - wave.0.volume
 });
 
