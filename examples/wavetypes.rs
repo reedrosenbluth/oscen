@@ -28,7 +28,7 @@ struct Synth {
 }
 
 fn model(app: &App) -> Model {
-    const HZ: f64 = 220.;
+    const HZ: f64 = 440.;
     let (sender, receiver) = unbounded();
 
     // Create a window to receive key pressed events.
@@ -46,11 +46,33 @@ fn model(app: &App) -> Model {
     // Initialise the state that we want to live on the audio thread.
     let sine = WeightedWave(Box::new(SineWave::new(HZ, 1.0)), 1.0);
     let square = WeightedWave(Box::new(SquareWave::new(HZ, 1.0)), 0.0);
-    let ramp = WeightedWave(Box::new(RampWave::new(HZ, 1.0)), 0.0);
     let saw = WeightedWave(Box::new(SawWave::new(HZ, 1.0)), 0.0);
     let triangle = WeightedWave(Box::new(TriangleWave::new(HZ, 1.0)), 0.0);
+    let lerp = WeightedWave(
+        Box::new(LerpWave {
+            wave1: Box::new(SineWave::new(HZ, 1.0)),
+            wave2: Box::new(SquareWave::new(HZ, 1.0)),
+            alpha: 0.5,
+        }),
+        0.0,
+    );
+    let vca = WeightedWave(
+        Box::new(VCA {
+            wave: Box::new(SineWave::new(2.0 * HZ, 1.0)),
+            cv: Box::new(SineWave::new(HZ / 5.5, 1.0)),
+        }),
+        0.0,
+    );
+    let vco = WeightedWave(
+        Box::new(VCO {
+            wave: Box::new(SineWave::new(HZ, 1.0)),
+            cv: Box::new(SineWave::new(HZ, 1.0)),
+            fm_mult: 1,
+        }),
+        0.0,
+    );
     let waves = AvgWave {
-        waves: vec![sine, square, ramp, saw, triangle],
+        waves: vec![sine, square, saw, triangle, lerp, vca, vco],
     };
     let model = Synth {
         voice: Box::new(waves),
@@ -110,8 +132,8 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
         Key::Down => change_hz(-1.),
         Key::Right => {
             model.wave_index += 1;
-            model.wave_index %= 5;
-            let mut ws = vec![0., 0., 0., 0., 0.];
+            model.wave_index %= 7;
+            let mut ws = vec![0., 0., 0., 0., 0., 0., 0.];
             ws[model.wave_index] = 1.0;
             model
                 .stream
@@ -122,11 +144,11 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
         }
         Key::Left => {
             if model.wave_index == 0 {
-                model.wave_index = 4
+                model.wave_index = 6
             } else {
                 model.wave_index -= 1;
             }
-            let mut ws = vec![0., 0., 0., 0., 0.];
+            let mut ws = vec![0., 0., 0., 0., 0., 0., 0.];
             ws[model.wave_index] = 1.0;
             model
                 .stream
