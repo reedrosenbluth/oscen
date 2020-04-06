@@ -62,14 +62,9 @@ fn model(app: &App) -> Model {
     let carrier = Box::new(SineWave::new(220., 0.5));
     let modulator = Box::new(SineWave::new(220., 1.0));
     let osc = VCO {
-<<<<<<< HEAD
-        wave,
-        cv: control_voltage,
-=======
         wave: carrier,
         cv: modulator,
         fm_mult: 1
->>>>>>> fce26bcedfed1dfca28256e74f4652543b2ece34
     };
 
     let synth = Synth {
