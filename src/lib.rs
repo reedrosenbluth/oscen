@@ -2,6 +2,8 @@ use derive_more::Constructor;
 use math::round::floor;
 use nannou::prelude::*;
 
+mod macros;
+
 pub trait Wave {
     fn sample(&self) -> f32;
     fn update_phase(&mut self, sample_rate: f64);
@@ -9,15 +11,17 @@ pub trait Wave {
     fn mod_hz(&mut self, factor: f64);
 }
 
-pub struct WaveParams {
-    hz: f64,
-    volume: f32,
-    phase: f64,
-    hz0: f64,
-}
+pub_struct!(
+    struct WaveParams {
+        hz: f64,
+        volume: f32,
+        phase: f64,
+        hz0: f64,
+    }
+);
 
 impl WaveParams {
-    pub fn new(hz: f64, volume: f32) -> Self {
+    fn new(hz: f64, volume: f32) -> Self {
         WaveParams {
             hz,
             volume,
@@ -41,150 +45,43 @@ impl WaveParams {
     }
 }
 
-pub struct SineWave(WaveParams);
+basic_wave!(SineWave, |wave: &SineWave| {
+    wave.0.volume * (TAU * wave.0.phase as f32).sin()
+});
 
-impl SineWave {
-    pub fn new(hz: f64, volume: f32) -> Self {
-        SineWave(WaveParams::new(hz, volume))
+basic_wave!(SquareWave, |wave: &SquareWave| {
+    let sine_wave = SineWave(WaveParams::new(wave.0.hz, wave.0.volume));
+    let sine_amp = sine_wave.sample();
+    if sine_amp > 0. {
+        wave.0.volume
+    } else {
+        -wave.0.volume
     }
-}
+});
 
-impl Wave for SineWave {
-    fn sample(&self) -> f32 {
-        self.0.volume * (TAU * self.0.phase as f32).sin()
+basic_wave!(RampWave, |wave: &RampWave| {
+    wave.0.volume * (2. * (wave.0.phase - floor(0.5 + wave.0.phase, 0))) as f32
+});
+
+basic_wave!(SawWave, |wave: &SawWave| {
+    let t = wave.0.phase - 0.5;
+    wave.0.volume * (2. * (-t - floor(0.5 - t, 0))) as f32
+});
+
+basic_wave!(TriangleWave, |wave: &TriangleWave| {
+    let t = wave.0.phase - 0.75;
+    let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
+    2. * saw_amp.abs() - wave.0.volume
+});
+
+pub_struct!(
+    #[derive(Constructor)]
+    struct LerpWave {
+        wave1: Box<dyn Wave + Send>,
+        wave2: Box<dyn Wave + Send>,
+        alpha: f32,
     }
-
-    fn update_phase(&mut self, sample_rate: f64) {
-        self.0.update_phase(sample_rate)
-    }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.0.mul_hz(factor);
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.0.mod_hz(factor);
-    }
-}
-
-pub struct SquareWave(WaveParams);
-
-impl SquareWave {
-    pub fn new(hz: f64, volume: f32) -> Self {
-        SquareWave(WaveParams::new(hz, volume))
-    }
-}
-
-impl Wave for SquareWave {
-    fn sample(&self) -> f32 {
-        let sine_wave = SineWave(WaveParams::new(self.0.hz, self.0.volume));
-        let sine_amp = sine_wave.sample();
-        if sine_amp > 0. {
-            self.0.volume
-        } else {
-            -self.0.volume
-        }
-    }
-
-    fn update_phase(&mut self, sample_rate: f64) {
-        self.0.update_phase(sample_rate)
-    }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.0.mul_hz(factor);
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.0.mod_hz(factor);
-    }
-}
-
-pub struct RampWave(WaveParams);
-
-impl RampWave {
-    pub fn new(hz: f64, volume: f32) -> Self {
-        RampWave(WaveParams::new(hz, volume))
-    }
-}
-
-impl Wave for RampWave {
-    fn sample(&self) -> f32 {
-        self.0.volume * (2. * (self.0.phase - floor(0.5 + self.0.phase, 0))) as f32
-    }
-
-    fn update_phase(&mut self, sample_rate: f64) {
-        self.0.update_phase(sample_rate);
-    }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.0.mul_hz(factor);
-    }
-    fn mod_hz(&mut self, factor: f64) {
-        self.0.mod_hz(factor);
-    }
-}
-
-pub struct SawWave(WaveParams);
-
-impl SawWave {
-    pub fn new(hz: f64, volume: f32) -> Self {
-        SawWave(WaveParams::new(hz, volume))
-    }
-}
-
-impl Wave for SawWave {
-    fn sample(&self) -> f32 {
-        let t = self.0.phase - 0.5;
-        self.0.volume * (2. * (-t - floor(0.5 - t, 0))) as f32
-    }
-
-    fn update_phase(&mut self, sample_rate: f64) {
-        self.0.update_phase(sample_rate);
-    }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.0.mul_hz(factor);
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.0.mod_hz(factor);
-    }
-}
-
-pub struct TriangleWave(WaveParams);
-
-impl TriangleWave {
-    pub fn new(hz: f64, volume: f32) -> Self {
-        TriangleWave(WaveParams::new(hz, volume))
-    }
-}
-
-impl Wave for TriangleWave {
-    fn sample(&self) -> f32 {
-        let t = self.0.phase - 0.75;
-        let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
-        2. * saw_amp.abs() - self.0.volume
-    }
-
-    fn update_phase(&mut self, sample_rate: f64) {
-        self.0.update_phase(sample_rate);
-    }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.0.mul_hz(factor);
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.0.mod_hz(factor);
-    }
-}
-
-#[derive(Constructor)]
-struct LerpWave {
-    wave1: Box<dyn Wave + Send>,
-    wave2: Box<dyn Wave + Send>,
-    alpha: f32,
-}
+);
 
 impl Wave for LerpWave {
     fn sample(&self) -> f32 {
@@ -207,11 +104,13 @@ impl Wave for LerpWave {
     }
 }
 
-/// Voltage Controlled Amplifier
-struct VCA {
-    wave: Box<dyn Wave + Send>,
-    control_voltage: Box<dyn Wave + Send>,
-}
+pub_struct!(
+    /// Voltage Controlled Amplifier
+    struct VCA {
+        wave: Box<dyn Wave + Send>,
+        control_voltage: Box<dyn Wave + Send>,
+    }
+);
 
 impl Wave for VCA {
     fn sample(&self) -> f32 {
@@ -231,11 +130,13 @@ impl Wave for VCA {
     }
 }
 
-/// Voltage Controlled Oscillator
-pub struct VCO {
-    pub wave: Box<dyn Wave + Send>,
-    pub control_voltage: Box<dyn Wave + Send>,
-}
+pub_struct!(
+    /// Voltage Controlled Oscillator
+    struct VCO {
+        wave: Box<dyn Wave + Send>,
+        control_voltage: Box<dyn Wave + Send>,
+    }
+);
 
 impl Wave for VCO {
     fn sample(&self) -> f32 {
@@ -258,14 +159,17 @@ impl Wave for VCO {
     }
 }
 
-struct ADSRWave {
-    wave_params: WaveParams,
-    attack: f32,
-    decay: f32,
-    sustain_time: f32,
-    sustain_level: f32,
-    release: f32,
-}
+pub_struct!(
+    struct ADSRWave {
+        wave_params: WaveParams,
+        attack: f32,
+        decay: f32,
+        sustain_time: f32,
+        sustain_level: f32,
+        release: f32,
+    }
+);
+
 impl ADSRWave {
     fn adsr(&self, t: f32) -> f32 {
         let a = self.attack * TAU;
@@ -301,11 +205,13 @@ impl Wave for ADSRWave {
     }
 }
 
-struct WeightedWave(Box<dyn Wave + Send>, f32);
+pub struct WeightedWave(pub Box<dyn Wave + Send>, pub f32);
 
-struct AvgWave {
-    waves: Vec<WeightedWave>,
-}
+pub_struct!(
+    struct AvgWave {
+        waves: Vec<WeightedWave>,
+    }
+);
 
 impl Wave for AvgWave {
     fn sample(&self) -> f32 {
