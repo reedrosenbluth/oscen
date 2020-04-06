@@ -89,32 +89,7 @@ basic_wave!(SineWave, |wave: &SineWave| {
     wave.0.amplitude * (TAU * wave.0.phase as f32).sin()
 });
 
-impl SimpleWave for SineWave {
-    fn hz(&self) -> f64 {
-        self.0.hz
-    }
-    fn set_hz(&mut self, hz: f64) {
-        self.0.hz = hz;
-    }
-    fn amplitude(&self) -> f32 {
-        self.0.amplitude
-    }
-    fn set_amplitude(&mut self, amp: f32) {
-        self.0.amplitude = amp;
-    }
-    fn phase(&self) -> f64 {
-        self.0.phase
-    }
-    fn set_phase(&mut self, phase: f64) {
-        self.0.phase = phase;
-    }
-    fn hz0(&self) -> f64 {
-        self.0.hz0
-    }
-    fn set_hz0(&mut self, hz0: f64) {
-        self.0.hz0 = hz0;
-    }
-}
+simple_wave!(SineWave);
 
 basic_wave!(SquareWave, |wave: &SquareWave| {
     let amp = wave.0.amplitude;
@@ -129,36 +104,13 @@ basic_wave!(SquareWave, |wave: &SquareWave| {
     }
 });
 
-impl SimpleWave for SquareWave {
-    fn hz(&self) -> f64 {
-        self.0.hz
-    }
-    fn set_hz(&mut self, hz: f64) {
-        self.0.hz = hz;
-    }
-    fn amplitude(&self) -> f32 {
-        self.0.amplitude
-    }
-    fn set_amplitude(&mut self, amp: f32) {
-        self.0.amplitude = amp;
-    }
-    fn phase(&self) -> f64 {
-        self.0.phase
-    }
-    fn set_phase(&mut self, phase: f64) {
-        self.0.phase = phase;
-    }
-    fn hz0(&self) -> f64 {
-        self.0.hz0
-    }
-    fn set_hz0(&mut self, hz0: f64) {
-        self.0.hz0 = hz0;
-    }
-}
+simple_wave!(SquareWave);
 
 basic_wave!(RampWave, |wave: &RampWave| {
     wave.0.amplitude * (2. * (wave.0.phase - floor(0.5 + wave.0.phase, 0))) as f32
 });
+
+simple_wave!(RampWave);
 
 basic_wave!(SawWave, |wave: &SawWave| {
     let t = wave.0.phase - 0.5;
@@ -169,11 +121,15 @@ basic_wave!(SawWave, |wave: &SawWave| {
     wave.0.amplitude * 2. * s as f32
 });
 
+simple_wave!(SawWave);
+
 basic_wave!(TriangleWave, |wave: &TriangleWave| {
     let t = wave.0.phase - 0.75;
     let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
     2. * saw_amp.abs() - wave.0.amplitude
 });
+
+simple_wave!(TriangleWave);
 
 pub_struct!(
     #[derive(Constructor)]
