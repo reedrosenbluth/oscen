@@ -120,6 +120,21 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 })
                 .unwrap();
         }
+        Key::Left => {
+            if model.wave_index == 0 {
+                model.wave_index = 4
+            } else {
+                model.wave_index -= 1;
+            }
+            let mut ws = vec![0., 0., 0., 0., 0.];
+            ws[model.wave_index] = 1.0;
+            model
+                .stream
+                .send(move |synth| {
+                    synth.voice.set_weights(ws);
+                })
+                .unwrap();
+        }
         _ => {}
     }
 }

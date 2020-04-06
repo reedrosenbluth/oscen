@@ -52,13 +52,10 @@ basic_wave!(SineWave, |wave: &SineWave| {
 });
 
 basic_wave!(SquareWave, |wave: &SquareWave| {
-    let sine_wave = SineWave(WaveParams::new(wave.0.hz, wave.0.amplitude));
-    let sine_amp = sine_wave.sample();
-    if sine_amp > 0. {
-        wave.0.amplitude
-    } else {
-        -wave.0.amplitude
-    }
+    let amp = wave.0.amplitude;
+    let t = wave.0.phase - floor(wave.0.phase, 0);
+    if t < 0.001 { return 0.}; // Solely to make work in oscilloscope
+    if t <= 0.5 { amp } else { -amp } 
 });
 
 basic_wave!(RampWave, |wave: &RampWave| {
@@ -67,7 +64,9 @@ basic_wave!(RampWave, |wave: &RampWave| {
 
 basic_wave!(SawWave, |wave: &SawWave| {
     let t = wave.0.phase - 0.5;
-    wave.0.amplitude * (2. * (-t - floor(0.5 - t, 0))) as f32
+    let s = -t - floor(0.5 - t, 0);
+    if s < -0.499 { return 0.}; // Solely to make work in oscilloscope
+    wave.0.amplitude * 2. * s as f32
 });
 
 basic_wave!(TriangleWave, |wave: &TriangleWave| {
@@ -233,9 +232,7 @@ pub_struct!(struct WeightedWave(Box<dyn Wave + Send>, f32));
 
 impl fmt::Debug for WeightedWave {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("")
-         .field("weight", &self.1)
-         .finish()
+        f.debug_struct("").field("weight", &self.1).finish()
     }
 }
 pub_struct!(
@@ -267,7 +264,6 @@ impl Wave for AvgWave {
             wave.0.update_phase(sample_rate);
         }
     }
-
 
     fn mul_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
