@@ -205,7 +205,7 @@ impl Wave for ADSRWave {
     }
 }
 
-pub struct WeightedWave(pub Box<dyn Wave + Send>, pub f32);
+pub_struct!(struct WeightedWave(Box<dyn Wave + Send>, f32));
 
 pub_struct!(
     struct AvgWave {

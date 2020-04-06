@@ -18,6 +18,14 @@ macro_rules! pub_struct {
             ),*
         }
     };
+
+    (
+        $(#[$outer:meta])*
+        struct $name:ident($head:ty$(, $last:ty)*)
+    ) => {
+        $(#[$outer:meta])*
+        pub struct $name(pub $head$(, pub $last)*);
+    };
 }
 
 /// Creates a wave with prepopulated boilerplate code for calling the
