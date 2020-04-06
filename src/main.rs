@@ -43,7 +43,15 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
     let wave = Box::new(SineWave::new(130.81, 0.5));
-    let control_voltage = Box::new(SineWave::new(130.5, 1.0));
+    // let control_voltage = Box::new(SineWave::new(1.0, 1.0));
+    let control_voltage = Box::new(ADSRWave {
+        attack: 1.0,
+        decay: 1.0,
+        sustain_time: 3.0,
+        sustain_level: 0.8,
+        release: 5.0,
+        time: 0.0,
+    });
     let osc = VCO {
         wave,
         control_voltage,
