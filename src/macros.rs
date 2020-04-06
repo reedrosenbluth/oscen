@@ -45,11 +45,12 @@ macro_rules! pub_struct {
 #[macro_export]
 macro_rules! basic_wave {
     ($wave:ident, $sample:expr) => {
+        #[derive(Clone)]
         pub struct $wave($crate::WaveParams);
 
         impl $wave {
-            pub fn new(hz: f64, volume: f32) -> Self {
-                $wave($crate::WaveParams::new(hz, volume))
+            pub fn new(hz: f64, amplitude: f32) -> Self {
+                $wave($crate::WaveParams::new(hz, amplitude))
             }
         }
 

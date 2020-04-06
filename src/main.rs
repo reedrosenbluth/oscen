@@ -46,7 +46,7 @@ fn model(app: &App) -> Model {
     let control_voltage = Box::new(SineWave::new(130.5, 1.0));
     let osc = VCO {
         wave,
-        control_voltage,
+        cv: control_voltage,
     };
     let model = Synth {
         voice: Box::new(osc),

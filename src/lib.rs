@@ -1,6 +1,7 @@
 use derive_more::Constructor;
 use math::round::floor;
 use nannou::prelude::*;
+use std::fmt;
 
 mod macros;
 
@@ -12,19 +13,20 @@ pub trait Wave {
 }
 
 pub_struct!(
+    #[derive(Clone)]
     struct WaveParams {
         hz: f64,
-        volume: f32,
+        amplitude: f32,
         phase: f64,
         hz0: f64,
     }
 );
 
 impl WaveParams {
-    fn new(hz: f64, volume: f32) -> Self {
+    fn new(hz: f64, amplitude: f32) -> Self {
         WaveParams {
             hz,
-            volume,
+            amplitude,
             phase: 0.0,
             hz0: hz,
         }
@@ -46,32 +48,32 @@ impl WaveParams {
 }
 
 basic_wave!(SineWave, |wave: &SineWave| {
-    wave.0.volume * (TAU * wave.0.phase as f32).sin()
+    wave.0.amplitude * (TAU * wave.0.phase as f32).sin()
 });
 
 basic_wave!(SquareWave, |wave: &SquareWave| {
-    let sine_wave = SineWave(WaveParams::new(wave.0.hz, wave.0.volume));
+    let sine_wave = SineWave(WaveParams::new(wave.0.hz, wave.0.amplitude));
     let sine_amp = sine_wave.sample();
     if sine_amp > 0. {
-        wave.0.volume
+        wave.0.amplitude
     } else {
-        -wave.0.volume
+        -wave.0.amplitude
     }
 });
 
 basic_wave!(RampWave, |wave: &RampWave| {
-    wave.0.volume * (2. * (wave.0.phase - floor(0.5 + wave.0.phase, 0))) as f32
+    wave.0.amplitude * (2. * (wave.0.phase - floor(0.5 + wave.0.phase, 0))) as f32
 });
 
 basic_wave!(SawWave, |wave: &SawWave| {
     let t = wave.0.phase - 0.5;
-    wave.0.volume * (2. * (-t - floor(0.5 - t, 0))) as f32
+    wave.0.amplitude * (2. * (-t - floor(0.5 - t, 0))) as f32
 });
 
 basic_wave!(TriangleWave, |wave: &TriangleWave| {
     let t = wave.0.phase - 0.75;
-    let saw_amp = (-t - floor(0.5 - t, 0)) as f32;
-    2. * saw_amp.abs() - wave.0.volume
+    let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
+    2. * saw_amp.abs() - wave.0.amplitude
 });
 
 pub_struct!(
@@ -197,7 +199,7 @@ impl ADSRWave {
 
 impl Wave for ADSRWave {
     fn sample(&self) -> f32 {
-        self.wave_params.volume * self.adsr(TAU * self.wave_params.phase as f32)
+        self.wave_params.amplitude * self.adsr(TAU * self.wave_params.phase as f32)
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
@@ -215,11 +217,27 @@ impl Wave for ADSRWave {
 
 pub_struct!(struct WeightedWave(Box<dyn Wave + Send>, f32));
 
+impl fmt::Debug for WeightedWave {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("")
+         .field("weight", &self.1)
+         .finish()
+    }
+}
 pub_struct!(
+    #[derive(Debug)]
     struct AvgWave {
         waves: Vec<WeightedWave>,
     }
 );
+
+impl AvgWave {
+    pub fn set_weights(&mut self, weights: Vec<f32>) {
+        for (i, v) in self.waves.iter_mut().enumerate() {
+            v.1 = weights[i];
+        }
+    }
+}
 
 impl Wave for AvgWave {
     fn sample(&self) -> f32 {
