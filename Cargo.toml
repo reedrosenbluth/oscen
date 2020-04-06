@@ -2,6 +2,7 @@
 name = "swell"
 version = "0.1.0"
 authors = [
+    "Satya Bodduluri  <skbodduluri@gmail.com >"
     "Reed Rosenbluth <reed.rosenbluth@gmail.com>", 
     "Jeffrey Rosenbluth <jeffrey.rosenbluth@gmail.com>"
 ]
