@@ -70,7 +70,7 @@ basic_wave!(SawWave, |wave: &SawWave| {
 
 basic_wave!(TriangleWave, |wave: &TriangleWave| {
     let t = wave.0.phase - 0.75;
-    let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
+    let saw_amp = (-t - floor(0.5 - t, 0)) as f32;
     2. * saw_amp.abs() - wave.0.volume
 });
 
@@ -82,6 +82,12 @@ pub_struct!(
         alpha: f32,
     }
 );
+
+impl LerpWave {
+    pub fn set_alpha(&mut self, alpha: f32) {
+        self.alpha = alpha;
+    }
+}
 
 impl Wave for LerpWave {
     fn sample(&self) -> f32 {
@@ -108,23 +114,24 @@ pub_struct!(
     /// Voltage Controlled Amplifier
     struct VCA {
         wave: Box<dyn Wave + Send>,
-        control_voltage: Box<dyn Wave + Send>,
+        cv: Box<dyn Wave + Send>,
     }
 );
 
 impl Wave for VCA {
     fn sample(&self) -> f32 {
-        self.wave.sample() * self.control_voltage.sample()
+        self.wave.sample() * self.cv.sample()
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
         self.wave.update_phase(sample_rate);
-        self.control_voltage.update_phase(sample_rate);
+        self.cv.update_phase(sample_rate);
     }
 
     fn mul_hz(&mut self, factor: f64) {
         self.wave.mul_hz(factor);
     }
+
     fn mod_hz(&mut self, factor: f64) {
         self.wave.mod_hz(factor);
     }
@@ -134,7 +141,7 @@ pub_struct!(
     /// Voltage Controlled Oscillator
     struct VCO {
         wave: Box<dyn Wave + Send>,
-        control_voltage: Box<dyn Wave + Send>,
+        cv: Box<dyn Wave + Send>,
     }
 );
 
@@ -145,9 +152,13 @@ impl Wave for VCO {
 
     fn update_phase(&mut self, sample_rate: f64) {
         self.wave.update_phase(sample_rate);
-        self.control_voltage.update_phase(sample_rate);
-        let factor = 2.0.powf(self.control_voltage.sample()) as f64;
+        self.cv.update_phase(sample_rate);
+        let factor = 2.0.powf(self.cv.sample()) as f64;
         self.wave.mod_hz(factor);
+    }
+
+    fn set_hz(&mut self, hz: f64) {
+        self.wave.set_hz(hz);
     }
 
     fn mul_hz(&mut self, factor: f64) {
@@ -200,6 +211,7 @@ impl Wave for ADSRWave {
     fn mul_hz(&mut self, factor: f64) {
         self.wave_params.mul_hz(factor);
     }
+
     fn mod_hz(&mut self, factor: f64) {
         self.wave_params.mod_hz(factor);
     }
@@ -227,6 +239,7 @@ impl Wave for AvgWave {
             wave.0.update_phase(sample_rate);
         }
     }
+
 
     fn mul_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
