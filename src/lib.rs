@@ -2,7 +2,6 @@ use derive_more::Constructor;
 use math::round::floor;
 use nannou::prelude::*;
 
-// use macros::*;
 mod macros;
 
 pub trait Wave {
