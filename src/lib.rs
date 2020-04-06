@@ -157,10 +157,6 @@ impl Wave for VCO {
         self.wave.mod_hz(factor);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.wave.set_hz(hz);
-    }
-
     fn mul_hz(&mut self, factor: f64) {
         self.wave.mul_hz(factor);
     }
