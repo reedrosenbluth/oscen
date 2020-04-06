@@ -1,6 +1,7 @@
 /// Creates a public struct and makes all fields public.
 #[macro_export]
 macro_rules! pub_struct {
+    // Regular Struct
     (
         $(#[$outer:meta])*
         struct $name:ident {
@@ -19,12 +20,22 @@ macro_rules! pub_struct {
         }
     };
 
+    // Tuple Struct
     (
         $(#[$outer:meta])*
         struct $name:ident($head:ty$(, $last:ty)*)
     ) => {
         $(#[$outer:meta])*
         pub struct $name(pub $head$(, pub $last)*);
+    };
+
+    // Unit Struct
+    (
+        $(#[$outer:meta])*
+        struct $name:ident
+    ) => {
+        $(#[$outer:meta])*
+        pub struct $name;
     };
 }
 
