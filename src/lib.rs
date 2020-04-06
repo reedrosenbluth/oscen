@@ -5,14 +5,20 @@ use nannou::prelude::*;
 /// Creates a public struct and makes all fields public.
 macro_rules! pub_struct {
     (
-        $(#[derive($macros:tt)])*
+        $(#[$outer:meta])*
         struct $name:ident {
-            $($field:ident: $t:ty,)*
+            $(
+                $(#[$inner:ident $($args:tt)*])*
+                $field:ident: $t:ty,
+            )*
         }
     ) => {
-        $(#[derive($macros)])*
+        $(#[$outer])*
         pub struct $name {
-            $(pub $field: $t),*
+            $(
+                $(#[$inner $($args)*])*
+                pub $field: $t
+            ),*
         }
     };
 }
@@ -151,8 +157,8 @@ impl Wave for LerpWave {
     }
 }
 
-/// Voltage Controlled Amplifier
 pub_struct!(
+    /// Voltage Controlled Amplifier
     struct VCA {
         wave: Box<dyn Wave + Send>,
         control_voltage: Box<dyn Wave + Send>,
@@ -177,8 +183,8 @@ impl Wave for VCA {
     }
 }
 
-/// Voltage Controlled Oscillator
 pub_struct!(
+    /// Voltage Controlled Oscillator
     struct VCO {
         wave: Box<dyn Wave + Send>,
         control_voltage: Box<dyn Wave + Send>,
