@@ -1,5 +1,3 @@
-#![allow(dead_code)] // Don't forget to remove.
-
 use derive_more::Constructor;
 use math::round::floor;
 use nannou::prelude::*;
@@ -11,7 +9,7 @@ pub trait Wave {
     fn mod_hz(&mut self, factor: f64);
 }
 
-struct WaveParams {
+pub struct WaveParams {
     hz: f64,
     volume: f32,
     phase: f64,
@@ -19,7 +17,7 @@ struct WaveParams {
 }
 
 impl WaveParams {
-    fn new(hz: f64, volume: f32) -> Self {
+    pub fn new(hz: f64, volume: f32) -> Self {
         WaveParams {
             hz,
             volume,
@@ -69,10 +67,10 @@ impl Wave for SineWave {
     }
 }
 
-struct SquareWave(WaveParams);
+pub struct SquareWave(WaveParams);
 
 impl SquareWave {
-    fn new(hz: f64, volume: f32) -> Self {
+    pub fn new(hz: f64, volume: f32) -> Self {
         SquareWave(WaveParams::new(hz, volume))
     }
 }
@@ -101,10 +99,10 @@ impl Wave for SquareWave {
     }
 }
 
-struct RampWave(WaveParams);
+pub struct RampWave(WaveParams);
 
 impl RampWave {
-    fn new(hz: f64, volume: f32) -> Self {
+    pub fn new(hz: f64, volume: f32) -> Self {
         RampWave(WaveParams::new(hz, volume))
     }
 }
@@ -126,10 +124,10 @@ impl Wave for RampWave {
     }
 }
 
-struct SawWave(WaveParams);
+pub struct SawWave(WaveParams);
 
 impl SawWave {
-    fn new(hz: f64, volume: f32) -> Self {
+    pub fn new(hz: f64, volume: f32) -> Self {
         SawWave(WaveParams::new(hz, volume))
     }
 }
@@ -153,10 +151,10 @@ impl Wave for SawWave {
     }
 }
 
-struct TriangleWave(WaveParams);
+pub struct TriangleWave(WaveParams);
 
 impl TriangleWave {
-    fn new(hz: f64, volume: f32) -> Self {
+    pub fn new(hz: f64, volume: f32) -> Self {
         TriangleWave(WaveParams::new(hz, volume))
     }
 }
