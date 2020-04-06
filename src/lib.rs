@@ -14,7 +14,7 @@ macro_rules! pub_struct {
         pub struct $name {
             $(pub $field: $t),*
         }
-    }
+    };
 }
 
 /// Creates a wave with prepopulated boilerplate code for calling the
@@ -26,8 +26,8 @@ macro_rules! basic_wave {
         pub struct $wave($crate::WaveParams);
 
         impl $wave {
-            pub fn new(hz: f64, volume: f32, phase: f64) -> Self {
-                $wave($crate::WaveParams::new(hz, volume, phase))
+            pub fn new(hz: f64, volume: f32) -> Self {
+                $wave($crate::WaveParams::new(hz, volume))
             }
         }
 
@@ -40,12 +40,12 @@ macro_rules! basic_wave {
                 self.0.update_phase(sample_rate)
             }
 
-            fn set_hz(&mut self, hz: f64) {
-                self.0.set_hz(hz)
+            fn mul_hz(&mut self, factor: f64) {
+                self.0.mul_hz(factor);
             }
 
-            fn hz(&self) -> f64 {
-                self.0.hz()
+            fn mod_hz(&mut self, factor: f64) {
+                self.0.mod_hz(factor);
             }
         }
     };
@@ -54,31 +54,41 @@ macro_rules! basic_wave {
 pub trait Wave {
     fn sample(&self) -> f32;
     fn update_phase(&mut self, sample_rate: f64);
-    fn set_hz(&mut self, hz: f64);
-    fn hz(&self) -> f64;
+    fn mul_hz(&mut self, factor: f64);
+    fn mod_hz(&mut self, factor: f64);
 }
 
 pub_struct!(
-    #[derive(Constructor)]
     struct WaveParams {
         hz: f64,
         volume: f32,
         phase: f64,
+        hz0: f64,
     }
 );
 
 impl WaveParams {
-    pub fn update_phase(&mut self, sample_rate: f64) {
+    fn new(hz: f64, volume: f32) -> Self {
+        WaveParams {
+            hz,
+            volume,
+            phase: 0.0,
+            hz0: hz,
+        }
+    }
+
+    fn update_phase(&mut self, sample_rate: f64) {
         self.phase += self.hz / sample_rate;
         self.phase %= sample_rate;
     }
 
-    pub fn set_hz(&mut self, hz: f64) {
-        self.hz = hz;
+    fn mul_hz(&mut self, factor: f64) {
+        self.hz *= factor;
+        self.hz0 *= factor;
     }
 
-    pub fn hz(&self) -> f64 {
-        self.hz
+    fn mod_hz(&mut self, factor: f64) {
+        self.hz = self.hz0 * factor;
     }
 }
 
@@ -87,7 +97,7 @@ basic_wave!(SineWave, |wave: &SineWave| {
 });
 
 basic_wave!(SquareWave, |wave: &SquareWave| {
-    let sine_wave = SineWave(WaveParams::new(wave.0.hz, wave.0.volume, wave.0.phase));
+    let sine_wave = SineWave(WaveParams::new(wave.0.hz, wave.0.volume));
     let sine_amp = sine_wave.sample();
     if sine_amp > 0. {
         wave.0.volume
@@ -111,12 +121,14 @@ basic_wave!(TriangleWave, |wave: &TriangleWave| {
     2. * saw_amp.abs() - wave.0.volume
 });
 
-#[derive(Constructor)]
-pub struct LerpWave {
-    wave1: Box<dyn Wave + Send>,
-    wave2: Box<dyn Wave + Send>,
-    alpha: f32,
-}
+pub_struct!(
+    #[derive(Constructor)]
+    struct LerpWave {
+        wave1: Box<dyn Wave + Send>,
+        wave2: Box<dyn Wave + Send>,
+        alpha: f32,
+    }
+);
 
 impl Wave for LerpWave {
     fn sample(&self) -> f32 {
@@ -128,95 +140,70 @@ impl Wave for LerpWave {
         self.wave2.update_phase(sample_rate);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.wave1.set_hz(hz);
-        self.wave2.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.wave1.mul_hz(factor);
+        self.wave2.mul_hz(factor);
     }
 
-    //TODO: fix this...
-    fn hz(&self) -> f64 {
-        0.
+    fn mod_hz(&mut self, factor: f64) {
+        self.wave1.mod_hz(factor);
+        self.wave2.mod_hz(factor);
     }
 }
 
+/// Voltage Controlled Amplifier
 pub_struct!(
-    struct MultWave {
-        base_wave: Box<dyn Wave + Send>,
-        mod_wave: Box<dyn Wave + Send>,
+    struct VCA {
+        wave: Box<dyn Wave + Send>,
+        control_voltage: Box<dyn Wave + Send>,
     }
 );
 
-impl Wave for MultWave {
+impl Wave for VCA {
     fn sample(&self) -> f32 {
-        self.base_wave.sample() * self.mod_wave.sample()
+        self.wave.sample() * self.control_voltage.sample()
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.base_wave.update_phase(sample_rate);
-        self.mod_wave.update_phase(sample_rate);
+        self.wave.update_phase(sample_rate);
+        self.control_voltage.update_phase(sample_rate);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.base_wave.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.wave.mul_hz(factor);
     }
-
-    //TODO: fix this...
-    fn hz(&self) -> f64 {
-        self.base_wave.hz()
+    fn mod_hz(&mut self, factor: f64) {
+        self.wave.mod_hz(factor);
     }
 }
 
+/// Voltage Controlled Oscillator
 pub_struct!(
-    struct FMod {
-        carrier_wave: Box<dyn Wave + Send>,
-        mod_wave: Box<dyn Wave + Send>,
+    struct VCO {
+        wave: Box<dyn Wave + Send>,
+        control_voltage: Box<dyn Wave + Send>,
     }
 );
 
-impl Wave for FMod {
+impl Wave for VCO {
     fn sample(&self) -> f32 {
-        self.carrier_wave.sample()
+        self.wave.sample()
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.carrier_wave.update_phase(sample_rate);
-        self.mod_wave.update_phase(sample_rate);
-
-        self.carrier_wave
-            .set_hz((self.mod_wave.sample() * 440.) as f64);
+        self.wave.update_phase(sample_rate);
+        self.control_voltage.update_phase(sample_rate);
+        let factor = 2.0.powf(self.control_voltage.sample()) as f64;
+        self.wave.mod_hz(factor);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.carrier_wave.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.wave.mul_hz(factor);
     }
 
-    //TODO: fix this...
-    fn hz(&self) -> f64 {
-        self.carrier_wave.hz()
+    fn mod_hz(&mut self, factor: f64) {
+        self.wave.mod_hz(factor);
     }
-}
-
-fn adsr(
-    attack: f32,
-    decay: f32,
-    sustain_time: f32,
-    sustain_level: f32,
-    release: f32,
-) -> Box<dyn Fn(f32) -> f32> {
-    let a = attack * TAU;
-    let d = decay * TAU;
-    let s = sustain_time * TAU;
-    let r = release * TAU;
-    Box::new(move |t: f32| {
-        let t = t % TAU;
-        match t {
-            x if x < a => t / a,
-            x if x < a + d => 1.0 + (t - a) * (sustain_level - 1.0) / d,
-            x if x < a + d + s => sustain_level,
-            x if x < a + d + s + r => sustain_level - (t - a - d - s) * sustain_level / r,
-            _ => 0.0,
-        }
-    })
 }
 
 pub_struct!(
@@ -230,55 +217,73 @@ pub_struct!(
     }
 );
 
+impl ADSRWave {
+    fn adsr(&self, t: f32) -> f32 {
+        let a = self.attack * TAU;
+        let d = self.decay * TAU;
+        let s = self.sustain_time * TAU;
+        let r = self.release * TAU;
+        let sl = self.sustain_level;
+        let t = t % TAU;
+        match t {
+            x if x < a => t / a,
+            x if x < a + d => 1.0 + (t - a) * (sl - 1.0) / d,
+            x if x < a + d + s => sl,
+            x if x < a + d + s + r => sl - (t - a - d - s) * sl / r,
+            _ => 0.0,
+        }
+    }
+}
+
 impl Wave for ADSRWave {
     fn sample(&self) -> f32 {
-        let f = adsr(
-            self.attack,
-            self.decay,
-            self.sustain_time,
-            self.sustain_level,
-            self.release,
-        );
-        self.wave_params.volume * f(TAU * self.wave_params.phase as f32)
+        self.wave_params.volume * self.adsr(TAU * self.wave_params.phase as f32)
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
         self.wave_params.update_phase(sample_rate);
     }
 
-    fn set_hz(&mut self, hz: f64) {
-        self.wave_params.set_hz(hz);
+    fn mul_hz(&mut self, factor: f64) {
+        self.wave_params.mul_hz(factor);
     }
-
-    fn hz(&self) -> f64 {
-        self.wave_params.hz()
+    fn mod_hz(&mut self, factor: f64) {
+        self.wave_params.mod_hz(factor);
     }
 }
 
+pub struct WeightedWave(pub Box<dyn Wave + Send>, pub f32);
+
 pub_struct!(
     struct AvgWave {
-        waves: Vec<Box<dyn Wave + Send>>,
+        waves: Vec<WeightedWave>,
     }
 );
 
 impl Wave for AvgWave {
     fn sample(&self) -> f32 {
-        self.waves.iter().fold(0.0, |acc, x| acc + x.sample()) / self.waves.len() as f32
+        let total_weight = self.waves.iter().fold(0.0, |acc, x| acc + x.1);
+        self.waves
+            .iter()
+            .fold(0.0, |acc, x| acc + x.1 * x.0.sample())
+            / total_weight
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
         for wave in self.waves.iter_mut() {
-            wave.update_phase(sample_rate);
+            wave.0.update_phase(sample_rate);
         }
     }
 
-    fn set_hz(&mut self, hz: f64) {
+    fn mul_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
-            wave.set_hz(hz);
+            wave.0.mul_hz(factor);
         }
     }
 
-    fn hz(&self) -> f64 {
-        self.waves.iter().fold(0.0, |acc, x| acc + x.hz()) / self.waves.len() as f64
+    fn mod_hz(&mut self, factor: f64) {
+        for wave in self.waves.iter_mut() {
+            wave.0.mod_hz(factor);
+        }
     }
 }
