@@ -19,6 +19,7 @@ struct Model {
     amps: Vec<f32>,
     max_amp: f32,
     wave_index: usize,
+    num_waves: usize,
 }
 
 #[derive(Constructor)]
@@ -74,6 +75,7 @@ fn model(app: &App) -> Model {
     let waves = AvgWave {
         waves: vec![sine, square, saw, triangle, lerp, vca, vco],
     };
+    let num_waves = waves.waves.len();
     let model = Synth {
         voice: Box::new(waves),
         sender,
@@ -89,6 +91,7 @@ fn model(app: &App) -> Model {
         amps: vec![],
         max_amp: 0.,
         wave_index: 0,
+        num_waves,
     }
 }
 
@@ -132,8 +135,8 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
         Key::Down => change_hz(-1.),
         Key::Right => {
             model.wave_index += 1;
-            model.wave_index %= 7;
-            let mut ws = vec![0., 0., 0., 0., 0., 0., 0.];
+            model.wave_index %= model.num_waves;
+            let mut ws = vec![0.; model.num_waves];
             ws[model.wave_index] = 1.0;
             model
                 .stream
@@ -144,11 +147,11 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
         }
         Key::Left => {
             if model.wave_index == 0 {
-                model.wave_index = 6
+                model.wave_index = model.num_waves - 1;
             } else {
                 model.wave_index -= 1;
             }
-            let mut ws = vec![0., 0., 0., 0., 0., 0., 0.];
+            let mut ws = vec![0.; model.num_waves];
             ws[model.wave_index] = 1.0;
             model
                 .stream
