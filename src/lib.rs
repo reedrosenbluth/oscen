@@ -45,6 +45,19 @@ impl WaveParams {
     }
 }
 
+pub struct ConstantWave;
+impl Wave for ConstantWave {
+    fn sample(&self) -> f32 {
+        0.0
+    }
+
+    fn update_phase(&mut self, _sample_rate: f64) {}
+
+    fn mul_hz(&mut self, _factor: f64) {}
+
+    fn mod_hz(&mut self, _factor: f64) {}
+}
+
 basic_wave!(SineWave, |wave: &SineWave| {
     wave.0.volume * (TAU * wave.0.phase as f32).sin()
 });
@@ -146,7 +159,7 @@ impl Wave for VCO {
     fn update_phase(&mut self, sample_rate: f64) {
         self.wave.update_phase(sample_rate);
         self.control_voltage.update_phase(sample_rate);
-        let factor = self.control_voltage.sample() as f64;
+        let factor = 2.0.powf(self.control_voltage.sample()) as f64;
         self.wave.mod_hz(factor);
     }
 
