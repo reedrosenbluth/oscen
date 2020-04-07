@@ -3,86 +3,95 @@ use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use derive_more::Constructor;
 use nannou::prelude::*;
-use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 
 use swell::*;
 
 fn main() {
-    // nannou::app(model).update(update).simple_window(view).run();
     nannou::app(model).update(update).run();
 }
 
 #[derive(Constructor)]
 struct Model {
-    ui: Ui,
-    ids: Ids,
-    fm_mult: i32,
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     amps: Vec<f32>,
     max_amp: f32,
-}
-
-struct Ids {
-    fm_hz: widget::Id,
+    wave_index: usize,
+    num_waves: usize,
 }
 
 #[derive(Constructor)]
 struct Synth {
-    // voice: Box<dyn Wave + Send>,
-    voice: VCO,
+    voice: Box<AvgWave>,
     sender: Sender<f32>,
 }
 
 fn model(app: &App) -> Model {
+    const HZ: f64 = 440.;
     let (sender, receiver) = unbounded();
 
     // Create a window to receive key pressed events.
     app.set_loop_mode(LoopMode::Rate {
         update_interval: Duration::from_millis(1),
     });
-
-    let _window = app
-        .new_window()
+    app.new_window()
+        .size(600, 340)
         .key_pressed(key_pressed)
         .view(view)
         .build()
         .unwrap();
-
-    let mut ui = app.new_ui().build().unwrap();
-
-    let ids = Ids {
-        fm_hz: ui.generate_widget_id(),
-    };
-
+    // Initialise the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
-
-    let carrier = Box::new(SineWave::new(220., 0.5));
-    let modulator = Box::new(SineWave::new(220., 1.0));
-    let osc = VCO {
-        wave: carrier,
-        cv: modulator,
-        fm_mult: 1,
+    // Initialise the state that we want to live on the audio thread.
+    let sine = WeightedWave(Box::new(SineWave::new(HZ, 1.0)), 1.0);
+    let square = WeightedWave(Box::new(SquareWave::new(HZ, 1.0)), 0.0);
+    let saw = WeightedWave(Box::new(SawWave::new(HZ, 1.0)), 0.0);
+    let triangle = WeightedWave(Box::new(TriangleWave::new(HZ, 1.0)), 0.0);
+    let lerp = WeightedWave(
+        Box::new(LerpWave {
+            wave1: Box::new(SineWave::new(HZ, 1.0)),
+            wave2: Box::new(SquareWave::new(HZ, 1.0)),
+            alpha: 0.5,
+        }),
+        0.0,
+    );
+    let vca = WeightedWave(
+        Box::new(VCA {
+            wave: Box::new(SineWave::new(2.0 * HZ, 1.0)),
+            cv: Box::new(SineWave::new(HZ / 5.5, 1.0)),
+        }),
+        0.0,
+    );
+    let vco = WeightedWave(
+        Box::new(VCO {
+            wave: Box::new(SineWave::new(HZ, 1.0)),
+            cv: Box::new(SineWave::new(HZ, 1.0)),
+            fm_mult: 1,
+        }),
+        0.0,
+    );
+    let waves = AvgWave {
+        waves: vec![sine, square, saw, triangle, lerp, vca, vco],
     };
-
-    let synth = Synth { voice: osc, sender };
-
+    let num_waves = waves.waves.len();
+    let model = Synth {
+        voice: Box::new(waves),
+        sender,
+    };
     let stream = audio_host
-        .new_output_stream(synth)
+        .new_output_stream(model)
         .render(audio)
         .build()
         .unwrap();
-
     Model {
-        ui,
-        ids,
-        fm_mult: 1,
         stream,
         receiver,
         amps: vec![],
         max_amp: 0.,
+        wave_index: 0,
+        num_waves,
     }
 }
 
@@ -124,6 +133,33 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
         // Raise the frequency when the up key is pressed.
         Key::Up => change_hz(1.),
         Key::Down => change_hz(-1.),
+        Key::Right => {
+            model.wave_index += 1;
+            model.wave_index %= model.num_waves;
+            let mut ws = vec![0.; model.num_waves];
+            ws[model.wave_index] = 1.0;
+            model
+                .stream
+                .send(move |synth| {
+                    synth.voice.set_weights(ws);
+                })
+                .unwrap();
+        }
+        Key::Left => {
+            if model.wave_index == 0 {
+                model.wave_index = model.num_waves - 1;
+            } else {
+                model.wave_index -= 1;
+            }
+            let mut ws = vec![0.; model.num_waves];
+            ws[model.wave_index] = 1.0;
+            model
+                .stream
+                .send(move |synth| {
+                    synth.voice.set_weights(ws);
+                })
+                .unwrap();
+        }
         _ => {}
     }
 }
@@ -147,32 +183,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     }
 
     model.amps = clone;
-
-    //UI
-    let ui = &mut model.ui.set_widgets();
-
-    fn slider(val: f32, min: f32, max: f32) -> widget::Slider<'static, f32> {
-        widget::Slider::new(val, min, max)
-            .w_h(200.0, 30.0)
-            .label_font_size(15)
-            .rgb(0.3, 0.3, 0.3)
-            .label_rgb(1.0, 1.0, 1.0)
-            .border(0.0)
-    }
-
-    for value in slider(model.fm_mult as f32, 0., 12.)
-        .top_left_with_margin(20.0)
-        .label("FM Multiplier")
-        .set(model.ids.fm_hz, ui)
-    {
-        model.fm_mult = (value as f64).round() as i32;
-        model
-            .stream
-            .send(move |synth| {
-                synth.voice.set_fm_mult((value as f64).round() as i32);
-            })
-            .unwrap();
-    }
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
@@ -212,7 +222,4 @@ fn view(app: &App, model: &Model, frame: Frame) {
 
         draw.to_frame(app, &frame).unwrap();
     }
-
-    // Draw the state of the `Ui` to the frame.
-    model.ui.draw_to_frame(app, &frame).unwrap();
 }

@@ -2,6 +2,7 @@
 name = "swell"
 version = "0.1.0"
 authors = [
+    "Satya Bodduluri  <skbodduluri@gmail.com >",
     "Reed Rosenbluth <reed.rosenbluth@gmail.com>", 
     "Jeffrey Rosenbluth <jeffrey.rosenbluth@gmail.com>"
 ]
@@ -15,3 +16,7 @@ nannou_audio = "0.2"
 crossbeam = "0.7.3"
 libmath = "0.2.1"
 derive_more = "0.99"
+
+[[example]]
+name = "wavetypes"
+path = "examples/wavetypes.rs"
