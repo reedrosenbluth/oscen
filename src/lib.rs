@@ -348,3 +348,25 @@ impl Wave for PolyWave {
         }
     }
 }
+
+pub fn fourier_wave(coefficients: Vec<f32>, hz: f64) -> PolyWave {
+    let mut wwaves: Vec<WeightedWave> = Vec::new();
+    for (n, c) in coefficients.iter().enumerate() {
+        let wp = WaveParams::new(hz * n as f64, 1.0);
+        let s = SineWave(wp);
+        wwaves.push(WeightedWave(Box::new(s), *c));
+    }
+    PolyWave::new(wwaves, 1.)
+}
+
+pub fn square_wave(n: u32, hz: f64) -> PolyWave {
+    let mut coefficients: Vec<f32> = Vec::new();
+    for i in 0..=n {
+        if i % 2 == 1 {
+            coefficients.push(1. / i as f32);
+        } else {
+            coefficients.push(0.); 
+        }
+    }
+    fourier_wave(coefficients, hz)
+}
