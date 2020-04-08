@@ -284,35 +284,50 @@ impl Wave for ADSRWave {
     }
 }
 
-pub_struct!(struct WeightedWave(Box<dyn Wave + Send>, f32));
+pub struct WeightedWave(pub Box<dyn Wave + Send>, pub f32);
 
 impl fmt::Debug for WeightedWave {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("").field("weight", &self.1).finish()
     }
 }
-pub_struct!(
-    #[derive(Debug)]
-    struct AvgWave {
-        waves: Vec<WeightedWave>,
-    }
-);
+#[derive(Debug)]
+pub struct PolyWave {
+    pub waves: Vec<WeightedWave>,
+    pub volume: f32,
+}
 
-impl AvgWave {
+impl PolyWave {
+    pub fn new(waves: Vec<WeightedWave>, volume: f32) -> Self {
+        Self { waves, volume }
+    }
+
+    pub fn new_normal(waves: Vec<WeightedWave>) -> Self {
+        let total_weight = waves.iter().fold(0., |acc: f32, x| acc + x.1);
+        PolyWave::new(waves, 1. / total_weight)
+    }
+
     pub fn set_weights(&mut self, weights: Vec<f32>) {
         for (i, v) in self.waves.iter_mut().enumerate() {
             v.1 = weights[i];
         }
     }
+
+    pub fn normalize_weights(&mut self) {
+        let total_weight = self.waves.iter().fold(0., |acc: f32, x| acc + x.1);
+        for w in self.waves.iter_mut() {
+            w.1 /= total_weight;
+        }
+    }
 }
 
-impl Wave for AvgWave {
+impl Wave for PolyWave {
     fn sample(&self) -> f32 {
-        let total_weight = self.waves.iter().fold(0.0, |acc, x| acc + x.1);
-        self.waves
-            .iter()
-            .fold(0.0, |acc, x| acc + x.1 * x.0.sample())
-            / total_weight
+        self.volume
+            * self
+                .waves
+                .iter()
+                .fold(0.0, |acc, x| acc + x.1 * x.0.sample())
     }
 
     fn update_phase(&mut self, sample_rate: f64) {

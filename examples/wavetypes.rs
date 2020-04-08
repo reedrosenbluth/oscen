@@ -28,7 +28,7 @@ struct Model {
 
 #[derive(Constructor)]
 struct Synth {
-    voice: Box<AvgWave>,
+    voice: Box<PolyWave>,
     sender: Sender<f32>,
 }
 
@@ -76,9 +76,8 @@ fn model(app: &App) -> Model {
         }),
         0.0,
     );
-    let waves = AvgWave {
-        waves: vec![sine, square, saw, triangle, lerp, vca, vco],
-    };
+
+    let waves = PolyWave::new_normal(vec![sine, square, saw, triangle, lerp, vca, vco]);
     let num_waves = waves.waves.len();
     let model = Synth {
         voice: Box::new(waves),
@@ -214,6 +213,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         .stream
         .send(move |synth| {
             synth.voice.set_weights(ws);
+            synth.voice.normalize_weights();
         })
         .unwrap();
 }
