@@ -244,11 +244,28 @@ pub_struct!(
         sustain_time: f32,
         sustain_level: f32,
         release: f32,
-        time: f64,
+        current_time: f64,
     }
 );
 
 impl ADSRWave {
+    pub fn new(
+        attack: f32,
+        decay: f32,
+        sustain_time: f32,
+        sustain_level: f32,
+        release: f32,
+    ) -> Self {
+        ADSRWave {
+            attack: attack,
+            decay: decay,
+            sustain_time: sustain_time,
+            sustain_level: sustain_level,
+            release: release,
+            current_time: 0.,
+        }
+    }
+
     fn adsr(&self, t: f32) -> f32 {
         let a = self.attack;
         let d = self.decay;
@@ -267,11 +284,11 @@ impl ADSRWave {
 
 impl Wave for ADSRWave {
     fn sample(&self) -> f32 {
-        self.adsr(self.time as f32)
+        self.adsr(self.current_time as f32)
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.time += 1. / sample_rate;
+        self.current_time += 1. / sample_rate;
     }
 
     fn mul_hz(&mut self, _factor: f64) {}
@@ -359,7 +376,7 @@ pub fn square_wave(n: u32, hz: f64) -> PolyWave {
         if i % 2 == 1 {
             coefficients.push(1. / i as f32);
         } else {
-            coefficients.push(0.); 
+            coefficients.push(0.);
         }
     }
     fourier_wave(coefficients, hz)
