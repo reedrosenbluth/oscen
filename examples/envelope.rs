@@ -33,6 +33,7 @@ struct Ids {
 struct Synth {
     voice: Option<Box<dyn Wave + Send>>,
     sender: Sender<f32>,
+    current_key: Option<Key>,
 }
 
 fn model(app: &App) -> Model {
@@ -61,6 +62,7 @@ fn model(app: &App) -> Model {
     let synth = Synth {
         voice: None,
         sender,
+        current_key: None,
     };
 
     let stream = audio_host
@@ -123,80 +125,56 @@ fn create_voice(hz: f64) -> Option<Box<dyn Wave + Send>> {
     Some(Box::new(vca))
 }
 
-fn key_to_freq(key: Key) -> f64 {
+fn key_to_freq(key: Key) -> Option<f64> {
     match key {
         // ------ Freq ---- Midi -- Note -------- //
-        Key::A => 131., //  48      C3
-        Key::W => 139., //  49      C#/Db3
-        Key::S => 147., //  50      D3
-        Key::E => 156., //  51      D#/Eb3
-        Key::D => 165., //  52      E3
-        Key::F => 175., //  53      F3
-        Key::T => 185., //  54      F#/Gb3
-        Key::G => 196., //  55      G3
-        Key::Y => 208., //  56      G#/Ab3
-        Key::H => 220., //  57      A3
-        Key::U => 233., //  58      A#/Bb3
-        Key::J => 247., //  59      B3
-        Key::K => 262., //  60      C4
-        Key::O => 277., //  61      C#/Db4
-        Key::L => 294., //  62      D4
-        _ => 0.,
+        Key::A => Some(131.), //  48      C3
+        Key::W => Some(139.), //  49      C#/Db3
+        Key::S => Some(147.), //  50      D3
+        Key::E => Some(156.), //  51      D#/Eb3
+        Key::D => Some(165.), //  52      E3
+        Key::F => Some(175.), //  53      F3
+        Key::T => Some(185.), //  54      F#/Gb3
+        Key::G => Some(196.), //  55      G3
+        Key::Y => Some(208.), //  56      G#/Ab3
+        Key::H => Some(220.), //  57      A3
+        Key::U => Some(233.), //  58      A#/Bb3
+        Key::J => Some(247.), //  59      B3
+        Key::K => Some(262.), //  60      C4
+        Key::O => Some(277.), //  61      C#/Db4
+        Key::L => Some(294.), //  62      D4
+        _ => None,
     }
 }
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
-    let change_hz = |i| {
-        model
-            .stream
-            .send(move |synth| {
-                let factor = 2.0.powf(i / 12.);
-                match &mut synth.voice {
-                    Some(voice) => voice.mul_hz(factor),
-                    None => {}
-                }
-            })
-            .unwrap();
-    };
     match key {
-        // Play synth while spacebar is pressed
-        Key::Space => {
-            model
-                .stream
-                .send(move |synth| {
-                    if synth.voice.is_none() {
-                        synth.voice = create_voice(440.);
-                    }
-                })
-                .unwrap();
-        }
-        // Raise the frequency when the up key is pressed.
-        Key::Up => change_hz(1.),
-        Key::Down => change_hz(-1.),
         _ => {
             model
                 .stream
-                .send(move |synth| {
-                    if synth.voice.is_none() {
-                        synth.voice = create_voice(key_to_freq(key));
-                    }
-                })
+                .send(
+                    move |synth| match (synth.voice.as_ref(), key_to_freq(key)) {
+                        (None, Some(hz)) => {
+                            synth.voice = create_voice(hz);
+                            synth.current_key = Some(key);
+                        }
+                        _ => {}
+                    },
+                )
                 .unwrap();
         }
     }
 }
 
 fn key_released(_app: &App, model: &mut Model, key: Key) {
-    match key {
-        // Remove synth when spacebar is released
-        _ => model
-            .stream
-            .send(move |synth| {
-                synth.voice = None;
-            })
-            .unwrap(),
-    }
+    model
+        .stream
+        .send(move |synth| match synth.current_key {
+            Some(current_key) if current_key == key => synth.voice = None,
+            _ => {}
+        })
+        .unwrap();
 }
 
 fn update(_app: &App, model: &mut Model, _update: Update) {
@@ -285,5 +263,5 @@ fn view(app: &App, model: &Model, frame: Frame) {
     draw.to_frame(app, &frame).unwrap();
 
     // Draw the state of the `Ui` to the frame.
-    model.ui.draw_to_frame(app, &frame).unwrap();
+    model.ui.draw_to_frame_if_changed(app, &frame).unwrap();
 }
