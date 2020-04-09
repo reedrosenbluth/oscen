@@ -64,13 +64,10 @@ fn model(app: &App) -> Model {
     let osc = VCO {
         wave: carrier,
         cv: modulator,
-        fm_mult: 1
+        fm_mult: 1,
     };
 
-    let synth = Synth {
-        voice: osc,
-        sender,
-    };
+    let synth = Synth { voice: osc, sender };
 
     let stream = audio_host
         .new_output_stream(synth)
