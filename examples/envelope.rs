@@ -126,21 +126,22 @@ fn create_voice(hz: f64) -> Option<Box<dyn Wave + Send>> {
 
 fn key2hz(key: Key) -> f64 {
     match key {
-        Key::A => 131., // C3
-        Key::W => 139., // C#/Db3
-        Key::S => 147., // D3
-        Key::E => 156., // D#/Eb3
-        Key::D => 165., // E3
-        Key::F => 175., // F3
-        Key::T => 185., // F#/Gb3
-        Key::G => 196., // G3
-        Key::Y => 208., // G#/Ab3
-        Key::H => 220., // A3
-        Key::U => 233., // A#/Bb3
-        Key::J => 247., // B3
-        Key::K => 262., // C4
-        Key::O => 277., // C#/Db4
-        Key::L => 294., // D4
+        // ------ Freq ---- Midi -- Note -------- //
+        Key::A => 131., //  48      C3
+        Key::W => 139., //  49      C#/Db3
+        Key::S => 147., //  50      D3
+        Key::E => 156., //  51      D#/Eb3
+        Key::D => 165., //  52      E3
+        Key::F => 175., //  53      F3
+        Key::T => 185., //  54      F#/Gb3
+        Key::G => 196., //  55      G3
+        Key::Y => 208., //  56      G#/Ab3
+        Key::H => 220., //  57      A3
+        Key::U => 233., //  58      A#/Bb3
+        Key::J => 247., //  59      B3
+        Key::K => 262., //  60      C4
+        Key::O => 277., //  61      C#/Db4
+        Key::L => 294., //  62      D4
         _ => 0.,
     }
 }
