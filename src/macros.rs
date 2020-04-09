@@ -49,8 +49,12 @@ macro_rules! basic_wave {
         pub struct $wave($crate::WaveParams);
 
         impl $wave {
-            pub fn new(hz: f64, amplitude: f32) -> Self {
-                $wave($crate::WaveParams::new(hz, amplitude))
+            pub fn new(hz: f64) -> Self {
+                $wave($crate::WaveParams::new(hz))
+            }
+
+            pub fn boxed(hz: f64) -> Box<Self> {
+                Box::new($wave($crate::WaveParams::new(hz)))
             }
         }
 

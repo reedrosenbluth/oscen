@@ -49,30 +49,30 @@ fn model(app: &App) -> Model {
     // Initialise the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
-    let sine = WeightedWave(Box::new(SineWave::new(HZ, 1.0)), 1.0);
+    let sine = WeightedWave(SineWave::boxed(HZ), 1.0);
     // let square = WeightedWave(Box::new(SquareWave::new(HZ, 1.0)), 0.0);
     let square = WeightedWave(Box::new(square_wave(16, HZ)), 0.0);
-    let saw = WeightedWave(Box::new(SawWave::new(HZ, 1.0)), 0.0);
-    let triangle = WeightedWave(Box::new(TriangleWave::new(HZ, 1.0)), 0.0);
+    let saw = WeightedWave(SawWave::boxed(HZ), 0.0);
+    let triangle = WeightedWave(TriangleWave::boxed(HZ), 0.0);
     let lerp = WeightedWave(
         Box::new(LerpWave {
-            wave1: Box::new(SineWave::new(HZ, 1.0)),
-            wave2: Box::new(SquareWave::new(HZ, 1.0)),
+            wave1: SineWave::boxed(HZ),
+            wave2: SquareWave::boxed(HZ),
             alpha: 0.5,
         }),
         0.0,
     );
     let vca = WeightedWave(
         Box::new(VCA {
-            wave: Box::new(SineWave::new(2.0 * HZ, 1.0)),
-            cv: Box::new(SineWave::new(HZ / 5.5, 1.0)),
+            wave: SineWave::boxed(2.0 * HZ),
+            cv: SineWave::boxed(HZ / 5.5),
         }),
         0.0,
     );
     let vco = WeightedWave(
         Box::new(VCO {
-            wave: Box::new(SineWave::new(HZ, 1.0)),
-            cv: Box::new(SineWave::new(HZ, 1.0)),
+            wave: SineWave::boxed(HZ),
+            cv: SineWave::boxed(HZ),
             fm_mult: 1,
         }),
         0.0,

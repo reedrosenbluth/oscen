@@ -34,10 +34,10 @@ pub_struct!(
 );
 
 impl WaveParams {
-    fn new(hz: f64, amplitude: f32) -> Self {
+    fn new(hz: f64) -> Self {
         WaveParams {
             hz,
-            amplitude,
+            amplitude: 1.0,
             phase: 0.0,
             hz0: hz,
         }
@@ -88,6 +88,7 @@ impl SimpleWave for WaveParams {
 basic_wave!(SineWave, |wave: &SineWave| {
     wave.0.amplitude * (TAU * wave.0.phase as f32).sin()
 });
+
 
 simple_wave!(SineWave);
 
@@ -363,7 +364,7 @@ impl Wave for PolyWave {
 pub fn fourier_wave(coefficients: Vec<f32>, hz: f64) -> PolyWave {
     let mut wwaves: Vec<WeightedWave> = Vec::new();
     for (n, c) in coefficients.iter().enumerate() {
-        let wp = WaveParams::new(hz * n as f64, 1.0);
+        let wp = WaveParams::new(hz * n as f64);
         let s = SineWave(wp);
         wwaves.push(WeightedWave(Box::new(s), *c));
     }
