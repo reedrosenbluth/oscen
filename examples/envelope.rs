@@ -1,5 +1,4 @@
 use core::cmp::Ordering;
-use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use derive_more::Constructor;
 use nannou::prelude::*;
@@ -103,17 +102,17 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 }
 
 fn create_voice(hz: f64) -> Option<Box<dyn Wave + Send>> {
-    let carrier = Box::new(SineWave::new(hz, 0.5));
-    let modulator = Box::new(SineWave::new(hz, 1.0));
+    let carrier = SineWave::boxed(hz);
+    let modulator = SineWave::boxed(hz);
     let vco = VCO {
         wave: carrier,
         cv: modulator,
-        fm_mult: 1,
+        fm_mult: 1.,
     };
     let vco2 = VCO {
         wave: Box::new(vco),
-        cv: Box::new(SineWave::new(5.0, 1.0)),
-        fm_mult: 1,
+        cv: SineWave::boxed(5.0),
+        fm_mult: 1.,
     };
     let env = ADSRWave::new(
         0.05, // attack

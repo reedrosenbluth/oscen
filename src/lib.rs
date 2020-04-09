@@ -1,7 +1,6 @@
 use derive_more::Constructor;
 use math::round::floor;
 use nannou::prelude::*;
-use std::fmt;
 
 mod macros;
 
@@ -11,6 +10,8 @@ pub trait Wave {
     fn mul_hz(&mut self, factor: f64);
     fn mod_hz(&mut self, factor: f64);
 }
+
+type BoxedWave = Box<dyn Wave + Send>;
 
 pub trait SimpleWave {
     fn hz(&self) -> f64;
@@ -89,7 +90,6 @@ basic_wave!(SineWave, |wave: &SineWave| {
     wave.0.amplitude * (TAU * wave.0.phase as f32).sin()
 });
 
-
 simple_wave!(SineWave);
 
 basic_wave!(SquareWave, |wave: &SquareWave| {
@@ -132,16 +132,22 @@ basic_wave!(TriangleWave, |wave: &TriangleWave| {
 
 simple_wave!(TriangleWave);
 
-pub_struct!(
-    #[derive(Constructor)]
-    struct LerpWave {
-        wave1: Box<dyn Wave + Send>,
-        wave2: Box<dyn Wave + Send>,
-        alpha: f32,
-    }
-);
+#[derive(Constructor)]
+pub struct LerpWave {
+    pub wave1: BoxedWave,
+    pub wave2: BoxedWave,
+    pub alpha: f32,
+}
 
 impl LerpWave {
+    pub fn boxed(wave1: BoxedWave, wave2: BoxedWave, alpha: f32) -> Box<Self> {
+        Box::new(LerpWave {
+            wave1,
+            wave2,
+            alpha,
+        })
+    }
+
     pub fn set_alpha(&mut self, alpha: f32) {
         self.alpha = alpha;
     }
@@ -168,13 +174,17 @@ impl Wave for LerpWave {
     }
 }
 
-pub_struct!(
-    /// Voltage Controlled Amplifier
-    struct VCA {
-        wave: Box<dyn Wave + Send>,
-        cv: Box<dyn Wave + Send>,
+/// Voltage Controlled Amplifier
+pub struct VCA {
+    pub wave: BoxedWave,
+    pub cv: BoxedWave,
+}
+
+impl VCA {
+    pub fn boxed(wave: BoxedWave, cv: BoxedWave) -> Box<Self> {
+        Box::new(VCA { wave, cv })
     }
-);
+}
 
 impl Wave for VCA {
     fn sample(&self) -> f32 {
@@ -195,21 +205,22 @@ impl Wave for VCA {
     }
 }
 
-pub_struct!(
-    /// Voltage Controlled Oscillator
-    struct VCO {
-        wave: Box<dyn Wave + Send>,
-        cv: Box<dyn Wave + Send>,
-        fm_mult: i32,
-    }
-);
+/// Voltage Controlled Oscillator
+pub struct VCO {
+    pub wave: BoxedWave,
+    pub cv: BoxedWave,
+    pub fm_mult: f64,
+}
 
 impl VCO {
-    pub fn fm_mult(&mut self) -> i32 {
+    pub fn boxed(wave: BoxedWave, cv: BoxedWave, fm_mult: f64) -> Box<Self> {
+        Box::new(VCO { wave, cv, fm_mult })
+    }
+    pub fn fm_mult(&mut self) -> f64 {
         self.fm_mult
     }
 
-    pub fn set_fm_mult(&mut self, mult: i32) {
+    pub fn set_fm_mult(&mut self, mult: f64) {
         self.fm_mult = mult;
     }
 }
@@ -296,14 +307,8 @@ impl Wave for ADSRWave {
     fn mod_hz(&mut self, _factor: f64) {}
 }
 
-pub struct WeightedWave(pub Box<dyn Wave + Send>, pub f32);
+pub struct WeightedWave(pub BoxedWave, pub f32);
 
-impl fmt::Debug for WeightedWave {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("").field("weight", &self.1).finish()
-    }
-}
-#[derive(Debug)]
 pub struct PolyWave {
     pub waves: Vec<WeightedWave>,
     pub volume: f32,
@@ -314,9 +319,17 @@ impl PolyWave {
         Self { waves, volume }
     }
 
+    pub fn boxed(waves: Vec<WeightedWave>, volume: f32) -> Box<Self> {
+        Box::new(Self::new(waves, volume))
+    }
+
     pub fn new_normal(waves: Vec<WeightedWave>) -> Self {
         let total_weight = waves.iter().fold(0., |acc: f32, x| acc + x.1);
         PolyWave::new(waves, 1. / total_weight)
+    }
+
+    pub fn boxed_normal(waves: Vec<WeightedWave>) -> Box<Self> {
+        Box::new(Self::new_normal(waves))
     }
 
     pub fn set_weights(&mut self, weights: Vec<f32>) {
@@ -361,17 +374,17 @@ impl Wave for PolyWave {
     }
 }
 
-pub fn fourier_wave(coefficients: Vec<f32>, hz: f64) -> PolyWave {
+pub fn fourier_wave(coefficients: Vec<f32>, hz: f64) -> Box<PolyWave> {
     let mut wwaves: Vec<WeightedWave> = Vec::new();
     for (n, c) in coefficients.iter().enumerate() {
         let wp = WaveParams::new(hz * n as f64);
         let s = SineWave(wp);
         wwaves.push(WeightedWave(Box::new(s), *c));
     }
-    PolyWave::new(wwaves, 1.)
+    PolyWave::boxed(wwaves, 1.)
 }
 
-pub fn square_wave(n: u32, hz: f64) -> PolyWave {
+pub fn square_wave(n: u32, hz: f64) -> Box<PolyWave> {
     let mut coefficients: Vec<f32> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {

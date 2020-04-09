@@ -51,29 +51,22 @@ fn model(app: &App) -> Model {
     // Initialise the state that we want to live on the audio thread.
     let sine = WeightedWave(SineWave::boxed(HZ), 1.0);
     // let square = WeightedWave(Box::new(SquareWave::new(HZ, 1.0)), 0.0);
-    let square = WeightedWave(Box::new(square_wave(16, HZ)), 0.0);
+    let square = WeightedWave(square_wave(16, HZ), 0.0);
     let saw = WeightedWave(SawWave::boxed(HZ), 0.0);
     let triangle = WeightedWave(TriangleWave::boxed(HZ), 0.0);
     let lerp = WeightedWave(
-        Box::new(LerpWave {
-            wave1: SineWave::boxed(HZ),
-            wave2: SquareWave::boxed(HZ),
-            alpha: 0.5,
-        }),
+        LerpWave::boxed(SineWave::boxed(HZ), SquareWave::boxed(HZ), 0.5),
         0.0,
     );
     let vca = WeightedWave(
-        Box::new(VCA {
-            wave: SineWave::boxed(2.0 * HZ),
-            cv: SineWave::boxed(HZ / 5.5),
-        }),
+        VCA::boxed(SineWave::boxed(2.0 * HZ), SineWave::boxed(HZ / 5.5)),
         0.0,
     );
     let vco = WeightedWave(
         Box::new(VCO {
             wave: SineWave::boxed(HZ),
             cv: SineWave::boxed(HZ),
-            fm_mult: 1,
+            fm_mult: 1.,
         }),
         0.0,
     );
