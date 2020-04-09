@@ -124,7 +124,7 @@ fn create_voice(hz: f64) -> Option<Box<dyn Wave + Send>> {
     Some(Box::new(vca))
 }
 
-fn key2hz(key: Key) -> f64 {
+fn key_to_freq(key: Key) -> f64 {
     match key {
         // ------ Freq ---- Midi -- Note -------- //
         Key::A => 131., //  48      C3
@@ -180,7 +180,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 .stream
                 .send(move |synth| {
                     if synth.voice.is_none() {
-                        synth.voice = create_voice(key2hz(key));
+                        synth.voice = create_voice(key_to_freq(key));
                     }
                 })
                 .unwrap();
