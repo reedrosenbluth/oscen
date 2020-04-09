@@ -3,10 +3,13 @@ use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use derive_more::Constructor;
 use nannou::prelude::*;
+use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 
 use swell::*;
+use widget::toggle::TimesClicked;
+use widget::Toggle;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -18,8 +21,9 @@ struct Model {
     receiver: Receiver<f32>,
     amps: Vec<f32>,
     max_amp: f32,
-    wave_index: usize,
-    num_waves: usize,
+    ui: Ui,
+    ids: Vec<widget::Id>,
+    wave_indices: Vec<f32>,
 }
 
 #[derive(Constructor)]
@@ -85,13 +89,24 @@ fn model(app: &App) -> Model {
         .render(audio)
         .build()
         .unwrap();
+
+    let mut ui = app.new_ui().build().unwrap();
+    let mut ids: Vec<widget::Id> = Vec::new();
+    for _ in 0..num_waves {
+        ids.push(ui.generate_widget_id());
+    }
+
+    let mut wave_indices = vec![0.; num_waves];
+    wave_indices[0] = 1.0;
+
     Model {
         stream,
         receiver,
         amps: vec![],
         max_amp: 0.,
-        wave_index: 0,
-        num_waves,
+        ui,
+        ids,
+        wave_indices,
     }
 }
 
@@ -133,33 +148,6 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
         // Raise the frequency when the up key is pressed.
         Key::Up => change_hz(1.),
         Key::Down => change_hz(-1.),
-        Key::Right => {
-            model.wave_index += 1;
-            model.wave_index %= model.num_waves;
-            let mut ws = vec![0.; model.num_waves];
-            ws[model.wave_index] = 1.0;
-            model
-                .stream
-                .send(move |synth| {
-                    synth.voice.set_weights(ws);
-                })
-                .unwrap();
-        }
-        Key::Left => {
-            if model.wave_index == 0 {
-                model.wave_index = model.num_waves - 1;
-            } else {
-                model.wave_index -= 1;
-            }
-            let mut ws = vec![0.; model.num_waves];
-            ws[model.wave_index] = 1.0;
-            model
-                .stream
-                .send(move |synth| {
-                    synth.voice.set_weights(ws);
-                })
-                .unwrap();
-        }
         _ => {}
     }
 }
@@ -181,8 +169,53 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     if max.is_some() && *max.unwrap() > model.max_amp {
         model.max_amp = *max.unwrap();
     }
-
     model.amps = clone;
+
+    let ui = &mut model.ui.set_widgets();
+
+    let labels = &["Sine", "Square", "Saw", "Triangle", "Lerp", "AM", "FM"];
+
+    fn toggle(onoff: bool, lbl: &'static str) -> Toggle<'static> {
+        Toggle::new(onoff)
+            .w_h(100.0, 25.0)
+            .label(lbl)
+            .label_font_size(15)
+            .rgb(9. / 255., 9. / 255., 44. / 255.)
+            .label_color(if onoff {
+                ui::color::WHITE
+            } else {
+                ui::color::DARK_RED
+            })
+            .border(0.0)
+    }
+    let mut toggles: Vec<TimesClicked> = Vec::new();
+    let flags: Vec<bool> = model.wave_indices.iter().map(|x| *x > 0.).collect();
+
+    for (i, f) in flags.iter().enumerate() {
+        toggles.push(
+            toggle(*f, labels[i])
+                .top_left_with_margins(75.0 + 25.0 * i as f64, 20.)
+                // .down(10.)
+                .set(model.ids[i], ui),
+        );
+    }
+
+    for (i, e) in toggles.iter_mut().enumerate() {
+        for c in e {
+            if c {
+                model.wave_indices[i] = 1.
+            } else {
+                model.wave_indices[i] = 0.
+            }
+        }
+    }
+    let ws = model.wave_indices.clone();
+    model
+        .stream
+        .send(move |synth| {
+            synth.voice.set_weights(ws);
+        })
+        .unwrap();
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
@@ -218,8 +251,9 @@ fn view(app: &App, model: &Model, frame: Frame) {
             .weight(2.)
             .points(points)
             .color(CORNFLOWERBLUE)
-            .x_y(-300., 0.);
+            .x_y(-150., 0.);
 
         draw.to_frame(app, &frame).unwrap();
     }
+    model.ui.draw_to_frame(app, &frame).unwrap();
 }
