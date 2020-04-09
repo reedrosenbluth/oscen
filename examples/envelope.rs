@@ -39,9 +39,8 @@ fn model(app: &App) -> Model {
     let (sender, receiver) = unbounded();
 
     // Create a window to receive key pressed events.
-    app.set_loop_mode(LoopMode::Rate {
-        update_interval: Duration::from_millis(1),
-    });
+    // Reduces CPU significantly...unsure how this affects the audio generation
+    app.set_loop_mode(LoopMode::Wait);
 
     let _window = app
         .new_window()
