@@ -110,15 +110,20 @@ fn create_voice(hz: f64) -> Option<Box<dyn Wave + Send>> {
         cv: modulator,
         fm_mult: 1,
     };
+    let vco2 = VCO {
+        wave: Box::new(vco),
+        cv: Box::new(SineWave::new(5.0, 1.0)),
+        fm_mult: 1,
+    };
     let env = ADSRWave::new(
         0.05, // attack
         0.5,  // decay
         0.,   // sustain_time
-        0.8,  // sustain_level
+        1.0,  // sustain_level
         3.,   // release
     );
     let vca = VCA {
-        wave: Box::new(vco),
+        wave: Box::new(vco2),
         cv: Box::new(env),
     };
 
@@ -149,22 +154,18 @@ fn key_to_freq(key: Key) -> Option<f64> {
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
-    match key {
-        _ => {
-            model
-                .stream
-                .send(
-                    move |synth| match (synth.voice.as_ref(), key_to_freq(key)) {
-                        (None, Some(hz)) => {
-                            synth.voice = create_voice(hz);
-                            synth.current_key = Some(key);
-                        }
-                        _ => {}
-                    },
-                )
-                .unwrap();
-        }
-    }
+    model
+        .stream
+        .send(
+            move |synth| match (synth.voice.as_ref(), key_to_freq(key)) {
+                (None, Some(hz)) => {
+                    synth.voice = create_voice(hz);
+                    synth.current_key = Some(key);
+                }
+                _ => {}
+            },
+        )
+        .unwrap();
 }
 
 fn key_released(_app: &App, model: &mut Model, key: Key) {
