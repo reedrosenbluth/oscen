@@ -278,35 +278,50 @@ impl Wave for ADSRWave {
     fn mod_hz(&mut self, _factor: f64) {}
 }
 
-pub_struct!(struct WeightedWave(Box<dyn Wave + Send>, f32));
+pub struct WeightedWave(pub Box<dyn Wave + Send>, pub f32);
 
 impl fmt::Debug for WeightedWave {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("").field("weight", &self.1).finish()
     }
 }
-pub_struct!(
-    #[derive(Debug)]
-    struct AvgWave {
-        waves: Vec<WeightedWave>,
-    }
-);
+#[derive(Debug)]
+pub struct PolyWave {
+    pub waves: Vec<WeightedWave>,
+    pub volume: f32,
+}
 
-impl AvgWave {
+impl PolyWave {
+    pub fn new(waves: Vec<WeightedWave>, volume: f32) -> Self {
+        Self { waves, volume }
+    }
+
+    pub fn new_normal(waves: Vec<WeightedWave>) -> Self {
+        let total_weight = waves.iter().fold(0., |acc: f32, x| acc + x.1);
+        PolyWave::new(waves, 1. / total_weight)
+    }
+
     pub fn set_weights(&mut self, weights: Vec<f32>) {
         for (i, v) in self.waves.iter_mut().enumerate() {
             v.1 = weights[i];
         }
     }
+
+    pub fn normalize_weights(&mut self) {
+        let total_weight = self.waves.iter().fold(0., |acc: f32, x| acc + x.1);
+        for w in self.waves.iter_mut() {
+            w.1 /= total_weight;
+        }
+    }
 }
 
-impl Wave for AvgWave {
+impl Wave for PolyWave {
     fn sample(&self) -> f32 {
-        let total_weight = self.waves.iter().fold(0.0, |acc, x| acc + x.1);
-        self.waves
-            .iter()
-            .fold(0.0, |acc, x| acc + x.1 * x.0.sample())
-            / total_weight
+        self.volume
+            * self
+                .waves
+                .iter()
+                .fold(0.0, |acc, x| acc + x.1 * x.0.sample())
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
@@ -326,4 +341,26 @@ impl Wave for AvgWave {
             wave.0.mod_hz(factor);
         }
     }
+}
+
+pub fn fourier_wave(coefficients: Vec<f32>, hz: f64) -> PolyWave {
+    let mut wwaves: Vec<WeightedWave> = Vec::new();
+    for (n, c) in coefficients.iter().enumerate() {
+        let wp = WaveParams::new(hz * n as f64, 1.0);
+        let s = SineWave(wp);
+        wwaves.push(WeightedWave(Box::new(s), *c));
+    }
+    PolyWave::new(wwaves, 1.)
+}
+
+pub fn square_wave(n: u32, hz: f64) -> PolyWave {
+    let mut coefficients: Vec<f32> = Vec::new();
+    for i in 0..=n {
+        if i % 2 == 1 {
+            coefficients.push(1. / i as f32);
+        } else {
+            coefficients.push(0.); 
+        }
+    }
+    fourier_wave(coefficients, hz)
 }

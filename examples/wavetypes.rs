@@ -28,12 +28,12 @@ struct Model {
 
 #[derive(Constructor)]
 struct Synth {
-    voice: Box<AvgWave>,
+    voice: Box<PolyWave>,
     sender: Sender<f32>,
 }
 
 fn model(app: &App) -> Model {
-    const HZ: f64 = 440.;
+    const HZ: f64 = 220.;
     let (sender, receiver) = unbounded();
 
     // Create a window to receive key pressed events.
@@ -50,7 +50,8 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
     let sine = WeightedWave(Box::new(SineWave::new(HZ, 1.0)), 1.0);
-    let square = WeightedWave(Box::new(SquareWave::new(HZ, 1.0)), 0.0);
+    // let square = WeightedWave(Box::new(SquareWave::new(HZ, 1.0)), 0.0);
+    let square = WeightedWave(Box::new(square_wave(16, HZ)), 0.0);
     let saw = WeightedWave(Box::new(SawWave::new(HZ, 1.0)), 0.0);
     let triangle = WeightedWave(Box::new(TriangleWave::new(HZ, 1.0)), 0.0);
     let lerp = WeightedWave(
@@ -76,9 +77,8 @@ fn model(app: &App) -> Model {
         }),
         0.0,
     );
-    let waves = AvgWave {
-        waves: vec![sine, square, saw, triangle, lerp, vca, vco],
-    };
+
+    let waves = PolyWave::new_normal(vec![sine, square, saw, triangle, lerp, vca, vco]);
     let num_waves = waves.waves.len();
     let model = Synth {
         voice: Box::new(waves),
@@ -173,7 +173,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     let ui = &mut model.ui.set_widgets();
 
-    let labels = &["Sine", "Square", "Saw", "Triangle", "Lerp", "AM", "FM"];
+    let labels = &["Sine", "Square(8)", "Saw", "Triangle", "Lerp", "AM", "FM"];
 
     fn toggle(onoff: bool, lbl: &'static str) -> Toggle<'static> {
         Toggle::new(onoff)
@@ -214,6 +214,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         .stream
         .send(move |synth| {
             synth.voice.set_weights(ws);
+            synth.voice.normalize_weights();
         })
         .unwrap();
 }
