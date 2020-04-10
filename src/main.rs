@@ -18,7 +18,7 @@ fn main() {
 struct Model {
     ui: Ui,
     ids: Ids,
-    fm_mult: i32,
+    fm_mult: f32,
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     amps: Vec<f32>,
@@ -59,12 +59,12 @@ fn model(app: &App) -> Model {
 
     let audio_host = audio::Host::new();
 
-    let carrier = Box::new(SineWave::new(220., 0.5));
-    let modulator = Box::new(SineWave::new(220., 1.0));
+    let carrier = Box::new(SineWave::new(220.));
+    let modulator = Box::new(SineWave::new(220.));
     let osc = VCO {
         wave: carrier,
         cv: modulator,
-        fm_mult: 1,
+        fm_mult: 1.,
     };
 
     let synth = Synth { voice: osc, sender };
@@ -78,7 +78,7 @@ fn model(app: &App) -> Model {
     Model {
         ui,
         ids,
-        fm_mult: 1,
+        fm_mult: 1.,
         stream,
         receiver,
         amps: vec![],
@@ -165,11 +165,11 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         .label("FM Multiplier")
         .set(model.ids.fm_hz, ui)
     {
-        model.fm_mult = (value as f64).round() as i32;
+        model.fm_mult = value;
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_fm_mult((value as f64).round() as i32);
+                synth.voice.set_fm_mult(value as f64);
             })
             .unwrap();
     }

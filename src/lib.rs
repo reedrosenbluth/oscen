@@ -1,8 +1,12 @@
 use derive_more::Constructor;
 use math::round::floor;
-use nannou::prelude::*;
+use std::f64::consts::PI;
 
 mod macros;
+
+const TAU64: f64 = 2.0 * PI;
+const TAU32: f32 = TAU64 as f32;
+
 
 pub trait Wave {
     fn sample(&self) -> f32;
@@ -11,7 +15,7 @@ pub trait Wave {
     fn mod_hz(&mut self, factor: f64);
 }
 
-type BoxedWave = Box<dyn Wave + Send>;
+pub type BoxedWave = Box<dyn Wave + Send>;
 
 pub trait SimpleWave {
     fn hz(&self) -> f64;
@@ -87,7 +91,7 @@ impl SimpleWave for WaveParams {
 }
 
 basic_wave!(SineWave, |wave: &SineWave| {
-    wave.0.amplitude * (TAU * wave.0.phase as f32).sin()
+    wave.0.amplitude * (TAU32 * wave.0.phase as f32).sin()
 });
 
 simple_wave!(SineWave);
@@ -216,6 +220,7 @@ impl VCO {
     pub fn boxed(wave: BoxedWave, cv: BoxedWave, fm_mult: f64) -> Box<Self> {
         Box::new(VCO { wave, cv, fm_mult })
     }
+
     pub fn fm_mult(&mut self) -> f64 {
         self.fm_mult
     }
@@ -235,7 +240,7 @@ impl Wave for VCO {
         self.cv.update_phase(sample_rate);
 
         //Frequency Modulation
-        let factor = 2.0.powf(self.cv.sample() * self.fm_mult as f32) as f64;
+        let factor = 2f32.powf(self.cv.sample() * self.fm_mult as f32) as f64;
         self.wave.mod_hz(factor);
     }
 
@@ -245,6 +250,62 @@ impl Wave for VCO {
     }
 
     fn mod_hz(&mut self, factor: f64) {
+        self.wave.mod_hz(factor);
+    }
+}
+
+pub struct TriggeredWave {
+    pub wave: BoxedWave,
+    pub attack: f32,
+    pub decay: f32,
+    pub sustain_level: f32,
+    pub release: f32,
+    pub clock: f64,
+    pub triggered: bool,
+}
+
+impl TriggeredWave {
+    pub fn on(&mut self) {
+        self.triggered = true;
+        self.clock = 0.;
+    }
+
+    pub fn off(&mut self) {
+        self.triggered = false;
+    }
+}
+
+impl Wave for TriggeredWave {
+    fn sample(&self) -> f32 {
+        let a = self.attack;
+        let d = self.decay;
+        let r = self.release;
+        let sl = self.sustain_level;
+        let level = if self.triggered {
+            match self.clock as f32 {
+                t if t < a => t / a,
+                t if t < a + d => 1.0 + (t - a) * (sl - 1.0) / d,
+                _ => sl,
+            }
+        } else {
+            match self.clock as f32 {
+                t if t < r => sl - t / r * sl,
+                _ => 0., 
+            }
+        };
+        self.wave.sample() * level
+    }
+
+    fn update_phase(&mut self, sample_rate: f64) {
+        self.wave.update_phase(sample_rate);
+        self.clock += 1. / sample_rate;
+    }
+
+    fn mul_hz(&mut self, factor: f64) { 
+        self.wave.mul_hz(factor);
+    }
+
+    fn mod_hz(&mut self, factor: f64) { 
         self.wave.mod_hz(factor);
     }
 }
