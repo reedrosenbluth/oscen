@@ -1,12 +1,11 @@
 use derive_more::Constructor;
 use math::round::floor;
-use std::{rc::Rc, f64::consts::PI};
+use std::{f64::consts::PI, rc::Rc};
 
 mod macros;
 
 const TAU64: f64 = 2.0 * PI;
 const TAU32: f32 = TAU64 as f32;
-
 
 pub trait Wave {
     fn sample(&self) -> f32;
@@ -308,7 +307,7 @@ impl Wave for TriggeredWave {
         } else {
             match self.clock as f32 {
                 t if t < r => sl - t / r * sl,
-                _ => 0., 
+                _ => 0.,
             }
         };
         self.wave.sample() * level
@@ -319,11 +318,11 @@ impl Wave for TriggeredWave {
         self.clock += 1. / sample_rate;
     }
 
-    fn mul_hz(&mut self, factor: f64) { 
+    fn mul_hz(&mut self, factor: f64) {
         self.wave.mul_hz(factor);
     }
 
-    fn mod_hz(&mut self, factor: f64) { 
+    fn mod_hz(&mut self, factor: f64) {
         self.wave.mod_hz(factor);
     }
 
@@ -391,7 +390,6 @@ impl Wave for ADSRWave {
     fn modify_amplitude(&mut self, _f: Rc<dyn Fn(f32) -> f32>) {}
 }
 
-
 pub struct PolyWave {
     pub waves: Vec<BoxedWave>,
     pub volume: f32,
@@ -412,15 +410,15 @@ impl PolyWave {
             v.modify_amplitude(Rc::new(move |_| val));
         }
     }
+
+    pub fn set_volume(&mut self, volume: f32) {
+        self.volume = volume;
+    }
 }
 
 impl Wave for PolyWave {
     fn sample(&self) -> f32 {
-        self.volume
-            * self
-                .waves
-                .iter()
-                .fold(0.0, |acc, x| acc + x.sample())
+        self.volume * self.waves.iter().fold(0.0, |acc, x| acc + x.sample())
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
@@ -445,20 +443,56 @@ impl Wave for PolyWave {
         for wave in self.waves.iter_mut() {
             wave.modify_amplitude(f.clone());
         }
-    }  
-}
-
-pub fn fourier_wave(coefficients: Vec<f32>, hz: f64) -> Box<PolyWave> {
-    let mut wwaves: Vec<BoxedWave> = Vec::new();
-    for (n, c) in coefficients.iter().enumerate() {
-        let wp = WaveParams { hz: hz * n as f64, amplitude: *c,  phase: 0., hz0: hz * n as f64};
-        let s = SineWave(wp);
-        wwaves.push(Box::new(s));
     }
-    PolyWave::boxed(wwaves, 1.)
 }
 
-pub fn square_wave(n: u32, hz: f64) -> Box<PolyWave> {
+pub struct FourierWave(PolyWave);
+
+impl FourierWave {
+    pub fn new(coefficients: Vec<f32>, hz: f64) -> Self {
+        let mut wwaves: Vec<BoxedWave> = Vec::new();
+        for (n, c) in coefficients.iter().enumerate() {
+            let wp = WaveParams {
+                hz: hz * n as f64,
+                amplitude: *c,
+                phase: 0.,
+                hz0: hz * n as f64,
+            };
+            let s = SineWave(wp);
+            wwaves.push(Box::new(s));
+        }
+        FourierWave(PolyWave::new(wwaves, 1.))
+    }
+
+    pub fn boxed(coefficients: Vec<f32>, hz: f64) -> Box<Self> {
+        Box::new(FourierWave::new(coefficients, hz))
+    }
+}
+
+impl Wave for FourierWave {
+    fn sample(&self) -> f32 { 
+        self.0.sample()
+    }
+
+    fn update_phase(&mut self, sample_rate: f64) { 
+        self.0.update_phase(sample_rate);
+    }
+    
+    fn mul_hz(&mut self, factor: f64) { 
+        self.0.mul_hz(factor);
+    }
+
+
+    fn mod_hz(&mut self, factor: f64) { 
+        self.0.mod_hz(factor);
+    }
+
+    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) { 
+        self.0.volume = f(self.0.volume);
+    }
+}
+
+pub fn square_wave(n: u32, hz: f64) -> Box<FourierWave> {
     let mut coefficients: Vec<f32> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {
@@ -467,5 +501,5 @@ pub fn square_wave(n: u32, hz: f64) -> Box<PolyWave> {
             coefficients.push(0.);
         }
     }
-    fourier_wave(coefficients, hz)
+    FourierWave::boxed(coefficients, hz)
 }
