@@ -77,7 +77,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 }
 
 fn voices() -> Box<PolyWave> {
-    let mut vs: Vec<WeightedWave> = Vec::new();
+    let mut vs: Vec<BoxedWave> = Vec::new();
     let freqs = [
         131., 139., 147., 156., 165., 175., 185., 196., 208., 220., 233., 247., 262., 277., 294.,
     ];
@@ -91,7 +91,7 @@ fn voices() -> Box<PolyWave> {
             clock: 0.0,
             triggered: false,
         };
-        vs.push(WeightedWave(Box::new(w), 1.0));
+        vs.push(Box::new(w));
     }
     PolyWave::boxed(vs, 1.)
 }

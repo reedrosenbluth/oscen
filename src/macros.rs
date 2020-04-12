@@ -77,6 +77,14 @@ macro_rules! basic_wave {
             fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
                 self.0.modify_amplitude(f);
             }
+
+            fn on(&mut self) {
+                self.0.on();
+            }
+
+            fn off(&mut self) {
+                self.0.off();
+            }
         }
     };
 }

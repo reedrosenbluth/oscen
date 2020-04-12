@@ -13,6 +13,8 @@ pub trait Wave {
     fn mul_hz(&mut self, factor: f64);
     fn mod_hz(&mut self, factor: f64);
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>);
+    fn on(&mut self);
+    fn off(&mut self);
 }
 
 pub type BoxedWave = Box<dyn Wave + Send>;
@@ -54,8 +56,10 @@ impl WaveParams {
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
         self.amplitude = f(self.amplitude)
     }
-}
 
+    fn on(&mut self) {}
+    fn off(&mut self) {}
+}
 
 basic_wave!(SineWave, |wave: &SineWave| {
     wave.0.amplitude * (TAU32 * wave.0.phase as f32).sin()
@@ -138,6 +142,16 @@ impl Wave for LerpWave {
         self.wave1.modify_amplitude(f.clone());
         self.wave2.modify_amplitude(f);
     }
+
+    fn on(&mut self) {
+        self.wave1.on();
+        self.wave2.on();
+    }
+
+    fn off(&mut self) {
+        self.wave1.off();
+        self.wave2.off();
+    }
 }
 
 /// Voltage Controlled Amplifier
@@ -172,6 +186,14 @@ impl Wave for VCA {
 
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
         self.wave.modify_amplitude(f);
+    }
+
+    fn on(&mut self) {
+        self.wave.on();
+    }
+
+    fn off(&mut self) {
+        self.wave.off();
     }
 }
 
@@ -222,6 +244,14 @@ impl Wave for VCO {
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
         self.wave.modify_amplitude(f);
     }
+
+    fn on(&mut self) {
+        self.wave.on();
+    }
+
+    fn off(&mut self) {
+        self.wave.off();
+    }
 }
 
 pub struct TriggeredWave {
@@ -232,17 +262,6 @@ pub struct TriggeredWave {
     pub release: f32,
     pub clock: f64,
     pub triggered: bool,
-}
-
-impl TriggeredWave {
-    pub fn on(&mut self) {
-        self.triggered = true;
-        self.clock = 0.;
-    }
-
-    pub fn off(&mut self) {
-        self.triggered = false;
-    }
 }
 
 impl Wave for TriggeredWave {
@@ -281,6 +300,15 @@ impl Wave for TriggeredWave {
 
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
         self.wave.modify_amplitude(f);
+    }
+
+    fn on(&mut self) {
+        self.triggered = true;
+        self.clock = 0.;
+    }
+
+    fn off(&mut self) {
+        self.triggered = false;
     }
 }
 
@@ -341,6 +369,8 @@ impl Wave for ADSRWave {
     fn mul_hz(&mut self, _factor: f64) {}
     fn mod_hz(&mut self, _factor: f64) {}
     fn modify_amplitude(&mut self, _f: Rc<dyn Fn(f32) -> f32>) {}
+    fn on(&mut self) {}
+    fn off(&mut self) {}
 }
 
 pub struct PolyWave {
@@ -397,6 +427,18 @@ impl Wave for PolyWave {
             wave.modify_amplitude(f.clone());
         }
     }
+
+    fn on(&mut self) {
+        for wave in self.waves.iter_mut() {
+            wave.on();
+        }
+    }
+
+    fn off(&mut self) {
+        for wave in self.waves.iter_mut() {
+            wave.off();
+        }
+    }
 }
 
 pub struct FourierWave(PolyWave);
@@ -423,26 +465,32 @@ impl FourierWave {
 }
 
 impl Wave for FourierWave {
-    fn sample(&self) -> f32 { 
+    fn sample(&self) -> f32 {
         self.0.sample()
     }
 
-    fn update_phase(&mut self, sample_rate: f64) { 
+    fn update_phase(&mut self, sample_rate: f64) {
         self.0.update_phase(sample_rate);
     }
-    
-    fn mul_hz(&mut self, factor: f64) { 
+
+    fn mul_hz(&mut self, factor: f64) {
         self.0.mul_hz(factor);
     }
 
-
-    fn mod_hz(&mut self, factor: f64) { 
+    fn mod_hz(&mut self, factor: f64) {
         self.0.mod_hz(factor);
     }
 
-    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) { 
+    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
         self.0.volume = f(self.0.volume);
     }
+
+    fn on(&mut self) {
+        self.0.on();
+    }
+    fn off(&mut self) { 
+        self.0.off();
+     }
 }
 
 pub fn square_wave(n: u32, hz: f64) -> Box<FourierWave> {
@@ -450,6 +498,19 @@ pub fn square_wave(n: u32, hz: f64) -> Box<FourierWave> {
     for i in 0..=n {
         if i % 2 == 1 {
             coefficients.push(1. / i as f32);
+        } else {
+            coefficients.push(0.);
+        }
+    }
+    FourierWave::boxed(coefficients, hz)
+}
+
+pub fn triangle_wave(n: u32, hz: f64) -> Box<FourierWave> {
+    let mut coefficients: Vec<f32> = Vec::new();
+    for i in 0..=n {
+        if i % 2 == 1 {
+            let sgn = if i % 4 == 1 { -1.0 } else { 1.0 };
+            coefficients.push(sgn / (i * i) as f32);
         } else {
             coefficients.push(0.);
         }

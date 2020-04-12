@@ -53,7 +53,7 @@ fn model(app: &App) -> Model {
     // let square = SquareWave::boxed(HZ);
     let square = square_wave(16, HZ);
     let saw = SawWave::boxed(HZ);
-    let triangle = SineWave::boxed(HZ);
+    let triangle = triangle_wave(16, HZ);
     let lerp = LerpWave::boxed(SineWave::boxed(HZ), SquareWave::boxed(HZ), 0.5);
     let vca = VCA::boxed(SineWave::boxed(2.0 * HZ), SineWave::boxed(HZ / 5.5));
     let vco = Box::new(VCO {
