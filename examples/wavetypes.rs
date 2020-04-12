@@ -49,29 +49,21 @@ fn model(app: &App) -> Model {
     // Initialise the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
-    let sine = WeightedWave(SineWave::boxed(HZ), 1.0);
-    // let square = WeightedWave(Box::new(SquareWave::new(HZ, 1.0)), 0.0);
-    let square = WeightedWave(square_wave(16, HZ), 0.0);
-    let saw = WeightedWave(SawWave::boxed(HZ), 0.0);
-    let triangle = WeightedWave(TriangleWave::boxed(HZ), 0.0);
-    let lerp = WeightedWave(
-        LerpWave::boxed(SineWave::boxed(HZ), SquareWave::boxed(HZ), 0.5),
-        0.0,
-    );
-    let vca = WeightedWave(
-        VCA::boxed(SineWave::boxed(2.0 * HZ), SineWave::boxed(HZ / 5.5)),
-        0.0,
-    );
-    let vco = WeightedWave(
-        Box::new(VCO {
-            wave: SineWave::boxed(HZ),
-            cv: SineWave::boxed(HZ),
-            fm_mult: 1.,
-        }),
-        0.0,
-    );
+    let sine = SineWave::boxed(HZ);
+    // let square = SquareWave::boxed(HZ);
+    let square = square_wave(16, HZ);
+    let saw = SawWave::boxed(HZ);
+    let triangle = SineWave::boxed(HZ);
+    let lerp = LerpWave::boxed(SineWave::boxed(HZ), SquareWave::boxed(HZ), 0.5);
+    let vca = VCA::boxed(SineWave::boxed(2.0 * HZ), SineWave::boxed(HZ / 5.5));
+    let vco = Box::new(VCO {
+        wave: SineWave::boxed(HZ),
+        cv: SineWave::boxed(HZ),
+        fm_mult: 1.,
+    });
 
-    let waves = PolyWave::new_normal(vec![sine, square, saw, triangle, lerp, vca, vco]);
+    let mut waves = PolyWave::new(vec![sine, square, saw, triangle, lerp, vca, vco], 1.);
+    waves.set_amplitudes(&[0.; 7]);
     let num_waves = waves.waves.len();
     let model = Synth {
         voice: Box::new(waves),
@@ -206,8 +198,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     model
         .stream
         .send(move |synth| {
-            synth.voice.set_weights(ws);
-            synth.voice.normalize_weights();
+            synth.voice.set_amplitudes(&ws);
         })
         .unwrap();
 }

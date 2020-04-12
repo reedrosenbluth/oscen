@@ -391,48 +391,25 @@ impl Wave for ADSRWave {
     fn modify_amplitude(&mut self, _f: Rc<dyn Fn(f32) -> f32>) {}
 }
 
-pub struct WeightedWave(pub BoxedWave, pub f32);
 
 pub struct PolyWave {
-    pub waves: Vec<WeightedWave>,
+    pub waves: Vec<BoxedWave>,
     pub volume: f32,
 }
 
 impl PolyWave {
-    pub fn new(waves: Vec<WeightedWave>, volume: f32) -> Self {
+    pub fn new(waves: Vec<BoxedWave>, volume: f32) -> Self {
         Self { waves, volume }
     }
 
-    pub fn boxed(waves: Vec<WeightedWave>, volume: f32) -> Box<Self> {
+    pub fn boxed(waves: Vec<BoxedWave>, volume: f32) -> Box<Self> {
         Box::new(Self::new(waves, volume))
-    }
-
-    pub fn new_normal(waves: Vec<WeightedWave>) -> Self {
-        let total_weight = waves.iter().fold(0., |acc: f32, x| acc + x.1);
-        PolyWave::new(waves, 1. / total_weight)
-    }
-
-    pub fn boxed_normal(waves: Vec<WeightedWave>) -> Box<Self> {
-        Box::new(Self::new_normal(waves))
-    }
-
-    pub fn set_weights(&mut self, weights: &[f32]) {
-        for (i, v) in self.waves.iter_mut().enumerate() {
-            v.1 = weights[i];
-        }
     }
 
     pub fn set_amplitudes(&mut self, weights: &[f32]) {
         for (i, v) in self.waves.iter_mut().enumerate() {
             let val = weights[i];
-            v.0.modify_amplitude(Rc::new(move |_| val));
-        }
-    }
-
-    pub fn normalize_weights(&mut self) {
-        let total_weight = self.waves.iter().fold(0., |acc: f32, x| acc + x.1);
-        for w in self.waves.iter_mut() {
-            w.1 /= total_weight;
+            v.modify_amplitude(Rc::new(move |_| val));
         }
     }
 }
@@ -443,40 +420,40 @@ impl Wave for PolyWave {
             * self
                 .waves
                 .iter()
-                .fold(0.0, |acc, x| acc + x.1 * x.0.sample())
+                .fold(0.0, |acc, x| acc + x.sample())
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
         for wave in self.waves.iter_mut() {
-            wave.0.update_phase(sample_rate);
+            wave.update_phase(sample_rate);
         }
     }
 
     fn mul_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
-            wave.0.mul_hz(factor);
+            wave.mul_hz(factor);
         }
     }
 
     fn mod_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
-            wave.0.mod_hz(factor);
+            wave.mod_hz(factor);
         }
     }
 
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
         for wave in self.waves.iter_mut() {
-            wave.0.modify_amplitude(f.clone());
+            wave.modify_amplitude(f.clone());
         }
     }  
 }
 
 pub fn fourier_wave(coefficients: Vec<f32>, hz: f64) -> Box<PolyWave> {
-    let mut wwaves: Vec<WeightedWave> = Vec::new();
+    let mut wwaves: Vec<BoxedWave> = Vec::new();
     for (n, c) in coefficients.iter().enumerate() {
-        let wp = WaveParams::new(hz * n as f64);
+        let wp = WaveParams { hz: hz * n as f64, amplitude: *c,  phase: 0., hz0: hz * n as f64};
         let s = SineWave(wp);
-        wwaves.push(WeightedWave(Box::new(s), *c));
+        wwaves.push(Box::new(s));
     }
     PolyWave::boxed(wwaves, 1.)
 }
