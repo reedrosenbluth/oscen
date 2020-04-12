@@ -17,17 +17,6 @@ pub trait Wave {
 
 pub type BoxedWave = Box<dyn Wave + Send>;
 
-pub trait SimpleWave {
-    fn hz(&self) -> f64;
-    fn set_hz(&mut self, hz: f64);
-    fn amplitude(&self) -> f32;
-    fn set_amplitude(&mut self, amp: f32);
-    fn phase(&self) -> f64;
-    fn set_phase(&mut self, phase: f64);
-    fn hz0(&self) -> f64;
-    fn set_hz0(&mut self, hz0: f64);
-}
-
 pub_struct!(
     #[derive(Clone)]
     struct WaveParams {
@@ -67,38 +56,10 @@ impl WaveParams {
     }
 }
 
-impl SimpleWave for WaveParams {
-    fn hz(&self) -> f64 {
-        self.hz
-    }
-    fn set_hz(&mut self, hz: f64) {
-        self.hz = hz;
-    }
-    fn amplitude(&self) -> f32 {
-        self.amplitude
-    }
-    fn set_amplitude(&mut self, amp: f32) {
-        self.amplitude = amp;
-    }
-    fn phase(&self) -> f64 {
-        self.phase
-    }
-    fn set_phase(&mut self, phase: f64) {
-        self.phase = phase;
-    }
-    fn hz0(&self) -> f64 {
-        self.hz0
-    }
-    fn set_hz0(&mut self, hz0: f64) {
-        self.hz0 = hz0;
-    }
-}
 
 basic_wave!(SineWave, |wave: &SineWave| {
     wave.0.amplitude * (TAU32 * wave.0.phase as f32).sin()
 });
-
-simple_wave!(SineWave);
 
 basic_wave!(SquareWave, |wave: &SquareWave| {
     let amp = wave.0.amplitude;
@@ -113,13 +74,9 @@ basic_wave!(SquareWave, |wave: &SquareWave| {
     }
 });
 
-simple_wave!(SquareWave);
-
 basic_wave!(RampWave, |wave: &RampWave| {
     wave.0.amplitude * (2. * (wave.0.phase - floor(0.5 + wave.0.phase, 0))) as f32
 });
-
-simple_wave!(RampWave);
 
 basic_wave!(SawWave, |wave: &SawWave| {
     let t = wave.0.phase - 0.5;
@@ -130,15 +87,11 @@ basic_wave!(SawWave, |wave: &SawWave| {
     wave.0.amplitude * 2. * s as f32
 });
 
-simple_wave!(SawWave);
-
 basic_wave!(TriangleWave, |wave: &TriangleWave| {
     let t = wave.0.phase - 0.75;
     let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
     2. * saw_amp.abs() - wave.0.amplitude
 });
-
-simple_wave!(TriangleWave);
 
 #[derive(Constructor)]
 pub struct LerpWave {
