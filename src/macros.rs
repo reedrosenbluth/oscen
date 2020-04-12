@@ -74,6 +74,9 @@ macro_rules! basic_wave {
             fn mod_hz(&mut self, factor: f64) {
                 self.0.mod_hz(factor);
             }
+            fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
+                self.0.amplitude = f(self.0.amplitude);
+            }
         }
     };
 }

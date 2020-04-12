@@ -1,6 +1,7 @@
 use derive_more::Constructor;
 use math::round::floor;
-use std::f64::consts::PI;
+use std::{rc::Rc, f64::consts::PI};
+use std::mem;
 
 mod macros;
 
@@ -13,6 +14,7 @@ pub trait Wave {
     fn update_phase(&mut self, sample_rate: f64);
     fn mul_hz(&mut self, factor: f64);
     fn mod_hz(&mut self, factor: f64);
+    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>);
 }
 
 pub type BoxedWave = Box<dyn Wave + Send>;
@@ -60,6 +62,10 @@ impl WaveParams {
 
     fn mod_hz(&mut self, factor: f64) {
         self.hz = self.hz0 * factor;
+    }
+
+    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
+        self.amplitude = f(self.amplitude)
     }
 }
 
@@ -176,6 +182,11 @@ impl Wave for LerpWave {
         self.wave1.mod_hz(factor);
         self.wave2.mod_hz(factor);
     }
+
+    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
+        self.wave1.modify_amplitude(f.clone());
+        self.wave2.modify_amplitude(f);
+    }
 }
 
 /// Voltage Controlled Amplifier
@@ -206,6 +217,10 @@ impl Wave for VCA {
 
     fn mod_hz(&mut self, factor: f64) {
         self.wave.mod_hz(factor);
+    }
+
+    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
+        self.wave.modify_amplitude(f);
     }
 }
 
@@ -251,6 +266,10 @@ impl Wave for VCO {
 
     fn mod_hz(&mut self, factor: f64) {
         self.wave.mod_hz(factor);
+    }
+
+    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
+        self.wave.modify_amplitude(f);
     }
 }
 
@@ -307,6 +326,10 @@ impl Wave for TriggeredWave {
 
     fn mod_hz(&mut self, factor: f64) { 
         self.wave.mod_hz(factor);
+    }
+
+    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
+        self.wave.modify_amplitude(f);
     }
 }
 
@@ -366,6 +389,7 @@ impl Wave for ADSRWave {
 
     fn mul_hz(&mut self, _factor: f64) {}
     fn mod_hz(&mut self, _factor: f64) {}
+    fn modify_amplitude(&mut self, _f: Rc<dyn Fn(f32) -> f32>) {}
 }
 
 pub struct WeightedWave(pub BoxedWave, pub f32);
@@ -393,9 +417,15 @@ impl PolyWave {
         Box::new(Self::new_normal(waves))
     }
 
-    pub fn set_weights(&mut self, weights: Vec<f32>) {
+    pub fn set_weights(&mut self, weights: &[f32]) {
         for (i, v) in self.waves.iter_mut().enumerate() {
             v.1 = weights[i];
+        }
+    }
+
+    pub fn set_amplitudes(&mut self, weights: &'static [f32]) {
+        for (i, v) in self.waves.iter_mut().enumerate() {
+            v.0.modify_amplitude(Rc::new(|_| weights[i]));
         }
     }
 
@@ -433,6 +463,12 @@ impl Wave for PolyWave {
             wave.0.mod_hz(factor);
         }
     }
+
+    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
+        for wave in self.waves.iter_mut() {
+            wave.0.modify_amplitude(f.clone());
+        }
+    }  
 }
 
 pub fn fourier_wave(coefficients: Vec<f32>, hz: f64) -> Box<PolyWave> {

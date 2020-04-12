@@ -2,7 +2,6 @@ use core::cmp::Ordering;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use derive_more::Constructor;
 use nannou::prelude::*;
-use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 
@@ -15,24 +14,16 @@ fn main() {
 
 #[derive(Constructor)]
 struct Model {
-    ui: Ui,
-    ids: Ids,
-    fm_mult: i32,
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     amps: Vec<f32>,
     max_amp: f32,
 }
 
-struct Ids {
-    fm_hz: widget::Id,
-}
-
 #[derive(Constructor)]
 struct Synth {
-    voice: Option<Box<dyn Wave + Send>>,
+    voice: Box<PolyWave>,
     sender: Sender<f32>,
-    current_key: Option<Key>,
 }
 
 fn model(app: &App) -> Model {
@@ -40,7 +31,7 @@ fn model(app: &App) -> Model {
 
     // Create a window to receive key pressed events.
     // Reduces CPU significantly...unsure how this affects the audio generation
-    app.set_loop_mode(LoopMode::Wait);
+    // app.set_loop_mode(LoopMode::Wait);
 
     let _window = app
         .new_window()
@@ -50,18 +41,12 @@ fn model(app: &App) -> Model {
         .build()
         .unwrap();
 
-    let mut ui = app.new_ui().build().unwrap();
-
-    let ids = Ids {
-        fm_hz: ui.generate_widget_id(),
-    };
-
     let audio_host = audio::Host::new();
+    let voice = voices();
 
     let synth = Synth {
-        voice: None,
+        voice,
         sender,
-        current_key: None,
     };
 
     let stream = audio_host
@@ -71,9 +56,6 @@ fn model(app: &App) -> Model {
         .unwrap();
 
     Model {
-        ui,
-        ids,
-        fm_mult: 1,
         stream,
         receiver,
         amps: vec![],
@@ -81,100 +63,85 @@ fn model(app: &App) -> Model {
     }
 }
 
-// A function that renders the given `Audio` to the given `Buffer`.
-// In this case we play a simple sine wave at the audio's current frequency in `hz`.
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
-    match &mut synth.voice {
-        Some(voice) => {
-            for frame in buffer.frames_mut() {
-                let mut amp = 0.;
-                amp += voice.sample();
-                voice.update_phase(sample_rate);
-                for channel in frame {
-                    *channel = amp;
-                }
-                synth.sender.send(amp).unwrap();
-            }
+    for frame in buffer.frames_mut() {
+        let mut amp = 0.;
+        amp += synth.voice.sample();
+        synth.voice.update_phase(sample_rate);
+        for channel in frame {
+            *channel = amp;
         }
-        None => {}
+        synth.sender.send(amp).unwrap();
     }
 }
 
-fn create_voice(hz: f64) -> Option<Box<dyn Wave + Send>> {
-    let carrier = SineWave::boxed(hz);
-    let modulator = SineWave::boxed(hz);
-    let vco = VCO {
-        wave: carrier,
-        cv: modulator,
-        fm_mult: 1.,
-    };
-    let vco2 = VCO {
-        wave: Box::new(vco),
-        cv: SineWave::boxed(5.0),
-        fm_mult: 1.,
-    };
-    let env = ADSRWave::new(
-        0.05, // attack
-        0.5,  // decay
-        0.,   // sustain_time
-        1.0,  // sustain_level
-        3.,   // release
-    );
-    let vca = VCA {
-        wave: Box::new(vco2),
-        cv: Box::new(env),
-    };
-
-    Some(Box::new(vca))
+fn voices() -> Box<PolyWave> {
+    let mut vs: Vec<WeightedWave> = Vec::new();
+    let freqs = [
+        131., 139., 147., 156., 165., 175., 185., 196., 208., 220., 233., 247., 262., 277., 294.,
+    ];
+    for f in freqs.iter() {
+        let w = TriggeredWave {
+            wave: SineWave::boxed(*f),
+            attack: 0.05,
+            decay: 0.5,
+            sustain_level: 1.0,
+            release: 3.0,
+            clock: 0.0,
+            triggered: false,
+        };
+        vs.push(WeightedWave(Box::new(w), 1.0));
+    }
+    PolyWave::boxed(vs, 1.)
 }
 
-fn key_to_freq(key: Key) -> Option<f64> {
+fn key_to_index(key: Key) -> Option<usize> {
     match key {
         // ------ Freq ---- Midi -- Note -------- //
-        Key::A => Some(131.), //  48      C3
-        Key::W => Some(139.), //  49      C#/Db3
-        Key::S => Some(147.), //  50      D3
-        Key::E => Some(156.), //  51      D#/Eb3
-        Key::D => Some(165.), //  52      E3
-        Key::F => Some(175.), //  53      F3
-        Key::T => Some(185.), //  54      F#/Gb3
-        Key::G => Some(196.), //  55      G3
-        Key::Y => Some(208.), //  56      G#/Ab3
-        Key::H => Some(220.), //  57      A3
-        Key::U => Some(233.), //  58      A#/Bb3
-        Key::J => Some(247.), //  59      B3
-        Key::K => Some(262.), //  60      C4
-        Key::O => Some(277.), //  61      C#/Db4
-        Key::L => Some(294.), //  62      D4
+        Key::A => Some(0),
+        Key::W => Some(1),
+        Key::S => Some(2),
+        Key::E => Some(3),
+        Key::D => Some(4),
+        Key::F => Some(5),
+        Key::T => Some(6),
+        Key::G => Some(7),
+        Key::Y => Some(8),
+        Key::H => Some(9),
+        Key::U => Some(10),
+        Key::J => Some(11),
+        Key::K => Some(12),
+        Key::O => Some(13),
+        Key::L => Some(14),
         _ => None,
     }
 }
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
-    model.max_amp = 0.;
-    model
-        .stream
-        .send(
-            move |synth| match (synth.voice.as_ref(), key_to_freq(key)) {
-                (None, Some(hz)) => {
-                    synth.voice = create_voice(hz);
-                    synth.current_key = Some(key);
-                }
-                _ => {}
-            },
-        )
-        .unwrap();
+    // model.max_amp = 0.;
+    // model
+    //     .stream
+    //     .send(
+    //         move |synth| match (synth.voice.as_ref(), key_to_freq(key)) {
+    //             (None, Some(hz)) => {
+    //                 synth.voice = create_voice(hz);
+    //                 synth.current_key = Some(key);
+    //             }
+    //             _ => {}
+    //         },
+    //     )
+    //     .unwrap();
 }
 
 fn key_released(_app: &App, model: &mut Model, key: Key) {
-    model
-        .stream
-        .send(move |synth| match synth.current_key {
-            Some(current_key) if current_key == key => synth.voice = None,
-            _ => {}
-        })
-        .unwrap();
+    // model
+    //     .stream
+    //     .send(move |synth| match synth.current_key {
+    //         Some(current_key) if current_key == key => synth.voice = None,
+    //         _ => {}
+    //     })
+    //     .unwrap();
 }
 
 fn update(_app: &App, model: &mut Model, _update: Update) {
@@ -196,32 +163,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     }
 
     model.amps = clone;
-
-    //UI
-    // let ui = &mut model.ui.set_widgets();
-
-    // fn slider(val: f32, min: f32, max: f32) -> widget::Slider<'static, f32> {
-    //     widget::Slider::new(val, min, max)
-    //         .w_h(200.0, 30.0)
-    //         .label_font_size(15)
-    //         .rgb(0.3, 0.3, 0.3)
-    //         .label_rgb(1.0, 1.0, 1.0)
-    //         .border(0.0)
-    // }
-
-    // for value in slider(model.fm_mult as f32, 0., 12.)
-    //     .top_left_with_margin(20.0)
-    //     .label("FM Multiplier")
-    //     .set(model.ids.fm_hz, ui)
-    // {
-    //     model.fm_mult = (value as f64).round() as i32;
-    //     model
-    //         .stream
-    //         .send(move |synth| {
-    //             synth.voice.set_fm_mult((value as f64).round() as i32);
-    //         })
-    //         .unwrap();
-    // }
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
@@ -261,7 +202,4 @@ fn view(app: &App, model: &Model, frame: Frame) {
     }
 
     draw.to_frame(app, &frame).unwrap();
-
-    // Draw the state of the `Ui` to the frame.
-    model.ui.draw_to_frame_if_changed(app, &frame).unwrap();
 }
