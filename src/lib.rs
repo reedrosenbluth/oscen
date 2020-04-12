@@ -1,7 +1,6 @@
 use derive_more::Constructor;
 use math::round::floor;
 use std::{rc::Rc, f64::consts::PI};
-use std::mem;
 
 mod macros;
 
@@ -423,9 +422,10 @@ impl PolyWave {
         }
     }
 
-    pub fn set_amplitudes(&mut self, weights: &'static [f32]) {
+    pub fn set_amplitudes(&mut self, weights: &[f32]) {
         for (i, v) in self.waves.iter_mut().enumerate() {
-            v.0.modify_amplitude(Rc::new(|_| weights[i]));
+            let val = weights[i];
+            v.0.modify_amplitude(Rc::new(move |_| val));
         }
     }
 
