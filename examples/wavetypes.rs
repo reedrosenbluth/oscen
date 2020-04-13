@@ -28,7 +28,7 @@ struct Model {
 
 #[derive(Constructor)]
 struct Synth {
-    voice: Box<PolyWave>,
+    voice: ArcMutex<PolyWave>,
     sender: Sender<f32>,
 }
 
@@ -56,7 +56,7 @@ fn model(app: &App) -> Model {
     let triangle = triangle_wave(16, HZ);
     let lerp = LerpWave::boxed(SineWave::boxed(HZ), SquareWave::boxed(HZ), 0.5);
     let vca = VCA::boxed(SineWave::boxed(2.0 * HZ), SineWave::boxed(HZ / 5.5));
-    let vco = Box::new(VCO {
+    let vco = arc(VCO {
         wave: SineWave::boxed(HZ),
         cv: SineWave::boxed(HZ),
         fm_mult: 1.,
@@ -66,7 +66,7 @@ fn model(app: &App) -> Model {
     waves.set_amplitudes(&[0.; 7]);
     let num_waves = waves.waves.len();
     let model = Synth {
-        voice: Box::new(waves),
+        voice: arc(waves),
         sender,
     };
     let stream = audio_host
@@ -101,8 +101,8 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
-        amp += synth.voice.sample();
-        synth.voice.update_phase(sample_rate);
+        amp += synth.voice.lock().unwrap().sample();
+        synth.voice.lock().unwrap().update_phase(sample_rate);
         for channel in frame {
             *channel = amp;
         }
@@ -117,7 +117,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.mul_hz(factor);
+                synth.voice.lock().unwrap().mul_hz(factor);
             })
             .unwrap();
     };
@@ -198,7 +198,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     model
         .stream
         .send(move |synth| {
-            synth.voice.set_amplitudes(&ws);
+            synth.voice.lock().unwrap().set_amplitudes(&ws);
         })
         .unwrap();
 }

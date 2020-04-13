@@ -59,8 +59,8 @@ fn model(app: &App) -> Model {
 
     let audio_host = audio::Host::new();
 
-    let carrier = Box::new(SineWave::new(220.));
-    let modulator = Box::new(SineWave::new(220.));
+    let carrier = arc(SineWave::new(220.));
+    let modulator = arc(SineWave::new(220.));
     let osc = VCO {
         wave: carrier,
         cv: modulator,

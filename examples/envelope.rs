@@ -119,19 +119,18 @@ fn key_to_index(key: Key) -> Option<usize> {
 }
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
-    // model.max_amp = 0.;
-    // model
-    //     .stream
-    //     .send(
-    //         move |synth| match (synth.voice.as_ref(), key_to_freq(key)) {
-    //             (None, Some(hz)) => {
-    //                 synth.voice = create_voice(hz);
-    //                 synth.current_key = Some(key);
-    //             }
-    //             _ => {}
-    //         },
-    //     )
-    //     .unwrap();
+    model.max_amp = 0.;
+    model
+        .stream
+        .send(
+            move |synth| match (synth.voice.as_ref(), key_to_freq(key)) {
+                (None, Some(idx)) => {
+                    synth.voice.on() = create_voice(hz);
+                }
+                _ => {}
+            },
+        )
+        .unwrap();
 }
 
 fn key_released(_app: &App, model: &mut Model, key: Key) {

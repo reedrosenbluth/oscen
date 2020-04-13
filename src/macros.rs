@@ -53,8 +53,8 @@ macro_rules! basic_wave {
                 $wave($crate::WaveParams::new(hz))
             }
 
-            pub fn boxed(hz: f64) -> Box<Self> {
-                Box::new($wave($crate::WaveParams::new(hz)))
+            pub fn boxed(hz: f64) -> ArcMutex<Self> {
+                arc($wave($crate::WaveParams::new(hz)))
             }
         }
 
@@ -76,14 +76,6 @@ macro_rules! basic_wave {
             }
             fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
                 self.0.modify_amplitude(f);
-            }
-
-            fn on(&mut self) {
-                self.0.on();
-            }
-
-            fn off(&mut self) {
-                self.0.off();
             }
         }
     };

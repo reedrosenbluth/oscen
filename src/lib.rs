@@ -1,31 +1,39 @@
 use derive_more::Constructor;
 use math::round::floor;
-use std::{f64::consts::PI, rc::Rc};
+use std::{f64::consts::PI, rc::Rc, sync::{Arc, Mutex}};
 
 mod macros;
 
-const TAU64: f64 = 2.0 * PI;
-const TAU32: f32 = TAU64 as f32;
+pub const TAU64: f64 = 2.0 * PI;
+pub const TAU32: f32 = TAU64 as f32;
+
+pub type Phase = f64;
+pub type Hz = f64;
+pub type Amp = f32;
 
 pub trait Wave {
-    fn sample(&self) -> f32;
+    fn sample(&self) -> Amp;
     fn update_phase(&mut self, sample_rate: f64);
     fn mul_hz(&mut self, factor: f64);
     fn mod_hz(&mut self, factor: f64);
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>);
-    fn on(&mut self);
-    fn off(&mut self);
 }
 
 pub type BoxedWave = Box<dyn Wave + Send>;
+pub type ArcWave = Arc<Mutex<dyn Wave + Send>>;
+pub type ArcMutex<T> = Arc<Mutex<T>>;
+
+pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
+    Arc::new(Mutex::new(x))
+}
 
 pub_struct!(
     #[derive(Clone)]
     struct WaveParams {
-        hz: f64,
-        amplitude: f32,
-        phase: f64,
-        hz0: f64,
+        hz: Hz,
+        amplitude: Amp,
+        phase: Phase,
+        hz0: Hz,
     }
 );
 
@@ -56,9 +64,6 @@ impl WaveParams {
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
         self.amplitude = f(self.amplitude)
     }
-
-    fn on(&mut self) {}
-    fn off(&mut self) {}
 }
 
 basic_wave!(SineWave, |wave: &SineWave| {
@@ -99,14 +104,14 @@ basic_wave!(TriangleWave, |wave: &TriangleWave| {
 
 #[derive(Constructor)]
 pub struct LerpWave {
-    pub wave1: BoxedWave,
-    pub wave2: BoxedWave,
+    pub wave1: ArcWave,
+    pub wave2: ArcWave,
     pub alpha: f32,
 }
 
 impl LerpWave {
-    pub fn boxed(wave1: BoxedWave, wave2: BoxedWave, alpha: f32) -> Box<Self> {
-        Box::new(LerpWave {
+    pub fn boxed(wave1: ArcWave, wave2: ArcWave, alpha: f32) -> ArcMutex<Self> {
+        arc(LerpWave {
             wave1,
             wave2,
             alpha,
@@ -120,93 +125,77 @@ impl LerpWave {
 
 impl Wave for LerpWave {
     fn sample(&self) -> f32 {
-        (1. - self.alpha) * self.wave1.sample() + self.alpha * self.wave2.sample()
+        let wave1 = self.wave1.lock().unwrap();
+        let wave2 = self.wave2.lock().unwrap();
+        (1. - self.alpha) * wave1.sample() + self.alpha * wave2.sample()
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.wave1.update_phase(sample_rate);
-        self.wave2.update_phase(sample_rate);
+        self.wave1.lock().unwrap().update_phase(sample_rate);
+        self.wave2.lock().unwrap().update_phase(sample_rate);
     }
 
     fn mul_hz(&mut self, factor: f64) {
-        self.wave1.mul_hz(factor);
-        self.wave2.mul_hz(factor);
+        self.wave1.lock().unwrap().mul_hz(factor);
+        self.wave2.lock().unwrap().mul_hz(factor);
     }
 
     fn mod_hz(&mut self, factor: f64) {
-        self.wave1.mod_hz(factor);
-        self.wave2.mod_hz(factor);
+        self.wave1.lock().unwrap().mod_hz(factor);
+        self.wave2.lock().unwrap().mod_hz(factor);
     }
 
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.wave1.modify_amplitude(f.clone());
-        self.wave2.modify_amplitude(f);
-    }
-
-    fn on(&mut self) {
-        self.wave1.on();
-        self.wave2.on();
-    }
-
-    fn off(&mut self) {
-        self.wave1.off();
-        self.wave2.off();
+        self.wave1.lock().unwrap().modify_amplitude(f.clone());
+        self.wave2.lock().unwrap().modify_amplitude(f);
     }
 }
 
 /// Voltage Controlled Amplifier
 pub struct VCA {
-    pub wave: BoxedWave,
-    pub cv: BoxedWave,
+    pub wave: ArcWave,
+    pub cv: ArcWave,
 }
 
 impl VCA {
-    pub fn boxed(wave: BoxedWave, cv: BoxedWave) -> Box<Self> {
-        Box::new(VCA { wave, cv })
+    pub fn boxed(wave: ArcWave, cv: ArcWave) -> ArcMutex<Self> {
+        arc(VCA { wave, cv })
     }
 }
 
 impl Wave for VCA {
     fn sample(&self) -> f32 {
-        self.wave.sample() * self.cv.sample()
+        self.wave.lock().unwrap().sample() * self.cv.lock().unwrap().sample()
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.wave.update_phase(sample_rate);
-        self.cv.update_phase(sample_rate);
+        self.wave.lock().unwrap().update_phase(sample_rate);
+        self.cv.lock().unwrap().update_phase(sample_rate);
     }
 
     fn mul_hz(&mut self, factor: f64) {
-        self.wave.mul_hz(factor);
+        self.wave.lock().unwrap().mul_hz(factor);
     }
 
     fn mod_hz(&mut self, factor: f64) {
-        self.wave.mod_hz(factor);
+        self.wave.lock().unwrap().mod_hz(factor);
     }
 
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.wave.modify_amplitude(f);
-    }
-
-    fn on(&mut self) {
-        self.wave.on();
-    }
-
-    fn off(&mut self) {
-        self.wave.off();
+        self.wave.lock().unwrap().modify_amplitude(f);
     }
 }
 
 /// Voltage Controlled Oscillator
 pub struct VCO {
-    pub wave: BoxedWave,
-    pub cv: BoxedWave,
+    pub wave: ArcWave,
+    pub cv: ArcWave,
     pub fm_mult: f64,
 }
 
 impl VCO {
-    pub fn boxed(wave: BoxedWave, cv: BoxedWave, fm_mult: f64) -> Box<Self> {
-        Box::new(VCO { wave, cv, fm_mult })
+    pub fn boxed(wave: ArcWave, cv: ArcWave, fm_mult: f64) -> ArcMutex<Self> {
+        arc(VCO { wave, cv, fm_mult })
     }
 
     pub fn fm_mult(&mut self) -> f64 {
@@ -220,42 +209,34 @@ impl VCO {
 
 impl Wave for VCO {
     fn sample(&self) -> f32 {
-        self.wave.sample()
+        self.wave.lock().unwrap().sample()
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.wave.update_phase(sample_rate);
-        self.cv.update_phase(sample_rate);
+        self.wave.lock().unwrap().update_phase(sample_rate);
+        self.cv.lock().unwrap().update_phase(sample_rate);
 
         //Frequency Modulation
-        let factor = 2f32.powf(self.cv.sample() * self.fm_mult as f32) as f64;
-        self.wave.mod_hz(factor);
+        let factor = 2f32.powf(self.cv.lock().unwrap().sample() * self.fm_mult as f32) as f64;
+        self.wave.lock().unwrap().mod_hz(factor);
     }
 
     fn mul_hz(&mut self, factor: f64) {
-        self.wave.mul_hz(factor);
-        self.cv.mul_hz(factor);
+        self.wave.lock().unwrap().mul_hz(factor);
+        self.cv.lock().unwrap().mul_hz(factor);
     }
 
     fn mod_hz(&mut self, factor: f64) {
-        self.wave.mod_hz(factor);
+        self.wave.lock().unwrap().mod_hz(factor);
     }
 
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.wave.modify_amplitude(f);
-    }
-
-    fn on(&mut self) {
-        self.wave.on();
-    }
-
-    fn off(&mut self) {
-        self.wave.off();
+        self.wave.lock().unwrap().modify_amplitude(f);
     }
 }
 
 pub struct TriggeredWave {
-    pub wave: BoxedWave,
+    pub wave: ArcWave,
     pub attack: f32,
     pub decay: f32,
     pub sustain_level: f32,
@@ -282,33 +263,24 @@ impl Wave for TriggeredWave {
                 _ => 0.,
             }
         };
-        self.wave.sample() * level
+        self.wave.lock().unwrap().sample() * level
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.wave.update_phase(sample_rate);
+        self.wave.lock().unwrap().update_phase(sample_rate);
         self.clock += 1. / sample_rate;
     }
 
     fn mul_hz(&mut self, factor: f64) {
-        self.wave.mul_hz(factor);
+        self.wave.lock().unwrap().mul_hz(factor);
     }
 
     fn mod_hz(&mut self, factor: f64) {
-        self.wave.mod_hz(factor);
+        self.wave.lock().unwrap().mod_hz(factor);
     }
 
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.wave.modify_amplitude(f);
-    }
-
-    fn on(&mut self) {
-        self.triggered = true;
-        self.clock = 0.;
-    }
-
-    fn off(&mut self) {
-        self.triggered = false;
+        self.wave.lock().unwrap().modify_amplitude(f);
     }
 }
 
@@ -369,28 +341,26 @@ impl Wave for ADSRWave {
     fn mul_hz(&mut self, _factor: f64) {}
     fn mod_hz(&mut self, _factor: f64) {}
     fn modify_amplitude(&mut self, _f: Rc<dyn Fn(f32) -> f32>) {}
-    fn on(&mut self) {}
-    fn off(&mut self) {}
 }
 
 pub struct PolyWave {
-    pub waves: Vec<BoxedWave>,
+    pub waves: Vec<ArcWave>,
     pub volume: f32,
 }
 
 impl PolyWave {
-    pub fn new(waves: Vec<BoxedWave>, volume: f32) -> Self {
+    pub fn new(waves: Vec<ArcWave>, volume: f32) -> Self {
         Self { waves, volume }
     }
 
-    pub fn boxed(waves: Vec<BoxedWave>, volume: f32) -> Box<Self> {
-        Box::new(Self::new(waves, volume))
+    pub fn boxed(waves: Vec<ArcWave>, volume: f32) -> ArcMutex<Self> {
+        arc(Self::new(waves, volume))
     }
 
     pub fn set_amplitudes(&mut self, weights: &[f32]) {
         for (i, v) in self.waves.iter_mut().enumerate() {
             let val = weights[i];
-            v.modify_amplitude(Rc::new(move |_| val));
+            v.lock().unwrap().modify_amplitude(Rc::new(move |_| val));
         }
     }
 
@@ -401,42 +371,30 @@ impl PolyWave {
 
 impl Wave for PolyWave {
     fn sample(&self) -> f32 {
-        self.volume * self.waves.iter().fold(0.0, |acc, x| acc + x.sample())
+        self.volume * self.waves.iter().fold(0.0, |acc, x| acc + x.lock().unwrap().sample())
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
         for wave in self.waves.iter_mut() {
-            wave.update_phase(sample_rate);
+            wave.lock().unwrap().update_phase(sample_rate);
         }
     }
 
     fn mul_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
-            wave.mul_hz(factor);
+            wave.lock().unwrap().mul_hz(factor);
         }
     }
 
     fn mod_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
-            wave.mod_hz(factor);
+            wave.lock().unwrap().mod_hz(factor);
         }
     }
 
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
         for wave in self.waves.iter_mut() {
-            wave.modify_amplitude(f.clone());
-        }
-    }
-
-    fn on(&mut self) {
-        for wave in self.waves.iter_mut() {
-            wave.on();
-        }
-    }
-
-    fn off(&mut self) {
-        for wave in self.waves.iter_mut() {
-            wave.off();
+            wave.lock().unwrap().modify_amplitude(f.clone());
         }
     }
 }
@@ -445,7 +403,7 @@ pub struct FourierWave(PolyWave);
 
 impl FourierWave {
     pub fn new(coefficients: Vec<f32>, hz: f64) -> Self {
-        let mut wwaves: Vec<BoxedWave> = Vec::new();
+        let mut wwaves: Vec<ArcWave> = Vec::new();
         for (n, c) in coefficients.iter().enumerate() {
             let wp = WaveParams {
                 hz: hz * n as f64,
@@ -454,13 +412,13 @@ impl FourierWave {
                 hz0: hz * n as f64,
             };
             let s = SineWave(wp);
-            wwaves.push(Box::new(s));
+            wwaves.push(Arc::new(Mutex::new(s)));
         }
         FourierWave(PolyWave::new(wwaves, 1.))
     }
 
-    pub fn boxed(coefficients: Vec<f32>, hz: f64) -> Box<Self> {
-        Box::new(FourierWave::new(coefficients, hz))
+    pub fn boxed(coefficients: Vec<f32>, hz: f64) -> ArcMutex<Self> {
+        arc(FourierWave::new(coefficients, hz))
     }
 }
 
@@ -484,16 +442,9 @@ impl Wave for FourierWave {
     fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
         self.0.volume = f(self.0.volume);
     }
-
-    fn on(&mut self) {
-        self.0.on();
-    }
-    fn off(&mut self) { 
-        self.0.off();
-     }
 }
 
-pub fn square_wave(n: u32, hz: f64) -> Box<FourierWave> {
+pub fn square_wave(n: u32, hz: f64) -> ArcMutex<FourierWave> {
     let mut coefficients: Vec<f32> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {
@@ -505,7 +456,7 @@ pub fn square_wave(n: u32, hz: f64) -> Box<FourierWave> {
     FourierWave::boxed(coefficients, hz)
 }
 
-pub fn triangle_wave(n: u32, hz: f64) -> Box<FourierWave> {
+pub fn triangle_wave(n: u32, hz: f64) -> ArcMutex<FourierWave> {
     let mut coefficients: Vec<f32> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {
