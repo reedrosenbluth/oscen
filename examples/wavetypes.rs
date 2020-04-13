@@ -28,7 +28,7 @@ struct Model {
 
 #[derive(Constructor)]
 struct Synth {
-    voice: ArcMutex<SumWave<SineWave, SawWave>>,
+    voice: ArcMutex<SumWave<SineWave, FourierWave>>,
     sender: Sender<f32>,
 }
 
@@ -51,8 +51,8 @@ fn model(app: &App) -> Model {
     // Initialise the state that we want to live on the audio thread.
     let sine = SineWave::boxed(HZ);
     // let square = SquareWave::boxed(HZ);
-    // let square = square_wave(16, HZ);
-    let saw = SawWave::boxed(HZ);
+    let square = square_wave(16, HZ);
+    // let saw = SawWave::boxed(HZ);
     // let triangle = triangle_wave(16, HZ);
     // let lerp = LerpWave::boxed(SineWave::boxed(HZ), SquareWave::boxed(HZ), 0.5);
     // let vca = VCA::boxed(SineWave::boxed(2.0 * HZ), SineWave::boxed(HZ / 5.5));
@@ -62,7 +62,7 @@ fn model(app: &App) -> Model {
     //     fm_mult: 1.,
     // });
 
-    let waves = SumWave::boxed(sine, saw);
+    let waves = SumWave::boxed(sine, square);
     // waves.set_amplitudes(&[0.; 2]);
     // let mut waves = PolyWave::new(vec![sine, square, saw, triangle, lerp, vca, vco], 1.);
     // waves.set_amplitudes(&[0.; 7]);
@@ -202,7 +202,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         .send(move |synth| {
             // SineWave.from(synth.voice.lock().unwrap().waves[0]).hz = 440.;
             synth.voice.lock().unwrap().wave1.lock().unwrap().0.amplitude = ws[0];
-            synth.voice.lock().unwrap().wave2.lock().unwrap().0.amplitude = ws[1];
+            synth.voice.lock().unwrap().wave2.lock().unwrap().0.volume = ws[1];
         })
         .unwrap();
 }

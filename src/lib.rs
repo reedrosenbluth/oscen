@@ -450,7 +450,7 @@ impl Wave for PolyWave {
     }
 }
 
-pub struct FourierWave(PolyWave);
+pub struct FourierWave(pub PolyWave);
 
 impl FourierWave {
     pub fn new(coefficients: Vec<f32>, hz: f64) -> Self {
