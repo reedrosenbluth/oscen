@@ -1,6 +1,10 @@
 use derive_more::Constructor;
 use math::round::floor;
-use std::{f64::consts::PI, rc::Rc, sync::{Arc, Mutex}};
+use std::{
+    f64::consts::PI,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 mod macros;
 
@@ -102,6 +106,49 @@ basic_wave!(TriangleWave, |wave: &TriangleWave| {
     2. * saw_amp.abs() - wave.0.amplitude
 });
 
+pub struct SumWave<U, W>
+where U: Wave + Send,
+      W: Wave + Send, 
+{
+    pub wave1: ArcMutex<U>,
+    pub wave2: ArcMutex<W>,
+}
+
+impl<U: Wave + Send, W: Wave + Send> SumWave<U, W> {
+    pub fn new(wave1: ArcMutex<U>, wave2: ArcMutex<W>) -> Self { Self { wave1, wave2 } }
+
+    pub fn boxed(wave1: ArcMutex<U>, wave2: ArcMutex<W>) -> ArcMutex<Self> {
+        arc(SumWave { wave1, wave2 })
+    }
+}
+
+impl<U: Wave + Send, W: Wave + Send> Wave for SumWave<U, W> {
+    fn sample(&self) -> f32 {
+        let wave1 = self.wave1.lock().unwrap();
+        let wave2 = self.wave2.lock().unwrap();
+        wave1.sample() + wave2.sample()
+    }
+
+    fn update_phase(&mut self, sample_rate: f64) {
+        self.wave1.lock().unwrap().update_phase(sample_rate);
+        self.wave2.lock().unwrap().update_phase(sample_rate);
+    }
+
+    fn mul_hz(&mut self, factor: f64) {
+        self.wave1.lock().unwrap().mul_hz(factor);
+        self.wave2.lock().unwrap().mul_hz(factor);
+    }
+
+    fn mod_hz(&mut self, factor: f64) {
+        self.wave1.lock().unwrap().mod_hz(factor);
+        self.wave2.lock().unwrap().mod_hz(factor);
+    }
+
+    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
+        self.wave1.lock().unwrap().modify_amplitude(f.clone());
+        self.wave2.lock().unwrap().modify_amplitude(f);
+    }
+}
 #[derive(Constructor)]
 pub struct LerpWave {
     pub wave1: ArcWave,
@@ -371,7 +418,11 @@ impl PolyWave {
 
 impl Wave for PolyWave {
     fn sample(&self) -> f32 {
-        self.volume * self.waves.iter().fold(0.0, |acc, x| acc + x.lock().unwrap().sample())
+        self.volume
+            * self
+                .waves
+                .iter()
+                .fold(0.0, |acc, x| acc + x.lock().unwrap().sample())
     }
 
     fn update_phase(&mut self, sample_rate: f64) {

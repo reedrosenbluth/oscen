@@ -28,7 +28,7 @@ struct Model {
 
 #[derive(Constructor)]
 struct Synth {
-    voice: ArcMutex<PolyWave>,
+    voice: ArcMutex<SumWave<SineWave, SawWave>>,
     sender: Sender<f32>,
 }
 
@@ -62,11 +62,13 @@ fn model(app: &App) -> Model {
         fm_mult: 1.,
     });
 
-    let mut waves = PolyWave::new(vec![sine, square, saw, triangle, lerp, vca, vco], 1.);
-    waves.set_amplitudes(&[0.; 7]);
-    let num_waves = waves.waves.len();
+    let mut waves = SumWave::boxed(sine, saw);
+    // waves.set_amplitudes(&[0.; 2]);
+    // let mut waves = PolyWave::new(vec![sine, square, saw, triangle, lerp, vca, vco], 1.);
+    // waves.set_amplitudes(&[0.; 7]);
+    let num_waves = 2;
     let model = Synth {
-        voice: arc(waves),
+        voice: waves,
         sender,
     };
     let stream = audio_host
@@ -198,7 +200,9 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     model
         .stream
         .send(move |synth| {
-            synth.voice.lock().unwrap().set_amplitudes(&ws);
+            // SineWave.from(synth.voice.lock().unwrap().waves[0]).hz = 440.;
+            synth.voice.lock().unwrap().wave1.lock().unwrap().0.amplitude = ws[0];
+            synth.voice.lock().unwrap().wave2.lock().unwrap().0.amplitude = ws[1];
         })
         .unwrap();
 }

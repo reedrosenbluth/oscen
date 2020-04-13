@@ -46,7 +46,7 @@ macro_rules! pub_struct {
 macro_rules! basic_wave {
     ($wave:ident, $sample:expr) => {
         #[derive(Clone)]
-        pub struct $wave($crate::WaveParams);
+        pub struct $wave(pub $crate::WaveParams);
 
         impl $wave {
             pub fn new(hz: f64) -> Self {
