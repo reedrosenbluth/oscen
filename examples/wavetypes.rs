@@ -51,18 +51,18 @@ fn model(app: &App) -> Model {
     // Initialise the state that we want to live on the audio thread.
     let sine = SineWave::boxed(HZ);
     // let square = SquareWave::boxed(HZ);
-    let square = square_wave(16, HZ);
+    // let square = square_wave(16, HZ);
     let saw = SawWave::boxed(HZ);
-    let triangle = triangle_wave(16, HZ);
-    let lerp = LerpWave::boxed(SineWave::boxed(HZ), SquareWave::boxed(HZ), 0.5);
-    let vca = VCA::boxed(SineWave::boxed(2.0 * HZ), SineWave::boxed(HZ / 5.5));
-    let vco = arc(VCO {
-        wave: SineWave::boxed(HZ),
-        cv: SineWave::boxed(HZ),
-        fm_mult: 1.,
-    });
+    // let triangle = triangle_wave(16, HZ);
+    // let lerp = LerpWave::boxed(SineWave::boxed(HZ), SquareWave::boxed(HZ), 0.5);
+    // let vca = VCA::boxed(SineWave::boxed(2.0 * HZ), SineWave::boxed(HZ / 5.5));
+    // let vco = arc(VCO {
+    //     wave: SineWave::boxed(HZ),
+    //     cv: SineWave::boxed(HZ),
+    //     fm_mult: 1.,
+    // });
 
-    let mut waves = SumWave::boxed(sine, saw);
+    let waves = SumWave::boxed(sine, saw);
     // waves.set_amplitudes(&[0.; 2]);
     // let mut waves = PolyWave::new(vec![sine, square, saw, triangle, lerp, vca, vco], 1.);
     // waves.set_amplitudes(&[0.; 7]);
