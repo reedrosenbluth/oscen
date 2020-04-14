@@ -2,7 +2,6 @@ use derive_more::Constructor;
 use math::round::floor;
 use std::{
     f64::consts::PI,
-    rc::Rc,
     sync::{Arc, Mutex},
 };
 
@@ -20,7 +19,6 @@ pub trait Wave {
     fn update_phase(&mut self, sample_rate: f64);
     fn mul_hz(&mut self, factor: f64);
     fn mod_hz(&mut self, factor: f64);
-    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>);
 }
 
 pub type BoxedWave = Box<dyn Wave + Send>;
@@ -63,10 +61,6 @@ impl WaveParams {
 
     fn mod_hz(&mut self, factor: f64) {
         self.hz = self.hz0 * factor;
-    }
-
-    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.amplitude = f(self.amplitude)
     }
 }
 
@@ -146,11 +140,6 @@ impl<U: Wave + Send, W: Wave + Send> Wave for SumWave<U, W> {
         self.wave1.lock().unwrap().mod_hz(factor);
         self.wave2.lock().unwrap().mod_hz(factor);
     }
-
-    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.wave1.lock().unwrap().modify_amplitude(f.clone());
-        self.wave2.lock().unwrap().modify_amplitude(f);
-    }
 }
 #[derive(Constructor)]
 pub struct LerpWave {
@@ -194,11 +183,6 @@ impl Wave for LerpWave {
         self.wave1.lock().unwrap().mod_hz(factor);
         self.wave2.lock().unwrap().mod_hz(factor);
     }
-
-    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.wave1.lock().unwrap().modify_amplitude(f.clone());
-        self.wave2.lock().unwrap().modify_amplitude(f);
-    }
 }
 
 /// Voltage Controlled Amplifier
@@ -229,10 +213,6 @@ impl Wave for VCA {
 
     fn mod_hz(&mut self, factor: f64) {
         self.wave.lock().unwrap().mod_hz(factor);
-    }
-
-    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.wave.lock().unwrap().modify_amplitude(f);
     }
 }
 
@@ -279,10 +259,6 @@ impl Wave for VCO {
     fn mod_hz(&mut self, factor: f64) {
         self.wave.lock().unwrap().mod_hz(factor);
     }
-
-    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.wave.lock().unwrap().modify_amplitude(f);
-    }
 }
 
 pub struct TriggeredWave {
@@ -327,10 +303,6 @@ impl Wave for TriggeredWave {
 
     fn mod_hz(&mut self, factor: f64) {
         self.wave.lock().unwrap().mod_hz(factor);
-    }
-
-    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.wave.lock().unwrap().modify_amplitude(f);
     }
 }
 
@@ -390,7 +362,6 @@ impl Wave for ADSRWave {
 
     fn mul_hz(&mut self, _factor: f64) {}
     fn mod_hz(&mut self, _factor: f64) {}
-    fn modify_amplitude(&mut self, _f: Rc<dyn Fn(f32) -> f32>) {}
 }
 
 pub struct PolyWave {
@@ -405,13 +376,6 @@ impl PolyWave {
 
     pub fn boxed(waves: Vec<ArcWave>, volume: f32) -> ArcMutex<Self> {
         arc(Self::new(waves, volume))
-    }
-
-    pub fn set_amplitudes(&mut self, weights: &[f32]) {
-        for (i, v) in self.waves.iter_mut().enumerate() {
-            let val = weights[i];
-            v.lock().unwrap().modify_amplitude(Rc::new(move |_| val));
-        }
     }
 
     pub fn set_volume(&mut self, volume: f32) {
@@ -443,12 +407,6 @@ impl Wave for PolyWave {
     fn mod_hz(&mut self, factor: f64) {
         for wave in self.waves.iter_mut() {
             wave.lock().unwrap().mod_hz(factor);
-        }
-    }
-
-    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        for wave in self.waves.iter_mut() {
-            wave.lock().unwrap().modify_amplitude(f.clone());
         }
     }
 }
@@ -515,12 +473,6 @@ where U: Wave + Send,
         self.wave2.lock().unwrap().mod_hz(factor);
         self.wave3.lock().unwrap().mod_hz(factor);
     }
-
-    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.wave1.lock().unwrap().modify_amplitude(f.clone());
-        self.wave2.lock().unwrap().modify_amplitude(f.clone());
-        self.wave3.lock().unwrap().modify_amplitude(f);
-    }
 }
 
 pub struct FourierWave(pub PolyWave);
@@ -561,10 +513,6 @@ impl Wave for FourierWave {
 
     fn mod_hz(&mut self, factor: f64) {
         self.0.mod_hz(factor);
-    }
-
-    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
-        self.0.volume = f(self.0.volume);
     }
 }
 
