@@ -235,14 +235,6 @@ impl Wave for TriggeredWave {
         self.wave.lock().unwrap().update_phase(sample_rate);
         self.clock += 1. / sample_rate;
     }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.wave.lock().unwrap().mul_hz(factor);
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.wave.lock().unwrap().mod_hz(factor);
-    }
 }
 
 pub_struct!(
@@ -298,9 +290,6 @@ impl Wave for ADSRWave {
     fn update_phase(&mut self, sample_rate: f64) {
         self.current_time += 1. / sample_rate;
     }
-
-    fn mul_hz(&mut self, _factor: f64) {}
-    fn mod_hz(&mut self, _factor: f64) {}
 }
 
 pub struct PolyWave {
@@ -334,18 +323,6 @@ impl Wave for PolyWave {
     fn update_phase(&mut self, sample_rate: f64) {
         for wave in self.waves.iter_mut() {
             wave.lock().unwrap().update_phase(sample_rate);
-        }
-    }
-
-    fn mul_hz(&mut self, factor: f64) {
-        for wave in self.waves.iter_mut() {
-            wave.lock().unwrap().mul_hz(factor);
-        }
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        for wave in self.waves.iter_mut() {
-            wave.lock().unwrap().mod_hz(factor);
         }
     }
 }
@@ -400,18 +377,6 @@ where U: Wave + Send,
         self.wave2.lock().unwrap().update_phase(sample_rate);
         self.wave3.lock().unwrap().update_phase(sample_rate);
     }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.wave1.lock().unwrap().mul_hz(factor);
-        self.wave2.lock().unwrap().mul_hz(factor);
-        self.wave3.lock().unwrap().mul_hz(factor);
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.wave1.lock().unwrap().mod_hz(factor);
-        self.wave2.lock().unwrap().mod_hz(factor);
-        self.wave3.lock().unwrap().mod_hz(factor);
-    }
 }
 
 pub struct FourierWave(pub PolyWave);
@@ -424,7 +389,6 @@ impl FourierWave {
                 hz: hz * n as f64,
                 amplitude: *c,
                 phase: 0.,
-                hz0: hz * n as f64,
             };
             let s = SineWave(wp);
             wwaves.push(Arc::new(Mutex::new(s)));
@@ -444,14 +408,6 @@ impl Wave for FourierWave {
 
     fn update_phase(&mut self, sample_rate: f64) {
         self.0.update_phase(sample_rate);
-    }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.0.mul_hz(factor);
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.0.mod_hz(factor);
     }
 }
 
