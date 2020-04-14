@@ -107,15 +107,18 @@ basic_wave!(TriangleWave, |wave: &TriangleWave| {
 });
 
 pub struct SumWave<U, W>
-where U: Wave + Send,
-      W: Wave + Send, 
+where
+    U: Wave + Send,
+    W: Wave + Send,
 {
     pub wave1: ArcMutex<U>,
     pub wave2: ArcMutex<W>,
 }
 
 impl<U: Wave + Send, W: Wave + Send> SumWave<U, W> {
-    pub fn new(wave1: ArcMutex<U>, wave2: ArcMutex<W>) -> Self { Self { wave1, wave2 } }
+    pub fn new(wave1: ArcMutex<U>, wave2: ArcMutex<W>) -> Self {
+        Self { wave1, wave2 }
+    }
 
     pub fn boxed(wave1: ArcMutex<U>, wave2: ArcMutex<W>) -> ArcMutex<Self> {
         arc(SumWave { wave1, wave2 })
@@ -447,6 +450,76 @@ impl Wave for PolyWave {
         for wave in self.waves.iter_mut() {
             wave.lock().unwrap().modify_amplitude(f.clone());
         }
+    }
+}
+
+pub struct OneOf3Wave<U, V, W>
+where
+    U: Wave + Send,
+    V: Wave + Send,
+    W: Wave + Send,
+{
+    pub wave1: ArcMutex<U>,
+    pub wave2: ArcMutex<V>,
+    pub wave3: ArcMutex<W>,
+    pub playing: usize,
+}
+
+impl<U, V, W> OneOf3Wave<U, V, W>
+where U: Wave + Send,
+      V: Wave + Send,
+      W: Wave + Send,
+{
+    pub fn new(wave1: ArcMutex<U>, wave2: ArcMutex<V>, wave3: ArcMutex<W>) -> Self {
+        Self {
+            wave1,
+            wave2,
+            wave3,
+            playing: 0,
+        }
+    }
+
+    pub fn boxed(wave1: ArcMutex<U>, wave2: ArcMutex<V>, wave3: ArcMutex<W>) -> ArcMutex<Self> {
+        arc(Self::new(wave1, wave2, wave3))
+    }
+}
+
+impl<U, V, W> Wave for OneOf3Wave<U, V, W>
+where U: Wave + Send,
+      W: Wave + Send, 
+      V: Wave + Send,
+{
+    fn sample(&self) -> f32 {
+        match self.playing {
+            0 => self.wave1.lock().unwrap().sample(),
+            1 => self.wave2.lock().unwrap().sample(),
+            2 => self.wave3.lock().unwrap().sample(),
+            _ => self.wave1.lock().unwrap().sample(),
+        }
+    }
+
+    fn update_phase(&mut self, sample_rate: f64) {
+        self.wave1.lock().unwrap().update_phase(sample_rate);
+        self.wave2.lock().unwrap().update_phase(sample_rate);
+        self.wave3.lock().unwrap().update_phase(sample_rate);
+    }
+
+    fn mul_hz(&mut self, factor: f64) {
+        self.wave1.lock().unwrap().mul_hz(factor);
+        self.wave2.lock().unwrap().mul_hz(factor);
+        self.wave3.lock().unwrap().mul_hz(factor);
+    }
+
+    fn mod_hz(&mut self, factor: f64) {
+        self.wave1.lock().unwrap().mod_hz(factor);
+        self.wave2.lock().unwrap().mod_hz(factor);
+        self.wave3.lock().unwrap().mod_hz(factor);
+    }
+
+    fn modify_amplitude(&mut self, f: Rc<dyn Fn(f32) -> f32>) {
+        self.wave1.lock().unwrap().modify_amplitude(f.clone());
+        self.wave2.lock().unwrap().modify_amplitude(f.clone());
+        self.wave3.lock().unwrap().modify_amplitude(f);
     }
 }
 
