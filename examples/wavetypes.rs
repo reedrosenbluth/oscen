@@ -30,7 +30,7 @@ struct Model {
 
 #[derive(Constructor)]
 struct Synth {
-    voice: ArcMutex<SumWave<SineWave, FourierWave>>,
+    voice: SumWave<SineWave, FourierWave>,
     sender: Sender<f32>,
 }
 
@@ -64,7 +64,7 @@ fn model(app: &App) -> Model {
     //     fm_mult: 1.,
     // });
 
-    let waves = SumWave::boxed(sine.clone(), square.clone());
+    let waves = SumWave::new(sine.clone(), square.clone());
     // waves.set_amplitudes(&[0.; 2]);
     // let mut waves = PolyWave::new(vec![sine, square, saw, triangle, lerp, vca, vco], 1.);
     // waves.set_amplitudes(&[0.; 7]);
@@ -107,8 +107,8 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
-        amp += synth.voice.lock().unwrap().sample();
-        synth.voice.lock().unwrap().update_phase(sample_rate);
+        amp += synth.voice.sample();
+        synth.voice.update_phase(sample_rate);
         for channel in frame {
             *channel = amp;
         }
@@ -124,9 +124,9 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.lock().unwrap().wave1.lock().unwrap().0.hz *= factor;
+                synth.voice.wave1.lock().unwrap().0.hz *= factor;
                 // synth.voice.lock().unwrap().wave2.lock().unwrap().0.hz *= factor;
-                synth.voice.lock().unwrap().wave2.lock().unwrap().set_hz(factor * square_hz);
+                synth.voice.wave2.lock().unwrap().set_hz(factor * square_hz);
             })
             .unwrap();
     };
@@ -207,9 +207,9 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     model
         .stream
         .send(move |synth| {
-            synth.voice.lock().unwrap().wave1.lock().unwrap().0.amplitude = ws[0];
+            synth.voice.wave1.lock().unwrap().0.amplitude = ws[0];
             // synth.voice.lock().unwrap().wave2.lock().unwrap().0.amplitude = ws[1];
-            synth.voice.lock().unwrap().wave2.lock().unwrap().set_volume(ws[1]);
+            synth.voice.wave2.lock().unwrap().set_volume(ws[1]);
         })
         .unwrap();
 }
