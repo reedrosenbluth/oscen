@@ -340,9 +340,10 @@ where
 }
 
 impl<U, V, W> OneOf3Wave<U, V, W>
-where U: Wave + Send,
-      V: Wave + Send,
-      W: Wave + Send,
+where
+    U: Wave + Send,
+    V: Wave + Send,
+    W: Wave + Send,
 {
     pub fn new(wave1: ArcMutex<U>, wave2: ArcMutex<V>, wave3: ArcMutex<W>) -> Self {
         Self {
@@ -359,9 +360,10 @@ where U: Wave + Send,
 }
 
 impl<U, V, W> Wave for OneOf3Wave<U, V, W>
-where U: Wave + Send,
-      W: Wave + Send, 
-      V: Wave + Send,
+where
+    U: Wave + Send,
+    W: Wave + Send,
+    V: Wave + Send,
 {
     fn sample(&self) -> f32 {
         match self.playing {
@@ -379,11 +381,16 @@ where U: Wave + Send,
     }
 }
 
-pub struct FourierWave(pub PolyWave);
+// pub struct FourierWave(pub PolyWave);
+pub struct FourierWave {
+    pub base_hz: f64,
+    pub volume: f32,
+    pub sines: Vec<SineWave>,
+}
 
 impl FourierWave {
-    pub fn new(coefficients: Vec<f32>, hz: f64) -> Self {
-        let mut wwaves: Vec<ArcWave> = Vec::new();
+    pub fn new(coefficients: &[f32], hz: f64) -> Self {
+        let mut wwaves: Vec<SineWave> = Vec::new();
         for (n, c) in coefficients.iter().enumerate() {
             let wp = WaveParams {
                 hz: hz * n as f64,
@@ -391,23 +398,36 @@ impl FourierWave {
                 phase: 0.,
             };
             let s = SineWave(wp);
-            wwaves.push(Arc::new(Mutex::new(s)));
+            wwaves.push(s);
         }
-        FourierWave(PolyWave::new(wwaves, 1.))
+        FourierWave {base_hz: hz, volume: 1.0, sines: wwaves}
     }
 
-    pub fn boxed(coefficients: Vec<f32>, hz: f64) -> ArcMutex<Self> {
+    pub fn boxed(coefficients: &[f32], hz: f64) -> ArcMutex<Self> {
         arc(FourierWave::new(coefficients, hz))
+    }
+
+    pub fn set_hz(&mut self, hz: f64) {
+        self.base_hz = hz;
+        for n in 0..self.sines.len() {
+            self.sines[n].0.hz = hz * n as f64;
+        }
+    }
+
+    pub fn set_volume(&mut self, volume: f32) {
+        self.volume = volume;
     }
 }
 
 impl Wave for FourierWave {
     fn sample(&self) -> f32 {
-        self.0.sample()
+        self.volume * self.sines.iter().fold(0., |acc, x| acc + x.sample())
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
-        self.0.update_phase(sample_rate);
+        for w in self.sines.iter_mut() {
+            w.update_phase(sample_rate);
+        }
     }
 }
 
@@ -420,7 +440,7 @@ pub fn square_wave(n: u32, hz: f64) -> ArcMutex<FourierWave> {
             coefficients.push(0.);
         }
     }
-    FourierWave::boxed(coefficients, hz)
+    FourierWave::boxed(coefficients.as_ref(), hz)
 }
 
 pub fn triangle_wave(n: u32, hz: f64) -> ArcMutex<FourierWave> {
@@ -433,5 +453,5 @@ pub fn triangle_wave(n: u32, hz: f64) -> ArcMutex<FourierWave> {
             coefficients.push(0.);
         }
     }
-    FourierWave::boxed(coefficients, hz)
+    FourierWave::boxed(coefficients.as_ref(), hz)
 }

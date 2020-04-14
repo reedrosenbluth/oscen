@@ -24,6 +24,8 @@ struct Model {
     ui: Ui,
     ids: Vec<widget::Id>,
     wave_indices: Vec<f32>,
+    sinewave: ArcMutex<SineWave>,
+    squarewave: ArcMutex<FourierWave>,
 }
 
 #[derive(Constructor)]
@@ -52,7 +54,7 @@ fn model(app: &App) -> Model {
     let sine = SineWave::boxed(HZ);
     // let square = SquareWave::boxed(HZ);
     let square = square_wave(16, HZ);
-    // let saw = SawWave::boxed(HZ);
+    let saw = SawWave::boxed(HZ);
     // let triangle = triangle_wave(16, HZ);
     // let lerp = LerpWave::boxed(SineWave::boxed(HZ), SquareWave::boxed(HZ), 0.5);
     // let vca = VCA::boxed(SineWave::boxed(2.0 * HZ), SineWave::boxed(HZ / 5.5));
@@ -62,7 +64,7 @@ fn model(app: &App) -> Model {
     //     fm_mult: 1.,
     // });
 
-    let waves = SumWave::boxed(sine, square);
+    let waves = SumWave::boxed(sine.clone(), square.clone());
     // waves.set_amplitudes(&[0.; 2]);
     // let mut waves = PolyWave::new(vec![sine, square, saw, triangle, lerp, vca, vco], 1.);
     // waves.set_amplitudes(&[0.; 7]);
@@ -94,6 +96,8 @@ fn model(app: &App) -> Model {
         ui,
         ids,
         wave_indices,
+        sinewave: sine.clone(),
+        squarewave: square.clone(),
     }
 }
 
@@ -114,12 +118,15 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
+    let square_hz = model.squarewave.lock().unwrap().base_hz;
     let change_hz = |i| {
         model
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.lock().unwrap().mul_hz(factor);
+                synth.voice.lock().unwrap().wave1.lock().unwrap().0.hz *= factor;
+                // synth.voice.lock().unwrap().wave2.lock().unwrap().0.hz *= factor;
+                synth.voice.lock().unwrap().wave2.lock().unwrap().set_hz(factor * square_hz);
             })
             .unwrap();
     };
@@ -200,9 +207,9 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     model
         .stream
         .send(move |synth| {
-            // SineWave.from(synth.voice.lock().unwrap().waves[0]).hz = 440.;
             synth.voice.lock().unwrap().wave1.lock().unwrap().0.amplitude = ws[0];
-            synth.voice.lock().unwrap().wave2.lock().unwrap().0.volume = ws[1];
+            // synth.voice.lock().unwrap().wave2.lock().unwrap().0.amplitude = ws[1];
+            synth.voice.lock().unwrap().wave2.lock().unwrap().set_volume(ws[1]);
         })
         .unwrap();
 }
