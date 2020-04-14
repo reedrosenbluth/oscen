@@ -17,11 +17,8 @@ pub type Amp = f32;
 pub trait Wave {
     fn sample(&self) -> Amp;
     fn update_phase(&mut self, sample_rate: f64);
-    fn mul_hz(&mut self, factor: f64);
-    fn mod_hz(&mut self, factor: f64);
 }
 
-pub type BoxedWave = Box<dyn Wave + Send>;
 pub type ArcWave = Arc<Mutex<dyn Wave + Send>>;
 pub type ArcMutex<T> = Arc<Mutex<T>>;
 
@@ -35,7 +32,6 @@ pub_struct!(
         hz: Hz,
         amplitude: Amp,
         phase: Phase,
-        hz0: Hz,
     }
 );
 
@@ -45,22 +41,12 @@ impl WaveParams {
             hz,
             amplitude: 1.0,
             phase: 0.0,
-            hz0: hz,
         }
     }
 
     fn update_phase(&mut self, sample_rate: f64) {
         self.phase += self.hz / sample_rate;
         self.phase %= sample_rate;
-    }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.hz *= factor;
-        self.hz0 *= factor;
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.hz = self.hz0 * factor;
     }
 }
 
@@ -130,16 +116,6 @@ impl<U: Wave + Send, W: Wave + Send> Wave for SumWave<U, W> {
         self.wave1.lock().unwrap().update_phase(sample_rate);
         self.wave2.lock().unwrap().update_phase(sample_rate);
     }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.wave1.lock().unwrap().mul_hz(factor);
-        self.wave2.lock().unwrap().mul_hz(factor);
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.wave1.lock().unwrap().mod_hz(factor);
-        self.wave2.lock().unwrap().mod_hz(factor);
-    }
 }
 #[derive(Constructor)]
 pub struct LerpWave {
@@ -173,16 +149,6 @@ impl Wave for LerpWave {
         self.wave1.lock().unwrap().update_phase(sample_rate);
         self.wave2.lock().unwrap().update_phase(sample_rate);
     }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.wave1.lock().unwrap().mul_hz(factor);
-        self.wave2.lock().unwrap().mul_hz(factor);
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.wave1.lock().unwrap().mod_hz(factor);
-        self.wave2.lock().unwrap().mod_hz(factor);
-    }
 }
 
 /// Voltage Controlled Amplifier
@@ -206,38 +172,22 @@ impl Wave for VCA {
         self.wave.lock().unwrap().update_phase(sample_rate);
         self.cv.lock().unwrap().update_phase(sample_rate);
     }
-
-    fn mul_hz(&mut self, factor: f64) {
-        self.wave.lock().unwrap().mul_hz(factor);
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.wave.lock().unwrap().mod_hz(factor);
-    }
 }
 
 /// Voltage Controlled Oscillator
-pub struct VCO {
+pub struct FM_Oscillator {
     pub wave: ArcWave,
     pub cv: ArcWave,
-    pub fm_mult: f64,
+    pub mod_idx: Phase,
 }
 
-impl VCO {
-    pub fn boxed(wave: ArcWave, cv: ArcWave, fm_mult: f64) -> ArcMutex<Self> {
-        arc(VCO { wave, cv, fm_mult })
-    }
-
-    pub fn fm_mult(&mut self) -> f64 {
-        self.fm_mult
-    }
-
-    pub fn set_fm_mult(&mut self, mult: f64) {
-        self.fm_mult = mult;
+impl FM_Oscillator {
+    pub fn boxed(wave: ArcWave, cv: ArcWave, mod_idx: Phase) -> ArcMutex<Self> {
+        arc(FM_Oscillator { wave, cv, mod_idx })
     }
 }
 
-impl Wave for VCO {
+impl Wave for FM_Oscillator {
     fn sample(&self) -> f32 {
         self.wave.lock().unwrap().sample()
     }
@@ -245,20 +195,9 @@ impl Wave for VCO {
     fn update_phase(&mut self, sample_rate: f64) {
         self.wave.lock().unwrap().update_phase(sample_rate);
         self.cv.lock().unwrap().update_phase(sample_rate);
-
-        //Frequency Modulation
-        let factor = 2f32.powf(self.cv.lock().unwrap().sample() * self.fm_mult as f32) as f64;
-        self.wave.lock().unwrap().mod_hz(factor);
     }
 
-    fn mul_hz(&mut self, factor: f64) {
-        self.wave.lock().unwrap().mul_hz(factor);
-        self.cv.lock().unwrap().mul_hz(factor);
-    }
-
-    fn mod_hz(&mut self, factor: f64) {
-        self.wave.lock().unwrap().mod_hz(factor);
-    }
+    //TODO: impl FM
 }
 
 pub struct TriggeredWave {

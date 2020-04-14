@@ -66,14 +66,6 @@ macro_rules! basic_wave {
             fn update_phase(&mut self, sample_rate: f64) {
                 self.0.update_phase(sample_rate)
             }
-
-            fn mul_hz(&mut self, factor: f64) {
-                self.0.mul_hz(factor);
-            }
-
-            fn mod_hz(&mut self, factor: f64) {
-                self.0.mod_hz(factor);
-            }
         }
     };
 }
