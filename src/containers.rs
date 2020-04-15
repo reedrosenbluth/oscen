@@ -24,19 +24,19 @@ impl Wave for VCA {
 }
 
 /// Voltage Controlled Oscillator
-pub struct FM_Oscillator {
+pub struct FMoscillator {
     pub wave: ArcWave,
     pub cv: ArcWave,
     pub mod_idx: Phase,
 }
 
-impl FM_Oscillator {
+impl FMoscillator {
     pub fn boxed(wave: ArcWave, cv: ArcWave, mod_idx: Phase) -> ArcMutex<Self> {
-        arc(FM_Oscillator { wave, cv, mod_idx })
+        arc(FMoscillator { wave, cv, mod_idx })
     }
 }
 
-impl Wave for FM_Oscillator {
+impl Wave for FMoscillator {
     fn sample(&self) -> f32 {
         self.wave.lock().unwrap().sample()
     }

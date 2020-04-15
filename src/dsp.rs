@@ -80,13 +80,14 @@ basic_wave!(SawWave, |wave: &SawWave| {
 basic_wave!(TriangleWave, |wave: &TriangleWave| {
     let t = wave.0.phase - 0.75;
     let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
-    2. * saw_amp.abs() - wave.0.amplitude
+    (2. * saw_amp.abs() - wave.0.amplitude) * wave.0.amplitude
 });
 
 // pub struct FourierWave(pub PolyWave);
 pub struct FourierWave {
-    pub base_hz: f64,
-    pub volume: f32,
+    pub hz: Hz,
+    pub amplitude: Amp,
+    pub phase: Phase,
     pub sines: Vec<SineWave>,
 }
 
@@ -103,8 +104,9 @@ impl FourierWave {
             wwaves.push(s);
         }
         FourierWave {
-            base_hz: hz,
-            volume: 1.0,
+            hz,
+            amplitude: 1.0,
+            phase: 0.0,
             sines: wwaves,
         }
     }
@@ -114,20 +116,16 @@ impl FourierWave {
     }
 
     pub fn set_hz(&mut self, hz: f64) {
-        self.base_hz = hz;
+        self.hz = hz;
         for n in 0..self.sines.len() {
             self.sines[n].0.hz = hz * n as f64;
         }
-    }
-
-    pub fn set_volume(&mut self, volume: f32) {
-        self.volume = volume;
     }
 }
 
 impl Wave for FourierWave {
     fn sample(&self) -> f32 {
-        self.volume * self.sines.iter().fold(0., |acc, x| acc + x.sample())
+        self.amplitude * self.sines.iter().fold(0., |acc, x| acc + x.sample())
     }
 
     fn update_phase(&mut self, sample_rate: f64) {

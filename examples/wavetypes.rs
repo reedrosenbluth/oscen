@@ -7,8 +7,8 @@ use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 
-use swell::dsp::*;
 use swell::collections::*;
+use swell::dsp::*;
 
 use widget::toggle::TimesClicked;
 use widget::Toggle;
@@ -26,18 +26,17 @@ struct Model {
     ui: Ui,
     ids: Vec<widget::Id>,
     wave_indices: Vec<f32>,
-    sinewave: ArcMutex<SineWave>,
     squarewave: ArcMutex<FourierWave>,
 }
 
 #[derive(Constructor)]
 struct Synth {
-    voice: Wave2<SineWave, FourierWave>,
+    voice: Wave4<SineWave, FourierWave, SawWave, TriangleWave>,
     sender: Sender<f32>,
 }
 
 fn model(app: &App) -> Model {
-    const HZ: f64 = 220.;
+    const HZ: f64 = 440.;
     let (sender, receiver) = unbounded();
 
     // Create a window to receive key pressed events.
@@ -54,23 +53,16 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
     let sine = SineWave::boxed(HZ);
-    // let square = SquareWave::boxed(HZ);
-    let square = square_wave(16, HZ);
+    // sine.lock().unwrap().0.amplitude = 0.0;
+    let square = square_wave(32, HZ);
+    square.lock().unwrap().amplitude = 0.0;
     let saw = SawWave::boxed(HZ);
-    // let triangle = triangle_wave(16, HZ);
-    // let lerp = LerpWave::boxed(SineWave::boxed(HZ), SquareWave::boxed(HZ), 0.5);
-    // let vca = VCA::boxed(SineWave::boxed(2.0 * HZ), SineWave::boxed(HZ / 5.5));
-    // let vco = arc(VCO {
-    //     wave: SineWave::boxed(HZ),
-    //     cv: SineWave::boxed(HZ),
-    //     fm_mult: 1.,
-    // });
+    saw.lock().unwrap().0.amplitude = 0.0;
+    let triangle = TriangleWave::boxed(HZ);
+    triangle.lock().unwrap().0.amplitude = 0.0;
 
-    let waves = Wave2::new(sine.clone(), square.clone());
-    // waves.set_amplitudes(&[0.; 2]);
-    // let mut waves = PolyWave::new(vec![sine, square, saw, triangle, lerp, vca, vco], 1.);
-    // waves.set_amplitudes(&[0.; 7]);
-    let num_waves = 2;
+    let waves = Wave4::new(sine, square.clone(), saw, triangle);
+    let num_waves = 4;
     let model = Synth {
         voice: waves,
         sender,
@@ -98,7 +90,6 @@ fn model(app: &App) -> Model {
         ui,
         ids,
         wave_indices,
-        sinewave: sine.clone(),
         squarewave: square.clone(),
     }
 }
@@ -120,15 +111,16 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
-    let square_hz = model.squarewave.lock().unwrap().base_hz;
+    let square_hz = model.squarewave.lock().unwrap().hz;
     let change_hz = |i| {
         model
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
                 synth.voice.wave1.lock().unwrap().0.hz *= factor;
-                // synth.voice.lock().unwrap().wave2.lock().unwrap().0.hz *= factor;
                 synth.voice.wave2.lock().unwrap().set_hz(factor * square_hz);
+                synth.voice.wave3.lock().unwrap().0.hz *= factor;
+                synth.voice.wave4.lock().unwrap().0.hz *= factor;
             })
             .unwrap();
     };
@@ -169,7 +161,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     let ui = &mut model.ui.set_widgets();
 
-    let labels = &["Sine", "Square(8)", "Saw", "Triangle", "Lerp", "AM", "FM"];
+    let labels = &["Sine", "Square", "Saw", "Triangle"];
 
     fn toggle(onoff: bool, lbl: &'static str) -> Toggle<'static> {
         Toggle::new(onoff)
@@ -209,9 +201,11 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     model
         .stream
         .send(move |synth| {
-            synth.voice.wave1.lock().unwrap().0.amplitude = ws[0];
-            // synth.voice.lock().unwrap().wave2.lock().unwrap().0.amplitude = ws[1];
-            synth.voice.wave2.lock().unwrap().set_volume(ws[1]);
+            let a = ws.iter().sum::<f32>();
+            synth.voice.wave1.lock().unwrap().0.amplitude = ws[0] / a;
+            synth.voice.wave2.lock().unwrap().amplitude = ws[1] / a;
+            synth.voice.wave3.lock().unwrap().0.amplitude = ws[2] / a;
+            synth.voice.wave4.lock().unwrap().0.amplitude = ws[3] / a;
         })
         .unwrap();
 }
