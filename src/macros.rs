@@ -63,8 +63,8 @@ macro_rules! basic_wave {
                 $sample(self)
             }
 
-            fn update_phase(&mut self, sample_rate: f64) {
-                self.0.update_phase(sample_rate)
+            fn update_phase(&mut self, add: Phase, sample_rate: f64) {
+                self.0.update_phase(add, sample_rate)
             }
         }
     };

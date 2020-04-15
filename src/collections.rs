@@ -34,9 +34,9 @@ where
         wave1.sample() + wave2.sample()
     }
 
-    fn update_phase(&mut self, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(sample_rate);
-        self.wave2.lock().unwrap().update_phase(sample_rate);
+    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
+        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
+        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
     }
 }
 pub struct Wave3<U, V, W>
@@ -78,10 +78,10 @@ where
         wave1.sample() + wave2.sample() + wave3.sample()
     }
 
-    fn update_phase(&mut self, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(sample_rate);
-        self.wave2.lock().unwrap().update_phase(sample_rate);
-        self.wave3.lock().unwrap().update_phase(sample_rate);
+    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
+        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
+        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
+        self.wave3.lock().unwrap().update_phase(0.0, sample_rate);
     }
 }
 pub struct Wave4<T, U, V, W>
@@ -129,11 +129,11 @@ where
         wave1.sample() + wave2.sample() + wave3.sample() + wave4.sample()
     }
 
-    fn update_phase(&mut self, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(sample_rate);
-        self.wave2.lock().unwrap().update_phase(sample_rate);
-        self.wave3.lock().unwrap().update_phase(sample_rate);
-        self.wave4.lock().unwrap().update_phase(sample_rate);
+    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
+        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
+        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
+        self.wave3.lock().unwrap().update_phase(0.0, sample_rate);
+        self.wave4.lock().unwrap().update_phase(0.0, sample_rate);
     }
 }
 #[derive(Constructor)]
@@ -164,9 +164,9 @@ impl Wave for LerpWave {
         (1. - self.alpha) * wave1.sample() + self.alpha * wave2.sample()
     }
 
-    fn update_phase(&mut self, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(sample_rate);
-        self.wave2.lock().unwrap().update_phase(sample_rate);
+    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
+        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
+        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
     }
 }
 pub struct PolyWave {
@@ -197,9 +197,9 @@ impl Wave for PolyWave {
                 .fold(0.0, |acc, x| acc + x.lock().unwrap().sample())
     }
 
-    fn update_phase(&mut self, sample_rate: f64) {
+    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
         for wave in self.waves.iter_mut() {
-            wave.lock().unwrap().update_phase(sample_rate);
+            wave.lock().unwrap().update_phase(0.0, sample_rate);
         }
     }
 }
@@ -251,9 +251,9 @@ where
         }
     }
 
-    fn update_phase(&mut self, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(sample_rate);
-        self.wave2.lock().unwrap().update_phase(sample_rate);
-        self.wave3.lock().unwrap().update_phase(sample_rate);
+    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
+        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
+        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
+        self.wave3.lock().unwrap().update_phase(0.0, sample_rate);
     }
 }

@@ -8,6 +8,7 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 
 use swell::collections::*;
+use swell::containers::*;
 use swell::dsp::*;
 
 use widget::toggle::TimesClicked;
@@ -31,7 +32,7 @@ struct Model {
 
 #[derive(Constructor)]
 struct Synth {
-    voice: Wave4<SineWave, FourierWave, SawWave, TriangleWave>,
+    voice: Wave4<SineWave, FourierWave, SawWave, FMoscillator<SineWave, SineWave>>,
     sender: Sender<f32>,
 }
 
@@ -49,19 +50,20 @@ fn model(app: &App) -> Model {
         .view(view)
         .build()
         .unwrap();
-    // Initialise the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
-    // Initialise the state that we want to live on the audio thread.
     let sine = SineWave::boxed(HZ);
-    // sine.lock().unwrap().0.amplitude = 0.0;
     let square = square_wave(32, HZ);
     square.lock().unwrap().amplitude = 0.0;
     let saw = SawWave::boxed(HZ);
     saw.lock().unwrap().0.amplitude = 0.0;
     let triangle = TriangleWave::boxed(HZ);
     triangle.lock().unwrap().0.amplitude = 0.0;
+    let carrier = SineWave::boxed(HZ / 2.);
+    carrier.lock().unwrap().0.amplitude = 0.0;
+    let modulator = SineWave::boxed(HZ);
+    let fm = FMoscillator::boxed(carrier, modulator, 100.0);
 
-    let waves = Wave4::new(sine, square.clone(), saw, triangle);
+    let waves = Wave4::new(sine, square.clone(), saw, fm);
     let num_waves = 4;
     let model = Synth {
         voice: waves,
@@ -94,14 +96,12 @@ fn model(app: &App) -> Model {
     }
 }
 
-// A function that renders the given `Audio` to the given `Buffer`.
-// In this case we play a simple sine wave at the audio's current frequency in `hz`.
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
         amp += synth.voice.sample();
-        synth.voice.update_phase(sample_rate);
+        synth.voice.update_phase(0.0, sample_rate);
         for channel in frame {
             *channel = amp;
         }
@@ -120,7 +120,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 synth.voice.wave1.lock().unwrap().0.hz *= factor;
                 synth.voice.wave2.lock().unwrap().set_hz(factor * square_hz);
                 synth.voice.wave3.lock().unwrap().0.hz *= factor;
-                synth.voice.wave4.lock().unwrap().0.hz *= factor;
+                synth.voice.wave4.lock().unwrap().carrier.lock().unwrap().0.hz *= factor;
             })
             .unwrap();
     };
@@ -161,7 +161,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     let ui = &mut model.ui.set_widgets();
 
-    let labels = &["Sine", "Square", "Saw", "Triangle"];
+    let labels = &["Sine", "Square", "Saw", "FM"];
 
     fn toggle(onoff: bool, lbl: &'static str) -> Toggle<'static> {
         Toggle::new(onoff)
@@ -205,7 +205,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             synth.voice.wave1.lock().unwrap().0.amplitude = ws[0] / a;
             synth.voice.wave2.lock().unwrap().amplitude = ws[1] / a;
             synth.voice.wave3.lock().unwrap().0.amplitude = ws[2] / a;
-            synth.voice.wave4.lock().unwrap().0.amplitude = ws[3] / a;
+            synth.voice.wave4.lock().unwrap().carrier.lock().unwrap().0.amplitude = ws[3] / a;
         })
         .unwrap();
 }
