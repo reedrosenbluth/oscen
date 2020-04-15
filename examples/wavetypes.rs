@@ -7,7 +7,9 @@ use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 
-use swell::*;
+use swell::dsp::*;
+use swell::collections::*;
+
 use widget::toggle::TimesClicked;
 use widget::Toggle;
 
@@ -30,7 +32,7 @@ struct Model {
 
 #[derive(Constructor)]
 struct Synth {
-    voice: SumWave<SineWave, FourierWave>,
+    voice: Wave2<SineWave, FourierWave>,
     sender: Sender<f32>,
 }
 
@@ -64,7 +66,7 @@ fn model(app: &App) -> Model {
     //     fm_mult: 1.,
     // });
 
-    let waves = SumWave::new(sine.clone(), square.clone());
+    let waves = Wave2::new(sine.clone(), square.clone());
     // waves.set_amplitudes(&[0.; 2]);
     // let mut waves = PolyWave::new(vec![sine, square, saw, triangle, lerp, vca, vco], 1.);
     // waves.set_amplitudes(&[0.; 7]);

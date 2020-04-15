@@ -46,15 +46,15 @@ macro_rules! pub_struct {
 macro_rules! basic_wave {
     ($wave:ident, $sample:expr) => {
         #[derive(Clone)]
-        pub struct $wave(pub $crate::WaveParams);
+        pub struct $wave(pub $crate::dsp::WaveParams);
 
         impl $wave {
             pub fn new(hz: f64) -> Self {
-                $wave($crate::WaveParams::new(hz))
+                $wave($crate::dsp::WaveParams::new(hz))
             }
 
             pub fn boxed(hz: f64) -> ArcMutex<Self> {
-                arc($wave($crate::WaveParams::new(hz)))
+                arc($wave($crate::dsp::WaveParams::new(hz)))
             }
         }
 

@@ -28,7 +28,7 @@ struct Model {
 
 #[derive(Constructor)]
 struct Synth {
-    voice: ArcMutex<OneOf3Wave<SineWave, FourierWave, FourierWave>>,
+    voice: OneOf3Wave<SineWave, FourierWave, FourierWave>,
     sender: Sender<f32>,
 }
 
@@ -88,8 +88,8 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
-        amp += synth.voice.lock().unwrap().sample();
-        synth.voice.lock().unwrap().update_phase(sample_rate);
+        amp += synth.voice.sample();
+        synth.voice.update_phase(sample_rate);
         for channel in frame {
             *channel = amp;
         }
@@ -104,7 +104,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.lock().unwrap().mul_hz(factor);
+                synth.voice.mul_hz(factor);
             })
             .unwrap();
     };
