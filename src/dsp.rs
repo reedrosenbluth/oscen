@@ -40,7 +40,7 @@ impl WaveParams {
     }
 
     fn update_phase(&mut self, add: Phase, sample_rate: f64) {
-        self.phase += (self.hz + add) / sample_rate;
+        self.phase += (self.hz + add * self.hz) / sample_rate;
         self.phase %= sample_rate;
     }
 }

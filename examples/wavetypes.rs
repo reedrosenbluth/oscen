@@ -58,10 +58,10 @@ fn model(app: &App) -> Model {
     saw.lock().unwrap().0.amplitude = 0.0;
     let triangle = TriangleWave::boxed(HZ);
     triangle.lock().unwrap().0.amplitude = 0.0;
-    let carrier = SineWave::boxed(HZ / 2.);
+    let carrier = SineWave::boxed(HZ);
     carrier.lock().unwrap().0.amplitude = 0.0;
-    let modulator = SineWave::boxed(HZ);
-    let fm = FMoscillator::boxed(carrier, modulator, 100.0);
+    let modulator = SineWave::boxed(220.);
+    let fm = FMoscillator::boxed(carrier, modulator, 3.0);
 
     let waves = Wave4::new(sine, square.clone(), saw, fm);
     let num_waves = 4;
