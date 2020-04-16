@@ -1,7 +1,6 @@
 use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
-use derive_more::Constructor;
 use nannou::prelude::*;
 use nannou::ui::prelude::*;
 use nannou_audio as audio;
@@ -18,7 +17,6 @@ fn main() {
     nannou::app(model).update(update).run();
 }
 
-#[derive(Constructor)]
 struct Model {
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
@@ -30,7 +28,6 @@ struct Model {
     squarewave: ArcMutex<FourierWave>,
 }
 
-#[derive(Constructor)]
 struct Synth {
     voice: Wave4<SineWave, FourierWave, SawWave, FMoscillator<SineWave, SineWave>>,
     sender: Sender<f32>,
@@ -120,7 +117,16 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 synth.voice.wave1.lock().unwrap().0.hz *= factor;
                 synth.voice.wave2.lock().unwrap().set_hz(factor * square_hz);
                 synth.voice.wave3.lock().unwrap().0.hz *= factor;
-                synth.voice.wave4.lock().unwrap().carrier.lock().unwrap().0.hz *= factor;
+                synth
+                    .voice
+                    .wave4
+                    .lock()
+                    .unwrap()
+                    .carrier
+                    .lock()
+                    .unwrap()
+                    .0
+                    .hz *= factor;
             })
             .unwrap();
     };
@@ -205,7 +211,16 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             synth.voice.wave1.lock().unwrap().0.amplitude = ws[0] / a;
             synth.voice.wave2.lock().unwrap().amplitude = ws[1] / a;
             synth.voice.wave3.lock().unwrap().0.amplitude = ws[2] / a;
-            synth.voice.wave4.lock().unwrap().carrier.lock().unwrap().0.amplitude = ws[3] / a;
+            synth
+                .voice
+                .wave4
+                .lock()
+                .unwrap()
+                .carrier
+                .lock()
+                .unwrap()
+                .0
+                .amplitude = ws[3] / a;
         })
         .unwrap();
 }

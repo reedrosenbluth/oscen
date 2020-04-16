@@ -28,14 +28,17 @@ impl<V, W> Wave for VCA<V, W>
 where
     V: Wave + Send,
     W: Wave + Send,
-    {
+{
     fn sample(&self) -> f32 {
         self.carrier.lock().unwrap().sample() * self.modulator.lock().unwrap().sample()
     }
 
     fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
         self.carrier.lock().unwrap().update_phase(0.0, sample_rate);
-        self.modulator.lock().unwrap().update_phase(0.0, sample_rate);
+        self.modulator
+            .lock()
+            .unwrap()
+            .update_phase(0.0, sample_rate);
     }
 }
 
@@ -94,8 +97,11 @@ where
     }
 }
 
-pub struct TriggeredWave {
-    pub wave: ArcWave,
+pub struct TriggeredWave<W>
+where
+    W: Wave + Send,
+{
+    pub wave: ArcMutex<W>,
     pub attack: f32,
     pub decay: f32,
     pub sustain_level: f32,
@@ -104,7 +110,10 @@ pub struct TriggeredWave {
     pub triggered: bool,
 }
 
-impl Wave for TriggeredWave {
+impl<W> Wave for TriggeredWave<W>
+where
+    W: Wave + Send,
+{
     fn sample(&self) -> f32 {
         let a = self.attack;
         let d = self.decay;
@@ -131,16 +140,14 @@ impl Wave for TriggeredWave {
     }
 }
 
-pub_struct!(
-    struct ADSRWave {
-        attack: f32,
-        decay: f32,
-        sustain_time: f32,
-        sustain_level: f32,
-        release: f32,
-        current_time: f64,
-    }
-);
+pub struct ADSRWave {
+    pub attack: f32,
+    pub decay: f32,
+    pub sustain_time: f32,
+    pub sustain_level: f32,
+    pub release: f32,
+    pub current_time: f64,
+}
 
 impl ADSRWave {
     pub fn new(
