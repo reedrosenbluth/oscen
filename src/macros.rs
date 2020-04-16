@@ -46,15 +46,15 @@ macro_rules! pub_struct {
 macro_rules! basic_wave {
     ($wave:ident, $sample:expr) => {
         #[derive(Clone)]
-        pub struct $wave($crate::WaveParams);
+        pub struct $wave(pub $crate::dsp::WaveParams);
 
         impl $wave {
             pub fn new(hz: f64) -> Self {
-                $wave($crate::WaveParams::new(hz))
+                $wave($crate::dsp::WaveParams::new(hz))
             }
 
-            pub fn boxed(hz: f64) -> Box<Self> {
-                Box::new($wave($crate::WaveParams::new(hz)))
+            pub fn boxed(hz: f64) -> ArcMutex<Self> {
+                arc($wave($crate::dsp::WaveParams::new(hz)))
             }
         }
 
@@ -63,55 +63,8 @@ macro_rules! basic_wave {
                 $sample(self)
             }
 
-            fn update_phase(&mut self, sample_rate: f64) {
-                self.0.update_phase(sample_rate)
-            }
-
-            fn mul_hz(&mut self, factor: f64) {
-                self.0.mul_hz(factor);
-            }
-
-            fn mod_hz(&mut self, factor: f64) {
-                self.0.mod_hz(factor);
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! simple_wave {
-    ($wave:ident) => {
-        impl SimpleWave for $wave {
-            fn hz(&self) -> f64 {
-                self.0.hz
-            }
-
-            fn set_hz(&mut self, hz: f64) {
-                self.0.hz = hz;
-            }
-
-            fn amplitude(&self) -> f32 {
-                self.0.amplitude
-            }
-
-            fn set_amplitude(&mut self, amp: f32) {
-                self.0.amplitude = amp;
-            }
-
-            fn phase(&self) -> f64 {
-                self.0.phase
-            }
-
-            fn set_phase(&mut self, phase: f64) {
-                self.0.phase = phase;
-            }
-
-            fn hz0(&self) -> f64 {
-                self.0.hz0
-            }
-
-            fn set_hz0(&mut self, hz0: f64) {
-                self.0.hz0 = hz0;
+            fn update_phase(&mut self, add: Phase, sample_rate: f64) {
+                self.0.update_phase(add, sample_rate)
             }
         }
     };

@@ -8,81 +8,77 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 
 use swell::*;
+use widget::toggle::TimesClicked;
+use widget::Toggle;
 
 fn main() {
-    // nannou::app(model).update(update).simple_window(view).run();
     nannou::app(model).update(update).run();
 }
 
 #[derive(Constructor)]
 struct Model {
-    ui: Ui,
-    ids: Ids,
-    fm_mult: f32,
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     amps: Vec<f32>,
     max_amp: f32,
-}
-
-struct Ids {
-    fm_hz: widget::Id,
+    ui: Ui,
+    ids: Vec<widget::Id>,
+    osc1_wave: usize,
 }
 
 #[derive(Constructor)]
 struct Synth {
-    // voice: Box<dyn Wave + Send>,
-    voice: VCO,
+    voice: OneOf3Wave<SineWave, FourierWave, FourierWave>,
     sender: Sender<f32>,
 }
 
 fn model(app: &App) -> Model {
+    const HZ: f64 = 220.;
     let (sender, receiver) = unbounded();
 
     // Create a window to receive key pressed events.
     app.set_loop_mode(LoopMode::Rate {
         update_interval: Duration::from_millis(1),
     });
-
-    let _window = app
-        .new_window()
+    app.new_window()
+        .size(600, 340)
         .key_pressed(key_pressed)
         .view(view)
         .build()
         .unwrap();
-
-    let mut ui = app.new_ui().build().unwrap();
-
-    let ids = Ids {
-        fm_hz: ui.generate_widget_id(),
-    };
-
+    // Initialise the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
+    // Initialise the state that we want to live on the audio thread.
+    let sine = SineWave::boxed(HZ);
+    let square = square_wave(16, HZ);
+    let triangle = triangle_wave(16, HZ);
 
-    let carrier = arc(SineWave::new(220.));
-    let modulator = arc(SineWave::new(220.));
-    let osc = VCO {
-        wave: carrier,
-        cv: modulator,
-        fm_mult: 1.,
+    let voice = OneOf3Wave::boxed(sine, square, triangle);
+
+    let model = Synth {
+        voice,
+        sender,
     };
-
-    let synth = Synth { voice: osc, sender };
-
     let stream = audio_host
-        .new_output_stream(synth)
+        .new_output_stream(model)
         .render(audio)
         .build()
         .unwrap();
 
+    let mut ui = app.new_ui().build().unwrap();
+    let mut ids: Vec<widget::Id> = Vec::new();
+    for _ in 0..=2 {
+        ids.push(ui.generate_widget_id());
+    }
+
     Model {
-        ui,
-        ids,
-        fm_mult: 1.,
         stream,
         receiver,
         amps: vec![],
         max_amp: 0.,
+        ui,
+        ids,
+        osc1_wave: 0,
     }
 }
 
@@ -145,34 +141,67 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     if max.is_some() && *max.unwrap() > model.max_amp {
         model.max_amp = *max.unwrap();
     }
-
     model.amps = clone;
 
-    //UI
     let ui = &mut model.ui.set_widgets();
 
-    fn slider(val: f32, min: f32, max: f32) -> widget::Slider<'static, f32> {
-        widget::Slider::new(val, min, max)
-            .w_h(200.0, 30.0)
+    let labels = &["Sine", "Square", "Triangle"];
+
+    fn toggle(onoff: bool, lbl: &'static str) -> Toggle<'static> {
+        Toggle::new(onoff)
+            .w_h(100.0, 25.0)
+            .label(lbl)
             .label_font_size(15)
-            .rgb(0.3, 0.3, 0.3)
-            .label_rgb(1.0, 1.0, 1.0)
+            .rgb(9. / 255., 9. / 255., 44. / 255.)
+            .label_color(if onoff {
+                ui::color::WHITE
+            } else {
+                ui::color::DARK_RED
+            })
             .border(0.0)
     }
+    let mut toggles: Vec<TimesClicked> = Vec::new();
 
-    for value in slider(model.fm_mult as f32, 0., 12.)
-        .top_left_with_margin(20.0)
-        .label("FM Multiplier")
-        .set(model.ids.fm_hz, ui)
-    {
-        model.fm_mult = value;
-        model
-            .stream
-            .send(move |synth| {
-                synth.voice.set_fm_mult(value as f64);
-            })
-            .unwrap();
+    toggles.push(
+        toggle(false, labels[0])
+            .top_left_with_margins(75.0 + 25.0 * 1 as f64, 20.)
+            .set(model.ids[0], ui),
+    );
+
+    toggles.push(
+        toggle(false, labels[1])
+            .top_left_with_margins(75.0 + 25.0 * 2 as f64, 20.)
+            .set(model.ids[1], ui),
+    );
+
+    toggles.push(
+        toggle(false, labels[2])
+            .top_left_with_margins(75.0 + 25.0 * 3 as f64, 20.)
+            .set(model.ids[2], ui),
+    );
+
+    for (i, e) in toggles.iter_mut().enumerate() {
+        for c in e {
+            if c {
+                model.osc1_wave = i;
+                break;
+            }
+        }
     }
+
+    let play = model.osc1_wave;
+
+    model
+        .stream
+        .send(move |synth| {
+            match play {
+                0 => synth.voice.lock().unwrap().playing = 0,
+                1 => synth.voice.lock().unwrap().playing = 1,
+                2 => synth.voice.lock().unwrap().playing = 2,
+                _ => synth.voice.lock().unwrap().playing = 0,
+            }
+        })
+        .unwrap();
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
@@ -208,11 +237,9 @@ fn view(app: &App, model: &Model, frame: Frame) {
             .weight(2.)
             .points(points)
             .color(CORNFLOWERBLUE)
-            .x_y(-300., 0.);
+            .x_y(-150., 0.);
 
         draw.to_frame(app, &frame).unwrap();
     }
-
-    // Draw the state of the `Ui` to the frame.
     model.ui.draw_to_frame(app, &frame).unwrap();
 }

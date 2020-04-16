@@ -1,13 +1,15 @@
 use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
-use derive_more::Constructor;
 use nannou::prelude::*;
 use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 
-use swell::*;
+use swell::collections::*;
+use swell::containers::*;
+use swell::dsp::*;
+
 use widget::toggle::TimesClicked;
 use widget::Toggle;
 
@@ -15,7 +17,6 @@ fn main() {
     nannou::app(model).update(update).run();
 }
 
-#[derive(Constructor)]
 struct Model {
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
@@ -24,16 +25,16 @@ struct Model {
     ui: Ui,
     ids: Vec<widget::Id>,
     wave_indices: Vec<f32>,
+    squarewave: ArcMutex<FourierWave>,
 }
 
-#[derive(Constructor)]
 struct Synth {
-    voice: Box<PolyWave>,
+    voice: Wave4<SineWave, FourierWave, SawWave, FMoscillator<SineWave, SineWave>>,
     sender: Sender<f32>,
 }
 
 fn model(app: &App) -> Model {
-    const HZ: f64 = 220.;
+    const HZ: f64 = 440.;
     let (sender, receiver) = unbounded();
 
     // Create a window to receive key pressed events.
@@ -46,35 +47,23 @@ fn model(app: &App) -> Model {
         .view(view)
         .build()
         .unwrap();
-    // Initialise the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
-    // Initialise the state that we want to live on the audio thread.
-    let sine = WeightedWave(SineWave::boxed(HZ), 1.0);
-    // let square = WeightedWave(Box::new(SquareWave::new(HZ, 1.0)), 0.0);
-    let square = WeightedWave(square_wave(16, HZ), 0.0);
-    let saw = WeightedWave(SawWave::boxed(HZ), 0.0);
-    let triangle = WeightedWave(TriangleWave::boxed(HZ), 0.0);
-    let lerp = WeightedWave(
-        LerpWave::boxed(SineWave::boxed(HZ), SquareWave::boxed(HZ), 0.5),
-        0.0,
-    );
-    let vca = WeightedWave(
-        VCA::boxed(SineWave::boxed(2.0 * HZ), SineWave::boxed(HZ / 5.5)),
-        0.0,
-    );
-    let vco = WeightedWave(
-        Box::new(VCO {
-            wave: SineWave::boxed(HZ),
-            cv: SineWave::boxed(HZ),
-            fm_mult: 1.,
-        }),
-        0.0,
-    );
+    let sine = SineWave::boxed(HZ);
+    let square = square_wave(32, HZ);
+    square.lock().unwrap().amplitude = 0.0;
+    let saw = SawWave::boxed(HZ);
+    saw.lock().unwrap().0.amplitude = 0.0;
+    let triangle = TriangleWave::boxed(HZ);
+    triangle.lock().unwrap().0.amplitude = 0.0;
+    let carrier = SineWave::boxed(HZ);
+    carrier.lock().unwrap().0.amplitude = 0.0;
+    let modulator = SineWave::boxed(220.);
+    let fm = FMoscillator::boxed(carrier, modulator, 3.0);
 
-    let waves = PolyWave::new_normal(vec![sine, square, saw, triangle, lerp, vca, vco]);
-    let num_waves = waves.waves.len();
+    let waves = Wave4::new(sine, square.clone(), saw, fm);
+    let num_waves = 4;
     let model = Synth {
-        voice: Box::new(waves),
+        voice: waves,
         sender,
     };
     let stream = audio_host
@@ -100,17 +89,16 @@ fn model(app: &App) -> Model {
         ui,
         ids,
         wave_indices,
+        squarewave: square.clone(),
     }
 }
 
-// A function that renders the given `Audio` to the given `Buffer`.
-// In this case we play a simple sine wave at the audio's current frequency in `hz`.
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
         amp += synth.voice.sample();
-        synth.voice.update_phase(sample_rate);
+        synth.voice.update_phase(0.0, sample_rate);
         for channel in frame {
             *channel = amp;
         }
@@ -120,12 +108,25 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
+    let square_hz = model.squarewave.lock().unwrap().hz;
     let change_hz = |i| {
         model
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.mul_hz(factor);
+                synth.voice.wave1.lock().unwrap().0.hz *= factor;
+                synth.voice.wave2.lock().unwrap().set_hz(factor * square_hz);
+                synth.voice.wave3.lock().unwrap().0.hz *= factor;
+                synth
+                    .voice
+                    .wave4
+                    .lock()
+                    .unwrap()
+                    .carrier
+                    .lock()
+                    .unwrap()
+                    .0
+                    .hz *= factor;
             })
             .unwrap();
     };
@@ -166,7 +167,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     let ui = &mut model.ui.set_widgets();
 
-    let labels = &["Sine", "Square(8)", "Saw", "Triangle", "Lerp", "AM", "FM"];
+    let labels = &["Sine", "Square", "Saw", "FM"];
 
     fn toggle(onoff: bool, lbl: &'static str) -> Toggle<'static> {
         Toggle::new(onoff)
@@ -206,8 +207,20 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     model
         .stream
         .send(move |synth| {
-            synth.voice.set_weights(ws);
-            synth.voice.normalize_weights();
+            let a = ws.iter().sum::<f32>();
+            synth.voice.wave1.lock().unwrap().0.amplitude = ws[0] / a;
+            synth.voice.wave2.lock().unwrap().amplitude = ws[1] / a;
+            synth.voice.wave3.lock().unwrap().0.amplitude = ws[2] / a;
+            synth
+                .voice
+                .wave4
+                .lock()
+                .unwrap()
+                .carrier
+                .lock()
+                .unwrap()
+                .0
+                .amplitude = ws[3] / a;
         })
         .unwrap();
 }
