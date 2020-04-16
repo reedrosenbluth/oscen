@@ -42,7 +42,7 @@ where
     }
 }
 
-/// Voltage Controlled Oscillator
+/// Frequency Modulated Oscillator
 pub struct FMoscillator<V, W>
 where
     V: Wave + Send,
