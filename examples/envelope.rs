@@ -1,18 +1,18 @@
 use core::cmp::Ordering;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
-use derive_more::Constructor;
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 
-use swell::*;
+use swell::collections::*;
+use swell::containers::*;
+use swell::dsp::*;
 
 fn main() {
     // nannou::app(model).update(update).simple_window(view).run();
     nannou::app(model).update(update).run();
 }
 
-#[derive(Constructor)]
 struct Model {
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
@@ -20,18 +20,16 @@ struct Model {
     max_amp: f32,
 }
 
-#[derive(Constructor)]
 struct Synth {
-    voice: Box<PolyWave>,
+    voice: PolyWave<TriggeredWave<SineWave>>,
     sender: Sender<f32>,
 }
 
 fn model(app: &App) -> Model {
     let (sender, receiver) = unbounded();
 
-    // Create a window to receive key pressed events.
     // Reduces CPU significantly...unsure how this affects the audio generation
-    // app.set_loop_mode(LoopMode::Wait);
+    app.set_loop_mode(LoopMode::Wait);
 
     let _window = app
         .new_window()
@@ -44,10 +42,7 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     let voice = voices();
 
-    let synth = Synth {
-        voice,
-        sender,
-    };
+    let synth = Synth { voice, sender };
 
     let stream = audio_host
         .new_output_stream(synth)
@@ -68,7 +63,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
         amp += synth.voice.sample();
-        synth.voice.update_phase(sample_rate);
+        synth.voice.update_phase(0.0, sample_rate);
         for channel in frame {
             *channel = amp;
         }
@@ -76,8 +71,8 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     }
 }
 
-fn voices() -> Box<PolyWave> {
-    let mut vs: Vec<BoxedWave> = Vec::new();
+fn voices() -> PolyWave<TriggeredWave<SineWave>> {
+    let mut vs: Vec<ArcMutex<TriggeredWave<SineWave>>> = Vec::new();
     let freqs = [
         131., 139., 147., 156., 165., 175., 185., 196., 208., 220., 233., 247., 262., 277., 294.,
     ];
@@ -91,9 +86,9 @@ fn voices() -> Box<PolyWave> {
             clock: 0.0,
             triggered: false,
         };
-        vs.push(Box::new(w));
+        vs.push(arc(w));
     }
-    PolyWave::boxed(vs, 1.)
+    PolyWave::new(vs, 1.)
 }
 
 fn key_to_index(key: Key) -> Option<usize> {
@@ -120,27 +115,30 @@ fn key_to_index(key: Key) -> Option<usize> {
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
+    let idx = match key_to_index(key) {
+        Some(it) => it,
+        _ => return,
+    };
     model
         .stream
-        .send(
-            move |synth| match (synth.voice.as_ref(), key_to_freq(key)) {
-                (None, Some(idx)) => {
-                    synth.voice.on() = create_voice(hz);
-                }
-                _ => {}
-            },
-        )
+        .send(move |synth| {
+            synth.voice.waves[idx].lock().unwrap().triggered = true;
+        })
         .unwrap();
 }
 
 fn key_released(_app: &App, model: &mut Model, key: Key) {
-    // model
-    //     .stream
-    //     .send(move |synth| match synth.current_key {
-    //         Some(current_key) if current_key == key => synth.voice = None,
-    //         _ => {}
-    //     })
-    //     .unwrap();
+    model.max_amp = 0.;
+    let idx = match key_to_index(key) {
+        Some(it) => it,
+        _ => return,
+    };
+    model
+        .stream
+        .send(move |synth| {
+            synth.voice.waves[idx].lock().unwrap().triggered = false;
+        })
+        .unwrap();
 }
 
 fn update(_app: &App, model: &mut Model, _update: Update) {
