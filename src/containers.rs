@@ -1,25 +1,41 @@
 use super::dsp::*;
 
 /// Voltage Controlled Amplifier
-pub struct VCA {
-    pub wave: ArcWave,
-    pub cv: ArcWave,
+pub struct VCA<V, W>
+where
+    V: Wave + Send,
+    W: Wave + Send,
+{
+    pub carrier: ArcMutex<V>,
+    pub modulator: ArcMutex<W>,
 }
 
-impl VCA {
-    pub fn boxed(wave: ArcWave, cv: ArcWave) -> ArcMutex<Self> {
-        arc(VCA { wave, cv })
+impl<V, W> VCA<V, W>
+where
+    V: Wave + Send,
+    W: Wave + Send,
+{
+    pub fn new(carrier: ArcMutex<V>, modulator: ArcMutex<W>) -> Self {
+        Self { carrier, modulator }
+    }
+
+    pub fn boxed(carrier: ArcMutex<V>, modulator: ArcMutex<W>) -> ArcMutex<Self> {
+        arc(VCA { carrier, modulator })
     }
 }
 
-impl Wave for VCA {
+impl<V, W> Wave for VCA<V, W>
+where
+    V: Wave + Send,
+    W: Wave + Send,
+    {
     fn sample(&self) -> f32 {
-        self.wave.lock().unwrap().sample() * self.cv.lock().unwrap().sample()
+        self.carrier.lock().unwrap().sample() * self.modulator.lock().unwrap().sample()
     }
 
     fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        self.wave.lock().unwrap().update_phase(0.0, sample_rate);
-        self.cv.lock().unwrap().update_phase(0.0, sample_rate);
+        self.carrier.lock().unwrap().update_phase(0.0, sample_rate);
+        self.modulator.lock().unwrap().update_phase(0.0, sample_rate);
     }
 }
 
