@@ -29,10 +29,11 @@ fn model(app: &App) -> Model {
     let (sender, receiver) = unbounded();
 
     // Reduces CPU significantly...unsure how this affects the audio generation
-    app.set_loop_mode(LoopMode::Wait);
+    // app.set_loop_mode(LoopMode::Wait);
 
     let _window = app
         .new_window()
+        .size(600, 340)
         .key_pressed(key_pressed)
         .key_released(key_released)
         .view(view)
@@ -79,12 +80,13 @@ fn voices() -> PolyWave<TriggeredWave<SineWave>> {
     for f in freqs.iter() {
         let w = TriggeredWave {
             wave: SineWave::boxed(*f),
-            attack: 0.05,
-            decay: 0.5,
-            sustain_level: 1.0,
+            attack: 1.5,
+            decay: 1.1,
+            sustain_level: 0.8,
             release: 3.0,
             clock: 0.0,
             triggered: false,
+            level: 0.0,
         };
         vs.push(arc(w));
     }
@@ -115,6 +117,15 @@ fn key_to_index(key: Key) -> Option<usize> {
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
+    if key == Key::Space {
+        model
+            .stream
+            .send(move |synth| {
+                synth.voice.waves[0].lock().unwrap().off();
+            })
+            .unwrap();
+            return;
+    }
     let idx = match key_to_index(key) {
         Some(it) => it,
         _ => return,
@@ -122,23 +133,24 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model
         .stream
         .send(move |synth| {
-            synth.voice.waves[idx].lock().unwrap().triggered = true;
+            synth.voice.waves[idx].lock().unwrap().on();
         })
         .unwrap();
 }
 
 fn key_released(_app: &App, model: &mut Model, key: Key) {
-    model.max_amp = 0.;
-    let idx = match key_to_index(key) {
-        Some(it) => it,
-        _ => return,
-    };
-    model
-        .stream
-        .send(move |synth| {
-            synth.voice.waves[idx].lock().unwrap().triggered = false;
-        })
-        .unwrap();
+    // model.max_amp = 0.;
+    // let idx = match key_to_index(key) {
+    //     Some(it) => it,
+    //     _ => return,
+    // };
+    // model
+    //     .stream
+    //     .send(move |synth| {
+    //         synth.voice.waves[idx].lock().unwrap().clock = 0.0;
+    //         synth.voice.waves[idx].lock().unwrap().triggered = false;
+    //     })
+    //     .unwrap();
 }
 
 fn update(_app: &App, model: &mut Model, _update: Update) {
@@ -161,6 +173,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     model.amps = clone;
 }
+
 
 fn view(app: &App, model: &Model, frame: Frame) {
     let draw = app.draw();
@@ -196,7 +209,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
             .points(points)
             .color(CORNFLOWERBLUE)
             .x_y(-300., 0.);
-    }
 
-    draw.to_frame(app, &frame).unwrap();
+        draw.to_frame(app, &frame).unwrap();
+    }
 }

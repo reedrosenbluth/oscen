@@ -108,18 +108,41 @@ where
     pub release: f32,
     pub clock: f64,
     pub triggered: bool,
+    pub level: f32,
 }
 
-impl<W> Wave for TriggeredWave<W>
+impl<W> TriggeredWave<W>
 where
     W: Wave + Send,
 {
-    fn sample(&self) -> f32 {
+    pub fn new(
+        wave: ArcMutex<W>,
+        attack: f32,
+        decay: f32,
+        sustain_level: f32,
+        release: f32,
+        clock: f64,
+        triggered: bool,
+        level: f32,
+    ) -> Self {
+        Self {
+            wave,
+            attack,
+            decay,
+            sustain_level,
+            release,
+            clock,
+            triggered,
+            level,
+        }
+    }
+
+    pub fn calc_level(&self) -> f32 {
         let a = self.attack;
         let d = self.decay;
         let r = self.release;
         let sl = self.sustain_level;
-        let level = if self.triggered {
+        if self.triggered {
             match self.clock as f32 {
                 t if t < a => t / a,
                 t if t < a + d => 1.0 + (t - a) * (sl - 1.0) / d,
@@ -130,13 +153,32 @@ where
                 t if t < r => sl - t / r * sl,
                 _ => 0.,
             }
-        };
-        self.wave.lock().unwrap().sample() * level
+        }
     }
 
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        self.wave.lock().unwrap().update_phase(0.0, sample_rate);
+    pub fn on(&mut self) {
+        self.clock = self.level as f64 * self.attack as f64;
+        self.triggered = true;
+    }
+    
+    pub fn off(&mut self) {
+        self.clock = 0.0;
+        self.triggered = false;
+    }
+}
+
+impl<W> Wave for TriggeredWave<W>
+where
+    W: Wave + Send,
+{
+    fn sample(&self) -> f32 {
+        self.wave.lock().unwrap().sample() * self.calc_level()
+    }
+
+    fn update_phase(&mut self, add: Phase, sample_rate: f64) {
+        self.wave.lock().unwrap().update_phase(add, sample_rate);
         self.clock += 1. / sample_rate;
+        self.level = self.calc_level();
     }
 }
 
