@@ -1,8 +1,8 @@
 use super::dsp::*;
 pub struct Wave2<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub wave1: ArcMutex<V>,
     pub wave2: ArcMutex<W>,
@@ -10,39 +10,35 @@ where
 
 impl<V, W> Wave2<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub fn new(wave1: ArcMutex<V>, wave2: ArcMutex<W>) -> Self {
         Self { wave1, wave2 }
     }
 
-    pub fn boxed(wave1: ArcMutex<V>, wave2: ArcMutex<W>) -> ArcMutex<Self> {
+    pub fn wrapped(wave1: ArcMutex<V>, wave2: ArcMutex<W>) -> ArcMutex<Self> {
         arc(Wave2 { wave1, wave2 })
     }
 }
 
-impl<V, W> Wave for Wave2<V, W>
+impl<V, W> Signal for Wave2<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
-    fn sample(&self) -> f32 {
-        let wave1 = self.wave1.lock().unwrap();
-        let wave2 = self.wave2.lock().unwrap();
-        wave1.sample() + wave2.sample()
-    }
-
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+        let mut wave1 = self.wave1.lock().unwrap();
+        let mut wave2 = self.wave2.lock().unwrap();
+        wave1.signal_add(sample_rate, add) + wave2.signal_add(sample_rate, add)
     }
 }
+
 pub struct Wave3<U, V, W>
 where
-    U: Wave + Send,
-    V: Wave + Send,
-    W: Wave + Send,
+    U: Signal + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub wave1: ArcMutex<U>,
     pub wave2: ArcMutex<V>,
@@ -51,9 +47,9 @@ where
 
 impl<U, V, W> Wave3<U, V, W>
 where
-    U: Wave + Send,
-    V: Wave + Send,
-    W: Wave + Send,
+    U: Signal + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub fn new(wave1: ArcMutex<U>, wave2: ArcMutex<V>, wave3: ArcMutex<W>) -> Self {
         Self {
@@ -64,31 +60,27 @@ where
     }
 }
 
-impl<U, V, W> Wave for Wave3<U, V, W>
+impl<U, V, W> Signal for Wave3<U, V, W>
 where
-    U: Wave + Send,
-    V: Wave + Send,
-    W: Wave + Send,
+    U: Signal + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
-    fn sample(&self) -> f32 {
-        let wave1 = self.wave1.lock().unwrap();
-        let wave2 = self.wave2.lock().unwrap();
-        let wave3 = self.wave3.lock().unwrap();
-        wave1.sample() + wave2.sample() + wave3.sample()
-    }
-
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave3.lock().unwrap().update_phase(0.0, sample_rate);
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+        let mut wave1 = self.wave1.lock().unwrap();
+        let mut wave2 = self.wave2.lock().unwrap();
+        let mut wave3 = self.wave3.lock().unwrap();
+        wave1.signal_add(sample_rate, add)
+            + wave2.signal_add(sample_rate, add)
+            + wave3.signal_add(sample_rate, add)
     }
 }
 pub struct Wave4<T, U, V, W>
 where
-    T: Wave + Send,
-    U: Wave + Send,
-    V: Wave + Send,
-    W: Wave + Send,
+    T: Signal + Send,
+    U: Signal + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub wave1: ArcMutex<T>,
     pub wave2: ArcMutex<U>,
@@ -98,10 +90,10 @@ where
 
 impl<T, U, V, W> Wave4<T, U, V, W>
 where
-    T: Wave + Send,
-    U: Wave + Send,
-    V: Wave + Send,
-    W: Wave + Send,
+    T: Signal + Send,
+    U: Signal + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub fn new(
         wave1: ArcMutex<T>,
@@ -118,32 +110,28 @@ where
     }
 }
 
-impl<T, U, V, W> Wave for Wave4<T, U, V, W>
+impl<T, U, V, W> Signal for Wave4<T, U, V, W>
 where
-    T: Wave + Send,
-    U: Wave + Send,
-    V: Wave + Send,
-    W: Wave + Send,
+    T: Signal + Send,
+    U: Signal + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
-    fn sample(&self) -> f32 {
-        let wave1 = self.wave1.lock().unwrap();
-        let wave2 = self.wave2.lock().unwrap();
-        let wave3 = self.wave3.lock().unwrap();
-        let wave4 = self.wave4.lock().unwrap();
-        wave1.sample() + wave2.sample() + wave3.sample() + wave4.sample()
-    }
-
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave3.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave4.lock().unwrap().update_phase(0.0, sample_rate);
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+        let mut wave1 = self.wave1.lock().unwrap();
+        let mut wave2 = self.wave2.lock().unwrap();
+        let mut wave3 = self.wave3.lock().unwrap();
+        let mut wave4 = self.wave4.lock().unwrap();
+        wave1.signal_add(sample_rate, add)
+            + wave2.signal_add(sample_rate, add)
+            + wave3.signal_add(sample_rate, add)
+            + wave4.signal_add(sample_rate, add)
     }
 }
 pub struct LerpWave<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub wave1: ArcMutex<V>,
     pub wave2: ArcMutex<W>,
@@ -152,10 +140,10 @@ where
 
 impl<V, W> LerpWave<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
-    pub fn boxed(wave1: ArcMutex<V>, wave2: ArcMutex<W>, alpha: f32) -> ArcMutex<Self> {
+    pub fn wrapped(wave1: ArcMutex<V>, wave2: ArcMutex<W>, alpha: f32) -> ArcMutex<Self> {
         arc(LerpWave {
             wave1,
             wave2,
@@ -168,25 +156,21 @@ where
     }
 }
 
-impl<V, W> Wave for LerpWave<V, W>
+impl<V, W> Signal for LerpWave<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
-    fn sample(&self) -> f32 {
-        let wave1 = self.wave1.lock().unwrap();
-        let wave2 = self.wave2.lock().unwrap();
-        (1. - self.alpha) * wave1.sample() + self.alpha * wave2.sample()
-    }
-
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+        let mut wave1 = self.wave1.lock().unwrap();
+        let mut wave2 = self.wave2.lock().unwrap();
+        (1. - self.alpha) * wave1.signal_add(sample_rate, add)
+            + self.alpha * wave2.signal_add(sample_rate, add)
     }
 }
 pub struct PolyWave<W>
 where
-    W: Wave + Send,
+    W: Signal + Send,
 {
     pub waves: Vec<ArcMutex<W>>,
     pub volume: f32,
@@ -194,13 +178,13 @@ where
 
 impl<W> PolyWave<W>
 where
-    W: Wave + Send,
+    W: Signal + Send,
 {
     pub fn new(waves: Vec<ArcMutex<W>>, volume: f32) -> Self {
         Self { waves, volume }
     }
 
-    pub fn boxed(waves: Vec<ArcMutex<W>>, volume: f32) -> ArcMutex<Self> {
+    pub fn wrapped(waves: Vec<ArcMutex<W>>, volume: f32) -> ArcMutex<Self> {
         arc(Self::new(waves, volume))
     }
 
@@ -209,29 +193,22 @@ where
     }
 }
 
-impl<W> Wave for PolyWave<W>
+impl<W> Signal for PolyWave<W>
 where
-    W: Wave + Send,
+    W: Signal + Send,
 {
-    fn sample(&self) -> f32 {
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
         self.volume
-            * self
-                .waves
-                .iter()
-                .fold(0.0, |acc, x| acc + x.lock().unwrap().sample())
-    }
-
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        for wave in self.waves.iter_mut() {
-            wave.lock().unwrap().update_phase(0.0, sample_rate);
-        }
+            * self.waves.iter().fold(0.0, |acc, x| {
+                acc + x.lock().unwrap().signal_add(sample_rate, add)
+            })
     }
 }
 
 pub struct OneOf2<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub wave1: ArcMutex<V>,
     pub wave2: ArcMutex<W>,
@@ -240,8 +217,8 @@ where
 
 impl<V, W> OneOf2<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub fn new(wave1: ArcMutex<V>, wave2: ArcMutex<W>) -> Self {
         Self {
@@ -251,35 +228,30 @@ where
         }
     }
 
-    pub fn boxed(wave1: ArcMutex<V>, wave2: ArcMutex<W>) -> ArcMutex<Self> {
+    pub fn wrapped(wave1: ArcMutex<V>, wave2: ArcMutex<W>) -> ArcMutex<Self> {
         arc(Self::new(wave1, wave2))
     }
 }
 
-impl<V, W> Wave for OneOf2<V, W>
+impl<V, W> Signal for OneOf2<V, W>
 where
-    W: Wave + Send,
-    V: Wave + Send,
+    W: Signal + Send,
+    V: Signal + Send,
 {
-    fn sample(&self) -> f32 {
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
         match self.playing {
-            0 => self.wave1.lock().unwrap().sample(),
-            1 => self.wave2.lock().unwrap().sample(),
-            _ => self.wave1.lock().unwrap().sample(),
+            0 => self.wave1.lock().unwrap().signal_add(sample_rate, add),
+            1 => self.wave2.lock().unwrap().signal_add(sample_rate, add),
+            _ => self.wave1.lock().unwrap().signal_add(sample_rate, add),
         }
-    }
-
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
     }
 }
 
 pub struct OneOf3<U, V, W>
 where
-    U: Wave + Send,
-    V: Wave + Send,
-    W: Wave + Send,
+    U: Signal + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub wave1: ArcMutex<U>,
     pub wave2: ArcMutex<V>,
@@ -289,9 +261,9 @@ where
 
 impl<U, V, W> OneOf3<U, V, W>
 where
-    U: Wave + Send,
-    V: Wave + Send,
-    W: Wave + Send,
+    U: Signal + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub fn new(wave1: ArcMutex<U>, wave2: ArcMutex<V>, wave3: ArcMutex<W>) -> Self {
         Self {
@@ -307,34 +279,28 @@ where
     }
 }
 
-impl<U, V, W> Wave for OneOf3<U, V, W>
+impl<U, V, W> Signal for OneOf3<U, V, W>
 where
-    U: Wave + Send,
-    W: Wave + Send,
-    V: Wave + Send,
+    U: Signal + Send,
+    W: Signal + Send,
+    V: Signal + Send,
 {
-    fn sample(&self) -> f32 {
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
         match self.playing {
-            0 => self.wave1.lock().unwrap().sample(),
-            1 => self.wave2.lock().unwrap().sample(),
-            2 => self.wave3.lock().unwrap().sample(),
-            _ => self.wave1.lock().unwrap().sample(),
+            0 => self.wave1.lock().unwrap().signal_add(sample_rate, add),
+            1 => self.wave2.lock().unwrap().signal_add(sample_rate, add),
+            2 => self.wave3.lock().unwrap().signal_add(sample_rate, add),
+            _ => self.wave1.lock().unwrap().signal_add(sample_rate, add),
         }
-    }
-
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave3.lock().unwrap().update_phase(0.0, sample_rate);
     }
 }
 
 pub struct OneOf4<T, U, V, W>
 where
-    T: Wave + Send,
-    U: Wave + Send,
-    V: Wave + Send,
-    W: Wave + Send,
+    T: Signal + Send,
+    U: Signal + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub wave1: ArcMutex<T>,
     pub wave2: ArcMutex<U>,
@@ -345,10 +311,10 @@ where
 
 impl<T, U, V, W> OneOf4<T, U, V, W>
 where
-    T: Wave + Send,
-    U: Wave + Send,
-    V: Wave + Send,
-    W: Wave + Send,
+    T: Signal + Send,
+    U: Signal + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub fn new(
         wave1: ArcMutex<T>,
@@ -365,7 +331,7 @@ where
         }
     }
 
-    pub fn boxed(
+    pub fn wrapped(
         wave1: ArcMutex<T>,
         wave2: ArcMutex<U>,
         wave3: ArcMutex<V>,
@@ -375,27 +341,20 @@ where
     }
 }
 
-impl<T, U, V, W> Wave for OneOf4<T, U, V, W>
+impl<T, U, V, W> Signal for OneOf4<T, U, V, W>
 where
-    T: Wave + Send,
-    U: Wave + Send,
-    W: Wave + Send,
-    V: Wave + Send,
+    T: Signal + Send,
+    U: Signal + Send,
+    W: Signal + Send,
+    V: Signal + Send,
 {
-    fn sample(&self) -> f32 {
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
         match self.playing {
-            0 => self.wave1.lock().unwrap().sample(),
-            1 => self.wave2.lock().unwrap().sample(),
-            2 => self.wave3.lock().unwrap().sample(),
-            3 => self.wave4.lock().unwrap().sample(),
-            _ => self.wave1.lock().unwrap().sample(),
+            0 => self.wave1.lock().unwrap().signal_add(sample_rate, add),
+            1 => self.wave2.lock().unwrap().signal_add(sample_rate, add),
+            2 => self.wave3.lock().unwrap().signal_add(sample_rate, add),
+            3 => self.wave4.lock().unwrap().signal_add(sample_rate, add),
+            _ => self.wave1.lock().unwrap().signal_add(sample_rate, add),
         }
-    }
-
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        self.wave1.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave2.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave3.lock().unwrap().update_phase(0.0, sample_rate);
-        self.wave4.lock().unwrap().update_phase(0.0, sample_rate);
     }
 }

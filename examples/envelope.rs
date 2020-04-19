@@ -63,8 +63,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
-        amp += synth.voice.sample();
-        synth.voice.update_phase(0.0, sample_rate);
+        amp += synth.voice.signal(sample_rate);
         for channel in frame {
             *channel = amp;
         }
@@ -79,7 +78,7 @@ fn voices() -> PolyWave<TriggeredWave<SineWave>> {
     ];
     for f in freqs.iter() {
         let w = TriggeredWave {
-            wave: SineWave::boxed(*f),
+            wave: SineWave::wrapped(*f),
             attack: 1.5,
             decay: 1.1,
             sustain_level: 0.8,
