@@ -29,7 +29,7 @@ struct Model {
 }
 
 struct Synth {
-    voice: Wave4<SineWave, FourierWave, SawWave, FMoscillator<SineWave, SineWave>>,
+    voice: Wave4<SineWave, FourierWave, LPF<SawWave>, FMoscillator<SineWave, SineWave>>,
     sender: Sender<f32>,
 }
 
@@ -51,8 +51,8 @@ fn model(app: &App) -> Model {
     let sine = SineWave::wrapped(HZ);
     let square = square_wave(32, HZ);
     square.lock().unwrap().amplitude = 0.0;
-    let saw = SawWave::wrapped(HZ);
-    saw.lock().unwrap().amplitude = 0.0;
+    let saw = LPF::new(SawWave::wrapped(HZ), 0.2);
+    saw.wave.lock().unwrap().amplitude = 0.0;
     let triangle = TriangleWave::wrapped(HZ);
     triangle.lock().unwrap().amplitude = 0.0;
     let carrier = SineWave::wrapped(HZ);
@@ -60,7 +60,7 @@ fn model(app: &App) -> Model {
     let modulator = SineWave::wrapped(220.);
     let fm = FMoscillator::wrapped(carrier, modulator, 3.0);
 
-    let waves = Wave4::new(sine, square.clone(), saw, fm);
+    let waves = Wave4::new(sine, square.clone(), arc(saw), fm);
     let num_waves = 4;
     let model = Synth {
         voice: waves,
@@ -79,7 +79,7 @@ fn model(app: &App) -> Model {
     }
 
     let mut wave_indices = vec![0.; num_waves];
-    wave_indices[0] = 1.0;
+    wave_indices[2] = 1.0;
 
     Model {
         stream,
@@ -115,7 +115,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 let factor = 2.0.powf(i / 12.);
                 synth.voice.wave1.lock().unwrap().hz *= factor;
                 synth.voice.wave2.lock().unwrap().set_hz(factor * square_hz);
-                synth.voice.wave3.lock().unwrap().hz *= factor;
+                synth.voice.wave3.lock().unwrap().wave.lock().unwrap().hz *= factor;
                 synth
                     .voice
                     .wave4
@@ -165,7 +165,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     let ui = &mut model.ui.set_widgets();
 
-    let labels = &["Sine", "Square", "Saw", "FM"];
+    let labels = &["Sine", "Square", "LPF(Saw)", "FM"];
 
     fn toggle(onoff: bool, lbl: &'static str) -> Toggle<'static> {
         Toggle::new(onoff)
@@ -208,7 +208,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             let a = ws.iter().sum::<f32>();
             synth.voice.wave1.lock().unwrap().amplitude = ws[0] / a;
             synth.voice.wave2.lock().unwrap().amplitude = ws[1] / a;
-            synth.voice.wave3.lock().unwrap().amplitude = ws[2] / a;
+            synth.voice.wave3.lock().unwrap().wave.lock().unwrap().amplitude = ws[2] / a;
             synth
                 .voice
                 .wave4

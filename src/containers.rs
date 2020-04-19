@@ -75,7 +75,10 @@ where
 {
     fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let m = self.modulator.lock().unwrap().signal_add(sample_rate, add);
-        self.carrier.lock().unwrap().signal_add(sample_rate, m as f64)
+        self.carrier
+            .lock()
+            .unwrap()
+            .signal_add(sample_rate, m as f64)
     }
 }
 
@@ -208,6 +211,46 @@ impl Signal for ADSRWave {
     fn signal_add(&mut self, sample_rate: f64, _add: Phase) -> Amp {
         let amp = self.adsr(self.current_time as f32);
         self.current_time += 1. / sample_rate;
+        amp
+    }
+}
+pub struct LPF<W>
+where
+    W: Signal + Send,
+{
+    pub wave: ArcMutex<W>,
+    pub cutoff: f32,
+    prev_wave_sample: f32,
+    prev_sample: f32,
+}
+
+impl<W> LPF<W>
+where
+    W: Signal + Send,
+{
+    pub fn new(wave: ArcMutex<W>, cutoff: f32) -> Self {
+        Self {
+            wave,
+            cutoff,
+            prev_wave_sample: 0.0,
+            prev_sample: 0.0,
+        }
+    }
+
+    pub fn wrapped(wave: ArcMutex<W>, cutoff: f32) -> ArcMutex<Self> {
+        arc(Self::new(wave, cutoff))
+    }
+}
+
+impl<W> Signal for LPF<W>
+where
+    W: Signal + Send,
+{
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+        let wave_sample = self.wave.lock().unwrap().signal_add(sample_rate, add);
+        let amp = (1.0 - self.cutoff) * self.prev_sample
+            + 0.5 * self.cutoff * (wave_sample + self.prev_wave_sample);
+        self.prev_wave_sample = wave_sample;
         amp
     }
 }
