@@ -3,8 +3,8 @@ use super::dsp::*;
 /// Voltage Controlled Amplifier
 pub struct VCA<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub carrier: ArcMutex<V>,
     pub modulator: ArcMutex<W>,
@@ -12,41 +12,34 @@ where
 
 impl<V, W> VCA<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub fn new(carrier: ArcMutex<V>, modulator: ArcMutex<W>) -> Self {
         Self { carrier, modulator }
     }
 
-    pub fn boxed(carrier: ArcMutex<V>, modulator: ArcMutex<W>) -> ArcMutex<Self> {
+    pub fn wrapped(carrier: ArcMutex<V>, modulator: ArcMutex<W>) -> ArcMutex<Self> {
         arc(VCA { carrier, modulator })
     }
 }
 
-impl<V, W> Wave for VCA<V, W>
+impl<V, W> Signal for VCA<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
-    fn sample(&self) -> f32 {
-        self.carrier.lock().unwrap().sample() * self.modulator.lock().unwrap().sample()
-    }
-
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        self.carrier.lock().unwrap().update_phase(0.0, sample_rate);
-        self.modulator
-            .lock()
-            .unwrap()
-            .update_phase(0.0, sample_rate);
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+        self.carrier.lock().unwrap().signal_add(sample_rate, add)
+            * self.modulator.lock().unwrap().signal_add(sample_rate, add)
     }
 }
 
 /// Frequency Modulated Oscillator
 pub struct FMoscillator<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub carrier: ArcMutex<V>,
     pub modulator: ArcMutex<W>,
@@ -55,8 +48,8 @@ where
 
 impl<V, W> FMoscillator<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
     pub fn new(carrier: ArcMutex<V>, modulator: ArcMutex<W>, mod_idx: Phase) -> Self {
         Self {
@@ -66,7 +59,7 @@ where
         }
     }
 
-    pub fn boxed(carrier: ArcMutex<V>, modulator: ArcMutex<W>, mod_idx: Phase) -> ArcMutex<Self> {
+    pub fn wrapped(carrier: ArcMutex<V>, modulator: ArcMutex<W>, mod_idx: Phase) -> ArcMutex<Self> {
         arc(FMoscillator {
             carrier,
             modulator,
@@ -75,31 +68,20 @@ where
     }
 }
 
-impl<V, W> Wave for FMoscillator<V, W>
+impl<V, W> Signal for FMoscillator<V, W>
 where
-    V: Wave + Send,
-    W: Wave + Send,
+    V: Signal + Send,
+    W: Signal + Send,
 {
-    fn sample(&self) -> f32 {
-        self.carrier.lock().unwrap().sample()
-    }
-
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
-        let m = self.mod_idx as f32 * self.modulator.lock().unwrap().sample();
-        self.carrier
-            .lock()
-            .unwrap()
-            .update_phase(m as f64, sample_rate);
-        self.modulator
-            .lock()
-            .unwrap()
-            .update_phase(0.0, sample_rate);
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+        let m = self.modulator.lock().unwrap().signal_add(sample_rate, add);
+        self.carrier.lock().unwrap().signal_add(sample_rate, m as f64)
     }
 }
 
 pub struct TriggeredWave<W>
 where
-    W: Wave + Send,
+    W: Signal + Send,
 {
     pub wave: ArcMutex<W>,
     pub attack: f32,
@@ -113,7 +95,7 @@ where
 
 impl<W> TriggeredWave<W>
 where
-    W: Wave + Send,
+    W: Signal + Send,
 {
     pub fn new(
         wave: ArcMutex<W>,
@@ -160,25 +142,22 @@ where
         self.clock = self.level as f64 * self.attack as f64;
         self.triggered = true;
     }
-    
+
     pub fn off(&mut self) {
         self.clock = 0.0;
         self.triggered = false;
     }
 }
 
-impl<W> Wave for TriggeredWave<W>
+impl<W> Signal for TriggeredWave<W>
 where
-    W: Wave + Send,
+    W: Signal + Send,
 {
-    fn sample(&self) -> f32 {
-        self.wave.lock().unwrap().sample() * self.calc_level()
-    }
-
-    fn update_phase(&mut self, add: Phase, sample_rate: f64) {
-        self.wave.lock().unwrap().update_phase(add, sample_rate);
+    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+        let amp = self.wave.lock().unwrap().signal_add(sample_rate, add) * self.calc_level();
         self.clock += 1. / sample_rate;
         self.level = self.calc_level();
+        amp
     }
 }
 
@@ -225,12 +204,10 @@ impl ADSRWave {
     }
 }
 
-impl Wave for ADSRWave {
-    fn sample(&self) -> f32 {
-        self.adsr(self.current_time as f32)
-    }
-
-    fn update_phase(&mut self, _add: Phase, sample_rate: f64) {
+impl Signal for ADSRWave {
+    fn signal_add(&mut self, sample_rate: f64, _add: Phase) -> Amp {
+        let amp = self.adsr(self.current_time as f32);
         self.current_time += 1. / sample_rate;
+        amp
     }
 }

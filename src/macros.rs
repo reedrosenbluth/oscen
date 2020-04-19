@@ -58,7 +58,7 @@ macro_rules! basic_wave {
             }
         }
 
-        impl Wave for $wave {
+        impl Signal for $wave {
             fn sample(&self) -> f32 {
                 $sample(self)
             }

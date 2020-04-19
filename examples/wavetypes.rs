@@ -48,17 +48,17 @@ fn model(app: &App) -> Model {
         .build()
         .unwrap();
     let audio_host = audio::Host::new();
-    let sine = SineWave::boxed(HZ);
+    let sine = SineWave::wrapped(HZ);
     let square = square_wave(32, HZ);
     square.lock().unwrap().amplitude = 0.0;
-    let saw = SawWave::boxed(HZ);
-    saw.lock().unwrap().0.amplitude = 0.0;
-    let triangle = TriangleWave::boxed(HZ);
-    triangle.lock().unwrap().0.amplitude = 0.0;
-    let carrier = SineWave::boxed(HZ);
-    carrier.lock().unwrap().0.amplitude = 0.0;
-    let modulator = SineWave::boxed(220.);
-    let fm = FMoscillator::boxed(carrier, modulator, 3.0);
+    let saw = SawWave::wrapped(HZ);
+    saw.lock().unwrap().amplitude = 0.0;
+    let triangle = TriangleWave::wrapped(HZ);
+    triangle.lock().unwrap().amplitude = 0.0;
+    let carrier = SineWave::wrapped(HZ);
+    carrier.lock().unwrap().amplitude = 0.0;
+    let modulator = SineWave::wrapped(220.);
+    let fm = FMoscillator::wrapped(carrier, modulator, 3.0);
 
     let waves = Wave4::new(sine, square.clone(), saw, fm);
     let num_waves = 4;
@@ -97,8 +97,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
-        amp += synth.voice.sample();
-        synth.voice.update_phase(0.0, sample_rate);
+        amp += synth.voice.signal(sample_rate);
         for channel in frame {
             *channel = amp;
         }
@@ -114,9 +113,9 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.wave1.lock().unwrap().0.hz *= factor;
+                synth.voice.wave1.lock().unwrap().hz *= factor;
                 synth.voice.wave2.lock().unwrap().set_hz(factor * square_hz);
-                synth.voice.wave3.lock().unwrap().0.hz *= factor;
+                synth.voice.wave3.lock().unwrap().hz *= factor;
                 synth
                     .voice
                     .wave4
@@ -125,7 +124,6 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                     .carrier
                     .lock()
                     .unwrap()
-                    .0
                     .hz *= factor;
             })
             .unwrap();
@@ -208,9 +206,9 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         .stream
         .send(move |synth| {
             let a = ws.iter().sum::<f32>();
-            synth.voice.wave1.lock().unwrap().0.amplitude = ws[0] / a;
+            synth.voice.wave1.lock().unwrap().amplitude = ws[0] / a;
             synth.voice.wave2.lock().unwrap().amplitude = ws[1] / a;
-            synth.voice.wave3.lock().unwrap().0.amplitude = ws[2] / a;
+            synth.voice.wave3.lock().unwrap().amplitude = ws[2] / a;
             synth
                 .voice
                 .wave4
@@ -219,7 +217,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                 .carrier
                 .lock()
                 .unwrap()
-                .0
                 .amplitude = ws[3] / a;
         })
         .unwrap();
