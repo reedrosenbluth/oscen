@@ -27,13 +27,13 @@ pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
 }
 
 #[derive(Clone)]
-pub struct SineWave {
+pub struct SineOsc {
     pub hz: Hz,
     pub amplitude: Amp,
     pub phase: Phase,
 }
 
-impl SineWave {
+impl SineOsc {
     pub fn new(hz: Hz) -> Self {
         Self {
             hz,
@@ -47,7 +47,7 @@ impl SineWave {
     }
 }
 
-impl Signal for SineWave {
+impl Signal for SineOsc {
     fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let amp = self.amplitude * (TAU32 * self.phase as f32).sin();
         self.phase += (self.hz + add * self.hz) / sample_rate;
@@ -57,13 +57,13 @@ impl Signal for SineWave {
 }
 
 #[derive(Clone)]
-pub struct SquareWave {
+pub struct SquareOsc {
     pub hz: Hz,
     pub amplitude: Amp,
     pub phase: Phase,
 }
 
-impl SquareWave {
+impl SquareOsc {
     pub fn new(hz: Hz) -> Self {
         Self {
             hz,
@@ -77,7 +77,7 @@ impl SquareWave {
     }
 }
 
-impl Signal for SquareWave {
+impl Signal for SquareOsc {
     fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let t = self.phase - floor(self.phase, 0);
         let amp = if t < 0.001 {
@@ -94,13 +94,13 @@ impl Signal for SquareWave {
 }
 
 #[derive(Clone)]
-pub struct SawWave {
+pub struct SawOsc {
     pub hz: Hz,
     pub amplitude: Amp,
     pub phase: Phase,
 }
 
-impl SawWave {
+impl SawOsc {
     pub fn new(hz: Hz) -> Self {
         Self {
             hz,
@@ -114,7 +114,7 @@ impl SawWave {
     }
 }
 
-impl Signal for SawWave {
+impl Signal for SawOsc {
     fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let t = self.phase - 0.5;
         let s = -t - floor(0.5 - t, 0);
@@ -130,13 +130,13 @@ impl Signal for SawWave {
 }
 
 #[derive(Clone)]
-pub struct TriangleWave {
+pub struct TriangleOsc {
     pub hz: Hz,
     pub amplitude: Amp,
     pub phase: Phase,
 }
 
-impl TriangleWave {
+impl TriangleOsc {
     pub fn new(hz: Hz) -> Self {
         Self {
             hz,
@@ -150,7 +150,7 @@ impl TriangleWave {
     }
 }
 
-impl Signal for TriangleWave {
+impl Signal for TriangleOsc {
     fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let t = self.phase - 0.75;
         let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
@@ -162,22 +162,22 @@ impl Signal for TriangleWave {
 }
 
 // pub struct FourierWave(pub PolyWave);
-pub struct FourierWave {
+pub struct FourierOsc {
     pub hz: Hz,
     pub amplitude: Amp,
     pub phase: Phase,
-    pub sines: Vec<SineWave>,
+    pub sines: Vec<SineOsc>,
 }
 
-impl FourierWave {
+impl FourierOsc {
     pub fn new(coefficients: &[f32], hz: Hz) -> Self {
-        let mut wwaves: Vec<SineWave> = Vec::new();
+        let mut wwaves: Vec<SineOsc> = Vec::new();
         for (n, c) in coefficients.iter().enumerate() {
-            let mut s = SineWave::new(hz * n as f64);
+            let mut s = SineOsc::new(hz * n as f64);
             s.amplitude = *c;
             wwaves.push(s);
         }
-        FourierWave {
+        FourierOsc {
             hz,
             amplitude: 1.0,
             phase: 0.0,
@@ -186,7 +186,7 @@ impl FourierWave {
     }
 
     pub fn wrapped(coefficients: &[Amp], hz: Hz) -> ArcMutex<Self> {
-        arc(FourierWave::new(coefficients, hz))
+        arc(FourierOsc::new(coefficients, hz))
     }
 
     pub fn set_hz(&mut self, hz: Hz) {
@@ -197,7 +197,7 @@ impl FourierWave {
     }
 }
 
-impl Signal for FourierWave {
+impl Signal for FourierOsc {
     fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
         self.amplitude
             * self
@@ -207,7 +207,7 @@ impl Signal for FourierWave {
     }
 }
 
-pub fn square_wave(n: u32, hz: Hz) -> ArcMutex<FourierWave> {
+pub fn square_wave(n: u32, hz: Hz) -> ArcMutex<FourierOsc> {
     let mut coefficients: Vec<f32> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {
@@ -216,10 +216,10 @@ pub fn square_wave(n: u32, hz: Hz) -> ArcMutex<FourierWave> {
             coefficients.push(0.);
         }
     }
-    FourierWave::wrapped(coefficients.as_ref(), hz)
+    FourierOsc::wrapped(coefficients.as_ref(), hz)
 }
 
-pub fn triangle_wave(n: u32, hz: Hz) -> ArcMutex<FourierWave> {
+pub fn triangle_wave(n: u32, hz: Hz) -> ArcMutex<FourierOsc> {
     let mut coefficients: Vec<Amp> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {
@@ -229,5 +229,5 @@ pub fn triangle_wave(n: u32, hz: Hz) -> ArcMutex<FourierWave> {
             coefficients.push(0.);
         }
     }
-    FourierWave::wrapped(coefficients.as_ref(), hz)
+    FourierOsc::wrapped(coefficients.as_ref(), hz)
 }

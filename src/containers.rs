@@ -1,7 +1,7 @@
 use super::dsp::*;
 
 /// Ring Modulation
-pub struct RMosc<V, W>
+pub struct RMSynth<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -10,7 +10,7 @@ where
     pub modulator: ArcMutex<W>,
 }
 
-impl<V, W> RMosc<V, W>
+impl<V, W> RMSynth<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -20,11 +20,11 @@ where
     }
 
     pub fn wrapped(carrier: ArcMutex<V>, modulator: ArcMutex<W>) -> ArcMutex<Self> {
-        arc(RMosc { carrier, modulator })
+        arc(RMSynth { carrier, modulator })
     }
 }
 
-impl<V, W> Signal for RMosc<V, W>
+impl<V, W> Signal for RMSynth<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -36,7 +36,7 @@ where
 }
 
 /// Frequency Modulated Oscillator
-pub struct FMosc<V, W>
+pub struct FMSynth<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -46,7 +46,7 @@ where
     pub mod_idx: Phase,
 }
 
-impl<V, W> FMosc<V, W>
+impl<V, W> FMSynth<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -60,7 +60,7 @@ where
     }
 
     pub fn wrapped(carrier: ArcMutex<V>, modulator: ArcMutex<W>, mod_idx: Phase) -> ArcMutex<Self> {
-        arc(FMosc {
+        arc(FMSynth {
             carrier,
             modulator,
             mod_idx,
@@ -68,7 +68,7 @@ where
     }
 }
 
-impl<V, W> Signal for FMosc<V, W>
+impl<V, W> Signal for FMSynth<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -82,7 +82,7 @@ where
     }
 }
 
-pub struct SustainOsc<W>
+pub struct SustainSynth<W>
 where
     W: Signal + Send,
 {
@@ -96,7 +96,7 @@ where
     pub level: f32,
 }
 
-impl<W> SustainOsc<W>
+impl<W> SustainSynth<W>
 where
     W: Signal + Send,
 {
@@ -152,7 +152,7 @@ where
     }
 }
 
-impl<W> Signal for SustainOsc<W>
+impl<W> Signal for SustainSynth<W>
 where
     W: Signal + Send,
 {
@@ -164,7 +164,7 @@ where
     }
 }
 
-pub struct ADSRWave {
+pub struct ADSRSynth {
     pub attack: f32,
     pub decay: f32,
     pub sustain_time: f32,
@@ -173,7 +173,7 @@ pub struct ADSRWave {
     pub current_time: f64,
 }
 
-impl ADSRWave {
+impl ADSRSynth {
     pub fn new(
         attack: f32,
         decay: f32,
@@ -181,7 +181,7 @@ impl ADSRWave {
         sustain_level: f32,
         release: f32,
     ) -> Self {
-        ADSRWave {
+        ADSRSynth {
             attack: attack,
             decay: decay,
             sustain_time: sustain_time,
@@ -207,7 +207,7 @@ impl ADSRWave {
     }
 }
 
-impl Signal for ADSRWave {
+impl Signal for ADSRSynth {
     fn signal_add(&mut self, sample_rate: f64, _add: Phase) -> Amp {
         let amp = self.adsr(self.current_time as f32);
         self.current_time += 1. / sample_rate;

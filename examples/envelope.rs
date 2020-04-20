@@ -21,7 +21,7 @@ struct Model {
 }
 
 struct Synth {
-    voice: PolyWave<SustainOsc<SineWave>>,
+    voice: PolySynth<SustainSynth<SineOsc>>,
     sender: Sender<f32>,
 }
 
@@ -71,14 +71,14 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     }
 }
 
-fn voices() -> PolyWave<SustainOsc<SineWave>> {
-    let mut vs: Vec<ArcMutex<SustainOsc<SineWave>>> = Vec::new();
+fn voices() -> PolySynth<SustainSynth<SineOsc>> {
+    let mut vs: Vec<ArcMutex<SustainSynth<SineOsc>>> = Vec::new();
     let freqs = [
         131., 139., 147., 156., 165., 175., 185., 196., 208., 220., 233., 247., 262., 277., 294.,
     ];
     for f in freqs.iter() {
-        let w = SustainOsc {
-            wave: SineWave::wrapped(*f),
+        let w = SustainSynth {
+            wave: SineOsc::wrapped(*f),
             attack: 1.5,
             decay: 1.1,
             sustain_level: 0.8,
@@ -89,7 +89,7 @@ fn voices() -> PolyWave<SustainOsc<SineWave>> {
         };
         vs.push(arc(w));
     }
-    PolyWave::new(vs, 1.)
+    PolySynth::new(vs, 1.)
 }
 
 fn key_to_index(key: Key) -> Option<usize> {

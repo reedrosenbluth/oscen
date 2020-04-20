@@ -25,11 +25,11 @@ struct Model {
     ui: Ui,
     ids: Vec<widget::Id>,
     wave_indices: Vec<f32>,
-    squarewave: ArcMutex<FourierWave>,
+    squarewave: ArcMutex<FourierOsc>,
 }
 
 struct Synth {
-    voice: Wave4<SineWave, FourierWave, LPF<SawWave>, FMosc<SineWave, SineWave>>,
+    voice: Synth4<SineOsc, FourierOsc, LPF<SawOsc>, FMSynth<SineOsc, SineOsc>>,
     sender: Sender<f32>,
 }
 
@@ -48,19 +48,19 @@ fn model(app: &App) -> Model {
         .build()
         .unwrap();
     let audio_host = audio::Host::new();
-    let sine = SineWave::wrapped(HZ);
+    let sine = SineOsc::wrapped(HZ);
     let square = square_wave(32, HZ);
     square.lock().unwrap().amplitude = 0.0;
-    let saw = LPF::new(SawWave::wrapped(HZ), 0.2);
+    let saw = LPF::new(SawOsc::wrapped(HZ), 0.2);
     saw.wave.lock().unwrap().amplitude = 0.0;
-    let triangle = TriangleWave::wrapped(HZ);
+    let triangle = TriangleOsc::wrapped(HZ);
     triangle.lock().unwrap().amplitude = 0.0;
-    let carrier = SineWave::wrapped(HZ);
+    let carrier = SineOsc::wrapped(HZ);
     carrier.lock().unwrap().amplitude = 0.0;
-    let modulator = SineWave::wrapped(220.);
-    let fm = FMosc::wrapped(carrier, modulator, 3.0);
+    let modulator = SineOsc::wrapped(220.);
+    let fm = FMSynth::wrapped(carrier, modulator, 3.0);
 
-    let waves = Wave4::new(sine, square.clone(), arc(saw), fm);
+    let waves = Synth4::new(sine, square.clone(), arc(saw), fm);
     let num_waves = 4;
     let model = Synth {
         voice: waves,

@@ -1,5 +1,5 @@
 use super::dsp::*;
-pub struct Wave2<V, W>
+pub struct Synth2<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -8,7 +8,7 @@ where
     pub wave2: ArcMutex<W>,
 }
 
-impl<V, W> Wave2<V, W>
+impl<V, W> Synth2<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -18,11 +18,11 @@ where
     }
 
     pub fn wrapped(wave1: ArcMutex<V>, wave2: ArcMutex<W>) -> ArcMutex<Self> {
-        arc(Wave2 { wave1, wave2 })
+        arc(Synth2 { wave1, wave2 })
     }
 }
 
-impl<V, W> Signal for Wave2<V, W>
+impl<V, W> Signal for Synth2<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -34,7 +34,7 @@ where
     }
 }
 
-pub struct Wave3<U, V, W>
+pub struct Synth3<U, V, W>
 where
     U: Signal + Send,
     V: Signal + Send,
@@ -45,7 +45,7 @@ where
     pub wave3: ArcMutex<W>,
 }
 
-impl<U, V, W> Wave3<U, V, W>
+impl<U, V, W> Synth3<U, V, W>
 where
     U: Signal + Send,
     V: Signal + Send,
@@ -60,7 +60,7 @@ where
     }
 }
 
-impl<U, V, W> Signal for Wave3<U, V, W>
+impl<U, V, W> Signal for Synth3<U, V, W>
 where
     U: Signal + Send,
     V: Signal + Send,
@@ -75,7 +75,7 @@ where
             + wave3.signal_add(sample_rate, add)
     }
 }
-pub struct Wave4<T, U, V, W>
+pub struct Synth4<T, U, V, W>
 where
     T: Signal + Send,
     U: Signal + Send,
@@ -88,7 +88,7 @@ where
     pub wave4: ArcMutex<W>,
 }
 
-impl<T, U, V, W> Wave4<T, U, V, W>
+impl<T, U, V, W> Synth4<T, U, V, W>
 where
     T: Signal + Send,
     U: Signal + Send,
@@ -110,7 +110,7 @@ where
     }
 }
 
-impl<T, U, V, W> Signal for Wave4<T, U, V, W>
+impl<T, U, V, W> Signal for Synth4<T, U, V, W>
 where
     T: Signal + Send,
     U: Signal + Send,
@@ -128,7 +128,7 @@ where
             + wave4.signal_add(sample_rate, add)
     }
 }
-pub struct LerpWave<V, W>
+pub struct LerpSynth<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -138,13 +138,13 @@ where
     pub alpha: f32,
 }
 
-impl<V, W> LerpWave<V, W>
+impl<V, W> LerpSynth<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
 {
     pub fn wrapped(wave1: ArcMutex<V>, wave2: ArcMutex<W>, alpha: f32) -> ArcMutex<Self> {
-        arc(LerpWave {
+        arc(LerpSynth {
             wave1,
             wave2,
             alpha,
@@ -156,7 +156,7 @@ where
     }
 }
 
-impl<V, W> Signal for LerpWave<V, W>
+impl<V, W> Signal for LerpSynth<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -168,7 +168,7 @@ where
             + self.alpha * wave2.signal_add(sample_rate, add)
     }
 }
-pub struct PolyWave<W>
+pub struct PolySynth<W>
 where
     W: Signal + Send,
 {
@@ -176,7 +176,7 @@ where
     pub volume: f32,
 }
 
-impl<W> PolyWave<W>
+impl<W> PolySynth<W>
 where
     W: Signal + Send,
 {
@@ -193,7 +193,7 @@ where
     }
 }
 
-impl<W> Signal for PolyWave<W>
+impl<W> Signal for PolySynth<W>
 where
     W: Signal + Send,
 {
