@@ -29,7 +29,7 @@ struct Model {
 }
 
 struct Synth {
-    voice: Synth4<SineOsc, FourierOsc, LPF<SawOsc>, FMSynth<SineOsc, SineOsc>>,
+    voice: Synth4<SineOsc, FourierOsc, BiquadFilter<SawOsc>, FMSynth<SineOsc, SineOsc>>,
     sender: Sender<f32>,
 }
 
@@ -51,7 +51,7 @@ fn model(app: &App) -> Model {
     let sine = SineOsc::wrapped(HZ);
     let square = square_wave(32, HZ);
     square.lock().unwrap().amplitude = 0.0;
-    let saw = LPF::new(SawOsc::wrapped(HZ), 0.2);
+    let saw = BiquadFilter::new(SawOsc::wrapped(HZ), -1.9, 0.909, 0.001, 0.002, 0.001);
     saw.wave.lock().unwrap().amplitude = 0.0;
     let triangle = TriangleOsc::wrapped(HZ);
     triangle.lock().unwrap().amplitude = 0.0;
@@ -79,7 +79,7 @@ fn model(app: &App) -> Model {
     }
 
     let mut wave_indices = vec![0.; num_waves];
-    wave_indices[2] = 1.0;
+    wave_indices[0] = 1.0;
 
     Model {
         stream,
@@ -116,15 +116,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 synth.voice.wave1.lock().unwrap().hz *= factor;
                 synth.voice.wave2.lock().unwrap().set_hz(factor * square_hz);
                 synth.voice.wave3.lock().unwrap().wave.lock().unwrap().hz *= factor;
-                synth
-                    .voice
-                    .wave4
-                    .lock()
-                    .unwrap()
-                    .carrier
-                    .lock()
-                    .unwrap()
-                    .hz *= factor;
+                synth.voice.wave4.lock().unwrap().carrier.lock().unwrap().hz *= factor;
             })
             .unwrap();
     };
@@ -165,7 +157,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     let ui = &mut model.ui.set_widgets();
 
-    let labels = &["Sine", "Square", "LPF(Saw)", "FM"];
+    let labels = &["Sine", "Square", "LPF(Noise)", "FM"];
 
     fn toggle(onoff: bool, lbl: &'static str) -> Toggle<'static> {
         Toggle::new(onoff)
@@ -202,13 +194,22 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         }
     }
     let ws = model.wave_indices.clone();
+    let a = ws.iter().sum::<f32>();
+    let ws: Vec<f32> = ws.iter().map(|x| {if a == 0.0 {0.0} else {x / a}}).collect();
     model
         .stream
         .send(move |synth| {
-            let a = ws.iter().sum::<f32>();
-            synth.voice.wave1.lock().unwrap().amplitude = ws[0] / a;
-            synth.voice.wave2.lock().unwrap().amplitude = ws[1] / a;
-            synth.voice.wave3.lock().unwrap().wave.lock().unwrap().amplitude = ws[2] / a;
+            synth.voice.wave1.lock().unwrap().amplitude = ws[0];
+            synth.voice.wave2.lock().unwrap().amplitude = ws[1];
+            synth
+                .voice
+                .wave3
+                .lock()
+                .unwrap()
+                .wave
+                .lock()
+                .unwrap()
+                .amplitude = ws[2];
             synth
                 .voice
                 .wave4
@@ -217,7 +218,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                 .carrier
                 .lock()
                 .unwrap()
-                .amplitude = ws[3] / a;
+                .amplitude = ws[3];
         })
         .unwrap();
 }

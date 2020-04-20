@@ -29,25 +29,27 @@ pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
 }
 
 pub struct WhiteNoise {
-    dist: Uniform<f32>
+    pub amplitude: f32,
+    dist: Uniform<f32>,
 }
 
 impl WhiteNoise {
-    pub fn new_white() -> Self {
+    pub fn new() -> Self {
         Self {
+            amplitude: 1.0,
             dist: Uniform::new_inclusive(-1.0, 1.0),
         }
     }
 
-    pub fn wrapped_white() -> ArcMutex<Self> {
-        arc(Self::new_white())
+    pub fn wrapped() -> ArcMutex<Self> {
+        arc(Self::new())
     }
 }
 
 impl Signal for WhiteNoise {
     fn signal_(&mut self, _sample_rate: f64, _add: Phase) -> Amp {
         let mut rng = rand::thread_rng();
-        self.dist.sample(&mut rng)
+        self.dist.sample(&mut rng) * self.amplitude
     }
 }
 

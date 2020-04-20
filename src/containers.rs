@@ -240,43 +240,68 @@ where
     }
 }
 
-pub struct LPF<W>
+pub struct BiquadFilter<W>
 where
     W: Signal + Send,
 {
     pub wave: ArcMutex<W>,
-    pub cutoff: f32,
-    prev_wave_sample: f32,
-    prev_sample: f32,
+    pub a1: f32,
+    pub a2: f32,
+    pub b0: f32,
+    pub b1: f32,
+    pub b2: f32,
+    x1: f32,
+    x2: f32,
+    y1: f32,
+    y2: f32,
 }
 
-impl<W> LPF<W>
+impl<W> BiquadFilter<W>
 where
     W: Signal + Send,
 {
-    pub fn new(wave: ArcMutex<W>, cutoff: f32) -> Self {
+    pub fn new(wave: ArcMutex<W>, a1: f32, a2: f32, b0: f32, b1: f32, b2: f32) -> Self {
         Self {
             wave,
-            cutoff,
-            prev_wave_sample: 0.0,
-            prev_sample: 0.0,
+            a1,
+            a2,
+            b0,
+            b1,
+            b2,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
         }
     }
 
-    pub fn wrapped(wave: ArcMutex<W>, cutoff: f32) -> ArcMutex<Self> {
-        arc(Self::new(wave, cutoff))
+    pub fn wrapped(
+        wave: ArcMutex<W>,
+        a1: f32,
+        a2: f32,
+        b0: f32,
+        b1: f32,
+        b2: f32,
+    ) -> ArcMutex<Self> {
+        arc(Self::new(wave, a1, a2, b0, b1, b2))
     }
 }
 
-impl<W> Signal for LPF<W>
+impl<W> Signal for BiquadFilter<W>
 where
     W: Signal + Send,
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let wave_sample = self.wave.lock().unwrap().signal_(sample_rate, add);
-        let amp = (1.0 - self.cutoff) * self.prev_sample
-            + 0.5 * self.cutoff * (wave_sample + self.prev_wave_sample);
-        self.prev_wave_sample = wave_sample;
+        let x0 = self.wave.lock().unwrap().signal_(sample_rate, add);
+        let amp = self.b0 * x0
+            + self.b1 * self.x1
+            + self.b2 * self.x2
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
+        self.x2 = self.x1;
+        self.x1 = x0;
+        self.y2 = self.y1;
+        self.y1 = amp;
         amp
     }
 }
