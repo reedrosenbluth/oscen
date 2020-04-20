@@ -1,7 +1,6 @@
 use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
-use derive_more::Constructor;
 use nannou::prelude::*;
 use nannou::ui::prelude::*;
 use nannou_audio as audio;
@@ -15,7 +14,6 @@ fn main() {
     nannou::app(model).update(update).run();
 }
 
-#[derive(Constructor)]
 struct Model {
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
@@ -26,9 +24,8 @@ struct Model {
     osc1_wave: usize,
 }
 
-#[derive(Constructor)]
 struct Synth {
-    voice: OneOf3Wave<SineWave, FourierWave, FourierWave>,
+    voice: OneOf3<SineWave, FourierWave, FourierWave>,
     sender: Sender<f32>,
 }
 

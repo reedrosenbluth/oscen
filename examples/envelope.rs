@@ -21,7 +21,7 @@ struct Model {
 }
 
 struct Synth {
-    voice: PolyWave<TriggeredWave<SineWave>>,
+    voice: PolyWave<SustainOsc<SineWave>>,
     sender: Sender<f32>,
 }
 
@@ -71,13 +71,13 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     }
 }
 
-fn voices() -> PolyWave<TriggeredWave<SineWave>> {
-    let mut vs: Vec<ArcMutex<TriggeredWave<SineWave>>> = Vec::new();
+fn voices() -> PolyWave<SustainOsc<SineWave>> {
+    let mut vs: Vec<ArcMutex<SustainOsc<SineWave>>> = Vec::new();
     let freqs = [
         131., 139., 147., 156., 165., 175., 185., 196., 208., 220., 233., 247., 262., 277., 294.,
     ];
     for f in freqs.iter() {
-        let w = TriggeredWave {
+        let w = SustainOsc {
             wave: SineWave::wrapped(*f),
             attack: 1.5,
             decay: 1.1,

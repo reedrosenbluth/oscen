@@ -1,7 +1,7 @@
 use super::dsp::*;
 
-/// Voltage Controlled Amplifier
-pub struct VCA<V, W>
+/// Ring Modulation
+pub struct RMosc<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -10,7 +10,7 @@ where
     pub modulator: ArcMutex<W>,
 }
 
-impl<V, W> VCA<V, W>
+impl<V, W> RMosc<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -20,11 +20,11 @@ where
     }
 
     pub fn wrapped(carrier: ArcMutex<V>, modulator: ArcMutex<W>) -> ArcMutex<Self> {
-        arc(VCA { carrier, modulator })
+        arc(RMosc { carrier, modulator })
     }
 }
 
-impl<V, W> Signal for VCA<V, W>
+impl<V, W> Signal for RMosc<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -36,7 +36,7 @@ where
 }
 
 /// Frequency Modulated Oscillator
-pub struct FMoscillator<V, W>
+pub struct FMosc<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -46,7 +46,7 @@ where
     pub mod_idx: Phase,
 }
 
-impl<V, W> FMoscillator<V, W>
+impl<V, W> FMosc<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -60,7 +60,7 @@ where
     }
 
     pub fn wrapped(carrier: ArcMutex<V>, modulator: ArcMutex<W>, mod_idx: Phase) -> ArcMutex<Self> {
-        arc(FMoscillator {
+        arc(FMosc {
             carrier,
             modulator,
             mod_idx,
@@ -68,7 +68,7 @@ where
     }
 }
 
-impl<V, W> Signal for FMoscillator<V, W>
+impl<V, W> Signal for FMosc<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -82,7 +82,7 @@ where
     }
 }
 
-pub struct TriggeredWave<W>
+pub struct SustainOsc<W>
 where
     W: Signal + Send,
 {
@@ -96,7 +96,7 @@ where
     pub level: f32,
 }
 
-impl<W> TriggeredWave<W>
+impl<W> SustainOsc<W>
 where
     W: Signal + Send,
 {
@@ -152,7 +152,7 @@ where
     }
 }
 
-impl<W> Signal for TriggeredWave<W>
+impl<W> Signal for SustainOsc<W>
 where
     W: Signal + Send,
 {

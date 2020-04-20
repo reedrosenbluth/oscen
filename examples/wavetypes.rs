@@ -29,7 +29,7 @@ struct Model {
 }
 
 struct Synth {
-    voice: Wave4<SineWave, FourierWave, LPF<SawWave>, FMoscillator<SineWave, SineWave>>,
+    voice: Wave4<SineWave, FourierWave, LPF<SawWave>, FMosc<SineWave, SineWave>>,
     sender: Sender<f32>,
 }
 
@@ -58,7 +58,7 @@ fn model(app: &App) -> Model {
     let carrier = SineWave::wrapped(HZ);
     carrier.lock().unwrap().amplitude = 0.0;
     let modulator = SineWave::wrapped(220.);
-    let fm = FMoscillator::wrapped(carrier, modulator, 3.0);
+    let fm = FMosc::wrapped(carrier, modulator, 3.0);
 
     let waves = Wave4::new(sine, square.clone(), arc(saw), fm);
     let num_waves = 4;

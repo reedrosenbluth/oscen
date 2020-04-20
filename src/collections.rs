@@ -274,7 +274,7 @@ where
         }
     }
 
-    pub fn boxed(wave1: ArcMutex<U>, wave2: ArcMutex<V>, wave3: ArcMutex<W>) -> ArcMutex<Self> {
+    pub fn wrapped(wave1: ArcMutex<U>, wave2: ArcMutex<V>, wave3: ArcMutex<W>) -> ArcMutex<Self> {
         arc(Self::new(wave1, wave2, wave3))
     }
 }
