@@ -51,7 +51,14 @@ fn model(app: &App) -> Model {
     let sine = SineOsc::wrapped(HZ);
     let square = square_wave(32, HZ);
     square.lock().unwrap().amplitude = 0.0;
-    let saw = BiquadFilter::new(SawOsc::wrapped(HZ), -1.9, 0.909, 0.001, 0.002, 0.001);
+    let saw = BiquadFilter::new(
+        SawOsc::wrapped(HZ),
+        -1.97615773,
+        0.97643855,
+        7.02037705e-5,
+        1.40407541e-4,
+        7.02037705e-5,
+    );
     saw.wave.lock().unwrap().amplitude = 0.0;
     let triangle = TriangleOsc::wrapped(HZ);
     triangle.lock().unwrap().amplitude = 0.0;
@@ -157,7 +164,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     let ui = &mut model.ui.set_widgets();
 
-    let labels = &["Sine", "Square", "LPF(Noise)", "FM"];
+    let labels = &["Sine", "Square", "LPF(Saw)", "FM"];
 
     fn toggle(onoff: bool, lbl: &'static str) -> Toggle<'static> {
         Toggle::new(onoff)
@@ -187,6 +194,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     for (i, e) in toggles.iter_mut().enumerate() {
         for c in e {
             if c {
+                if i == 2 { model.wave_indices[i] = 16.0}
                 model.wave_indices[i] = 1.
             } else {
                 model.wave_indices[i] = 0.
@@ -195,7 +203,10 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     }
     let ws = model.wave_indices.clone();
     let a = ws.iter().sum::<f32>();
-    let ws: Vec<f32> = ws.iter().map(|x| {if a == 0.0 {0.0} else {x / a}}).collect();
+    let ws: Vec<f32> = ws
+        .iter()
+        .map(|x| if a == 0.0 { 0.0 } else { x / a })
+        .collect();
     model
         .stream
         .send(move |synth| {
