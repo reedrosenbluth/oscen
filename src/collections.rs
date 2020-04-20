@@ -27,10 +27,10 @@ where
     V: Signal + Send,
     W: Signal + Send,
 {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let mut wave1 = self.wave1.lock().unwrap();
         let mut wave2 = self.wave2.lock().unwrap();
-        wave1.signal_add(sample_rate, add) + wave2.signal_add(sample_rate, add)
+        wave1.signal_(sample_rate, add) + wave2.signal_(sample_rate, add)
     }
 }
 
@@ -66,13 +66,13 @@ where
     V: Signal + Send,
     W: Signal + Send,
 {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let mut wave1 = self.wave1.lock().unwrap();
         let mut wave2 = self.wave2.lock().unwrap();
         let mut wave3 = self.wave3.lock().unwrap();
-        wave1.signal_add(sample_rate, add)
-            + wave2.signal_add(sample_rate, add)
-            + wave3.signal_add(sample_rate, add)
+        wave1.signal_(sample_rate, add)
+            + wave2.signal_(sample_rate, add)
+            + wave3.signal_(sample_rate, add)
     }
 }
 pub struct Synth4<T, U, V, W>
@@ -117,15 +117,15 @@ where
     V: Signal + Send,
     W: Signal + Send,
 {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let mut wave1 = self.wave1.lock().unwrap();
         let mut wave2 = self.wave2.lock().unwrap();
         let mut wave3 = self.wave3.lock().unwrap();
         let mut wave4 = self.wave4.lock().unwrap();
-        wave1.signal_add(sample_rate, add)
-            + wave2.signal_add(sample_rate, add)
-            + wave3.signal_add(sample_rate, add)
-            + wave4.signal_add(sample_rate, add)
+        wave1.signal_(sample_rate, add)
+            + wave2.signal_(sample_rate, add)
+            + wave3.signal_(sample_rate, add)
+            + wave4.signal_(sample_rate, add)
     }
 }
 pub struct LerpSynth<V, W>
@@ -161,11 +161,11 @@ where
     V: Signal + Send,
     W: Signal + Send,
 {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let mut wave1 = self.wave1.lock().unwrap();
         let mut wave2 = self.wave2.lock().unwrap();
-        (1. - self.alpha) * wave1.signal_add(sample_rate, add)
-            + self.alpha * wave2.signal_add(sample_rate, add)
+        (1. - self.alpha) * wave1.signal_(sample_rate, add)
+            + self.alpha * wave2.signal_(sample_rate, add)
     }
 }
 pub struct PolySynth<W>
@@ -197,15 +197,15 @@ impl<W> Signal for PolySynth<W>
 where
     W: Signal + Send,
 {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         self.volume
             * self.waves.iter().fold(0.0, |acc, x| {
-                acc + x.lock().unwrap().signal_add(sample_rate, add)
+                acc + x.lock().unwrap().signal_(sample_rate, add)
             })
     }
 }
 
-pub struct OneOf2<V, W>
+pub struct Variant2<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -215,7 +215,7 @@ where
     pub playing: usize,
 }
 
-impl<V, W> OneOf2<V, W>
+impl<V, W> Variant2<V, W>
 where
     V: Signal + Send,
     W: Signal + Send,
@@ -233,21 +233,21 @@ where
     }
 }
 
-impl<V, W> Signal for OneOf2<V, W>
+impl<V, W> Signal for Variant2<V, W>
 where
     W: Signal + Send,
     V: Signal + Send,
 {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         match self.playing {
-            0 => self.wave1.lock().unwrap().signal_add(sample_rate, add),
-            1 => self.wave2.lock().unwrap().signal_add(sample_rate, add),
-            _ => self.wave1.lock().unwrap().signal_add(sample_rate, add),
+            0 => self.wave1.lock().unwrap().signal_(sample_rate, add),
+            1 => self.wave2.lock().unwrap().signal_(sample_rate, add),
+            _ => self.wave1.lock().unwrap().signal_(sample_rate, add),
         }
     }
 }
 
-pub struct OneOf3<U, V, W>
+pub struct Variant3<U, V, W>
 where
     U: Signal + Send,
     V: Signal + Send,
@@ -259,7 +259,7 @@ where
     pub playing: usize,
 }
 
-impl<U, V, W> OneOf3<U, V, W>
+impl<U, V, W> Variant3<U, V, W>
 where
     U: Signal + Send,
     V: Signal + Send,
@@ -279,23 +279,23 @@ where
     }
 }
 
-impl<U, V, W> Signal for OneOf3<U, V, W>
+impl<U, V, W> Signal for Variant3<U, V, W>
 where
     U: Signal + Send,
     W: Signal + Send,
     V: Signal + Send,
 {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         match self.playing {
-            0 => self.wave1.lock().unwrap().signal_add(sample_rate, add),
-            1 => self.wave2.lock().unwrap().signal_add(sample_rate, add),
-            2 => self.wave3.lock().unwrap().signal_add(sample_rate, add),
-            _ => self.wave1.lock().unwrap().signal_add(sample_rate, add),
+            0 => self.wave1.lock().unwrap().signal_(sample_rate, add),
+            1 => self.wave2.lock().unwrap().signal_(sample_rate, add),
+            2 => self.wave3.lock().unwrap().signal_(sample_rate, add),
+            _ => self.wave1.lock().unwrap().signal_(sample_rate, add),
         }
     }
 }
 
-pub struct OneOf4<T, U, V, W>
+pub struct Variant4<T, U, V, W>
 where
     T: Signal + Send,
     U: Signal + Send,
@@ -309,7 +309,7 @@ where
     pub playing: usize,
 }
 
-impl<T, U, V, W> OneOf4<T, U, V, W>
+impl<T, U, V, W> Variant4<T, U, V, W>
 where
     T: Signal + Send,
     U: Signal + Send,
@@ -341,20 +341,20 @@ where
     }
 }
 
-impl<T, U, V, W> Signal for OneOf4<T, U, V, W>
+impl<T, U, V, W> Signal for Variant4<T, U, V, W>
 where
     T: Signal + Send,
     U: Signal + Send,
     W: Signal + Send,
     V: Signal + Send,
 {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         match self.playing {
-            0 => self.wave1.lock().unwrap().signal_add(sample_rate, add),
-            1 => self.wave2.lock().unwrap().signal_add(sample_rate, add),
-            2 => self.wave3.lock().unwrap().signal_add(sample_rate, add),
-            3 => self.wave4.lock().unwrap().signal_add(sample_rate, add),
-            _ => self.wave1.lock().unwrap().signal_add(sample_rate, add),
+            0 => self.wave1.lock().unwrap().signal_(sample_rate, add),
+            1 => self.wave2.lock().unwrap().signal_(sample_rate, add),
+            2 => self.wave3.lock().unwrap().signal_(sample_rate, add),
+            3 => self.wave4.lock().unwrap().signal_(sample_rate, add),
+            _ => self.wave1.lock().unwrap().signal_(sample_rate, add),
         }
     }
 }

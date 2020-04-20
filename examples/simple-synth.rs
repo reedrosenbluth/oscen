@@ -6,7 +6,9 @@ use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 
-use swell::*;
+use swell::collections::*;
+use swell::dsp::*;
+
 use widget::toggle::TimesClicked;
 use widget::Toggle;
 
@@ -25,7 +27,7 @@ struct Model {
 }
 
 struct Synth {
-    voice: OneOf3<SineWave, FourierWave, FourierWave>,
+    voice: Variant3<SineOsc, FourierOsc, FourierOsc>,
     sender: Sender<f32>,
 }
 
@@ -46,16 +48,13 @@ fn model(app: &App) -> Model {
     // Initialise the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
     // Initialise the state that we want to live on the audio thread.
-    let sine = SineWave::boxed(HZ);
+    let sine = SineOsc::wrapped(HZ);
     let square = square_wave(16, HZ);
     let triangle = triangle_wave(16, HZ);
 
-    let voice = OneOf3Wave::boxed(sine, square, triangle);
+    let voice = Variant3::new(sine, square, triangle);
 
-    let model = Synth {
-        voice,
-        sender,
-    };
+    let model = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(model)
         .render(audio)
@@ -85,8 +84,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
-        amp += synth.voice.sample();
-        synth.voice.update_phase(sample_rate);
+        amp += synth.voice.signal(sample_rate);
         for channel in frame {
             *channel = amp;
         }
@@ -190,13 +188,11 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     model
         .stream
-        .send(move |synth| {
-            match play {
-                0 => synth.voice.lock().unwrap().playing = 0,
-                1 => synth.voice.lock().unwrap().playing = 1,
-                2 => synth.voice.lock().unwrap().playing = 2,
-                _ => synth.voice.lock().unwrap().playing = 0,
-            }
+        .send(move |synth| match play {
+            0 => synth.voice.lock().unwrap().playing = 0,
+            1 => synth.voice.lock().unwrap().playing = 1,
+            2 => synth.voice.lock().unwrap().playing = 2,
+            _ => synth.voice.lock().unwrap().playing = 0,
         })
         .unwrap();
 }

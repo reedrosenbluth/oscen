@@ -21,7 +21,7 @@ struct Model {
 }
 
 struct Synth {
-    voice: PolySynth<SustainSynth<SineOsc>>,
+    voice: PolySynth<TriggerSynth<SineOsc>>,
     sender: Sender<f32>,
 }
 
@@ -35,7 +35,6 @@ fn model(app: &App) -> Model {
         .new_window()
         .size(600, 340)
         .key_pressed(key_pressed)
-        .key_released(key_released)
         .view(view)
         .build()
         .unwrap();
@@ -71,18 +70,19 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     }
 }
 
-fn voices() -> PolySynth<SustainSynth<SineOsc>> {
-    let mut vs: Vec<ArcMutex<SustainSynth<SineOsc>>> = Vec::new();
+fn voices() -> PolySynth<TriggerSynth<SineOsc>> {
+    let mut vs: Vec<ArcMutex<TriggerSynth<SineOsc>>> = Vec::new();
     let freqs = [
         131., 139., 147., 156., 165., 175., 185., 196., 208., 220., 233., 247., 262., 277., 294.,
     ];
     for f in freqs.iter() {
-        let w = SustainSynth {
+        let w = TriggerSynth {
             wave: SineOsc::wrapped(*f),
-            attack: 1.5,
-            decay: 1.1,
+            attack: 0.2,
+            decay: 0.1,
+            sustain_time: 0.5,
             sustain_level: 0.8,
-            release: 3.0,
+            release: 0.2,
             clock: 0.0,
             triggered: false,
             level: 0.0,
@@ -116,15 +116,6 @@ fn key_to_index(key: Key) -> Option<usize> {
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
-    if key == Key::Space {
-        model
-            .stream
-            .send(move |synth| {
-                synth.voice.waves[0].lock().unwrap().off();
-            })
-            .unwrap();
-            return;
-    }
     let idx = match key_to_index(key) {
         Some(it) => it,
         _ => return,
@@ -135,21 +126,6 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             synth.voice.waves[idx].lock().unwrap().on();
         })
         .unwrap();
-}
-
-fn key_released(_app: &App, model: &mut Model, key: Key) {
-    // model.max_amp = 0.;
-    // let idx = match key_to_index(key) {
-    //     Some(it) => it,
-    //     _ => return,
-    // };
-    // model
-    //     .stream
-    //     .send(move |synth| {
-    //         synth.voice.waves[idx].lock().unwrap().clock = 0.0;
-    //         synth.voice.waves[idx].lock().unwrap().triggered = false;
-    //     })
-    //     .unwrap();
 }
 
 fn update(_app: &App, model: &mut Model, _update: Update) {

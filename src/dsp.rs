@@ -12,10 +12,10 @@ pub type Hz = f64;
 pub type Amp = f32;
 
 pub trait Signal {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp;
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp;
 
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        self.signal_add(sample_rate, 0.0)
+        self.signal_(sample_rate, 0.0)
     }
 }
 
@@ -48,7 +48,7 @@ impl SineOsc {
 }
 
 impl Signal for SineOsc {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let amp = self.amplitude * (TAU32 * self.phase as f32).sin();
         self.phase += (self.hz + add * self.hz) / sample_rate;
         self.phase %= sample_rate;
@@ -78,7 +78,7 @@ impl SquareOsc {
 }
 
 impl Signal for SquareOsc {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let t = self.phase - floor(self.phase, 0);
         let amp = if t < 0.001 {
             0.0
@@ -115,7 +115,7 @@ impl SawOsc {
 }
 
 impl Signal for SawOsc {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let t = self.phase - 0.5;
         let s = -t - floor(0.5 - t, 0);
         let amp = if s < -0.499 {
@@ -151,7 +151,7 @@ impl TriangleOsc {
 }
 
 impl Signal for TriangleOsc {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let t = self.phase - 0.75;
         let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
         let amp = (2. * saw_amp.abs() - self.amplitude) * self.amplitude;
@@ -198,12 +198,12 @@ impl FourierOsc {
 }
 
 impl Signal for FourierOsc {
-    fn signal_add(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         self.amplitude
             * self
                 .sines
                 .iter_mut()
-                .fold(0., |acc, x| acc + x.signal_add(sample_rate, add))
+                .fold(0., |acc, x| acc + x.signal_(sample_rate, add))
     }
 }
 
