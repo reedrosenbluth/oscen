@@ -15,6 +15,7 @@ nannou = "0.13"
 nannou_audio = "0.2"
 crossbeam = "0.7.3"
 libmath = "0.2.1"
+rand = "0.7"
 
 [[example]]
 name = "wavetypes"

@@ -2206,6 +2206,7 @@ dependencies = [
  "libmath",
  "nannou",
  "nannou_audio",
+ "rand 0.7.3",
 ]
 
 [[package]]

@@ -1,4 +1,6 @@
 use math::round::floor;
+use rand::distributions::Uniform;
+use rand::prelude::*;
 use std::{
     f64::consts::PI,
     sync::{Arc, Mutex},
@@ -24,6 +26,29 @@ pub type ArcMutex<T> = Arc<Mutex<T>>;
 
 pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
     Arc::new(Mutex::new(x))
+}
+
+pub struct WhiteNoise {
+    dist: Uniform<f32>
+}
+
+impl WhiteNoise {
+    pub fn new_white() -> Self {
+        Self {
+            dist: Uniform::new_inclusive(-1.0, 1.0),
+        }
+    }
+
+    pub fn wrapped_white() -> ArcMutex<Self> {
+        arc(Self::new_white())
+    }
+}
+
+impl Signal for WhiteNoise {
+    fn signal_(&mut self, _sample_rate: f64, _add: Phase) -> Amp {
+        let mut rng = rand::thread_rng();
+        self.dist.sample(&mut rng)
+    }
 }
 
 #[derive(Clone)]
