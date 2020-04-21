@@ -285,6 +285,36 @@ where
     ) -> ArcMutex<Self> {
         arc(Self::new(wave, a1, a2, b0, b1, b2))
     }
+
+    pub fn lpf(wave: ArcMutex<W>, sample_rate: f64, cutoff: Hz, q: f64) -> Self {
+        let cutoff = cutoff as f32;
+        let sample_rate = sample_rate as f32;
+        let q = q as f32;
+        let w0 = TAU32 * cutoff / sample_rate;
+        let alpha = w0.sin() / (2.0 * q);
+        let a0 = 1.0 + alpha;
+        let b0 = 0.5 * (1.0 - w0.cos());
+        let b1 = 2.0 * b0;
+        let b2 = b0;
+        let a1 = -2.0 * w0.cos();
+        let a2 = 1.0 - alpha;
+        Self::new(wave, a1 / a0, a2 / a0, b0 / a0, b1 / a0, b2/ a0)
+    }
+
+    pub fn hpf(wave: ArcMutex<W>, sample_rate: f64, cutoff: Hz, q: f64) -> Self {
+        let cutoff = cutoff as f32;
+        let sample_rate = sample_rate as f32;
+        let q = q as f32;
+        let w0 = TAU32 * cutoff / sample_rate;
+        let alpha = w0.sin() / (2.0 * q);
+        let a0 = 1.0 + alpha;
+        let b0 = 0.5 * (1.0 + w0.cos());
+        let b1 = -2.0 * b0;
+        let b2 = b0;
+        let a1 = -2.0 * w0.cos();
+        let a2 = 1.0 - alpha;
+        Self::new(wave, a1 / a0, a2 / a0, b0 / a0, b1 / a0, b2/ a0)
+    }
 }
 
 impl<W> Signal for BiquadFilter<W>

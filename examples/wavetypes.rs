@@ -51,14 +51,7 @@ fn model(app: &App) -> Model {
     let sine = SineOsc::wrapped(HZ);
     let square = square_wave(32, HZ);
     square.lock().unwrap().amplitude = 0.0;
-    let saw = BiquadFilter::new(
-        SawOsc::wrapped(HZ),
-        -1.97,
-        0.97,
-        0.0001,
-        0.00011,
-        0.00012,
-    );
+    let saw = BiquadFilter::lpf(SawOsc::wrapped(HZ), 44100., 110.0, 0.707);
     saw.wave.lock().unwrap().amplitude = 0.0;
     let triangle = TriangleOsc::wrapped(HZ);
     triangle.lock().unwrap().amplitude = 0.0;
