@@ -7,7 +7,7 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 
 use swell::dsp::*;
-use swell::containers::*;
+use swell::shaper::*;
 
 fn main() {
     // nannou::app(model).update(update).simple_window(view).run();
@@ -30,7 +30,7 @@ struct Ids {
 
 struct Synth {
     // voice: Box<dyn Wave + Send>,
-    voice: FMSynth<SineOsc, SineOsc>,
+    voice: ShaperSynth,
     sender: Sender<f32>,
 }
 
@@ -54,15 +54,10 @@ fn model(app: &App) -> Model {
     let ids = Ids {
         fm_hz: ui.generate_widget_id(),
     };
-
     let audio_host = audio::Host::new();
 
-    let carrier = SineOsc::wrapped(440.);
-    let modulator = SineOsc::wrapped(220.);
-    let osc = FMSynth::new(carrier, modulator, 1.0);
-
-    let synth = Synth { voice: osc, sender };
-
+    let voice = shaper_osc(440., 8.0, 3.0, 0.2, 0.1, 0.9, 0.85, 0.2, 300., 0.707);
+    let synth = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(synth)
         .render(audio)
@@ -101,18 +96,16 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.carrier.lock().unwrap().hz *= factor;
+                // synth.voice.carrier.lock().unwrap().hz *= factor;
             })
             .unwrap();
     };
     match key {
         // Pause or unpause the audio when Space is pressed.
         Key::Space => {
-            if model.stream.is_playing() {
-                model.stream.pause().unwrap();
-            } else {
-                model.stream.play().unwrap();
-            }
+            model.stream.send(move |synth| {
+                synth.voice.wave.lock().unwrap().on();
+            }).unwrap();
         }
         // Raise the frequency when the up key is pressed.
         Key::Up => change_hz(1.),
@@ -162,7 +155,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.mod_idx = value as f64;
+                // synth.voice.mod_idx = value as f64;
             })
             .unwrap();
     }

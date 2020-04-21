@@ -3,6 +3,7 @@ use super::containers::*;
 use super::filters::*;
 use super::dsp::*;
 
+pub type ShaperSynth = BiquadFilter<TriggerSynth<ShaperOsc>>;
 /// Interpolate between the three oscillators depending on the value of `knob`.
 /// If `knob` is less thanb 1/2 then interpolate between square wave and sin wave,
 /// otherwise interpolate between sine wave and saw wave.
@@ -65,7 +66,7 @@ pub struct ShaperOsc {
 
 impl ShaperOsc {
     pub fn new(carrier_hz: Hz, ratio: Hz, mod_idx: Phase) -> Self {
-        let shaper_osc = WaveShaper::wrapped(carrier_hz, 0.5);
+        let shaper_osc = WaveShaper::wrapped(carrier_hz, 0.10);
         let sine_osc = SineOsc::wrapped(ratio * carrier_hz);
         ShaperOsc {
             fmsynth: FMSynth::new(shaper_osc, sine_osc, mod_idx),
@@ -95,7 +96,7 @@ pub fn shaper_osc(
     release: f32,
     cutoff: Hz,
     q: f32,
-) -> BiquadFilter<TriggerSynth<ShaperOsc>> {
+) -> ShaperSynth {
     let wave = ShaperOsc::wrapped(carrier_hz, ratio, mod_idx);
     let triggeredwave = TriggerSynth::new(wave, attack, decay, sustain_time, sustain_level, release);
     BiquadFilter::lpf(arc(triggeredwave), 44100., cutoff, q)
