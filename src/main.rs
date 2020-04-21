@@ -1,20 +1,19 @@
 use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
-use derive_more::Constructor;
 use nannou::prelude::*;
 use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 
-use swell::*;
+use swell::dsp::*;
+use swell::containers::*;
 
 fn main() {
     // nannou::app(model).update(update).simple_window(view).run();
     nannou::app(model).update(update).run();
 }
 
-#[derive(Constructor)]
 struct Model {
     ui: Ui,
     ids: Ids,
@@ -29,10 +28,9 @@ struct Ids {
     fm_hz: widget::Id,
 }
 
-#[derive(Constructor)]
 struct Synth {
     // voice: Box<dyn Wave + Send>,
-    voice: VCO,
+    voice: FMSynth<SineOsc, SineOsc>,
     sender: Sender<f32>,
 }
 
@@ -59,13 +57,9 @@ fn model(app: &App) -> Model {
 
     let audio_host = audio::Host::new();
 
-    let carrier = arc(SineWave::new(220.));
-    let modulator = arc(SineWave::new(220.));
-    let osc = VCO {
-        wave: carrier,
-        cv: modulator,
-        fm_mult: 1.,
-    };
+    let carrier = SineOsc::wrapped(440.);
+    let modulator = SineOsc::wrapped(220.);
+    let osc = FMSynth::new(carrier, modulator, 1.0);
 
     let synth = Synth { voice: osc, sender };
 
@@ -92,8 +86,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
-        amp += synth.voice.sample();
-        synth.voice.update_phase(sample_rate);
+        amp += synth.voice.signal(sample_rate);
         for channel in frame {
             *channel = amp;
         }
@@ -108,7 +101,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.mul_hz(factor);
+                synth.voice.carrier.lock().unwrap().hz *= factor;
             })
             .unwrap();
     };
@@ -169,7 +162,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_fm_mult(value as f64);
+                synth.voice.mod_idx = value as f64;
             })
             .unwrap();
     }

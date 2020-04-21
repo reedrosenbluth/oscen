@@ -74,7 +74,7 @@ where
     W: Signal + Send,
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let m = self.modulator.lock().unwrap().signal_(sample_rate, add);
+        let m = self.mod_idx * self.modulator.lock().unwrap().signal_(sample_rate, add) as f64;
         self.carrier.lock().unwrap().signal_(sample_rate, m as f64)
     }
 }
