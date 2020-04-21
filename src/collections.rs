@@ -143,6 +143,14 @@ where
     V: Signal + Send,
     W: Signal + Send,
 {
+    pub fn new(wave1: ArcMutex<V>, wave2: ArcMutex<W>, alpha: f32) -> Self {
+        Self {
+            wave1,
+            wave2,
+            alpha,
+        }
+    }
+
     pub fn wrapped(wave1: ArcMutex<V>, wave2: ArcMutex<W>, alpha: f32) -> ArcMutex<Self> {
         arc(LerpSynth {
             wave1,

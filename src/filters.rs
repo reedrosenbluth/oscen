@@ -46,7 +46,7 @@ where
         arc(Self::new(wave, a1, a2, b0, b1, b2))
     }
 
-    // The following functions come from:
+    // The following functions are based on:
     // https://www.w3.org/2011/audio/audio-eq-cookbook.html
 
     pub fn lpf(wave: ArcMutex<W>, sample_rate: f64, cutoff: Hz, q: f32) -> Self {
