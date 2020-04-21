@@ -8,6 +8,7 @@ use nannou_audio::Buffer;
 
 use swell::collections::*;
 use swell::containers::*;
+use swell::filters::*;
 use swell::dsp::*;
 
 use widget::toggle::TimesClicked;
