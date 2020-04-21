@@ -99,7 +99,9 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.mul_hz(factor);
+                synth.voice.wave1.lock().unwrap().hz *= factor;
+                synth.voice.wave2.lock().unwrap().hz *= factor;
+                synth.voice.wave3.lock().unwrap().hz *= factor;
             })
             .unwrap();
     };
@@ -189,10 +191,10 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     model
         .stream
         .send(move |synth| match play {
-            0 => synth.voice.lock().unwrap().playing = 0,
-            1 => synth.voice.lock().unwrap().playing = 1,
-            2 => synth.voice.lock().unwrap().playing = 2,
-            _ => synth.voice.lock().unwrap().playing = 0,
+            0 => synth.voice.playing = 0,
+            1 => synth.voice.playing = 1,
+            2 => synth.voice.playing = 2,
+            _ => synth.voice.playing = 0,
         })
         .unwrap();
 }

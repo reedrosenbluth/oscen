@@ -53,11 +53,11 @@ fn model(app: &App) -> Model {
     square.lock().unwrap().amplitude = 0.0;
     let saw = BiquadFilter::new(
         SawOsc::wrapped(HZ),
-        -1.97615773,
-        0.97643855,
-        7.02037705e-5,
-        1.40407541e-4,
-        7.02037705e-5,
+        -1.97,
+        0.97,
+        0.0001,
+        0.00011,
+        0.00012,
     );
     saw.wave.lock().unwrap().amplitude = 0.0;
     let triangle = TriangleOsc::wrapped(HZ);
