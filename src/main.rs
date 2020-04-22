@@ -17,7 +17,8 @@ fn main() {
 struct Model {
     ui: Ui,
     ids: Ids,
-    fm_mult: f32,
+    knob: f32,
+    ratio: f64,
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     amps: Vec<f32>,
@@ -25,7 +26,8 @@ struct Model {
 }
 
 struct Ids {
-    fm_hz: widget::Id,
+    knob: widget::Id,
+    ratio: widget::Id,
 }
 
 struct Synth {
@@ -52,11 +54,12 @@ fn model(app: &App) -> Model {
     let mut ui = app.new_ui().build().unwrap();
 
     let ids = Ids {
-        fm_hz: ui.generate_widget_id(),
+        knob: ui.generate_widget_id(),
+        ratio: ui.generate_widget_id(),
     };
     let audio_host = audio::Host::new();
 
-    let voice = shaper_osc(440., 8.0, 3.0, 0.2, 0.1, 0.9, 0.85, 0.2, 300., 0.707);
+    let voice = shaper_osc(440., 8.0, 1.0, 0.2, 0.1, 5.0, 0.85, 0.2, 400., 0.707);
     let synth = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(synth)
@@ -67,7 +70,8 @@ fn model(app: &App) -> Model {
     Model {
         ui,
         ids,
-        fm_mult: 1.,
+        knob: 0.5,
+        ratio: 8.0,
         stream,
         receiver,
         amps: vec![],
@@ -103,9 +107,12 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     match key {
         // Pause or unpause the audio when Space is pressed.
         Key::Space => {
-            model.stream.send(move |synth| {
-                synth.voice.wave.lock().unwrap().on();
-            }).unwrap();
+            model
+                .stream
+                .send(move |synth| {
+                    synth.voice.wave.lock().unwrap().on();
+                })
+                .unwrap();
         }
         // Raise the frequency when the up key is pressed.
         Key::Up => change_hz(1.),
@@ -146,16 +153,51 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .border(0.0)
     }
 
-    for value in slider(model.fm_mult as f32, 0., 12.)
+    for value in slider(model.knob as f32, 0., 1.)
         .top_left_with_margin(20.0)
-        .label("FM Multiplier")
-        .set(model.ids.fm_hz, ui)
+        .label("Wave Knob")
+        .set(model.ids.knob, ui)
     {
-        model.fm_mult = value;
+        model.knob = value;
         model
             .stream
             .send(move |synth| {
-                // synth.voice.mod_idx = value as f64;
+                synth
+                    .voice
+                    .wave
+                    .lock()
+                    .unwrap()
+                    .wave
+                    .lock()
+                    .unwrap()
+                    .fmsynth
+                    .carrier
+                    .lock()
+                    .unwrap()
+                    .set_knob(value)
+            })
+            .unwrap();
+    }
+
+    for value in slider(model.ratio as f32, 0.5, 16.)
+        .down(20.)
+        .label("Ratio")
+        .set(model.ids.ratio, ui)
+    {
+        let value = value as f64;
+        model.ratio = value;
+        model
+            .stream
+            .send(move |synth| {
+                synth
+                    .voice
+                    .wave
+                    .lock()
+                    .unwrap()
+                    .wave
+                    .lock()
+                    .unwrap()
+                    .set_ratio(value);
             })
             .unwrap();
     }

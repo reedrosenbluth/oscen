@@ -1,7 +1,7 @@
 use super::collections::*;
 use super::containers::*;
-use super::filters::*;
 use super::dsp::*;
+use super::filters::*;
 
 pub type ShaperSynth = BiquadFilter<TriggerSynth<ShaperOsc>>;
 /// Interpolate between the three oscillators depending on the value of `knob`.
@@ -22,7 +22,7 @@ impl WaveShaper {
         let (a, b) = if knob <= 0.5 {
             (2.0 * knob, 0.0)
         } else {
-            (0.0, 2.0 * (1.0 - knob))
+            (0.0, 2.0 * (knob - 0.5))
         };
         let lerp1 = LerpSynth::wrapped(square, sine, a);
         let lerp2 = LerpSynth::wrapped(sine2, saw, b);
@@ -39,7 +39,7 @@ impl WaveShaper {
             self.lerp2.lock().unwrap().alpha = 0.0;
         } else {
             self.lerp1.lock().unwrap().alpha = 0.0;
-            self.lerp2.lock().unwrap().alpha = 2.0 * (1.0 - self.knob);
+            self.lerp2.lock().unwrap().alpha = 2.0 * (self.knob - 0.5);
         }
     }
 
@@ -77,6 +77,10 @@ impl ShaperOsc {
     pub fn wrapped(carrier_hz: Hz, ratio: Hz, mod_idx: Phase) -> ArcMutex<Self> {
         arc(Self::new(carrier_hz, ratio, mod_idx))
     }
+
+    pub fn set_ratio(&mut self, ratio: Hz) {
+        self.fmsynth.modulator.lock().unwrap().hz *= ratio;
+    }
 }
 
 impl Signal for ShaperOsc {
@@ -98,6 +102,7 @@ pub fn shaper_osc(
     q: f32,
 ) -> ShaperSynth {
     let wave = ShaperOsc::wrapped(carrier_hz, ratio, mod_idx);
-    let triggeredwave = TriggerSynth::new(wave, attack, decay, sustain_time, sustain_level, release);
+    let triggeredwave =
+        TriggerSynth::new(wave, attack, decay, sustain_time, sustain_level, release);
     BiquadFilter::lpf(arc(triggeredwave), 44100., cutoff, q)
 }
