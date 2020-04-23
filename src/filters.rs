@@ -14,6 +14,7 @@ where
     x2: f32,
     y1: f32,
     y2: f32,
+    pub off: bool,
 }
 
 impl<W> BiquadFilter<W>
@@ -32,6 +33,7 @@ where
             x2: 0.0,
             y1: 0.0,
             y2: 0.0,
+            off: false,
         }
     }
 
@@ -141,6 +143,9 @@ where
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let x0 = self.wave.lock().unwrap().signal_(sample_rate, add);
+        if self.off {
+            return x0;
+        };
         let amp = self.b0 * x0 + self.b1 * self.x1 + self.b2 * self.x2
             - self.a1 * self.y1
             - self.a2 * self.y2;

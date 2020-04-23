@@ -3,7 +3,6 @@ use super::containers::*;
 use super::dsp::*;
 use super::filters::*;
 
-pub type ShaperSynth = BiquadFilter<TriggerSynth<ShaperOsc>>;
 /// Interpolate between the three oscillators depending on the value of `knob`.
 /// If `knob` is less thanb 1/2 then interpolate between square wave and sin wave,
 /// otherwise interpolate between sine wave and saw wave.
@@ -42,11 +41,6 @@ impl WaveShaper {
             self.lerp2.lock().unwrap().alpha = 2.0 * (self.knob - 0.5);
         }
     }
-
-    pub fn set_knob(&mut self, knob: f32) {
-        self.knob = knob;
-        self.set_alphas();
-    }
 }
 
 impl Signal for WaveShaper {
@@ -77,10 +71,6 @@ impl ShaperOsc {
     pub fn wrapped(carrier_hz: Hz, ratio: Hz, mod_idx: Phase) -> ArcMutex<Self> {
         arc(Self::new(carrier_hz, ratio, mod_idx))
     }
-
-    pub fn set_ratio(&mut self, ratio: Hz) {
-        self.fmsynth.modulator.lock().unwrap().hz *= ratio;
-    }
 }
 
 impl Signal for ShaperOsc {
@@ -89,20 +79,179 @@ impl Signal for ShaperOsc {
     }
 }
 
-pub fn shaper_osc(
-    carrier_hz: Hz,
-    ratio: Hz,
-    mod_idx: Phase,
-    attack: f32,
-    decay: f32,
-    sustain_time: f32,
-    sustain_level: f32,
-    release: f32,
-    cutoff: Hz,
-    q: f32,
-) -> ShaperSynth {
-    let wave = ShaperOsc::wrapped(carrier_hz, ratio, mod_idx);
-    let triggeredwave =
-        TriggerSynth::new(wave, attack, decay, sustain_time, sustain_level, release);
-    BiquadFilter::lpf(arc(triggeredwave), 44100., cutoff, q)
+pub struct ShaperSynth(pub BiquadFilter<TriggerSynth<ShaperOsc>>);
+
+impl ShaperSynth {
+    pub fn new(
+        carrier_hz: Hz,
+        ratio: Hz,
+        mod_idx: Phase,
+        attack: f32,
+        decay: f32,
+        sustain_time: f32,
+        sustain_level: f32,
+        release: f32,
+        cutoff: Hz,
+        q: f32,
+    ) -> Self {
+        let wave = ShaperOsc::wrapped(carrier_hz, ratio, mod_idx);
+        let triggeredwave =
+            TriggerSynth::new(wave, attack, decay, sustain_time, sustain_level, release);
+        ShaperSynth(BiquadFilter::lpf(arc(triggeredwave), 44100., cutoff, q))
+    }
+
+    pub fn set_knob(&mut self, knob: f32) {
+        self.0
+            .wave
+            .lock()
+            .unwrap()
+            .wave
+            .lock()
+            .unwrap()
+            .fmsynth
+            .carrier
+            .lock()
+            .unwrap()
+            .knob = knob;
+        self.0
+            .wave
+            .lock()
+            .unwrap()
+            .wave
+            .lock()
+            .unwrap()
+            .fmsynth
+            .carrier
+            .lock()
+            .unwrap()
+            .set_alphas();
+    }
+
+    pub fn set_ratio(&mut self, ratio: Hz) {
+        self.0
+            .wave
+            .lock()
+            .unwrap()
+            .wave
+            .lock()
+            .unwrap()
+            .fmsynth
+            .modulator
+            .lock()
+            .unwrap()
+            .hz *= ratio;
+    }
+
+    pub fn set_carrier_hz(&mut self, hz: Hz) {
+        self.0
+            .wave
+            .lock()
+            .unwrap()
+            .wave
+            .lock()
+            .unwrap()
+            .fmsynth
+            .carrier
+            .lock()
+            .unwrap()
+            .lerp1
+            .lock()
+            .unwrap()
+            .wave1
+            .lock()
+            .unwrap()
+            .hz = hz;
+        self.0
+            .wave
+            .lock()
+            .unwrap()
+            .wave
+            .lock()
+            .unwrap()
+            .fmsynth
+            .carrier
+            .lock()
+            .unwrap()
+            .lerp1
+            .lock()
+            .unwrap()
+            .wave2
+            .lock()
+            .unwrap()
+            .hz = hz;
+        self.0
+            .wave
+            .lock()
+            .unwrap()
+            .wave
+            .lock()
+            .unwrap()
+            .fmsynth
+            .carrier
+            .lock()
+            .unwrap()
+            .lerp2
+            .lock()
+            .unwrap()
+            .wave1
+            .lock()
+            .unwrap()
+            .hz = hz;
+        self.0
+            .wave
+            .lock()
+            .unwrap()
+            .wave
+            .lock()
+            .unwrap()
+            .fmsynth
+            .carrier
+            .lock()
+            .unwrap()
+            .lerp2
+            .lock()
+            .unwrap()
+            .wave2
+            .lock()
+            .unwrap()
+            .hz = hz;
+    }
+
+    pub fn set_mod_idx(&mut self, mod_idx: Phase) {
+        self.0
+            .wave
+            .lock()
+            .unwrap()
+            .wave
+            .lock()
+            .unwrap()
+            .fmsynth
+            .mod_idx = mod_idx;
+    }
+    
+    pub fn set_attack(&mut self, attack: f32) {
+        self.0.wave.lock().unwrap().attack = attack;
+    }
+
+    pub fn set_decay(&mut self, decay: f32) {
+        self.0.wave.lock().unwrap().decay = decay;
+    }
+
+    pub fn set_sustain_time(&mut self, sustain_time: f32) {
+        self.0.wave.lock().unwrap().sustain_time = sustain_time;
+    }
+
+    pub fn set_sustain_level(&mut self, sustain_level: f32) {
+        self.0.wave.lock().unwrap().sustain_level = sustain_level;
+    }
+
+    pub fn set_release(&mut self, release: f32) {
+        self.0.wave.lock().unwrap().release = release;
+    }
+}
+
+impl Signal for ShaperSynth {
+    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
+        self.0.signal_(sample_rate, add)
+    }
 }

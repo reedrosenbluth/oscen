@@ -17,8 +17,15 @@ fn main() {
 struct Model {
     ui: Ui,
     ids: Ids,
-    knob: f32,
-    ratio: f64,
+    knob: Amp,
+    ratio: Hz,
+    carrier_hz: Hz,
+    mod_idx: Phase,
+    attack: Amp,
+    decay: Amp,
+    sustain_time: Amp,
+    sustain_level: Amp,
+    release: Amp,
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     amps: Vec<f32>,
@@ -28,6 +35,13 @@ struct Model {
 struct Ids {
     knob: widget::Id,
     ratio: widget::Id,
+    carrier_hz: widget::Id,
+    mod_idx: widget::Id,
+    attack: widget::Id,
+    decay: widget::Id,
+    sustain_time: widget::Id,
+    sustain_level: widget::Id,
+    release: widget::Id,
 }
 
 struct Synth {
@@ -45,7 +59,7 @@ fn model(app: &App) -> Model {
     });
 
     let _window = app
-        .new_window()
+        .new_window().size(900, 600)
         .key_pressed(key_pressed)
         .view(view)
         .build()
@@ -56,10 +70,18 @@ fn model(app: &App) -> Model {
     let ids = Ids {
         knob: ui.generate_widget_id(),
         ratio: ui.generate_widget_id(),
+        carrier_hz: ui.generate_widget_id(),
+        mod_idx: ui.generate_widget_id(),
+        attack: ui.generate_widget_id(),
+        decay: ui.generate_widget_id(),
+        sustain_time: ui.generate_widget_id(),
+        sustain_level: ui.generate_widget_id(),
+        release: ui.generate_widget_id(),
     };
     let audio_host = audio::Host::new();
 
-    let voice = shaper_osc(440., 8.0, 1.0, 0.2, 0.1, 5.0, 0.85, 0.2, 400., 0.707);
+    let mut voice = ShaperSynth::new(440., 8.0, 1.0, 0.2, 0.1, 5.0, 0.85, 0.2, 400., 0.707);
+    voice.0.off = true;
     let synth = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(synth)
@@ -72,6 +94,13 @@ fn model(app: &App) -> Model {
         ids,
         knob: 0.5,
         ratio: 8.0,
+        carrier_hz: 440.,
+        mod_idx: 1.0,
+        attack: 0.2,
+        decay: 0.1,
+        sustain_time: 5.0,
+        sustain_level: 0.8,
+        release: 0.2,
         stream,
         receiver,
         amps: vec![],
@@ -110,7 +139,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             model
                 .stream
                 .send(move |synth| {
-                    synth.voice.wave.lock().unwrap().on();
+                    synth.voice.0.wave.lock().unwrap().on();
                 })
                 .unwrap();
         }
@@ -148,7 +177,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         widget::Slider::new(val, min, max)
             .w_h(200.0, 30.0)
             .label_font_size(15)
-            .rgb(0.3, 0.3, 0.3)
+            .rgb(0.1, 0.2, 0.5)
             .label_rgb(1.0, 1.0, 1.0)
             .border(0.0)
     }
@@ -161,21 +190,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model.knob = value;
         model
             .stream
-            .send(move |synth| {
-                synth
-                    .voice
-                    .wave
-                    .lock()
-                    .unwrap()
-                    .wave
-                    .lock()
-                    .unwrap()
-                    .fmsynth
-                    .carrier
-                    .lock()
-                    .unwrap()
-                    .set_knob(value)
-            })
+            .send(move |synth| synth.voice.set_knob(value))
             .unwrap();
     }
 
@@ -189,15 +204,107 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth
-                    .voice
-                    .wave
-                    .lock()
-                    .unwrap()
-                    .wave
-                    .lock()
-                    .unwrap()
-                    .set_ratio(value);
+                synth.voice.set_ratio(value);
+            })
+            .unwrap();
+    }
+
+    for value in slider(model.carrier_hz as f32, 55., 3200.)
+        .down(20.)
+        .label("Carrier hz")
+        .set(model.ids.carrier_hz, ui)
+    {
+        let value = value as f64;
+        model.carrier_hz = value;
+        model
+            .stream
+            .send(move |synth| {
+                synth.voice.set_carrier_hz(value);
+            })
+            .unwrap();
+    }
+
+    for value in slider(model.mod_idx as f32, 0.0, 16.)
+        .down(20.)
+        .label("Modulation Index")
+        .set(model.ids.mod_idx, ui)
+    {
+        let value = value as f64;
+        model.mod_idx = value;
+        model
+            .stream
+            .send(move |synth| {
+                synth.voice.set_mod_idx(value);
+            })
+            .unwrap();
+    }
+
+    for value in slider(model.attack, 0.0, 1.0)
+        .down(20.)
+        .label("Attack")
+        .set(model.ids.attack, ui)
+    {
+        model.attack = value;
+        model
+            .stream
+            .send(move |synth| {
+                synth.voice.set_attack(value);
+            })
+            .unwrap();
+    }
+
+    for value in slider(model.decay, 0.0, 1.0)
+        .down(20.)
+        .label("Decay")
+        .set(model.ids.decay, ui)
+    {
+        model.decay = value;
+        model
+            .stream
+            .send(move |synth| {
+                synth.voice.set_decay(value);
+            })
+            .unwrap();
+    }
+
+    for value in slider(model.sustain_time, 0.0, 10.0)
+        .down(20.)
+        .label("Sustain Time")
+        .set(model.ids.sustain_time, ui)
+    {
+        model.sustain_time = value;
+        model
+            .stream
+            .send(move |synth| {
+                synth.voice.set_sustain_time(value);
+            })
+            .unwrap();
+    }
+
+    for value in slider(model.sustain_level, 0.0, 1.0)
+        .down(20.)
+        .label("Sustain Level")
+        .set(model.ids.sustain_level, ui)
+    {
+        model.sustain_level = value;
+        model
+            .stream
+            .send(move |synth| {
+                synth.voice.set_sustain_level(value);
+            })
+            .unwrap();
+    }
+
+    for value in slider(model.release, 0.0, 1.0)
+        .down(20.)
+        .label("Release")
+        .set(model.ids.release, ui)
+    {
+        model.release = value;
+        model
+            .stream
+            .send(move |synth| {
+                synth.voice.set_release(value);
             })
             .unwrap();
     }
@@ -236,7 +343,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
             .weight(2.)
             .points(points)
             .color(CORNFLOWERBLUE)
-            .x_y(-300., 0.);
+            .x_y(-200., 0.);
 
         draw.to_frame(app, &frame).unwrap();
     }
