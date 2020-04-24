@@ -21,6 +21,9 @@ struct Model {
     ratio: Hz,
     carrier_hz: Hz,
     mod_idx: Phase,
+    cutoff: Hz,
+    q: f32,
+    t: f32,
     attack: Amp,
     decay: Amp,
     sustain_time: Amp,
@@ -37,6 +40,9 @@ struct Ids {
     ratio: widget::Id,
     carrier_hz: widget::Id,
     mod_idx: widget::Id,
+    cutoff: widget::Id,
+    q: widget::Id,
+    t: widget::Id,
     attack: widget::Id,
     decay: widget::Id,
     sustain_time: widget::Id,
@@ -59,7 +65,8 @@ fn model(app: &App) -> Model {
     });
 
     let _window = app
-        .new_window().size(900, 600)
+        .new_window()
+        .size(900, 620)
         .key_pressed(key_pressed)
         .view(view)
         .build()
@@ -72,6 +79,9 @@ fn model(app: &App) -> Model {
         ratio: ui.generate_widget_id(),
         carrier_hz: ui.generate_widget_id(),
         mod_idx: ui.generate_widget_id(),
+        cutoff: ui.generate_widget_id(),
+        q: ui.generate_widget_id(),
+        t: ui.generate_widget_id(),
         attack: ui.generate_widget_id(),
         decay: ui.generate_widget_id(),
         sustain_time: ui.generate_widget_id(),
@@ -80,8 +90,7 @@ fn model(app: &App) -> Model {
     };
     let audio_host = audio::Host::new();
 
-    let mut voice = ShaperSynth::new(440., 8.0, 1.0, 0.2, 0.1, 5.0, 0.85, 0.2, 400., 0.707);
-    voice.0.off = true;
+    let mut voice = ShaperSynth::new(440., 8.0, 1.0, 0.2, 0.1, 5.0, 0.85, 0.2, 400., 0.707, 0.5);
     let synth = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(synth)
@@ -96,6 +105,9 @@ fn model(app: &App) -> Model {
         ratio: 8.0,
         carrier_hz: 440.,
         mod_idx: 1.0,
+        cutoff: 440.,
+        q: 0.707,
+        t: 0.0,
         attack: 0.2,
         decay: 0.1,
         sustain_time: 5.0,
@@ -139,7 +151,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             model
                 .stream
                 .send(move |synth| {
-                    synth.voice.0.wave.lock().unwrap().on();
+                    synth.voice.0.lphp.wave.lock().unwrap().on();
                 })
                 .unwrap();
         }
@@ -235,6 +247,54 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .stream
             .send(move |synth| {
                 synth.voice.set_mod_idx(value);
+            })
+            .unwrap();
+    }
+
+    for value in slider(model.cutoff as f32, 0., 2400.0)
+        .down(20.)
+        .label("Filter Cutoff")
+        .set(model.ids.cutoff, ui)
+    {
+        let value = value as f64;
+        model.cutoff = value;
+        model
+            .stream
+            .send(move |synth| {
+                if value < 1.0 {
+                    synth.voice.0.lphp.off = true;
+                } else {
+                    synth.voice.0.lphp.off = false;
+                    synth.voice.set_cutoff(value);
+                }
+            })
+            .unwrap();
+    }
+
+    for value in slider(model.q, 0.1, 2.)
+        .down(20.)
+        .label("Filter Q")
+        .set(model.ids.q, ui)
+    {
+        model.q = value;
+        model
+            .stream
+            .send(move |synth| {
+                synth.voice.set_q(value);
+            })
+            .unwrap();
+    }
+
+    for value in slider(model.t, 0.0, 1.)
+        .down(20.)
+        .label("Filter Knob")
+        .set(model.ids.t, ui)
+    {
+        model.t = value;
+        model
+            .stream
+            .send(move |synth| {
+                synth.voice.set_t(value);
             })
             .unwrap();
     }

@@ -79,7 +79,20 @@ impl Signal for ShaperOsc {
     }
 }
 
-pub struct ShaperSynth(pub BiquadFilter<TriggerSynth<ShaperOsc>>);
+pub struct Filter {
+    pub lphp: BiquadFilter<TriggerSynth<ShaperOsc>>,
+    pub cutoff: Hz,
+    pub q: f32,
+    pub t: f32,
+}
+
+impl Filter {
+    pub fn new(lphp: BiquadFilter<TriggerSynth<ShaperOsc>>, cutoff: Hz, q: f32, t: f32) -> Self {
+        Self { lphp, cutoff, q, t }
+    }
+}
+
+pub struct ShaperSynth(pub Filter);
 
 impl ShaperSynth {
     pub fn new(
@@ -93,15 +106,19 @@ impl ShaperSynth {
         release: f32,
         cutoff: Hz,
         q: f32,
+        t: f32,
     ) -> Self {
         let wave = ShaperOsc::wrapped(carrier_hz, ratio, mod_idx);
         let triggeredwave =
             TriggerSynth::new(wave, attack, decay, sustain_time, sustain_level, release);
-        ShaperSynth(BiquadFilter::lpf(arc(triggeredwave), 44100., cutoff, q))
+        let biquad = BiquadFilter::lphpf(arc(triggeredwave), 44_100., cutoff, q, t);
+        let filter = Filter::new(biquad, cutoff, q, t);
+        ShaperSynth(filter)
     }
 
     pub fn set_knob(&mut self, knob: f32) {
         self.0
+            .lphp
             .wave
             .lock()
             .unwrap()
@@ -114,6 +131,7 @@ impl ShaperSynth {
             .unwrap()
             .knob = knob;
         self.0
+            .lphp
             .wave
             .lock()
             .unwrap()
@@ -129,6 +147,7 @@ impl ShaperSynth {
 
     pub fn set_ratio(&mut self, ratio: Hz) {
         self.0
+            .lphp
             .wave
             .lock()
             .unwrap()
@@ -144,6 +163,7 @@ impl ShaperSynth {
 
     pub fn set_carrier_hz(&mut self, hz: Hz) {
         self.0
+            .lphp
             .wave
             .lock()
             .unwrap()
@@ -162,6 +182,7 @@ impl ShaperSynth {
             .unwrap()
             .hz = hz;
         self.0
+            .lphp
             .wave
             .lock()
             .unwrap()
@@ -180,6 +201,7 @@ impl ShaperSynth {
             .unwrap()
             .hz = hz;
         self.0
+            .lphp
             .wave
             .lock()
             .unwrap()
@@ -198,6 +220,7 @@ impl ShaperSynth {
             .unwrap()
             .hz = hz;
         self.0
+            .lphp
             .wave
             .lock()
             .unwrap()
@@ -219,6 +242,7 @@ impl ShaperSynth {
 
     pub fn set_mod_idx(&mut self, mod_idx: Phase) {
         self.0
+            .lphp
             .wave
             .lock()
             .unwrap()
@@ -228,30 +252,60 @@ impl ShaperSynth {
             .fmsynth
             .mod_idx = mod_idx;
     }
-    
+
+    pub fn set_cutoff(&mut self, cutoff: Hz) {
+        self.0.cutoff = cutoff;
+        let (a1, a2, b0, b1, b2) = lphpf(44_100., cutoff, self.0.q, self.0.t);
+        self.0.lphp.a1 = a1;
+        self.0.lphp.a2 = a2;
+        self.0.lphp.b0 = b0;
+        self.0.lphp.b1 = b1;
+        self.0.lphp.b2 = b2;
+    }
+
+    pub fn set_q(&mut self, q: f32) {
+        self.0.q = q;
+        let (a1, a2, b0, b1, b2) = lphpf(44_100., self.0.cutoff, q, self.0.t);
+        self.0.lphp.a1 = a1;
+        self.0.lphp.a2 = a2;
+        self.0.lphp.b0 = b0;
+        self.0.lphp.b1 = b1;
+        self.0.lphp.b2 = b2;
+    }
+
+    pub fn set_t(&mut self, t: f32) {
+        self.0.t = t;
+        let (a1, a2, b0, b1, b2) = lphpf(44_100., self.0.cutoff, self.0.q, t);
+        self.0.lphp.a1 = a1;
+        self.0.lphp.a2 = a2;
+        self.0.lphp.b0 = b0;
+        self.0.lphp.b1 = b1;
+        self.0.lphp.b2 = b2;
+    }
+
     pub fn set_attack(&mut self, attack: f32) {
-        self.0.wave.lock().unwrap().attack = attack;
+        self.0.lphp.wave.lock().unwrap().attack = attack;
     }
 
     pub fn set_decay(&mut self, decay: f32) {
-        self.0.wave.lock().unwrap().decay = decay;
+        self.0.lphp.wave.lock().unwrap().decay = decay;
     }
 
     pub fn set_sustain_time(&mut self, sustain_time: f32) {
-        self.0.wave.lock().unwrap().sustain_time = sustain_time;
+        self.0.lphp.wave.lock().unwrap().sustain_time = sustain_time;
     }
 
     pub fn set_sustain_level(&mut self, sustain_level: f32) {
-        self.0.wave.lock().unwrap().sustain_level = sustain_level;
+        self.0.lphp.wave.lock().unwrap().sustain_level = sustain_level;
     }
 
     pub fn set_release(&mut self, release: f32) {
-        self.0.wave.lock().unwrap().release = release;
+        self.0.lphp.wave.lock().unwrap().release = release;
     }
 }
 
 impl Signal for ShaperSynth {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        self.0.signal_(sample_rate, add)
+        self.0.lphp.signal_(sample_rate, add)
     }
 }
