@@ -82,12 +82,12 @@ impl Signal for ShaperOsc {
 pub struct Filter {
     pub lphp: BiquadFilter<TriggerSynth<ShaperOsc>>,
     pub cutoff: Hz,
-    pub q: f32,
-    pub t: f32,
+    pub q: f64,
+    pub t: f64,
 }
 
 impl Filter {
-    pub fn new(lphp: BiquadFilter<TriggerSynth<ShaperOsc>>, cutoff: Hz, q: f32, t: f32) -> Self {
+    pub fn new(lphp: BiquadFilter<TriggerSynth<ShaperOsc>>, cutoff: Hz, q: f64, t: f64) -> Self {
         Self { lphp, cutoff, q, t }
     }
 }
@@ -105,8 +105,8 @@ impl ShaperSynth {
         sustain_level: f32,
         release: f32,
         cutoff: Hz,
-        q: f32,
-        t: f32,
+        q: f64,
+        t: f64,
     ) -> Self {
         let wave = ShaperOsc::wrapped(carrier_hz, ratio, mod_idx);
         let triggeredwave =
@@ -255,32 +255,32 @@ impl ShaperSynth {
 
     pub fn set_cutoff(&mut self, cutoff: Hz) {
         self.0.cutoff = cutoff;
-        let (a1, a2, b0, b1, b2) = lphpf(44_100., cutoff, self.0.q, self.0.t);
-        self.0.lphp.a1 = a1;
-        self.0.lphp.a2 = a2;
-        self.0.lphp.b0 = b0;
+        let (b1, b2, a0, a1, a2) = lphpf(44_100., cutoff, self.0.q, self.0.t);
         self.0.lphp.b1 = b1;
         self.0.lphp.b2 = b2;
+        self.0.lphp.a0 = a0;
+        self.0.lphp.a1 = a1;
+        self.0.lphp.a2 = a2;
     }
 
-    pub fn set_q(&mut self, q: f32) {
+    pub fn set_q(&mut self, q: f64) {
         self.0.q = q;
-        let (a1, a2, b0, b1, b2) = lphpf(44_100., self.0.cutoff, q, self.0.t);
-        self.0.lphp.a1 = a1;
-        self.0.lphp.a2 = a2;
-        self.0.lphp.b0 = b0;
+        let (b1, b2, a0, a1, a2) = lphpf(44_100., self.0.cutoff, q, self.0.t);
         self.0.lphp.b1 = b1;
         self.0.lphp.b2 = b2;
+        self.0.lphp.a0 = a0;
+        self.0.lphp.a1 = a1;
+        self.0.lphp.a2 = a2;
     }
 
-    pub fn set_t(&mut self, t: f32) {
+    pub fn set_t(&mut self, t: f64) {
         self.0.t = t;
-        let (a1, a2, b0, b1, b2) = lphpf(44_100., self.0.cutoff, self.0.q, t);
-        self.0.lphp.a1 = a1;
-        self.0.lphp.a2 = a2;
-        self.0.lphp.b0 = b0;
+        let (b1, b2, a0, a1, a2) = lphpf(44_100., self.0.cutoff, self.0.q, t);
         self.0.lphp.b1 = b1;
         self.0.lphp.b2 = b2;
+        self.0.lphp.a0 = a0;
+        self.0.lphp.a1 = a1;
+        self.0.lphp.a2 = a2;
     }
 
     pub fn set_attack(&mut self, attack: f32) {

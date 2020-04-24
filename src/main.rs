@@ -22,8 +22,8 @@ struct Model {
     carrier_hz: Hz,
     mod_idx: Phase,
     cutoff: Hz,
-    q: f32,
-    t: f32,
+    q: f64,
+    t: f64,
     attack: Amp,
     decay: Amp,
     sustain_time: Amp,
@@ -271,11 +271,12 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.q, 0.1, 2.)
+    for value in slider(model.q as f32, 0.1, 2.)
         .down(20.)
         .label("Filter Q")
         .set(model.ids.q, ui)
     {
+        let value = value as f64;
         model.q = value;
         model
             .stream
@@ -285,11 +286,12 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.t, 0.0, 1.)
+    for value in slider(model.t as f32, 0.0, 1.)
         .down(20.)
         .label("Filter Knob")
         .set(model.ids.t, ui)
     {
+        let value = value as f64;
         model.t = value;
         model
             .stream

@@ -1,15 +1,16 @@
 use super::dsp::*;
+use std::f64::consts::PI;
 
 pub struct BiquadFilter<W>
 where
     W: Signal + Send,
 {
     pub wave: ArcMutex<W>,
-    pub a1: f32,
-    pub a2: f32,
-    pub b0: f32,
-    pub b1: f32,
-    pub b2: f32,
+    pub b1: f64,
+    pub b2: f64,
+    pub a0: f64,
+    pub a1: f64,
+    pub a2: f64,
     x1: f32,
     x2: f32,
     y1: f32,
@@ -17,108 +18,72 @@ where
     pub off: bool,
 }
 
-pub fn lpf(sample_rate: f64, cutoff: Hz, q: f32) -> (f32, f32, f32, f32, f32) {
-    let cutoff = cutoff as f32;
-    let sample_rate = sample_rate as f32;
-    let w0 = TAU32 * cutoff / sample_rate;
-    let alpha = w0.sin() / (2.0 * q);
-    let b0 = 0.5 * (1.0 - w0.cos());
-    let b1 = 2.0 * b0;
-    let b2 = b0;
-    let a0 = 1.0 + alpha;
-    let a1 = -2.0 * w0.cos();
-    let a2 = 1.0 - alpha;
-    (a1 / a0, a2 / a0, b0 / a0, b1 / a0, b2 / a0)
-}
-pub fn hpf(sample_rate: f64, cutoff: Hz, q: f32) -> (f32, f32, f32, f32, f32) {
-    let cutoff = cutoff as f32;
-    let sample_rate = sample_rate as f32;
-    let w0 = TAU32 * cutoff / sample_rate;
-    let alpha = w0.sin() / (2.0 * q);
-    let b0 = 0.5 * (1.0 + w0.cos());
-    let b1 = -2.0 * b0;
-    let b2 = b0;
-    let a0 = 1.0 + alpha;
-    let a1 = -2.0 * w0.cos();
-    let a2 = 1.0 - alpha;
-    (a1 / a0, a2 / a0, b0 / a0, b1 / a0, b2 / a0)
+// See "Audio Processes, Musical Analysis, Modification, Synthesis, and Control"
+// by David Creasy, 2017. pages 164-183.
+pub fn lpf(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
+    let phi = TAU64 * fc / sample_rate;
+    let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
+    let b1 = -(1.0 + b2) * phi.cos();
+    let a0 = 0.25 * (1.0 + b1 + b2);
+    let a1 = 2.0 * a0;
+    let a2 = a0;
+    (b1, b2, a0, a1, a2)
 }
 
-pub fn lphpf(sample_rate: f64, cutoff: Hz, q: f32, t: f32) -> (f32, f32, f32, f32, f32) {
-    let (a1, a2, b0l, b1l, b2l) = lpf(sample_rate, cutoff, q);
-    let (_,  _,  b0h, b1h, b2h) = hpf(sample_rate, cutoff, q);
-    (a1, a2, t * b0l + (1.-t) * b0h, t * b1l + (1.-t) * b1h, t * b2l + (1.-t) * b2h)
+pub fn hpf(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
+    let phi = TAU64 * fc / sample_rate;
+    let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
+    let b1 = -(1.0 + b2) * phi.cos();
+    let a0 = 0.25 * (1.0 - b1 + b2);
+    let a1 = -2.0 * a0;
+    let a2 = a0;
+    (b1, b2, a0, a1, a2)
 }
 
-pub fn bpf(sample_rate: f64, cutoff: Hz, q: f32) -> (f32, f32, f32, f32, f32) {
-    let cutoff = cutoff as f32;
-    let sample_rate = sample_rate as f32;
-    let w0 = TAU32 * cutoff / sample_rate;
-    let alpha = w0.sin() / (2.0 * q);
-    let b0 = q * alpha;
-    let b1 = 0.0;
-    let b2 = -b0;
-    let a0 = 1.0 + alpha;
-    let a1 = -2.0 * w0.cos();
-    let a2 = 1.0 - alpha;
-    (a1 / a0, a2 / a0, b0 / a0, b1 / a0, b2 / a0)
+pub fn lphpf(sample_rate: f64, fc: Hz, q: f64, t: f64) -> (f64, f64, f64, f64, f64) {
+    let (b1, b2, a0l, a1l, a2l) = lpf(sample_rate, fc, q);
+    let (_, _, a0h, a1h, a2h) = hpf(sample_rate, fc, q);
+    (
+        b1,
+        b2,
+        t * a0l + (1. - t) * a0h,
+        t * a1l + (1. - t) * a1h,
+        t * a2l + (1. - t) * a2h,
+    )
 }
 
-pub fn notch(sample_rate: f64, cutoff: Hz, q: f32) -> (f32, f32, f32, f32, f32) {
-    let cutoff = cutoff as f32;
-    let sample_rate = sample_rate as f32;
-    let w0 = TAU32 * cutoff / sample_rate;
-    let alpha = w0.sin() / (2.0 * q);
-    let b0 = 1.0;
-    let b1 = -2.0 * w0.cos();
-    let b2 = 1.0;
-    let a0 = 1.0 + alpha;
-    let a1 = -2.0 * w0.cos();
-    let a2 = 1.0 - alpha;
-    (a1 / a0, a2 / a0, b0 / a0, b1 / a0, b2 / a0)
+pub fn bpf(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
+    let phi = TAU64 * fc / sample_rate;
+    let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
+    let b1 = -(1.0 + b2) * phi.cos();
+    let a0 = 0.5 * (1.0 - b2);
+    let a1 = 0.0;
+    let a2 = -a0;
+    (b1, b2, a0, a1, a2)
 }
 
-pub fn apf(sample_rate: f64, cutoff: Hz, q: f32) -> (f32, f32, f32, f32, f32) {
-    let cutoff = cutoff as f32;
-    let sample_rate = sample_rate as f32;
-    let w0 = TAU32 * cutoff / sample_rate;
-    let alpha = w0.sin() / (2.0 * q);
-    let b0 = 1.0 - alpha;
-    let b1 = -2.0 * w0.cos();
-    let b2 = 1.0 + alpha;
-    let a0 = 1.0 + alpha;
-    let a1 = -2.0 * w0.cos();
-    let a2 = 1.0 - alpha;
-    (a1 / a0, a2 / a0, b0 / a0, b1 / a0, b2 / a0)
-}
-
-pub fn peak(sample_rate: f64, cutoff: Hz, q: f32, gain: f32) -> (f32, f32, f32, f32, f32) {
-    let cutoff = cutoff as f32;
-    let sample_rate = sample_rate as f32;
-    let w0 = TAU32 * cutoff / sample_rate;
-    let alpha = w0.sin() / (2.0 * q);
-    let a = ((10.0_f32).powf(gain / 20.0)).sqrt();
-    let b0 = 1.0 - alpha * a;
-    let b1 = -2.0 * w0.cos();
-    let b2 = 1.0 - alpha * a;
-    let a0 = 1.0 + alpha / a;
-    let a1 = -2.0 * w0.cos();
-    let a2 = 1.0 - alpha / a;
-    (a1 / a0, a2 / a0, b0 / a0, b1 / a0, b2 / a0)
+pub fn notch(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
+    let phi = TAU64 * fc / sample_rate;
+    let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
+    let b1 = -(1.0 + b2) * phi.cos();
+    let a0 = 0.5 * (1.0 + b2);
+    let a1 = b1;
+    let a2 = a0;
+    (b1, b2, a0, a1, a2)
 }
 
 impl<W> BiquadFilter<W>
 where
     W: Signal + Send,
 {
-    pub fn new(wave: ArcMutex<W>, a1: f32, a2: f32, b0: f32, b1: f32, b2: f32) -> Self {
+    pub fn new(wave: ArcMutex<W>, b1: f64, b2: f64, a0: f64, a1: f64, a2: f64) -> Self {
         Self {
             wave,
-            a1,
-            a2,
-            b0,
             b1,
             b2,
+            a0,
+            a1,
+            a2,
             x1: 0.0,
             x2: 0.0,
             y1: 0.0,
@@ -129,51 +94,38 @@ where
 
     pub fn wrapped(
         wave: ArcMutex<W>,
-        a1: f32,
-        a2: f32,
-        b0: f32,
-        b1: f32,
-        b2: f32,
+        b1: f64,
+        b2: f64,
+        a0: f64,
+        a1: f64,
+        a2: f64,
     ) -> ArcMutex<Self> {
-        arc(Self::new(wave, a1, a2, b0, b1, b2))
+        arc(Self::new(wave, b1, b2, a0, a1, a2))
     }
 
-    // The following functions are based on:
-    // https://www.w3.org/2011/audio/audio-eq-cookbook.html
-
-    pub fn lpf(wave: ArcMutex<W>, sample_rate: f64, cutoff: Hz, q: f32) -> Self {
-        let (a1, a2, b0, b1, b2) = lpf(sample_rate, cutoff, q);
-        Self::new(wave, a1, a2, b0, b1, b2)
+    pub fn lpf(wave: ArcMutex<W>, sample_rate: f64, fc: Hz, q: f64) -> Self {
+        let (b1, b2, a0, a1, a2) = lpf(sample_rate, fc, q);
+        Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn hpf(wave: ArcMutex<W>, sample_rate: f64, cutoff: Hz, q: f32) -> Self {
-        let (a1, a2, b0, b1, b2) = hpf(sample_rate, cutoff, q);
-        Self::new(wave, a1, a2, b0, b1, b2)
+    pub fn hpf(wave: ArcMutex<W>, sample_rate: f64, fc: Hz, q: f64) -> Self {
+        let (b1, b2, a0, a1, a2) = hpf(sample_rate, fc, q);
+        Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn lphpf(wave: ArcMutex<W>, sample_rate: f64, cutoff: Hz, q: f32, t: f32) -> Self {
-        let (a1, a2, b0, b1, b2) = lphpf(sample_rate, cutoff, q, t);
-        Self::new(wave, a1, a2, b0, b1, b2)
+    pub fn lphpf(wave: ArcMutex<W>, sample_rate: f64, fc: Hz, q: f64, t: f64) -> Self {
+        let (b1, b2, a0, a1, a2) = lphpf(sample_rate, fc, q, t);
+        Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn bpf(wave: ArcMutex<W>, sample_rate: f64, cutoff: Hz, q: f32) -> Self {
-        let (a1, a2, b0, b1, b2) = bpf(sample_rate, cutoff, q);
-        Self::new(wave, a1, a2, b0, b1, b2)
+    pub fn bpf(wave: ArcMutex<W>, sample_rate: f64, fc: Hz, q: f64) -> Self {
+        let (b1, b2, a0, a1, a2) = bpf(sample_rate, fc, q);
+        Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn notch(wave: ArcMutex<W>, sample_rate: f64, cutoff: Hz, q: f32) -> Self {
-        let (a1, a2, b0, b1, b2) = notch(sample_rate, cutoff, q);
-        Self::new(wave, a1, a2, b0, b1, b2)
-    }
-
-    pub fn apf(wave: ArcMutex<W>, sample_rate: f64, cutoff: Hz, q: f32) -> Self {
-        let (a1, a2, b0, b1, b2) = apf(sample_rate, cutoff, q);
-        Self::new(wave, a1, a2, b0, b1, b2)
-    }
-
-    pub fn peak(wave: ArcMutex<W>, sample_rate: f64, cutoff: Hz, q: f32, gain: f32) -> Self {
-        let (a1, a2, b0, b1, b2) = peak(sample_rate, cutoff, q, gain);
-        Self::new(wave, a1, a2, b0, b1, b2)
+    pub fn notch(wave: ArcMutex<W>, sample_rate: f64, fc: Hz, q: f64) -> Self {
+        let (b1, b2, a0, a1, a2) = notch(sample_rate, fc, q);
+        Self::new(wave, b1, b2, a0, a1, a2)
     }
 }
 
@@ -186,9 +138,12 @@ where
         if self.off {
             return x0;
         };
-        let amp = self.b0 * x0 + self.b1 * self.x1 + self.b2 * self.x2
-            - self.a1 * self.y1
-            - self.a2 * self.y2;
+        let a0 = self.a0 as f32;
+        let a1 = self.a1 as f32;
+        let a2 = self.a2 as f32;
+        let b1 = self.b1 as f32;
+        let b2 = self.b2 as f32;
+        let amp = a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x0;
         self.y2 = self.y1;
