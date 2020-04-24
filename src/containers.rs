@@ -30,8 +30,8 @@ where
     W: Signal + Send,
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        self.carrier.lock().unwrap().signal_(sample_rate, add)
-            * self.modulator.lock().unwrap().signal_(sample_rate, add)
+        self.carrier.mtx().signal_(sample_rate, add)
+            * self.modulator.mtx().signal_(sample_rate, add)
     }
 }
 
@@ -74,8 +74,8 @@ where
     W: Signal + Send,
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let m = self.mod_idx * self.modulator.lock().unwrap().signal_(sample_rate, add) as f64;
-        self.carrier.lock().unwrap().signal_(sample_rate, m as f64)
+        let m = self.mod_idx * self.modulator.mtx().signal_(sample_rate, add) as f64;
+        self.carrier.mtx().signal_(sample_rate, m as f64)
     }
 }
 
@@ -151,7 +151,7 @@ where
     W: Signal + Send,
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let amp = self.wave.lock().unwrap().signal_(sample_rate, add) * self.calc_level();
+        let amp = self.wave.mtx().signal_(sample_rate, add) * self.calc_level();
         self.clock += 1. / sample_rate;
         self.level = self.calc_level();
         amp
@@ -233,7 +233,7 @@ where
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         let level = self.adsr();
-        let amp = self.wave.lock().unwrap().signal_(sample_rate, add) * level;
+        let amp = self.wave.mtx().signal_(sample_rate, add) * level;
         self.clock += 1. / sample_rate;
         self.level = level;
         amp

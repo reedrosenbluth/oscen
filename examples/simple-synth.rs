@@ -99,9 +99,9 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.wave1.lock().unwrap().hz *= factor;
-                synth.voice.wave2.lock().unwrap().hz *= factor;
-                synth.voice.wave3.lock().unwrap().hz *= factor;
+                synth.voice.wave1.mtx().hz *= factor;
+                synth.voice.wave2.mtx().hz *= factor;
+                synth.voice.wave3.mtx().hz *= factor;
             })
             .unwrap();
     };

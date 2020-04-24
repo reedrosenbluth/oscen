@@ -51,13 +51,13 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     let sine = SineOsc::wrapped(HZ);
     let square = square_wave(32, HZ);
-    square.lock().unwrap().amplitude = 0.0;
+    square.mtx().amplitude = 0.0;
     let saw = BiquadFilter::lpf(SawOsc::wrapped(HZ), 44100., 110.0, 0.707);
-    saw.wave.lock().unwrap().amplitude = 0.0;
+    saw.wave.mtx().amplitude = 0.0;
     let triangle = TriangleOsc::wrapped(HZ);
-    triangle.lock().unwrap().amplitude = 0.0;
+    triangle.mtx().amplitude = 0.0;
     let carrier = SineOsc::wrapped(HZ);
-    carrier.lock().unwrap().amplitude = 0.0;
+    carrier.mtx().amplitude = 0.0;
     let modulator = SineOsc::wrapped(220.);
     let fm = FMSynth::wrapped(carrier, modulator, 3.0);
 
@@ -108,16 +108,16 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
-    let square_hz = model.squarewave.lock().unwrap().hz;
+    let square_hz = model.squarewave.mtx().hz;
     let change_hz = |i| {
         model
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.wave1.lock().unwrap().hz *= factor;
-                synth.voice.wave2.lock().unwrap().set_hz(factor * square_hz);
-                synth.voice.wave3.lock().unwrap().wave.lock().unwrap().hz *= factor;
-                synth.voice.wave4.lock().unwrap().carrier.lock().unwrap().hz *= factor;
+                synth.voice.wave1.mtx().hz *= factor;
+                synth.voice.wave2.mtx().set_hz(factor * square_hz);
+                synth.voice.wave3.mtx().wave.mtx().hz *= factor;
+                synth.voice.wave4.mtx().carrier.mtx().hz *= factor;
             })
             .unwrap();
     };
@@ -204,8 +204,8 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     model
         .stream
         .send(move |synth| {
-            synth.voice.wave1.lock().unwrap().amplitude = ws[0];
-            synth.voice.wave2.lock().unwrap().amplitude = ws[1];
+            synth.voice.wave1.mtx().amplitude = ws[0];
+            synth.voice.wave2.mtx().amplitude = ws[1];
             synth
                 .voice
                 .wave3

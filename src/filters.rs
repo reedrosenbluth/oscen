@@ -134,7 +134,7 @@ where
     W: Signal + Send,
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let x0 = self.wave.lock().unwrap().signal_(sample_rate, add);
+        let x0 = self.wave.mtx().signal_(sample_rate, add);
         if self.off {
             return x0;
         };

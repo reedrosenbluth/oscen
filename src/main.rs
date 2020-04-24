@@ -90,7 +90,7 @@ fn model(app: &App) -> Model {
     };
     let audio_host = audio::Host::new();
 
-    let mut voice = ShaperSynth::new(440., 8.0, 1.0, 0.2, 0.1, 5.0, 0.85, 0.2, 400., 0.707, 0.5);
+    let voice = ShaperSynth::new(440., 8.0, 1.0, 0.2, 0.1, 5.0, 0.85, 0.2, 400., 0.707, 0.5);
     let synth = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(synth)
@@ -136,28 +136,16 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model.max_amp = 0.;
-    let change_hz = |i| {
-        model
-            .stream
-            .send(move |synth| {
-                let factor = 2.0.powf(i / 12.);
-                // synth.voice.carrier.lock().unwrap().hz *= factor;
-            })
-            .unwrap();
-    };
     match key {
         // Pause or unpause the audio when Space is pressed.
         Key::Space => {
             model
                 .stream
                 .send(move |synth| {
-                    synth.voice.0.lphp.wave.lock().unwrap().on();
+                    synth.voice.0.lphp.wave.mtx().on();
                 })
                 .unwrap();
         }
-        // Raise the frequency when the up key is pressed.
-        Key::Up => change_hz(1.),
-        Key::Down => change_hz(-1.),
         _ => {}
     }
 }

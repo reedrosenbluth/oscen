@@ -34,11 +34,11 @@ impl WaveShaper {
 
     pub fn set_alphas(&mut self) {
         if self.knob <= 0.5 {
-            self.lerp1.lock().unwrap().alpha = 2.0 * self.knob;
-            self.lerp2.lock().unwrap().alpha = 0.0;
+            self.lerp1.mtx().alpha = 2.0 * self.knob;
+            self.lerp2.mtx().alpha = 0.0;
         } else {
-            self.lerp1.lock().unwrap().alpha = 0.0;
-            self.lerp2.lock().unwrap().alpha = 2.0 * (self.knob - 0.5);
+            self.lerp1.mtx().alpha = 0.0;
+            self.lerp2.mtx().alpha = 2.0 * (self.knob - 0.5);
         }
     }
 }
@@ -46,9 +46,9 @@ impl WaveShaper {
 impl Signal for WaveShaper {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         if self.knob <= 0.5 {
-            self.lerp1.lock().unwrap().signal_(sample_rate, add)
+            self.lerp1.mtx().signal_(sample_rate, add)
         } else {
-            self.lerp2.lock().unwrap().signal_(sample_rate, add)
+            self.lerp2.mtx().signal_(sample_rate, add)
         }
     }
 }
@@ -117,140 +117,84 @@ impl ShaperSynth {
     }
 
     pub fn set_knob(&mut self, knob: f32) {
+        self.0.lphp.wave.mtx().wave.mtx().fmsynth.carrier.mtx().knob = knob;
         self.0
             .lphp
             .wave
-            .lock()
-            .unwrap()
+            .mtx()
             .wave
-            .lock()
-            .unwrap()
+            .mtx()
             .fmsynth
             .carrier
-            .lock()
-            .unwrap()
-            .knob = knob;
-        self.0
-            .lphp
-            .wave
-            .lock()
-            .unwrap()
-            .wave
-            .lock()
-            .unwrap()
-            .fmsynth
-            .carrier
-            .lock()
-            .unwrap()
+            .mtx()
             .set_alphas();
     }
 
     pub fn set_ratio(&mut self, ratio: Hz) {
-        self.0
-            .lphp
-            .wave
-            .lock()
-            .unwrap()
-            .wave
-            .lock()
-            .unwrap()
-            .fmsynth
-            .modulator
-            .lock()
-            .unwrap()
-            .hz *= ratio;
+        self.0.lphp.wave.mtx().wave.mtx().fmsynth.modulator.mtx().hz *= ratio;
     }
 
     pub fn set_carrier_hz(&mut self, hz: Hz) {
         self.0
             .lphp
             .wave
-            .lock()
-            .unwrap()
+            .mtx()
             .wave
-            .lock()
-            .unwrap()
+            .mtx()
             .fmsynth
             .carrier
-            .lock()
-            .unwrap()
+            .mtx()
             .lerp1
-            .lock()
-            .unwrap()
+            .mtx()
             .wave1
-            .lock()
-            .unwrap()
+            .mtx()
             .hz = hz;
         self.0
             .lphp
             .wave
-            .lock()
-            .unwrap()
+            .mtx()
             .wave
-            .lock()
-            .unwrap()
+            .mtx()
             .fmsynth
             .carrier
-            .lock()
-            .unwrap()
+            .mtx()
             .lerp1
-            .lock()
-            .unwrap()
+            .mtx()
             .wave2
-            .lock()
-            .unwrap()
+            .mtx()
             .hz = hz;
         self.0
             .lphp
             .wave
-            .lock()
-            .unwrap()
+            .mtx()
             .wave
-            .lock()
-            .unwrap()
+            .mtx()
             .fmsynth
             .carrier
-            .lock()
-            .unwrap()
+            .mtx()
             .lerp2
-            .lock()
-            .unwrap()
+            .mtx()
             .wave1
-            .lock()
-            .unwrap()
+            .mtx()
             .hz = hz;
         self.0
             .lphp
             .wave
-            .lock()
-            .unwrap()
+            .mtx()
             .wave
-            .lock()
-            .unwrap()
+            .mtx()
             .fmsynth
             .carrier
-            .lock()
-            .unwrap()
+            .mtx()
             .lerp2
-            .lock()
-            .unwrap()
+            .mtx()
             .wave2
-            .lock()
-            .unwrap()
+            .mtx()
             .hz = hz;
     }
 
     pub fn set_mod_idx(&mut self, mod_idx: Phase) {
-        self.0
-            .lphp
-            .wave
-            .lock()
-            .unwrap()
-            .wave
-            .lock()
-            .unwrap()
-            .fmsynth
-            .mod_idx = mod_idx;
+        self.0.lphp.wave.mtx().wave.mtx().fmsynth.mod_idx = mod_idx;
     }
 
     pub fn set_cutoff(&mut self, cutoff: Hz) {
@@ -284,23 +228,23 @@ impl ShaperSynth {
     }
 
     pub fn set_attack(&mut self, attack: f32) {
-        self.0.lphp.wave.lock().unwrap().attack = attack;
+        self.0.lphp.wave.mtx().attack = attack;
     }
 
     pub fn set_decay(&mut self, decay: f32) {
-        self.0.lphp.wave.lock().unwrap().decay = decay;
+        self.0.lphp.wave.mtx().decay = decay;
     }
 
     pub fn set_sustain_time(&mut self, sustain_time: f32) {
-        self.0.lphp.wave.lock().unwrap().sustain_time = sustain_time;
+        self.0.lphp.wave.mtx().sustain_time = sustain_time;
     }
 
     pub fn set_sustain_level(&mut self, sustain_level: f32) {
-        self.0.lphp.wave.lock().unwrap().sustain_level = sustain_level;
+        self.0.lphp.wave.mtx().sustain_level = sustain_level;
     }
 
     pub fn set_release(&mut self, release: f32) {
-        self.0.lphp.wave.lock().unwrap().release = release;
+        self.0.lphp.wave.mtx().release = release;
     }
 }
 

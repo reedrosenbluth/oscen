@@ -3,7 +3,7 @@ use rand::distributions::Uniform;
 use rand::prelude::*;
 use std::{
     f64::consts::PI,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 pub const TAU64: f64 = 2.0 * PI;
@@ -23,6 +23,16 @@ pub trait Signal {
 
 pub type ArcWave = Arc<Mutex<dyn Signal + Send>>;
 pub type ArcMutex<T> = Arc<Mutex<T>>;
+
+pub trait Mtx<T> {
+    fn mtx(&self) -> MutexGuard<'_, T>;
+}
+
+impl<T> Mtx<T> for ArcMutex<T> {
+    fn mtx(&self) -> MutexGuard<'_, T> {
+        self.lock().unwrap()
+    }
+}
 
 pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
     Arc::new(Mutex::new(x))

@@ -123,7 +123,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
     model
         .stream
         .send(move |synth| {
-            synth.voice.waves[idx].lock().unwrap().on();
+            synth.voice.waves[idx].mtx().on();
         })
         .unwrap();
 }

@@ -28,8 +28,8 @@ where
     W: Signal + Send,
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let mut wave1 = self.wave1.lock().unwrap();
-        let mut wave2 = self.wave2.lock().unwrap();
+        let mut wave1 = self.wave1.mtx();
+        let mut wave2 = self.wave2.mtx();
         wave1.signal_(sample_rate, add) + wave2.signal_(sample_rate, add)
     }
 }
@@ -67,9 +67,9 @@ where
     W: Signal + Send,
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let mut wave1 = self.wave1.lock().unwrap();
-        let mut wave2 = self.wave2.lock().unwrap();
-        let mut wave3 = self.wave3.lock().unwrap();
+        let mut wave1 = self.wave1.mtx();
+        let mut wave2 = self.wave2.mtx();
+        let mut wave3 = self.wave3.mtx();
         wave1.signal_(sample_rate, add)
             + wave2.signal_(sample_rate, add)
             + wave3.signal_(sample_rate, add)
@@ -118,10 +118,10 @@ where
     W: Signal + Send,
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let mut wave1 = self.wave1.lock().unwrap();
-        let mut wave2 = self.wave2.lock().unwrap();
-        let mut wave3 = self.wave3.lock().unwrap();
-        let mut wave4 = self.wave4.lock().unwrap();
+        let mut wave1 = self.wave1.mtx();
+        let mut wave2 = self.wave2.mtx();
+        let mut wave3 = self.wave3.mtx();
+        let mut wave4 = self.wave4.mtx();
         wave1.signal_(sample_rate, add)
             + wave2.signal_(sample_rate, add)
             + wave3.signal_(sample_rate, add)
@@ -170,8 +170,8 @@ where
     W: Signal + Send,
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let mut wave1 = self.wave1.lock().unwrap();
-        let mut wave2 = self.wave2.lock().unwrap();
+        let mut wave1 = self.wave1.mtx();
+        let mut wave2 = self.wave2.mtx();
         (1. - self.alpha) * wave1.signal_(sample_rate, add)
             + self.alpha * wave2.signal_(sample_rate, add)
     }
@@ -208,7 +208,7 @@ where
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         self.volume
             * self.waves.iter().fold(0.0, |acc, x| {
-                acc + x.lock().unwrap().signal_(sample_rate, add)
+                acc + x.mtx().signal_(sample_rate, add)
             })
     }
 }
@@ -248,9 +248,9 @@ where
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         match self.playing {
-            0 => self.wave1.lock().unwrap().signal_(sample_rate, add),
-            1 => self.wave2.lock().unwrap().signal_(sample_rate, add),
-            _ => self.wave1.lock().unwrap().signal_(sample_rate, add),
+            0 => self.wave1.mtx().signal_(sample_rate, add),
+            1 => self.wave2.mtx().signal_(sample_rate, add),
+            _ => self.wave1.mtx().signal_(sample_rate, add),
         }
     }
 }
@@ -295,10 +295,10 @@ where
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         match self.playing {
-            0 => self.wave1.lock().unwrap().signal_(sample_rate, add),
-            1 => self.wave2.lock().unwrap().signal_(sample_rate, add),
-            2 => self.wave3.lock().unwrap().signal_(sample_rate, add),
-            _ => self.wave1.lock().unwrap().signal_(sample_rate, add),
+            0 => self.wave1.mtx().signal_(sample_rate, add),
+            1 => self.wave2.mtx().signal_(sample_rate, add),
+            2 => self.wave3.mtx().signal_(sample_rate, add),
+            _ => self.wave1.mtx().signal_(sample_rate, add),
         }
     }
 }
@@ -358,11 +358,11 @@ where
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         match self.playing {
-            0 => self.wave1.lock().unwrap().signal_(sample_rate, add),
-            1 => self.wave2.lock().unwrap().signal_(sample_rate, add),
-            2 => self.wave3.lock().unwrap().signal_(sample_rate, add),
-            3 => self.wave4.lock().unwrap().signal_(sample_rate, add),
-            _ => self.wave1.lock().unwrap().signal_(sample_rate, add),
+            0 => self.wave1.mtx().signal_(sample_rate, add),
+            1 => self.wave2.mtx().signal_(sample_rate, add),
+            2 => self.wave3.mtx().signal_(sample_rate, add),
+            3 => self.wave4.mtx().signal_(sample_rate, add),
+            _ => self.wave1.mtx().signal_(sample_rate, add),
         }
     }
 }
