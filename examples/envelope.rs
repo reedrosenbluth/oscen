@@ -149,7 +149,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     model.amps = clone;
 }
 
-
 fn view(app: &App, model: &Model, frame: Frame) {
     let draw = app.draw();
     let c = rgb(9. / 255., 9. / 255., 44. / 255.);

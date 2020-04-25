@@ -207,9 +207,10 @@ where
 {
     fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
         self.volume
-            * self.waves.iter().fold(0.0, |acc, x| {
-                acc + x.mtx().signal_(sample_rate, add)
-            })
+            * self
+                .waves
+                .iter()
+                .fold(0.0, |acc, x| acc + x.mtx().signal_(sample_rate, add))
     }
 }
 

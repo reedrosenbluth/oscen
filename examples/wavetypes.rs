@@ -8,8 +8,8 @@ use nannou_audio::Buffer;
 
 use swell::collections::*;
 use swell::containers::*;
-use swell::filters::*;
 use swell::dsp::*;
+use swell::filters::*;
 
 use widget::toggle::TimesClicked;
 use widget::Toggle;
@@ -188,7 +188,9 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     for (i, e) in toggles.iter_mut().enumerate() {
         for c in e {
             if c {
-                if i == 2 { model.wave_indices[i] = 16.0}
+                if i == 2 {
+                    model.wave_indices[i] = 16.0
+                }
                 model.wave_indices[i] = 1.
             } else {
                 model.wave_indices[i] = 0.

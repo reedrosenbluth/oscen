@@ -118,16 +118,7 @@ impl ShaperSynth {
 
     pub fn set_knob(&mut self, knob: f32) {
         self.0.lphp.wave.mtx().wave.mtx().fmsynth.carrier.mtx().knob = knob;
-        self.0
-            .lphp
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .fmsynth
-            .carrier
-            .mtx()
-            .set_alphas();
+        self.0.lphp.wave.mtx().wave.mtx().fmsynth.carrier.mtx().set_alphas();
     }
 
     pub fn set_ratio(&mut self, ratio: Hz) {
@@ -135,62 +126,10 @@ impl ShaperSynth {
     }
 
     pub fn set_carrier_hz(&mut self, hz: Hz) {
-        self.0
-            .lphp
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .fmsynth
-            .carrier
-            .mtx()
-            .lerp1
-            .mtx()
-            .wave1
-            .mtx()
-            .hz = hz;
-        self.0
-            .lphp
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .fmsynth
-            .carrier
-            .mtx()
-            .lerp1
-            .mtx()
-            .wave2
-            .mtx()
-            .hz = hz;
-        self.0
-            .lphp
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .fmsynth
-            .carrier
-            .mtx()
-            .lerp2
-            .mtx()
-            .wave1
-            .mtx()
-            .hz = hz;
-        self.0
-            .lphp
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .fmsynth
-            .carrier
-            .mtx()
-            .lerp2
-            .mtx()
-            .wave2
-            .mtx()
-            .hz = hz;
+        self.0.lphp.wave.mtx().wave.mtx().fmsynth.carrier.mtx().lerp1.mtx().wave1.mtx().hz = hz;
+        self.0.lphp.wave.mtx().wave.mtx().fmsynth.carrier.mtx().lerp1.mtx().wave2.mtx().hz = hz;
+        self.0.lphp.wave.mtx().wave.mtx().fmsynth.carrier.mtx().lerp2.mtx().wave1.mtx().hz = hz;
+        self.0.lphp.wave.mtx().wave.mtx().fmsynth.carrier.mtx().lerp2.mtx().wave2.mtx().hz = hz;
     }
 
     pub fn set_mod_idx(&mut self, mod_idx: Phase) {
