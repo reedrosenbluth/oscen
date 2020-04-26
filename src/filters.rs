@@ -133,8 +133,8 @@ impl<W> Signal for BiquadFilter<W>
 where
     W: Signal + Send,
 {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let x0 = self.wave.mtx().signal_(sample_rate, add);
+    fn signal(&mut self, sample_rate: f64) -> Amp {
+        let x0 = self.wave.mtx().signal(sample_rate);
         if self.off {
             return x0;
         };

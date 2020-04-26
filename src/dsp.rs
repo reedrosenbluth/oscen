@@ -14,11 +14,7 @@ pub type Hz = f64;
 pub type Amp = f32;
 
 pub trait Signal {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp;
-
-    fn signal(&mut self, sample_rate: f64) -> Amp {
-        self.signal_(sample_rate, 0.0)
-    }
+    fn signal(&mut self, sample_rate: f64) -> Amp;
 }
 
 pub type ArcWave = Arc<Mutex<dyn Signal + Send>>;
@@ -36,6 +32,11 @@ impl<T> Mtx<T> for ArcMutex<T> {
 
 pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
     Arc::new(Mutex::new(x))
+}
+
+pub trait HasHz {
+    fn hz(&self) -> Hz;
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz);
 }
 
 pub struct WhiteNoise {
@@ -57,7 +58,7 @@ impl WhiteNoise {
 }
 
 impl Signal for WhiteNoise {
-    fn signal_(&mut self, _sample_rate: f64, _add: Phase) -> Amp {
+    fn signal(&mut self, _sample_rate: f64) -> Amp {
         let mut rng = rand::thread_rng();
         self.dist.sample(&mut rng) * self.amplitude
     }
@@ -85,11 +86,21 @@ impl SineOsc {
 }
 
 impl Signal for SineOsc {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal(&mut self, sample_rate: f64) -> Amp {
         let amp = self.amplitude * (TAU32 * self.phase as f32).sin();
-        self.phase += (self.hz + add * self.hz) / sample_rate;
+        self.phase += self.hz / sample_rate;
         self.phase %= sample_rate;
         amp
+    }
+}
+
+impl HasHz for SineOsc {
+    fn hz(&self) -> Hz {
+        self.hz
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.hz = f(self.hz);
     }
 }
 
@@ -115,7 +126,7 @@ impl SquareOsc {
 }
 
 impl Signal for SquareOsc {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal(&mut self, sample_rate: f64) -> Amp {
         let t = self.phase - floor(self.phase, 0);
         let amp = if t < 0.001 {
             0.0
@@ -124,9 +135,19 @@ impl Signal for SquareOsc {
         } else {
             -self.amplitude
         };
-        self.phase += (self.hz + add * self.hz) / sample_rate;
+        self.phase += self.hz / sample_rate;
         self.phase %= sample_rate;
         amp
+    }
+}
+
+impl HasHz for SquareOsc {
+    fn hz(&self) -> Hz {
+        self.hz
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.hz = f(self.hz);
     }
 }
 
@@ -152,7 +173,7 @@ impl SawOsc {
 }
 
 impl Signal for SawOsc {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal(&mut self, sample_rate: f64) -> Amp {
         let t = self.phase - 0.5;
         let s = -t - floor(0.5 - t, 0);
         let amp = if s < -0.499 {
@@ -160,9 +181,19 @@ impl Signal for SawOsc {
         } else {
             self.amplitude * 2. * s as f32
         };
-        self.phase += (self.hz + add * self.hz) / sample_rate;
+        self.phase += self.hz / sample_rate;
         self.phase %= sample_rate;
         amp
+    }
+}
+
+impl HasHz for SawOsc {
+    fn hz(&self) -> Hz {
+        self.hz
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.hz = f(self.hz);
     }
 }
 
@@ -188,13 +219,23 @@ impl TriangleOsc {
 }
 
 impl Signal for TriangleOsc {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal(&mut self, sample_rate: f64) -> Amp {
         let t = self.phase - 0.75;
         let saw_amp = (2. * (-t - floor(0.5 - t, 0))) as f32;
         let amp = (2. * saw_amp.abs() - self.amplitude) * self.amplitude;
-        self.phase += (self.hz + add * self.hz) / sample_rate;
+        self.phase += self.hz / sample_rate;
         self.phase %= sample_rate;
         amp
+    }
+}
+
+impl HasHz for TriangleOsc {
+    fn hz(&self) -> Hz {
+        self.hz
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.hz = f(self.hz);
     }
 }
 
@@ -225,22 +266,28 @@ impl FourierOsc {
     pub fn wrapped(coefficients: &[Amp], hz: Hz) -> ArcMutex<Self> {
         arc(FourierOsc::new(coefficients, hz))
     }
-
-    pub fn set_hz(&mut self, hz: Hz) {
-        self.hz = hz;
-        for n in 0..self.sines.len() {
-            self.sines[n].hz = hz * n as f64;
-        }
-    }
 }
 
 impl Signal for FourierOsc {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal(&mut self, sample_rate: f64) -> Amp {
         self.amplitude
             * self
                 .sines
                 .iter_mut()
-                .fold(0., |acc, x| acc + x.signal_(sample_rate, add))
+                .fold(0., |acc, x| acc + x.signal(sample_rate))
+    }
+}
+
+impl HasHz for FourierOsc {
+    fn hz(&self) -> Hz {
+        self.hz
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.hz = f(self.hz);
+        for n in 0..self.sines.len() {
+            self.sines[n].hz = f(self.sines[n].hz * n as f64);
+        }
     }
 }
 

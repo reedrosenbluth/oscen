@@ -44,12 +44,23 @@ impl WaveShaper {
 }
 
 impl Signal for WaveShaper {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal(&mut self, sample_rate: f64) -> Amp {
         if self.knob <= 0.5 {
-            self.lerp1.mtx().signal_(sample_rate, add)
+            self.lerp1.mtx().signal(sample_rate)
         } else {
-            self.lerp2.mtx().signal_(sample_rate, add)
+            self.lerp2.mtx().signal(sample_rate)
         }
+    }
+}
+
+impl HasHz for WaveShaper {
+    fn hz(&self) -> Hz {
+        0.0
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.lerp1.mtx().modify_hz(f);
+        self.lerp2.mtx().modify_hz(f);
     }
 }
 
@@ -61,7 +72,7 @@ pub struct ShaperOsc {
 impl ShaperOsc {
     pub fn new(carrier_hz: Hz, ratio: Hz, mod_idx: Phase) -> Self {
         let shaper_osc = WaveShaper::wrapped(carrier_hz, 0.10);
-        let sine_osc = SineOsc::wrapped(ratio * carrier_hz);
+        let sine_osc = SineOsc::wrapped(carrier_hz / ratio);
         ShaperOsc {
             fmsynth: FMSynth::new(shaper_osc, sine_osc, mod_idx),
             ratio,
@@ -74,8 +85,8 @@ impl ShaperOsc {
 }
 
 impl Signal for ShaperOsc {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        self.fmsynth.signal_(sample_rate, add)
+    fn signal(&mut self, sample_rate: f64) -> Amp {
+        self.fmsynth.signal(sample_rate)
     }
 }
 
@@ -122,7 +133,8 @@ impl ShaperSynth {
     }
 
     pub fn set_ratio(&mut self, ratio: Hz) {
-        self.0.lphp.wave.mtx().wave.mtx().fmsynth.modulator.mtx().hz *= ratio;
+        let base_hz = self.0.lphp.wave.mtx().wave.mtx().fmsynth.base_hz;
+        self.0.lphp.wave.mtx().wave.mtx().fmsynth.modulator.mtx().hz = base_hz / ratio;
     }
 
     pub fn set_carrier_hz(&mut self, hz: Hz) {
@@ -188,7 +200,7 @@ impl ShaperSynth {
 }
 
 impl Signal for ShaperSynth {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        self.0.lphp.signal_(sample_rate, add)
+    fn signal(&mut self, sample_rate: f64) -> Amp {
+        self.0.lphp.signal(sample_rate)
     }
 }
