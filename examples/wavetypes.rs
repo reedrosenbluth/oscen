@@ -114,10 +114,10 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             .stream
             .send(move |synth| {
                 let factor = 2.0.powf(i / 12.);
-                synth.voice.wave1.mtx().hz *= factor;
+                synth.voice.wave1.mtx().modify_hz(&|hz| hz * factor);
                 synth.voice.wave2.mtx().set_hz(factor * square_hz);
-                synth.voice.wave3.mtx().wave.mtx().hz *= factor;
-                synth.voice.wave4.mtx().carrier.mtx().hz *= factor;
+                synth.voice.wave3.mtx().modify_hz(&|hz| hz * factor);
+                synth.voice.wave4.mtx().modify_hz(&|hz| hz * factor);
             })
             .unwrap();
     };
@@ -208,24 +208,8 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         .send(move |synth| {
             synth.voice.wave1.mtx().amplitude = ws[0];
             synth.voice.wave2.mtx().amplitude = ws[1];
-            synth
-                .voice
-                .wave3
-                .lock()
-                .unwrap()
-                .wave
-                .lock()
-                .unwrap()
-                .amplitude = ws[2];
-            synth
-                .voice
-                .wave4
-                .lock()
-                .unwrap()
-                .carrier
-                .lock()
-                .unwrap()
-                .amplitude = ws[3];
+            synth.voice.wave3.mtx().wave.mtx().amplitude = ws[2];
+            synth.voice.wave4.mtx().carrier.mtx().amplitude = ws[3];
         })
         .unwrap();
 }

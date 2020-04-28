@@ -290,7 +290,7 @@ impl HasHz for FourierOsc {
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
         self.hz = f(self.hz);
         for n in 0..self.sines.len() {
-            self.sines[n].hz = f(self.sines[n].hz * n as f64);
+            self.sines[n].set_hz(self.hz * n as f64);
         }
     }
 }
