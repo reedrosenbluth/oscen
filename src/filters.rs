@@ -151,3 +151,16 @@ where
         amp
     }
 }
+
+impl<W> HasHz for BiquadFilter<W>
+where
+    W: Signal + HasHz + Send,
+{
+    fn hz(&self) -> Hz {
+        self.wave.mtx().hz()
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.wave.mtx().modify_hz(f)
+    }
+}

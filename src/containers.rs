@@ -3,7 +3,7 @@ use super::dsp::*;
 /// Ring Modulation
 pub struct RMSynth<V, W>
 where
-    V: Signal + HasHz + Send,
+    V: Signal + Send,
     W: Signal + Send,
 {
     pub carrier: ArcMutex<V>,
@@ -12,7 +12,7 @@ where
 
 impl<V, W> RMSynth<V, W>
 where
-    V: Signal + HasHz + Send,
+    V: Signal + Send,
     W: Signal + Send,
 {
     pub fn new(carrier: ArcMutex<V>, modulator: ArcMutex<W>) -> Self {
@@ -26,7 +26,7 @@ where
 
 impl<V, W> Signal for RMSynth<V, W>
 where
-    V: Signal + HasHz + Send,
+    V: Signal + Send,
     W: Signal + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
@@ -48,7 +48,6 @@ where
     }
 }
 
-/// Frequency Modulated Oscillator ala Yamaha DX7. Technically phase modulation.
 pub struct FMSynth<V, W>
 where
     V: Signal + HasHz + Send,
@@ -66,6 +65,7 @@ where
     W: Signal + Send,
 {
     pub fn new(carrier: ArcMutex<V>, modulator: ArcMutex<W>, mod_idx: Phase) -> Self {
+        // set the base frequencey to the carrier frequency
         let base_hz = carrier.mtx().hz();
         Self {
             carrier,
@@ -88,7 +88,7 @@ where
     fn signal(&mut self, sample_rate: f64) -> Amp {
         let mod_hz = self.modulator.mtx().hz();
         let m = self.mod_idx * mod_hz * self.modulator.mtx().signal(sample_rate) as f64;
-        self.carrier.mtx().modify_hz(&(|_| self.base_hz + m));
+        self.carrier.mtx().set_hz(self.base_hz + m);
         self.carrier.mtx().signal(sample_rate)
     }
 }
@@ -110,7 +110,7 @@ where
 
 pub struct SustainSynth<W>
 where
-    W: Signal + HasHz + Send,
+    W: Signal + Send,
 {
     pub wave: ArcMutex<W>,
     pub attack: f32,
