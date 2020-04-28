@@ -133,8 +133,8 @@ impl<W> Signal for BiquadFilter<W>
 where
     W: Signal + Send,
 {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let x0 = self.wave.mtx().signal_(sample_rate, add);
+    fn signal(&mut self, sample_rate: f64) -> Amp {
+        let x0 = self.wave.mtx().signal(sample_rate);
         if self.off {
             return x0;
         };
@@ -149,5 +149,18 @@ where
         self.y2 = self.y1;
         self.y1 = amp;
         amp
+    }
+}
+
+impl<W> HasHz for BiquadFilter<W>
+where
+    W: Signal + HasHz + Send,
+{
+    fn hz(&self) -> Hz {
+        self.wave.mtx().hz()
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.wave.mtx().modify_hz(f)
     }
 }

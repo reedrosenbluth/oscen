@@ -29,53 +29,82 @@ where
     V: Signal + Send,
     W: Signal + Send,
 {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        self.carrier.mtx().signal_(sample_rate, add)
-            * self.modulator.mtx().signal_(sample_rate, add)
+    fn signal(&mut self, sample_rate: f64) -> Amp {
+        self.carrier.mtx().signal(sample_rate) * self.modulator.mtx().signal(sample_rate)
     }
 }
 
-/// Frequency Modulated Oscillator ala Yamaha DX7. Technically phase modulation.
+impl<V, W> HasHz for RMSynth<V, W>
+where
+    V: Signal + HasHz + Send,
+    W: Signal + Send,
+{
+    fn hz(&self) -> Hz {
+        self.carrier.mtx().hz()
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.carrier.mtx().modify_hz(f)
+    }
+}
+
 pub struct FMSynth<V, W>
 where
-    V: Signal + Send,
+    V: Signal + HasHz + Send,
     W: Signal + Send,
 {
     pub carrier: ArcMutex<V>,
     pub modulator: ArcMutex<W>,
+    pub base_hz: Hz,
     pub mod_idx: Phase,
 }
 
 impl<V, W> FMSynth<V, W>
 where
-    V: Signal + Send,
+    V: Signal + HasHz + Send,
     W: Signal + Send,
 {
     pub fn new(carrier: ArcMutex<V>, modulator: ArcMutex<W>, mod_idx: Phase) -> Self {
+        // set the base frequencey to the carrier frequency
+        let base_hz = carrier.mtx().hz();
         Self {
             carrier,
             modulator,
+            base_hz,
             mod_idx,
         }
     }
 
     pub fn wrapped(carrier: ArcMutex<V>, modulator: ArcMutex<W>, mod_idx: Phase) -> ArcMutex<Self> {
-        arc(FMSynth {
-            carrier,
-            modulator,
-            mod_idx,
-        })
+        arc(FMSynth::new(carrier, modulator, mod_idx))
     }
 }
 
 impl<V, W> Signal for FMSynth<V, W>
 where
-    V: Signal + Send,
+    V: Signal + HasHz + Send,
+    W: Signal + HasHz + Send,
+{
+    fn signal(&mut self, sample_rate: f64) -> Amp {
+        let mod_hz = self.modulator.mtx().hz();
+        let m = self.mod_idx * mod_hz * self.modulator.mtx().signal(sample_rate) as f64;
+        self.carrier.mtx().set_hz(self.base_hz + m);
+        self.carrier.mtx().signal(sample_rate)
+    }
+}
+
+impl<V, W> HasHz for FMSynth<V, W>
+where
+    V: Signal + HasHz + Send,
     W: Signal + Send,
 {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let m = self.mod_idx * self.modulator.mtx().signal_(sample_rate, add) as f64;
-        self.carrier.mtx().signal_(sample_rate, m as f64)
+    fn hz(&self) -> Hz {
+        self.carrier.mtx().hz()
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        let hz = f(self.base_hz);
+        self.base_hz = hz;
     }
 }
 
@@ -95,7 +124,7 @@ where
 
 impl<W> SustainSynth<W>
 where
-    W: Signal + Send,
+    W: Signal + HasHz + Send,
 {
     pub fn new(
         wave: ArcMutex<W>,
@@ -148,13 +177,26 @@ where
 
 impl<W> Signal for SustainSynth<W>
 where
-    W: Signal + Send,
+    W: Signal + HasHz + Send,
 {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
-        let amp = self.wave.mtx().signal_(sample_rate, add) * self.calc_level();
+    fn signal(&mut self, sample_rate: f64) -> Amp {
+        let amp = self.wave.mtx().signal(sample_rate) * self.calc_level();
         self.clock += 1. / sample_rate;
         self.level = self.calc_level();
         amp
+    }
+}
+
+impl<W> HasHz for SustainSynth<W>
+where
+    W: Signal + HasHz + Send,
+{
+    fn hz(&self) -> Hz {
+        self.wave.mtx().hz()
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.wave.mtx().modify_hz(f)
     }
 }
 
@@ -231,11 +273,24 @@ impl<W> Signal for TriggerSynth<W>
 where
     W: Signal + Send,
 {
-    fn signal_(&mut self, sample_rate: f64, add: Phase) -> Amp {
+    fn signal(&mut self, sample_rate: f64) -> Amp {
         let level = self.adsr();
-        let amp = self.wave.mtx().signal_(sample_rate, add) * level;
+        let amp = self.wave.mtx().signal(sample_rate) * level;
         self.clock += 1. / sample_rate;
         self.level = level;
         amp
+    }
+}
+
+impl<W> HasHz for TriggerSynth<W>
+where
+    W: Signal + HasHz + Send,
+{
+    fn hz(&self) -> Hz {
+        self.wave.mtx().hz()
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.wave.mtx().modify_hz(f)
     }
 }
