@@ -138,10 +138,7 @@ impl ShaperSynth {
     }
 
     pub fn set_carrier_hz(&mut self, hz: Hz) {
-        self.0.lphp.wave.mtx().wave.mtx().fmsynth.carrier.mtx().lerp1.mtx().wave1.mtx().hz = hz;
-        self.0.lphp.wave.mtx().wave.mtx().fmsynth.carrier.mtx().lerp1.mtx().wave2.mtx().hz = hz;
-        self.0.lphp.wave.mtx().wave.mtx().fmsynth.carrier.mtx().lerp2.mtx().wave1.mtx().hz = hz;
-        self.0.lphp.wave.mtx().wave.mtx().fmsynth.carrier.mtx().lerp2.mtx().wave2.mtx().hz = hz;
+        self.0.lphp.wave.mtx().wave.mtx().fmsynth.set_hz(hz)
     }
 
     pub fn set_mod_idx(&mut self, mod_idx: Phase) {

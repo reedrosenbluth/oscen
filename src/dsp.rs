@@ -37,6 +37,9 @@ pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
 pub trait HasHz {
     fn hz(&self) -> Hz;
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz);
+    fn set_hz(&mut self, hz: Hz) {
+        self.modify_hz(&|_| hz);
+    }
 }
 
 pub struct WhiteNoise {
