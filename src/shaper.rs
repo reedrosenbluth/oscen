@@ -96,7 +96,9 @@ impl HasHz for ShaperOsc {
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) { 
+        let freq = f(self.fmsynth.hz());
         self.fmsynth.modify_hz(f);
+        self.fmsynth.modulator.mtx().hz = freq * self.ratio;
     }
 }
 

@@ -22,7 +22,6 @@ struct Model {
     ids: Ids,
     knob: Amp,
     ratio: Hz,
-    carrier_hz: Hz,
     mod_idx: Phase,
     cutoff: Hz,
     q: f64,
@@ -41,7 +40,6 @@ struct Model {
 struct Ids {
     knob: widget::Id,
     ratio: widget::Id,
-    carrier_hz: widget::Id,
     mod_idx: widget::Id,
     cutoff: widget::Id,
     q: widget::Id,
@@ -125,7 +123,7 @@ fn model(app: &App) -> Model {
 
     let _window = app
         .new_window()
-        .size(900, 620)
+        .size(900, 520)
         .key_pressed(key_pressed)
         .view(view)
         .build()
@@ -136,7 +134,6 @@ fn model(app: &App) -> Model {
     let ids = Ids {
         knob: ui.generate_widget_id(),
         ratio: ui.generate_widget_id(),
-        carrier_hz: ui.generate_widget_id(),
         mod_idx: ui.generate_widget_id(),
         cutoff: ui.generate_widget_id(),
         q: ui.generate_widget_id(),
@@ -164,7 +161,6 @@ fn model(app: &App) -> Model {
         ids,
         knob: 0.5,
         ratio: 1.0,
-        carrier_hz: 440.,
         mod_idx: 0.0,
         cutoff: 0.0,
         q: 0.707,
@@ -261,17 +257,10 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     //UI
     let ui = &mut model.ui.set_widgets();
 
-    // fn slider_template<T>(val: T, min: T, max: T) -> widget::Slider<'static, T> {
-    //     widget::Slider::new(val, min, max)
-    //         .w_h(200.0, 30.0)
-    //         .label_font_size(15)
-    //         .rgb(0.1, 0.2, 0.5)
-    //         .label_rgb(1.0, 1.0, 1.0)
-    //         .border(0.0)
-
-    // }
-
-    fn slider(val: f32, min: f32, max: f32) -> widget::Slider<'static, f32> {
+    fn slider<T>(val: T, min: T, max: T) -> widget::Slider<'static, T>
+    where
+        T: Float,
+    {
         widget::Slider::new(val, min, max)
             .w_h(200.0, 30.0)
             .label_font_size(15)
@@ -280,7 +269,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .border(0.0)
     }
 
-    for value in slider(model.knob as f32, 0., 1.)
+    for value in slider(model.knob, 0., 1.)
         .top_left_with_margin(20.0)
         .label(format!("Wave Knob: {:.2}", model.knob).as_str())
         .set(model.ids.knob, ui)
@@ -292,12 +281,12 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.ratio as f32, 0.5, 16.)
+    for value in slider(model.ratio, 1.0, 16.)
         .down(20.)
         .label(format!("Ratio: {:.2}", model.ratio).as_str())
         .set(model.ids.ratio, ui)
     {
-        let value = value as f64;
+        let value = math::round::half_up(value, 0);
         model.ratio = value;
         model
             .stream
@@ -307,27 +296,11 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.carrier_hz as f32, 55., 440. * 3.0)
-        .down(20.)
-        .label(format!("Frequency: {:.1}", model.carrier_hz).as_str())
-        .set(model.ids.carrier_hz, ui)
-    {
-        let value = value as f64;
-        model.carrier_hz = value;
-        model
-            .stream
-            .send(move |synth| {
-                synth.voice.set_carrier_hz(value);
-            })
-            .unwrap();
-    }
-
-    for value in slider(model.mod_idx as f32, 0.0, 16.)
+    for value in slider(model.mod_idx, 0.0, 16.)
         .down(20.)
         .label(format!("Modulation Index: {:.2}", model.mod_idx).as_str())
         .set(model.ids.mod_idx, ui)
     {
-        let value = value as f64;
         model.mod_idx = value;
         model
             .stream
@@ -337,12 +310,11 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.cutoff as f32, 0.0, 2400.0)
+    for value in slider(model.cutoff, 0.0, 2400.0)
         .down(20.)
         .label(format!("Filter Cutoff: {:.1}", model.cutoff).as_str())
         .set(model.ids.cutoff, ui)
     {
-        let value = value as f64;
         model.cutoff = value;
         model
             .stream
@@ -357,12 +329,11 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.q as f32, 0.7071, 10.0)
+    for value in slider(model.q, 0.7071, 10.0)
         .down(20.)
         .label(format!("Filter Q: {:.3}", model.q).as_str())
         .set(model.ids.q, ui)
     {
-        let value = value as f64;
         model.q = value;
         model
             .stream
@@ -415,7 +386,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.sustain_level, 0.0, 1.0)
+    for value in slider(model.sustain_level, 0.05, 1.0)
         .down(20.)
         .label(format!("Sustain Level: {:.2}", model.sustain_level).as_str())
         .set(model.ids.sustain_level, ui)
@@ -448,6 +419,9 @@ fn view(app: &App, model: &Model, frame: Frame) {
     let draw = app.draw();
     let c = rgb(9. / 255., 9. / 255., 44. / 255.);
     draw.background().color(c);
+    if frame.nth() == 0 {
+        draw.to_frame(app, &frame).unwrap()
+    }
     let mut shifted: Vec<f32> = vec![];
     let mut iter = model.amps.iter().peekable();
 
