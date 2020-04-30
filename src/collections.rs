@@ -233,7 +233,8 @@ where
     W: Signal + HasHz + Send,
 {
     fn hz(&self) -> Hz {
-        (1.0 - self.alpha as f64) * self.wave1.mtx().hz() + self.alpha as f64 * self.wave2.mtx().hz()
+        (1.0 - self.alpha as f64) * self.wave1.mtx().hz()
+            + self.alpha as f64 * self.wave2.mtx().hz()
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {

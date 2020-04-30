@@ -90,15 +90,25 @@ impl Signal for ShaperOsc {
     }
 }
 
+impl HasHz for ShaperOsc {
+    fn hz(&self) -> Hz {
+        self.fmsynth.hz()
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) { 
+        self.fmsynth.modify_hz(f);
+    }
+}
+
 pub struct Filter {
-    pub lphp: BiquadFilter<TriggerSynth<ShaperOsc>>,
+    pub lphp: BiquadFilter<SustainSynth<ShaperOsc>>,
     pub cutoff: Hz,
     pub q: f64,
     pub t: f64,
 }
 
 impl Filter {
-    pub fn new(lphp: BiquadFilter<TriggerSynth<ShaperOsc>>, cutoff: Hz, q: f64, t: f64) -> Self {
+    pub fn new(lphp: BiquadFilter<SustainSynth<ShaperOsc>>, cutoff: Hz, q: f64, t: f64) -> Self {
         Self { lphp, cutoff, q, t }
     }
 }
@@ -112,7 +122,6 @@ impl ShaperSynth {
         mod_idx: Phase,
         attack: f32,
         decay: f32,
-        sustain_time: f32,
         sustain_level: f32,
         release: f32,
         cutoff: Hz,
@@ -121,7 +130,7 @@ impl ShaperSynth {
     ) -> Self {
         let wave = ShaperOsc::wrapped(carrier_hz, ratio, mod_idx);
         let triggeredwave =
-            TriggerSynth::new(wave, attack, decay, sustain_time, sustain_level, release);
+            SustainSynth::new(wave, attack, decay, sustain_level, release);
         let biquad = BiquadFilter::lphpf(arc(triggeredwave), 44_100., cutoff, q, t);
         let filter = Filter::new(biquad, cutoff, q, t);
         ShaperSynth(filter)
@@ -183,10 +192,6 @@ impl ShaperSynth {
         self.0.lphp.wave.mtx().decay = decay;
     }
 
-    pub fn set_sustain_time(&mut self, sustain_time: f32) {
-        self.0.lphp.wave.mtx().sustain_time = sustain_time;
-    }
-
     pub fn set_sustain_level(&mut self, sustain_level: f32) {
         self.0.lphp.wave.mtx().sustain_level = sustain_level;
     }
@@ -199,5 +204,15 @@ impl ShaperSynth {
 impl Signal for ShaperSynth {
     fn signal(&mut self, sample_rate: f64) -> Amp {
         self.0.lphp.signal(sample_rate)
+    }
+}
+
+impl HasHz for ShaperSynth {
+    fn hz(&self) -> Hz {
+        self.0.lphp.hz()
+    }
+
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) { 
+        self.0.lphp.modify_hz(f);
     }
 }

@@ -1,11 +1,15 @@
 use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
+use midir::{Ignore, MidiInput};
 use nannou::prelude::*;
 use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-
+use pitch_calc::calc::hz_from_step;
+use std::error::Error;
+use std::io::{stdin, stdout, Write};
+use std::thread;
 use swell::dsp::*;
 use swell::shaper::*;
 
@@ -26,11 +30,11 @@ struct Model {
     t: f64,
     attack: Amp,
     decay: Amp,
-    sustain_time: Amp,
     sustain_level: Amp,
     release: Amp,
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
+    midi_receiver: Receiver<Vec<u8>>,
     amps: Vec<f32>,
     max_amp: f32,
 }
@@ -45,9 +49,52 @@ struct Ids {
     t: widget::Id,
     attack: widget::Id,
     decay: widget::Id,
-    sustain_time: widget::Id,
     sustain_level: widget::Id,
     release: widget::Id,
+}
+
+fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
+    let mut input = String::new();
+    
+    let mut midi_in = MidiInput::new("midir reading input")?;
+    midi_in.ignore(Ignore::None);
+    
+    // Get an input port (read from console if multiple are available)
+    let in_ports = midi_in.port_count();
+    let in_port = match in_ports {
+        0 => return Err("no input port found".into()),
+        1 => {
+            println!("Choosing the only available input port: {}", midi_in.port_name(0).unwrap());
+            0
+        },
+        _ => {
+            println!("\nAvailable input ports:");
+            for i in 0..in_ports {
+                println!("{}: {}", i, midi_in.port_name(i).unwrap());
+            }
+            print!("Please select input port: ");
+            stdout().flush()?;
+            let mut input = String::new();
+            stdin().read_line(&mut input)?;
+            input.trim().parse::<usize>()?
+        }
+    };
+    
+    println!("\nOpening connection");
+
+    // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
+    let _conn_in = midi_in.connect(in_port, "midir-read-input", move |_, message, _| {
+        // println!("{}: {:?} (len = {})", stamp, message, message.len());
+        midi_sender.send(message.to_vec()).unwrap();
+    }, ())?;
+    
+    // println!("Connection open, reading input from '{}' (press enter to exit) ...", in_port_name);
+
+    input.clear();
+    stdin().read_line(&mut input)?; // wait for next enter key press
+
+    println!("Closing connection");
+    Ok(())
 }
 
 struct Synth {
@@ -58,6 +105,14 @@ struct Synth {
 
 fn model(app: &App) -> Model {
     let (sender, receiver) = unbounded();
+    let (midi_sender, midi_receiver) = unbounded();
+
+    thread::spawn(|| {
+        match listen_midi(midi_sender) {
+            Ok(_) => (),
+            Err(err) => println!("Error: {}", err)
+        }
+    });
 
     // Create a window to receive key pressed events.
     app.set_loop_mode(LoopMode::Rate {
@@ -84,13 +139,15 @@ fn model(app: &App) -> Model {
         t: ui.generate_widget_id(),
         attack: ui.generate_widget_id(),
         decay: ui.generate_widget_id(),
-        sustain_time: ui.generate_widget_id(),
         sustain_level: ui.generate_widget_id(),
         release: ui.generate_widget_id(),
     };
     let audio_host = audio::Host::new();
 
-    let voice = ShaperSynth::new(440., 8.0, 1.0, 0.2, 0.1, 5.0, 0.85, 0.2, 400., 0.707, 0.5);
+    let mut voice = ShaperSynth::new(440., 1.0, 0.0, 0.2, 0.1, 0.8, 0.2, 0.0, 0.707, 1.0);
+    voice.set_knob(0.5);
+    voice.0.lphp.off = true;
+
     let synth = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(synth)
@@ -102,19 +159,19 @@ fn model(app: &App) -> Model {
         ui,
         ids,
         knob: 0.5,
-        ratio: 8.0,
+        ratio: 1.0,
         carrier_hz: 440.,
-        mod_idx: 1.0,
-        cutoff: 440.,
+        mod_idx: 0.0,
+        cutoff: 0.0,
         q: 0.707,
-        t: 0.0,
+        t: 1.0,
         attack: 0.2,
         decay: 0.1,
-        sustain_time: 5.0,
         sustain_level: 0.8,
         release: 0.2,
         stream,
         receiver,
+        midi_receiver,
         amps: vec![],
         max_amp: 0.,
     }
@@ -151,6 +208,33 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
 }
 
 fn update(_app: &App, model: &mut Model, _update: Update) {
+    let midi_messages: Vec<Vec<u8>> = model.midi_receiver.try_iter().collect();
+    for message in midi_messages {
+        if message.len() == 3 {
+            if message[0] == 144 {
+                model
+                    .stream
+                    .send(move |synth| {
+                        let step = message[1];
+                        let hz = hz_from_step(step as f32);
+                        synth.voice.set_hz(hz as f64);
+                        synth.voice.0.lphp.wave.mtx().on();
+                    })
+                    .unwrap();
+            } else if message[0] == 128 {
+                model
+                    .stream
+                    .send(move |synth| {
+                        let step = message[1];
+                        let hz = hz_from_step(step as f32);
+                        synth.voice.set_hz(hz as f64);
+                        synth.voice.0.lphp.wave.mtx().off();
+                    })
+                    .unwrap();
+            }
+        }
+    }
+
     let amps: Vec<f32> = model.receiver.try_iter().collect();
     let clone = amps.clone();
 
@@ -209,7 +293,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.carrier_hz as f32, 55., 3200.)
+    for value in slider(model.carrier_hz as f32, 55., 440. * 3.0)
         .down(20.)
         .label("Carrier hz")
         .set(model.ids.carrier_hz, ui)
@@ -239,7 +323,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.cutoff as f32, 0., 2400.0)
+    for value in slider(model.cutoff as f32, 0.0, 2400.0)
         .down(20.)
         .label("Filter Cutoff")
         .set(model.ids.cutoff, ui)
@@ -259,7 +343,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.q as f32, 0.1, 2.)
+    for value in slider(model.q as f32, 0.7071, 10.0)
         .down(20.)
         .label("Filter Q")
         .set(model.ids.q, ui)
@@ -274,7 +358,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.t as f32, 0.0, 1.)
+    for value in slider(model.t as f32, 0.0, 1.0)
         .down(20.)
         .label("Filter Knob")
         .set(model.ids.t, ui)
@@ -313,20 +397,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .stream
             .send(move |synth| {
                 synth.voice.set_decay(value);
-            })
-            .unwrap();
-    }
-
-    for value in slider(model.sustain_time, 0.0, 10.0)
-        .down(20.)
-        .label("Sustain Time")
-        .set(model.ids.sustain_time, ui)
-    {
-        model.sustain_time = value;
-        model
-            .stream
-            .send(move |synth| {
-                synth.voice.set_sustain_time(value);
             })
             .unwrap();
     }
