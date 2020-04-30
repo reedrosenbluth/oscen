@@ -170,7 +170,8 @@ where
     }
 
     pub fn off(&mut self) {
-        self.clock = 0.0;
+        self.clock = (self.sustain_level as f64
+            - self.level as f64) * self.release as f64 / self.sustain_level as f64;
         self.triggered = false;
     }
 }
