@@ -14,7 +14,6 @@ use swell::dsp::*;
 use swell::shaper::*;
 
 fn main() {
-    // nannou::app(model).update(update).simple_window(view).run();
     nannou::app(model).update(update).run();
 }
 
@@ -55,18 +54,20 @@ struct Ids {
 
 fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     let mut input = String::new();
-    
     let mut midi_in = MidiInput::new("midir reading input")?;
     midi_in.ignore(Ignore::None);
-    
+
     // Get an input port (read from console if multiple are available)
     let in_ports = midi_in.port_count();
     let in_port = match in_ports {
         0 => return Err("no input port found".into()),
         1 => {
-            println!("Choosing the only available input port: {}", midi_in.port_name(0).unwrap());
+            println!(
+                "Choosing the only available input port: {}",
+                midi_in.port_name(0).unwrap()
+            );
             0
-        },
+        }
         _ => {
             println!("\nAvailable input ports:");
             for i in 0..in_ports {
@@ -79,15 +80,20 @@ fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
             input.trim().parse::<usize>()?
         }
     };
-    
+
     println!("\nOpening connection");
 
     // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
-    let _conn_in = midi_in.connect(in_port, "midir-read-input", move |_, message, _| {
-        // println!("{}: {:?} (len = {})", stamp, message, message.len());
-        midi_sender.send(message.to_vec()).unwrap();
-    }, ())?;
-    
+    let _conn_in = midi_in.connect(
+        in_port,
+        "midir-read-input",
+        move |_, message, _| {
+            // println!("{}: {:?} (len = {})", stamp, message, message.len());
+            midi_sender.send(message.to_vec()).unwrap();
+        },
+        (),
+    )?;
+
     // println!("Connection open, reading input from '{}' (press enter to exit) ...", in_port_name);
 
     input.clear();
@@ -107,11 +113,9 @@ fn model(app: &App) -> Model {
     let (sender, receiver) = unbounded();
     let (midi_sender, midi_receiver) = unbounded();
 
-    thread::spawn(|| {
-        match listen_midi(midi_sender) {
-            Ok(_) => (),
-            Err(err) => println!("Error: {}", err)
-        }
+    thread::spawn(|| match listen_midi(midi_sender) {
+        Ok(_) => (),
+        Err(err) => println!("Error: {}", err),
     });
 
     // Create a window to receive key pressed events.
@@ -257,6 +261,16 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     //UI
     let ui = &mut model.ui.set_widgets();
 
+    // fn slider_template<T>(val: T, min: T, max: T) -> widget::Slider<'static, T> {
+    //     widget::Slider::new(val, min, max)
+    //         .w_h(200.0, 30.0)
+    //         .label_font_size(15)
+    //         .rgb(0.1, 0.2, 0.5)
+    //         .label_rgb(1.0, 1.0, 1.0)
+    //         .border(0.0)
+
+    // }
+
     fn slider(val: f32, min: f32, max: f32) -> widget::Slider<'static, f32> {
         widget::Slider::new(val, min, max)
             .w_h(200.0, 30.0)
@@ -268,7 +282,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.knob as f32, 0., 1.)
         .top_left_with_margin(20.0)
-        .label("Wave Knob")
+        .label(format!("Wave Knob: {:.2}", model.knob).as_str())
         .set(model.ids.knob, ui)
     {
         model.knob = value;
@@ -280,7 +294,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.ratio as f32, 0.5, 16.)
         .down(20.)
-        .label("Ratio")
+        .label(format!("Ratio: {:.2}", model.ratio).as_str())
         .set(model.ids.ratio, ui)
     {
         let value = value as f64;
@@ -295,7 +309,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.carrier_hz as f32, 55., 440. * 3.0)
         .down(20.)
-        .label("Carrier hz")
+        .label(format!("Frequency: {:.1}", model.carrier_hz).as_str())
         .set(model.ids.carrier_hz, ui)
     {
         let value = value as f64;
@@ -310,7 +324,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.mod_idx as f32, 0.0, 16.)
         .down(20.)
-        .label("Modulation Index")
+        .label(format!("Modulation Index: {:.2}", model.mod_idx).as_str())
         .set(model.ids.mod_idx, ui)
     {
         let value = value as f64;
@@ -325,7 +339,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.cutoff as f32, 0.0, 2400.0)
         .down(20.)
-        .label("Filter Cutoff")
+        .label(format!("Filter Cutoff: {:.1}", model.cutoff).as_str())
         .set(model.ids.cutoff, ui)
     {
         let value = value as f64;
@@ -345,7 +359,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.q as f32, 0.7071, 10.0)
         .down(20.)
-        .label("Filter Q")
+        .label(format!("Filter Q: {:.3}", model.q).as_str())
         .set(model.ids.q, ui)
     {
         let value = value as f64;
@@ -360,7 +374,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.t as f32, 0.0, 1.0)
         .down(20.)
-        .label("Filter Knob")
+        .label(format!("Filter Knob: {:.2}", model.t).as_str())
         .set(model.ids.t, ui)
     {
         let value = value as f64;
@@ -375,7 +389,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.attack, 0.0, 1.0)
         .down(20.)
-        .label("Attack")
+        .label(format!("Attack: {:.2}", model.attack).as_str())
         .set(model.ids.attack, ui)
     {
         model.attack = value;
@@ -389,7 +403,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.decay, 0.0, 1.0)
         .down(20.)
-        .label("Decay")
+        .label(format!("Decay: {:.2}", model.decay).as_str())
         .set(model.ids.decay, ui)
     {
         model.decay = value;
@@ -403,7 +417,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.sustain_level, 0.0, 1.0)
         .down(20.)
-        .label("Sustain Level")
+        .label(format!("Sustain Level: {:.2}", model.sustain_level).as_str())
         .set(model.ids.sustain_level, ui)
     {
         model.sustain_level = value;
@@ -417,7 +431,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.release, 0.0, 1.0)
         .down(20.)
-        .label("Release")
+        .label(format!("Release: {:.2}", model.release).as_str())
         .set(model.ids.release, ui)
     {
         model.release = value;
