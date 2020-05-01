@@ -113,6 +113,7 @@ pub struct SquareOsc {
     pub hz: Hz,
     pub amplitude: Amp,
     pub phase: Phase,
+    pub duty_cycle: f64,
 }
 
 impl SquareOsc {
@@ -121,11 +122,16 @@ impl SquareOsc {
             hz,
             amplitude: 1.0,
             phase: 0.0,
+            duty_cycle: 0.5,
         }
     }
 
     pub fn wrapped(hz: Hz) -> ArcMutex<Self> {
         arc(Self::new(hz))
+    }
+
+    pub fn set_duty_cycle(&mut self, duty: f64) {
+        self.duty_cycle = duty;
     }
 }
 
@@ -134,7 +140,7 @@ impl Signal for SquareOsc {
         let t = self.phase - floor(self.phase, 0);
         let amp = if t < 0.001 {
             0.0
-        } else if t <= 0.5 {
+        } else if t <= self.duty_cycle {
             self.amplitude
         } else {
             -self.amplitude

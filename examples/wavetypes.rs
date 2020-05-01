@@ -50,6 +50,7 @@ fn model(app: &App) -> Model {
         .unwrap();
     let audio_host = audio::Host::new();
     let sine = SquareOsc::wrapped(HZ);
+    sine.mtx().set_duty_cycle(0.2);
     let square = square_wave(32, HZ);
     square.mtx().amplitude = 0.0;
     let saw = BiquadFilter::lpf(SawOsc::wrapped(HZ), 44100., 110.0, 0.707);
