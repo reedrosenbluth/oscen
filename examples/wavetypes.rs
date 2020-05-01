@@ -30,7 +30,7 @@ struct Model {
 }
 
 struct Synth {
-    voice: Synth4<SineOsc, FourierOsc, BiquadFilter<SawOsc>, FMSynth<SineOsc, SineOsc>>,
+    voice: Synth4<SquareOsc, FourierOsc, BiquadFilter<SawOsc>, FMSynth<SineOsc, SineOsc>>,
     sender: Sender<f32>,
 }
 
@@ -49,7 +49,7 @@ fn model(app: &App) -> Model {
         .build()
         .unwrap();
     let audio_host = audio::Host::new();
-    let sine = SineOsc::wrapped(HZ);
+    let sine = SquareOsc::wrapped(HZ);
     let square = square_wave(32, HZ);
     square.mtx().amplitude = 0.0;
     let saw = BiquadFilter::lpf(SawOsc::wrapped(HZ), 44100., 110.0, 0.707);
@@ -208,8 +208,20 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         .send(move |synth| {
             synth.voice.wave1.mtx().amplitude = ws[0];
             synth.voice.wave2.mtx().amplitude = ws[1];
-            synth.voice.wave3.mtx().wave.mtx().amplitude = ws[2];
-            synth.voice.wave4.mtx().carrier.mtx().amplitude = ws[3];
+            synth
+                .voice
+                .wave3
+                .mtx()
+                .wave
+                .mtx()
+                .amplitude = ws[2];
+            synth
+                .voice
+                .wave4
+                .mtx()
+                .carrier
+                .mtx()
+                .amplitude = ws[3];
         })
         .unwrap();
 }

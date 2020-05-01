@@ -243,7 +243,16 @@ impl HasHz for TriangleOsc {
     }
 }
 
-// pub struct FourierWave(pub PolyWave);
+fn sinc(x: f32) -> f32 {
+    if x == 0.0 {
+        return 1.0;
+    }
+    const PI32: f32 = PI as f32;
+    (PI32 * x).sin() / (PI32 * x)
+}
+
+/// Fourier series approximation for an oscillator. Applies Lanczos Sigma
+/// factor to eliminate ringing due to Gibbs phenomenon.
 pub struct FourierOsc {
     pub hz: Hz,
     pub amplitude: Amp,
@@ -256,7 +265,7 @@ impl FourierOsc {
         let mut wwaves: Vec<SineOsc> = Vec::new();
         for (n, c) in coefficients.iter().enumerate() {
             let mut s = SineOsc::new(hz * n as f64);
-            s.amplitude = *c;
+            s.amplitude = *c * sinc(n as f32 / coefficients.len() as f32);
             wwaves.push(s);
         }
         FourierOsc {
