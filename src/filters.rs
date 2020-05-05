@@ -164,3 +164,98 @@ where
         self.wave.mtx().modify_hz(f)
     }
 }
+
+pub struct Comb<W>
+where
+    W: Signal + Send,
+{
+    pub wave: ArcMutex<W>,
+    buffer: Vec<f32>,
+    index: usize,
+    pub feedback: f64,
+    pub filter_state: f64,
+    pub dampening: f64,
+    pub dampening_inverse: f64,
+}
+
+impl<W> Comb<W>
+where
+    W: Signal + Send,
+{
+    pub fn new(wave: ArcMutex<W>, length: usize) -> Self {
+        Self {
+            wave,
+            buffer: vec![0.0; length],
+            index: 0,
+            feedback: 0.5,
+            filter_state: 0.0,
+            dampening: 0.5,
+            dampening_inverse: 0.5,
+        }
+    }
+
+    pub fn wrapped(wave:ArcMutex<W>, length: usize) -> ArcMutex<Self> {
+        arc(Self::new(wave, length))
+    }
+}
+
+impl<W> Signal for Comb<W>
+where
+    W: Signal + Send,
+{
+    fn signal(&mut self, sample_rate: f64) -> Amp {
+        let input = self.wave.mtx().signal(sample_rate);
+        let output = self.buffer[self.index] as f64;
+        self.filter_state =
+            output * self.dampening_inverse + self.filter_state * self.dampening;
+        self.buffer[self.index] = input + (self.filter_state * self.filter_state) as f32;
+        self.index += 1;
+        if self.index == self.buffer.len() {
+            self.index = 0
+        }
+        output as f32
+    }
+}
+
+pub struct AllPass<W>
+where
+    W: Signal + Send,
+{
+    pub wave: ArcMutex<W>,
+    buffer: Vec<f32>,
+    index: usize,
+}
+
+impl<W> AllPass<W>
+where
+    W: Signal + Send,
+{
+    pub fn new(wave: ArcMutex<W>, length: usize) -> Self {
+        Self {
+            wave,
+            buffer: vec![0.0; length],
+            index: 0,
+        }
+    }
+
+    pub fn wrapped(wave:ArcMutex<W>, length: usize) -> ArcMutex<Self> {
+        arc(Self::new(wave, length))
+    }
+}
+
+impl<W> Signal for AllPass<W>
+where
+    W: Signal + Send,
+{
+    fn signal(&mut self, sample_rate: f64) -> Amp {
+        let input = self.wave.mtx().signal(sample_rate);
+        let delayed = self.buffer[self.index];
+        let output = delayed - input;
+        self.buffer[self.index] = input + (0.5 * delayed) as f32;
+        self.index += 1;
+        if self.index == self.buffer.len() {
+            self.index = 0
+        }
+        output as f32
+    }
+}
