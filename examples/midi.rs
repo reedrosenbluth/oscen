@@ -14,6 +14,7 @@ use pitch_calc::calc::{hz_from_step};
 use swell::dsp::*;
 use swell::shaper::*;
 use swell::containers::*;
+use swell::reverb::*;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -47,7 +48,7 @@ struct Ids {
 }
 
 struct Synth {
-    voice: TriggerSynth<WaveShaper>,
+    voice: TriggerSynth<Freeverb<WaveShaper>>,
     sender: Sender<f32>,
 }
 
@@ -82,7 +83,6 @@ fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
 
     // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
     let _conn_in = midi_in.connect(in_port, "midir-read-input", move |stamp, message, _| {
-        println!("{}: {:?} (len = {})", stamp, message, message.len());
         midi_sender.send(message.to_vec()).unwrap();
     }, ())?;
     
@@ -133,7 +133,8 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
 
     let wave_shaper = WaveShaper::wrapped(440., 0.5);
-    let voice = TriggerSynth::new(wave_shaper, 0.2, 0.1, 5.0, 0.8, 0.2);
+    let free = Freeverb::wrapped(wave_shaper);
+    let voice = TriggerSynth::new(free, 0.2, 0.1, 5.0, 0.8, 0.2);
     let synth = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(synth)
@@ -245,8 +246,8 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-              synth.voice.wave.mtx().knob = value;
-              synth.voice.wave.mtx().set_alphas();
+            //   synth.voice.wave.mtx().knob = value;
+            //   synth.voice.wave.mtx().set_alphas();
             })
             .unwrap();
     }

@@ -208,12 +208,22 @@ where
         let output = self.buffer[self.index] as f64;
         self.filter_state =
             output * self.dampening_inverse + self.filter_state * self.dampening;
-        self.buffer[self.index] = input + (self.filter_state * self.filter_state) as f32;
+        self.buffer[self.index] = input + (self.filter_state * self.feedback) as f32;
         self.index += 1;
         if self.index == self.buffer.len() {
             self.index = 0
         }
         output as f32
+    }
+}
+
+impl<W> HasHz for Comb<W>
+where W: Signal + HasHz + Send, {
+    fn hz(&self) -> Hz {
+        self.wave.mtx().hz()
+    }
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.wave.mtx().modify_hz(f);
     }
 }
 
@@ -257,5 +267,16 @@ where
             self.index = 0
         }
         output as f32
+    }
+}
+
+impl<W> HasHz for AllPass<W>
+where W: Signal + HasHz + Send, {
+    fn hz(&self) -> Hz {
+        self.wave.mtx().hz()
+    }
+    
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.wave.mtx().modify_hz(f)
     }
 }
