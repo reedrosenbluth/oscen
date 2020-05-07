@@ -34,12 +34,33 @@ pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
     Arc::new(Mutex::new(x))
 }
 
+impl<T> Signal for ArcMutex<T>
+where
+    T: Signal,
+{
+    fn signal(&mut self, sample_rate: f64) -> Amp {
+        self.mtx().signal(sample_rate)
+    }
+}
+
 pub trait HasHz {
     fn hz(&self) -> Hz;
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz);
 
     fn set_hz(&mut self, hz: Hz) {
         self.modify_hz(&|_| hz);
+    }
+}
+
+impl<T> HasHz for ArcMutex<T>
+where
+    T: HasHz,
+{
+    fn hz(&self) -> Hz {
+        self.mtx().hz()
+    }
+    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
+        self.mtx().modify_hz(f);
     }
 }
 

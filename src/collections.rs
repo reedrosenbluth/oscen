@@ -29,9 +29,7 @@ where
     W: Signal + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        let mut wave1 = self.wave1.mtx();
-        let mut wave2 = self.wave2.mtx();
-        wave1.signal(sample_rate) + wave2.signal(sample_rate)
+        self.wave1.signal(sample_rate) + self.wave2.signal(sample_rate)
     }
 }
 
@@ -45,8 +43,8 @@ where
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave1.mtx().modify_hz(f);
-        self.wave2.mtx().modify_hz(f);
+        self.wave1.modify_hz(f);
+        self.wave2.modify_hz(f);
     }
 }
 
@@ -83,10 +81,9 @@ where
     W: Signal + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        let mut wave1 = self.wave1.mtx();
-        let mut wave2 = self.wave2.mtx();
-        let mut wave3 = self.wave3.mtx();
-        wave1.signal(sample_rate) + wave2.signal(sample_rate) + wave3.signal(sample_rate)
+        self.wave1.signal(sample_rate)
+            + self.wave2.signal(sample_rate)
+            + self.wave3.signal(sample_rate)
     }
 }
 
@@ -101,9 +98,9 @@ where
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave1.mtx().modify_hz(f);
-        self.wave2.mtx().modify_hz(f);
-        self.wave3.mtx().modify_hz(f);
+        self.wave1.modify_hz(f);
+        self.wave2.modify_hz(f);
+        self.wave3.modify_hz(f);
     }
 }
 
@@ -150,14 +147,10 @@ where
     W: Signal + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        let mut wave1 = self.wave1.mtx();
-        let mut wave2 = self.wave2.mtx();
-        let mut wave3 = self.wave3.mtx();
-        let mut wave4 = self.wave4.mtx();
-        wave1.signal(sample_rate)
-            + wave2.signal(sample_rate)
-            + wave3.signal(sample_rate)
-            + wave4.signal(sample_rate)
+        self.wave1.signal(sample_rate)
+            + self.wave2.signal(sample_rate)
+            + self.wave3.signal(sample_rate)
+            + self.wave4.signal(sample_rate)
     }
 }
 
@@ -173,10 +166,10 @@ where
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave1.mtx().modify_hz(f);
-        self.wave2.mtx().modify_hz(f);
-        self.wave3.mtx().modify_hz(f);
-        self.wave3.mtx().modify_hz(f);
+        self.wave1.modify_hz(f);
+        self.wave2.modify_hz(f);
+        self.wave3.modify_hz(f);
+        self.wave3.modify_hz(f);
     }
 }
 pub struct LerpSynth<V, W>
@@ -221,9 +214,8 @@ where
     W: Signal + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        let mut wave1 = self.wave1.mtx();
-        let mut wave2 = self.wave2.mtx();
-        (1. - self.alpha) * wave1.signal(sample_rate) + self.alpha * wave2.signal(sample_rate)
+        (1. - self.alpha) * self.wave1.signal(sample_rate)
+            + self.alpha * self.wave2.signal(sample_rate)
     }
 }
 
@@ -233,13 +225,13 @@ where
     W: Signal + HasHz + Send,
 {
     fn hz(&self) -> Hz {
-        (1.0 - self.alpha as f64) * self.wave1.mtx().hz()
-            + self.alpha as f64 * self.wave2.mtx().hz()
+        (1.0 - self.alpha as f64) * self.wave1.hz()
+            + self.alpha as f64 * self.wave2.hz()
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave1.mtx().modify_hz(f);
-        self.wave2.mtx().modify_hz(f);
+        self.wave1.modify_hz(f);
+        self.wave2.modify_hz(f);
     }
 }
 pub struct PolySynth<W>
@@ -290,7 +282,7 @@ where
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
         for w in self.waves.iter_mut() {
-            w.mtx().modify_hz(f);
+            w.modify_hz(f);
         }
     }
 }
@@ -330,9 +322,9 @@ where
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
         match self.playing {
-            0 => self.wave1.mtx().signal(sample_rate),
-            1 => self.wave2.mtx().signal(sample_rate),
-            _ => self.wave1.mtx().signal(sample_rate),
+            0 => self.wave1.signal(sample_rate),
+            1 => self.wave2.signal(sample_rate),
+            _ => self.wave1.signal(sample_rate),
         }
     }
 }
@@ -344,17 +336,17 @@ where
 {
     fn hz(&self) -> Hz {
         match self.playing {
-            0 => self.wave1.mtx().hz(),
-            1 => self.wave2.mtx().hz(),
-            _ => self.wave1.mtx().hz(),
+            0 => self.wave1.hz(),
+            1 => self.wave2.hz(),
+            _ => self.wave1.hz(),
         }
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
         match self.playing {
-            0 => self.wave1.mtx().modify_hz(f),
-            1 => self.wave2.mtx().modify_hz(f),
-            _ => self.wave1.mtx().modify_hz(f),
+            0 => self.wave1.modify_hz(f),
+            1 => self.wave2.modify_hz(f),
+            _ => self.wave1.modify_hz(f),
         }
     }
 }
@@ -399,10 +391,10 @@ where
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
         match self.playing {
-            0 => self.wave1.mtx().signal(sample_rate),
-            1 => self.wave2.mtx().signal(sample_rate),
-            2 => self.wave3.mtx().signal(sample_rate),
-            _ => self.wave1.mtx().signal(sample_rate),
+            0 => self.wave1.signal(sample_rate),
+            1 => self.wave2.signal(sample_rate),
+            2 => self.wave3.signal(sample_rate),
+            _ => self.wave1.signal(sample_rate),
         }
     }
 }
@@ -414,19 +406,19 @@ where
 {
     fn hz(&self) -> Hz {
         match self.playing {
-            0 => self.wave1.mtx().hz(),
-            1 => self.wave2.mtx().hz(),
-            2 => self.wave3.mtx().hz(),
-            _ => self.wave1.mtx().hz(),
+            0 => self.wave1.hz(),
+            1 => self.wave2.hz(),
+            2 => self.wave3.hz(),
+            _ => self.wave1.hz(),
         }
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
         match self.playing {
-            0 => self.wave1.mtx().modify_hz(f),
-            1 => self.wave2.mtx().modify_hz(f),
-            2 => self.wave3.mtx().modify_hz(f),
-            _ => self.wave1.mtx().modify_hz(f),
+            0 => self.wave1.modify_hz(f),
+            1 => self.wave2.modify_hz(f),
+            2 => self.wave3.modify_hz(f),
+            _ => self.wave1.modify_hz(f),
         }
     }
 }
@@ -486,11 +478,11 @@ where
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
         match self.playing {
-            0 => self.wave1.mtx().signal(sample_rate),
-            1 => self.wave2.mtx().signal(sample_rate),
-            2 => self.wave3.mtx().signal(sample_rate),
-            3 => self.wave4.mtx().signal(sample_rate),
-            _ => self.wave1.mtx().signal(sample_rate),
+            0 => self.wave1.signal(sample_rate),
+            1 => self.wave2.signal(sample_rate),
+            2 => self.wave3.signal(sample_rate),
+            3 => self.wave4.signal(sample_rate),
+            _ => self.wave1.signal(sample_rate),
         }
     }
 }
@@ -504,21 +496,21 @@ where
 {
     fn hz(&self) -> Hz {
         match self.playing {
-            0 => self.wave1.mtx().hz(),
-            1 => self.wave2.mtx().hz(),
-            2 => self.wave3.mtx().hz(),
-            3 => self.wave4.mtx().hz(),
-            _ => self.wave1.mtx().hz(),
+            0 => self.wave1.hz(),
+            1 => self.wave2.hz(),
+            2 => self.wave3.hz(),
+            3 => self.wave4.hz(),
+            _ => self.wave1.hz(),
         }
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
         match self.playing {
-            0 => self.wave1.mtx().modify_hz(f),
-            1 => self.wave2.mtx().modify_hz(f),
-            2 => self.wave3.mtx().modify_hz(f),
-            3 => self.wave4.mtx().modify_hz(f),
-            _ => self.wave1.mtx().modify_hz(f),
+            0 => self.wave1.modify_hz(f),
+            1 => self.wave2.modify_hz(f),
+            2 => self.wave3.modify_hz(f),
+            3 => self.wave4.modify_hz(f),
+            _ => self.wave1.modify_hz(f),
         }
     }
 }

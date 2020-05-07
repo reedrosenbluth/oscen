@@ -134,7 +134,7 @@ where
     W: Signal + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        let x0 = self.wave.mtx().signal(sample_rate);
+        let x0 = self.wave.signal(sample_rate);
         if self.off {
             return x0;
         };
@@ -157,11 +157,11 @@ where
     W: Signal + HasHz + Send,
 {
     fn hz(&self) -> Hz {
-        self.wave.mtx().hz()
+        self.wave.hz()
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave.mtx().modify_hz(f)
+        self.wave.modify_hz(f)
     }
 }
 
@@ -204,7 +204,7 @@ where
     W: Signal + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        let input = self.wave.mtx().signal(sample_rate);
+        let input = self.wave.signal(sample_rate);
         let output = self.buffer[self.index] as f64;
         self.filter_state =
             output * self.dampening_inverse + self.filter_state * self.dampening;
@@ -220,10 +220,10 @@ where
 impl<W> HasHz for Comb<W>
 where W: Signal + HasHz + Send, {
     fn hz(&self) -> Hz {
-        self.wave.mtx().hz()
+        self.wave.hz()
     }
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave.mtx().modify_hz(f);
+        self.wave.modify_hz(f);
     }
 }
 
@@ -258,7 +258,7 @@ where
     W: Signal + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        let input = self.wave.mtx().signal(sample_rate);
+        let input = self.wave.signal(sample_rate);
         let delayed = self.buffer[self.index];
         let output = delayed - input;
         self.buffer[self.index] = input + (0.5 * delayed) as f32;
@@ -273,10 +273,10 @@ where
 impl<W> HasHz for AllPass<W>
 where W: Signal + HasHz + Send, {
     fn hz(&self) -> Hz {
-        self.wave.mtx().hz()
+        self.wave.hz()
     }
     
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave.mtx().modify_hz(f)
+        self.wave.modify_hz(f)
     }
 }

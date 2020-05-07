@@ -46,9 +46,9 @@ impl WaveShaper {
 impl Signal for WaveShaper {
     fn signal(&mut self, sample_rate: f64) -> Amp {
         if self.knob <= 0.5 {
-            self.lerp1.mtx().signal(sample_rate)
+            self.lerp1.signal(sample_rate)
         } else {
-            self.lerp2.mtx().signal(sample_rate)
+            self.lerp2.signal(sample_rate)
         }
     }
 }
@@ -59,8 +59,8 @@ impl HasHz for WaveShaper {
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.lerp1.mtx().modify_hz(f);
-        self.lerp2.mtx().modify_hz(f);
+        self.lerp1.modify_hz(f);
+        self.lerp2.modify_hz(f);
     }
 }
 
@@ -98,7 +98,7 @@ impl HasHz for ShaperOsc {
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) { 
         let freq = f(self.fmsynth.hz());
         self.fmsynth.modify_hz(f);
-        self.fmsynth.modulator.mtx().hz = freq * self.ratio;
+        self.fmsynth.modulator.set_hz(freq * self.ratio);
     }
 }
 

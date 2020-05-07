@@ -30,7 +30,7 @@ where
     W: Signal + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        self.carrier.mtx().signal(sample_rate) * self.modulator.mtx().signal(sample_rate)
+        self.carrier.signal(sample_rate) * self.modulator.signal(sample_rate)
     }
 }
 
@@ -40,11 +40,11 @@ where
     W: Signal + Send,
 {
     fn hz(&self) -> Hz {
-        self.carrier.mtx().hz()
+        self.carrier.hz()
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.carrier.mtx().modify_hz(f)
+        self.carrier.modify_hz(f)
     }
 }
 
@@ -66,7 +66,7 @@ where
 {
     pub fn new(carrier: ArcMutex<V>, modulator: ArcMutex<W>, mod_idx: Phase) -> Self {
         // set the base frequencey to the carrier frequency
-        let base_hz = carrier.mtx().hz();
+        let base_hz = carrier.hz();
         Self {
             carrier,
             modulator,
@@ -86,10 +86,10 @@ where
     W: Signal + HasHz + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        let mod_hz = self.modulator.mtx().hz();
-        let m = self.mod_idx * mod_hz * self.modulator.mtx().signal(sample_rate) as f64;
-        self.carrier.mtx().set_hz(self.base_hz + m);
-        self.carrier.mtx().signal(sample_rate)
+        let mod_hz = self.modulator.hz();
+        let m = self.mod_idx * mod_hz * self.modulator.signal(sample_rate) as f64;
+        self.carrier.set_hz(self.base_hz + m);
+        self.carrier.signal(sample_rate)
     }
 }
 
@@ -99,7 +99,7 @@ where
     W: Signal + Send,
 {
     fn hz(&self) -> Hz {
-        self.carrier.mtx().hz()
+        self.carrier.hz()
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
@@ -181,7 +181,7 @@ where
     W: Signal + HasHz + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        let amp = self.wave.mtx().signal(sample_rate) * self.calc_level();
+        let amp = self.wave.signal(sample_rate) * self.calc_level();
         self.clock += 1. / sample_rate;
         self.level = self.calc_level();
         amp
@@ -193,11 +193,11 @@ where
     W: Signal + HasHz + Send,
 {
     fn hz(&self) -> Hz {
-        self.wave.mtx().hz()
+        self.wave.hz()
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave.mtx().modify_hz(f)
+        self.wave.modify_hz(f)
     }
 }
 
@@ -276,7 +276,7 @@ where
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
         let level = self.adsr();
-        let amp = self.wave.mtx().signal(sample_rate) * level;
+        let amp = self.wave.signal(sample_rate) * level;
         self.clock += 1. / sample_rate;
         self.level = level;
         amp
@@ -288,10 +288,10 @@ where
     W: Signal + HasHz + Send,
 {
     fn hz(&self) -> Hz {
-        self.wave.mtx().hz()
+        self.wave.hz()
     }
 
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave.mtx().modify_hz(f)
+        self.wave.modify_hz(f)
     }
 }

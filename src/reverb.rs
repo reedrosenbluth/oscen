@@ -164,19 +164,8 @@ where
     W: Signal + Send,
 {
     fn signal(&mut self, sample_rate: f64) -> Amp {
-        let input = self
-            .allpasses
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .signal(sample_rate);
-        let out = self.allpasses.mtx().signal(sample_rate);
+        let input = self.allpasses.signal(sample_rate);
+        let out = self.allpasses.signal(sample_rate);
         (out as f64 * self.wet_gain + input as f64 * self.dry) as f32
     }
 }
@@ -186,29 +175,10 @@ where
     W: Signal + HasHz + Send,
 {
     fn hz(&self) -> Hz {
-        self.allpasses
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .hz()
+        self.allpasses.hz()
     }
+
     fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.allpasses
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .modify_hz(f);
+        self.allpasses.modify_hz(f);
     }
 }
