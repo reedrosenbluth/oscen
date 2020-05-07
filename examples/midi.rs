@@ -1,20 +1,20 @@
 use core::cmp::Ordering;
 use core::time::Duration;
-use std::thread;
-use std::error::Error;
-use std::io::{stdin, stdout, Write};
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
+use midir::{Ignore, MidiInput};
 use nannou::prelude::*;
 use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use midir::{MidiInput, Ignore};
-use pitch_calc::calc::{hz_from_step};
+use pitch_calc::calc::hz_from_step;
+use std::error::Error;
+use std::io::{stdin, stdout, Write};
+use std::thread;
 
-use swell::dsp::*;
-use swell::shaper::*;
 use swell::containers::*;
+use swell::dsp::*;
 use swell::reverb::*;
+use swell::shaper::*;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -23,7 +23,6 @@ fn main() {
 struct Model {
     ui: Ui,
     ids: Ids,
-    pitch: Hz,
     shape: Amp,
     attack: Amp,
     decay: Amp,
@@ -38,7 +37,6 @@ struct Model {
 }
 
 struct Ids {
-    pitch: widget::Id,
     shape: widget::Id,
     attack: widget::Id,
     decay: widget::Id,
@@ -54,18 +52,21 @@ struct Synth {
 
 fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     let mut input = String::new();
-    
+
     let mut midi_in = MidiInput::new("midir reading input")?;
     midi_in.ignore(Ignore::None);
-    
+
     // Get an input port (read from console if multiple are available)
     let in_ports = midi_in.port_count();
     let in_port = match in_ports {
         0 => return Err("no input port found".into()),
         1 => {
-            println!("Choosing the only available input port: {}", midi_in.port_name(0).unwrap());
+            println!(
+                "Choosing the only available input port: {}",
+                midi_in.port_name(0).unwrap()
+            );
             0
-        },
+        }
         _ => {
             println!("\nAvailable input ports:");
             for i in 0..in_ports {
@@ -78,15 +79,18 @@ fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
             input.trim().parse::<usize>()?
         }
     };
-    
+
     println!("\nOpening connection");
 
     // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
-    let _conn_in = midi_in.connect(in_port, "midir-read-input", move |stamp, message, _| {
-        midi_sender.send(message.to_vec()).unwrap();
-    }, ())?;
-    
-    // println!("Connection open, reading input from '{}' (press enter to exit) ...", in_port_name);
+    let _conn_in = midi_in.connect(
+        in_port,
+        "midir-read-input",
+        move |_, message, _| {
+            midi_sender.send(message.to_vec()).unwrap();
+        },
+        (),
+    )?;
 
     input.clear();
     stdin().read_line(&mut input)?; // wait for next enter key press
@@ -99,11 +103,9 @@ fn model(app: &App) -> Model {
     let (sender, receiver) = unbounded();
     let (midi_sender, midi_receiver) = unbounded();
 
-    thread::spawn(|| {
-        match listen_midi(midi_sender) {
-            Ok(_) => (),
-            Err(err) => println!("Error: {}", err)
-        }
+    thread::spawn(|| match listen_midi(midi_sender) {
+        Ok(_) => (),
+        Err(err) => println!("Error: {}", err),
     });
 
     // Create a window to receive key pressed events.
@@ -122,7 +124,6 @@ fn model(app: &App) -> Model {
     let mut ui = app.new_ui().build().unwrap();
 
     let ids = Ids {
-        pitch: ui.generate_widget_id(),
         shape: ui.generate_widget_id(),
         attack: ui.generate_widget_id(),
         decay: ui.generate_widget_id(),
@@ -132,9 +133,9 @@ fn model(app: &App) -> Model {
     };
     let audio_host = audio::Host::new();
 
-    let wave_shaper = WaveShaper::wrapped(440., 0.5);
+    let wave_shaper = WaveShaper::wrapped(110., 0.5);
     let free = Freeverb::wrapped(wave_shaper);
-    let voice = TriggerSynth::new(free, 0.2, 0.1, 5.0, 0.8, 0.2);
+    let voice = TriggerSynth::new(free, 0.2, 0.1, 0.2, 0.5, 0.2);
     let synth = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(synth)
@@ -145,12 +146,11 @@ fn model(app: &App) -> Model {
     Model {
         ui,
         ids,
-        pitch: 440.,
         shape: 0.5,
         attack: 0.2,
         decay: 0.1,
-        sustain_time: 5.0,
-        sustain_level: 0.8,
+        sustain_time: 0.2,
+        sustain_level: 0.5,
         release: 0.2,
         stream,
         receiver,
@@ -246,21 +246,27 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-            //   synth.voice.wave.mtx().knob = value;
-            //   synth.voice.wave.mtx().set_alphas();
+                for wave in synth
+                    .voice
+                    .wave
+                    .mtx()
+                    .allpasses
+                    .mtx()
+                    .wave
+                    .mtx()
+                    .wave
+                    .mtx()
+                    .wave
+                    .mtx()
+                    .wave
+                    .mtx()
+                    .waves
+                    .iter_mut()
+                {
+                    wave.mtx().wave.mtx().knob = value;
+                    wave.mtx().wave.mtx().set_alphas();
+                }
             })
-            .unwrap();
-    }
-
-    for value in slider(model.pitch as f32, 0., 880.)
-        .down(20.0)
-        .label("Pitch")
-        .set(model.ids.pitch, ui)
-    {
-        model.pitch = value as Hz;
-        model
-            .stream
-            .send(move |synth| synth.voice.set_hz(value as Hz))
             .unwrap();
     }
 

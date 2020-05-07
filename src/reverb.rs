@@ -49,7 +49,7 @@ pub struct Freeverb<W>
 where
     W: Signal + Send,
 {
-    allpasses: ArcMutex<AllPass<AllPass<AllPass<AllPass<PolySynth<Comb<W>>>>>>>,
+    pub allpasses: ArcMutex<AllPass<AllPass<AllPass<AllPass<PolySynth<Comb<W>>>>>>>,
     wet_gain: f64,
     wet: f64,
     width: f64,

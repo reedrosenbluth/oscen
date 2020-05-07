@@ -145,7 +145,7 @@ impl ShaperSynth {
 
     pub fn set_ratio(&mut self, ratio: Hz) {
         let base_hz = self.0.lphp.wave.mtx().wave.mtx().fmsynth.base_hz;
-        self.0.lphp.wave.mtx().wave.mtx().fmsynth.modulator.mtx().set_hz(base_hz / ratio);
+        self.0.lphp.wave.mtx().wave.mtx().fmsynth.modulator.set_hz(base_hz / ratio);
     }
 
     pub fn set_carrier_hz(&mut self, hz: Hz) {
