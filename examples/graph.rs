@@ -125,6 +125,47 @@ impl SignalG for SineOscG {
         amplitude * (TAU64 * phase).sin()
     }
 }
+pub struct Osc01 {
+    pub hz: Input,
+    pub phase: Input,
+}
+
+impl Osc01 {
+    fn new(hz: Input) -> Self {
+        Osc01 {
+            hz,
+            phase: Input::Constant(0.0),
+        }
+    }
+}
+
+impl SignalG for Osc01 {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: f64) -> f64 {
+        let hz = match self.hz {
+            Input::Variable(n) => graph.output(n),
+            Input::Constant(hz) => hz,
+        };
+        let phase = match self.phase {
+            Input::Variable(n) => graph.output(n),
+            Input::Constant(ph) => ph,
+        };
+        self.phase = match &self.phase {
+            Input::Constant(p) => {
+                let mut ph = p + hz / sample_rate;
+                ph %= sample_rate;
+                Input::Constant(ph)
+            }
+            Input::Variable(x) => Input::Variable(*x),
+        };
+        0.5 * ((TAU64 * phase).sin() + 1.0)
+    }
+}
+
+
 
 #[derive(Clone)]
 pub struct SquareOscG {
@@ -263,9 +304,11 @@ fn model(app: &App) -> Model {
 
     let sinewave = SineOscG::new(Input::Constant(220.0));
     let squarewave = SquareOscG::new(Input::Constant(220.0));
-    let lerp = LerpG::new(0, 1);
+    let osc01 = Osc01::new(Input::Constant(1.0));
+    let mut lerp = LerpG::new(0, 1);
+    lerp.alpha = Input::Variable(2);
 
-    let voice = Graph::new(vec![arc(sinewave), arc(squarewave), arc(lerp)]);
+    let voice = Graph::new(vec![arc(sinewave), arc(squarewave), arc(osc01), arc(lerp)]);
     let synth = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(synth)
@@ -428,7 +471,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.alpha as f32, 0.0, 1.0)
         .top_left_with_margin(20.0)
-        .label("Shape (PW <-> Sin <-> Saw)")
+        .label("Alpha")
         .set(model.ids.alpha, ui)
     {
         model.alpha = value as f64;
