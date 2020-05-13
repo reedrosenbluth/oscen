@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+// #![allow(dead_code)]
 
 use core::cmp::Ordering;
 use core::time::Duration;
@@ -10,10 +10,13 @@ use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
+use std::any::*;
 use std::error::Error;
 use std::f64::consts::PI;
-use std::io::{stdin, stdout, Write};
-use std::thread;
+use std::{
+    io::{stdin, stdout, Write},
+    thread,
+};
 use swell::dsp::*;
 
 pub const TAU64: f64 = 2.0 * PI;
@@ -22,9 +25,12 @@ pub const TAU32: f32 = TAU64 as f32;
 fn main() {
     nannou::app(model).update(update).run();
 }
-pub trait SignalG {
+pub trait SignalG: Any {
+    fn as_any_mut(&mut self) -> &mut dyn Any;
     fn signal(&mut self, graph: &Graph, sample_rate: f64) -> f64;
 }
+
+type SS = dyn SignalG + Send;
 
 #[derive(Clone)]
 pub enum Input {
@@ -33,21 +39,24 @@ pub enum Input {
 }
 
 pub struct Node {
-    pub module: ArcMutex<dyn SignalG + Send>,
+    pub module: ArcMutex<SS>,
     pub output: f64,
 }
 
 impl Node {
-    fn new(s: ArcMutex<dyn SignalG + Send>) -> Self {
-        Node {module: s, output: 0.0}
+    fn new(sig: ArcMutex<SS>) -> Self {
+        Node {
+            module: sig,
+            output: 0.0,
+        }
     }
 }
 
 pub struct Graph(pub Vec<Node>);
 
 impl Graph {
-    fn new(ws: Vec<ArcMutex<dyn SignalG + Send>>) -> Self {
-        let ns: Vec<Node> = Vec::new();
+    fn new(ws: Vec<ArcMutex<SS>>) -> Self {
+        let mut ns: Vec<Node> = Vec::new();
         for s in ws {
             ns.push(Node::new(s));
         }
@@ -56,10 +65,6 @@ impl Graph {
 
     fn output(&self, n: usize) -> f64 {
         self.0[n].output
-    }
-
-    fn set_output(&mut self, n: usize, value: f64) {
-        self.0[n].output = value;
     }
 
     fn play(&mut self, sample_rate: f64) -> f64 {
@@ -92,6 +97,10 @@ impl SineOscG {
 }
 
 impl SignalG for SineOscG {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn signal(&mut self, graph: &Graph, sample_rate: f64) -> f64 {
         let hz = match self.hz {
             Input::Variable(n) => graph.output(n),
@@ -136,32 +145,11 @@ impl SquareOscG {
     }
 }
 
-pub struct LerpG {
-    wave1: usize,
-    wave2: usize,
-    alpha: Input,
-}
-
-impl LerpG {
-    fn new(wave1: usize, wave2: usize) -> Self {
-        LerpG {
-            wave1,
-            wave2,
-            alpha: Input::Constant(0.5),
-        }
-    }
-}
-impl SignalG for LerpG {
-    fn signal(&mut self, graph: &Graph, _sample_rate: f64) -> f64 {
-        let alpha = match self.alpha {
-            Input::Constant(a) => a,
-            Input::Variable(n) => graph.output(n),
-        };
-        alpha * graph.output(self.wave1) + (1.0 - alpha) * graph.output(self.wave2)
-    }
-}
-
 impl SignalG for SquareOscG {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn signal(&mut self, graph: &Graph, sample_rate: f64) -> f64 {
         let hz = match self.hz {
             Input::Variable(n) => graph.output(n),
@@ -189,9 +177,60 @@ impl SignalG for SquareOscG {
         } else if t <= self.duty_cycle {
             amplitude
         } else {
-            amplitude
+            -amplitude
         }
     }
+}
+
+pub struct LerpG {
+    wave1: usize,
+    wave2: usize,
+    alpha: Input,
+}
+
+impl LerpG {
+    fn new(wave1: usize, wave2: usize) -> Self {
+        LerpG {
+            wave1,
+            wave2,
+            alpha: Input::Constant(0.5),
+        }
+    }
+}
+
+impl SignalG for LerpG {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, _sample_rate: f64) -> f64 {
+        let alpha = match self.alpha {
+            Input::Constant(a) => a,
+            Input::Variable(n) => graph.output(n),
+        };
+        alpha * graph.output(self.wave1) + (1.0 - alpha) * graph.output(self.wave2)
+    }
+}
+
+struct Synth {
+    voice: Graph,
+    sender: Sender<f32>,
+}
+
+struct Model {
+    ui: Ui,
+    ids: Ids,
+    alpha: f64,
+    // attack: Amp,
+    // decay: Amp,
+    // sustain_time: Amp,
+    // sustain_level: Amp,
+    // release: Amp,
+    stream: audio::Stream<Synth>,
+    receiver: Receiver<f32>,
+    midi_receiver: Receiver<Vec<u8>>,
+    amps: Vec<f32>,
+    max_amp: f32,
 }
 
 fn model(app: &App) -> Model {
@@ -208,22 +247,17 @@ fn model(app: &App) -> Model {
         update_interval: Duration::from_millis(1),
     });
 
-    let _window = app
-        .new_window()
-        .size(900, 620)
-        .view(view)
-        .build()
-        .unwrap();
+    let _window = app.new_window().size(900, 620).view(view).build().unwrap();
 
     let mut ui = app.new_ui().build().unwrap();
 
     let ids = Ids {
         alpha: ui.generate_widget_id(),
-        attack: ui.generate_widget_id(),
-        decay: ui.generate_widget_id(),
-        sustain_time: ui.generate_widget_id(),
-        sustain_level: ui.generate_widget_id(),
-        release: ui.generate_widget_id(),
+        // attack: ui.generate_widget_id(),
+        // decay: ui.generate_widget_id(),
+        // sustain_time: ui.generate_widget_id(),
+        // sustain_level: ui.generate_widget_id(),
+        // release: ui.generate_widget_id(),
     };
     let audio_host = audio::Host::new();
 
@@ -243,11 +277,11 @@ fn model(app: &App) -> Model {
         ui,
         ids,
         alpha: 0.5,
-        attack: 0.2,
-        decay: 0.1,
-        sustain_time: 0.2,
-        sustain_level: 0.5,
-        release: 0.2,
+        // attack: 0.2,
+        // decay: 0.1,
+        // sustain_time: 0.2,
+        // sustain_level: 0.5,
+        // release: 0.2,
         stream,
         receiver,
         midi_receiver,
@@ -256,34 +290,13 @@ fn model(app: &App) -> Model {
     }
 }
 
-struct Model {
-    ui: Ui,
-    ids: Ids,
-    alpha: f64,
-    attack: Amp,
-    decay: Amp,
-    sustain_time: Amp,
-    sustain_level: Amp,
-    release: Amp,
-    stream: audio::Stream<Synth>,
-    receiver: Receiver<f32>,
-    midi_receiver: Receiver<Vec<u8>>,
-    amps: Vec<f32>,
-    max_amp: f32,
-}
-
 struct Ids {
     alpha: widget::Id,
-    attack: widget::Id,
-    decay: widget::Id,
-    sustain_time: widget::Id,
-    sustain_level: widget::Id,
-    release: widget::Id,
-}
-
-struct Synth {
-    voice: Graph,
-    sender: Sender<f32>,
+    // attack: widget::Id,
+    // decay: widget::Id,
+    // sustain_time: widget::Id,
+    // sustain_level: widget::Id,
+    // release: widget::Id,
 }
 
 fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
@@ -347,7 +360,6 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     }
 }
 
-
 fn update(_app: &App, model: &mut Model, _update: Update) {
     let midi_messages: Vec<Vec<u8>> = model.midi_receiver.try_iter().collect();
     for message in midi_messages {
@@ -358,7 +370,24 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                     .send(move |synth| {
                         let step = message[1];
                         let hz = hz_from_step(step as f32) as f64;
-                        synth.voice.0[0].module.lock().unwrap().hz = Input::Constant(hz);
+                        if let Some(v) = synth.voice.0[0]
+                            .module
+                            .lock()
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<SineOscG>()
+                        {
+                            v.hz = Input::Constant(hz);
+                        }
+                        if let Some(v) = synth.voice.0[1]
+                            .module
+                            .lock()
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<SquareOscG>()
+                        {
+                            v.hz = Input::Constant(hz);
+                        }
                         // synth.voice.on();
                     })
                     .unwrap();
@@ -397,108 +426,97 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .border(0.0)
     }
 
-    for value in slider(model.shape as f32, 0., 1.)
+    for value in slider(model.alpha as f32, 0.0, 1.0)
         .top_left_with_margin(20.0)
         .label("Shape (PW <-> Sin <-> Saw)")
-        .set(model.ids.shape, ui)
+        .set(model.ids.alpha, ui)
     {
-        model.shape = value;
+        model.alpha = value as f64;
         model
             .stream
             .send(move |synth| {
-                for wave in synth
-                    .voice
-                    .wave
-                    .mtx()
-                    .allpasses
-                    .mtx()
-                    .wave
-                    .mtx()
-                    .wave
-                    .mtx()
-                    .wave
-                    .mtx()
-                    .wave
-                    .mtx()
-                    .waves
-                    .iter_mut()
+                if let Some(v) = synth.voice.0[2]
+                    .module
+                    .lock()
+                    .unwrap()
+                    .as_any_mut()
+                    .downcast_mut::<LerpG>()
                 {
-                    wave.mtx().wave.mtx().knob = value;
-                    wave.mtx().wave.mtx().set_alphas();
+                    v.alpha = Input::Constant(value as f64);
                 }
             })
             .unwrap();
     }
 
-    for value in slider(model.attack, 0.0, 1.0)
-        .down(20.)
-        .label("Attack")
-        .set(model.ids.attack, ui)
-    {
-        model.attack = value;
-        model
-            .stream
-            .send(move |synth| {
-                synth.voice.attack = value;
-            })
-            .unwrap();
-    }
+    // for value in slider(model.attack, 0.0, 1.0)
+    //     .down(20.)
+    //     .label("Attack")
+    //     .set(model.ids.attack, ui)
+    // {
+    //     model.attack = value;
+    //     model
+    //         .stream
+    //         .send(move |synth| {
+    //             synth.voice.attack = value;
+    //         })
+    //         .unwrap();
+    // }
 
-    for value in slider(model.decay, 0.0, 1.0)
-        .down(20.)
-        .label("Decay")
-        .set(model.ids.decay, ui)
-    {
-        model.decay = value;
-        model
-            .stream
-            .send(move |synth| {
-                synth.voice.decay = value;
-            })
-            .unwrap();
-    }
+    // for value in slider(model.decay, 0.0, 1.0)
+    //     .down(20.)
+    //     .label("Decay")
+    //     .set(model.ids.decay, ui)
+    // {
+    //     model.decay = value;
+    //     model
+    //         .stream
+    //         .send(move |synth| {
+    //             synth.voice.decay = value;
+    //         })
+    //         .unwrap();
+    // }
 
-    for value in slider(model.sustain_time, 0.0, 10.0)
-        .down(20.)
-        .label("Sustain Time")
-        .set(model.ids.sustain_time, ui)
-    {
-        model.sustain_time = value;
-        model
-            .stream
-            .send(move |synth| {
-                synth.voice.sustain_time = value;
-            })
-            .unwrap();
-    }
+    // for value in slider(model.sustain_time, 0.0, 10.0)
+    //     .down(20.)
+    //     .label("Sustain Time")
+    //     .set(model.ids.sustain_time, ui)
+    // {
+    //     model.sustain_time = value;
+    //     model
+    //         .stream
+    //         .send(move |synth| {
+    //             synth.voice.sustain_time = value;
+    //         })
+    //         .unwrap();
+    // }
 
-    for value in slider(model.sustain_level, 0.0, 1.0)
-        .down(20.)
-        .label("Sustain Level")
-        .set(model.ids.sustain_level, ui)
-    {
-        model.sustain_level = value;
-        model
-            .stream
-            .send(move |synth| {
-                synth.voice.sustain_level = value;
-            })
-            .unwrap();
-    }
+    // for value in slider(model.sustain_level, 0.0, 1.0)
+    //     .down(20.)
+    //     .label("Sustain Level")
+    //     .set(model.ids.sustain_level, ui)
+    // {
+    //     model.sustain_level = value;
+    //     model
+    //         .stream
+    //         .send(move |synth| {
+    //             synth.voice.sustain_level = value;
+    //         })
+    //         .unwrap();
+    // }
 
-    for value in slider(model.release, 0.0, 1.0)
-        .down(20.)
-        .label("Release")
-        .set(model.ids.release, ui)
-    {
-        model.release = value;
-        model
-            .stream
-            .send(move |synth| {
-                synth.voice.release = value;
-            })
-            .unwrap();
-    }
+    // for value in slider(model.release, 0.0, 1.0)
+    //     .down(20.)
+    //     .label("Release")
+    //     .set(model.ids.release, ui)
+    // {
+    //     model.release = value;
+    //     model
+    //         .stream
+    //         .send(move |synth| {
+    //             synth.voice.release = value;
+    //         })
+    //         .unwrap();
+    // }
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
