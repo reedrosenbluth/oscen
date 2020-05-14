@@ -1,5 +1,3 @@
-// #![allow(dead_code)]
-
 use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
@@ -165,14 +163,12 @@ impl SignalG for Osc01 {
     }
 }
 
-
-
 #[derive(Clone)]
 pub struct SquareOscG {
     pub hz: Input,
     pub amplitude: Input,
     pub phase: Input,
-    pub duty_cycle: f64,
+    pub duty_cycle: Input,
 }
 
 impl SquareOscG {
@@ -181,7 +177,7 @@ impl SquareOscG {
             hz,
             amplitude: Input::Constant(1.0),
             phase: Input::Constant(0.0),
-            duty_cycle: 0.5,
+            duty_cycle: Input::Constant(0.5),
         }
     }
 }
@@ -212,10 +208,14 @@ impl SignalG for SquareOscG {
             }
             Input::Variable(x) => Input::Variable(*x),
         };
+        let duty_cycle = match self.duty_cycle {
+            Input::Variable(n) => graph.output(n),
+            Input::Constant(dc) => dc,
+        };
         let t = phase - floor(phase, 0);
         if t < 0.001 {
             0.0
-        } else if t <= self.duty_cycle {
+        } else if t <= duty_cycle {
             amplitude
         } else {
             -amplitude
@@ -253,20 +253,80 @@ impl SignalG for LerpG {
     }
 }
 
+pub struct SustainSynthG {
+    pub wave: usize,
+    pub attack: f64,
+    pub decay: f64,
+    pub sustain_level: f64,
+    pub release: f64,
+    pub clock: f64,
+    pub triggered: bool,
+    pub level: f64,
+}
+
+impl SustainSynthG {
+    pub fn new(wave: usize) -> Self {
+        Self {
+            wave,
+            attack: 0.2,
+            decay: 0.1,
+            sustain_level: 0.8,
+            release: 0.2,
+            clock: 0.0,
+            triggered: false,
+            level: 0.0,
+        }
+    }
+
+    pub fn calc_level(&self) -> f64 {
+        let a = self.attack;
+        let d = self.decay;
+        let r = self.release;
+        let sl = self.sustain_level;
+        if self.triggered {
+            match self.clock {
+                t if t < a => t / a,
+                t if t < a + d => 1.0 + (t - a) * (sl - 1.0) / d,
+                _ => sl,
+            }
+        } else {
+            match self.clock {
+                t if t < r => sl - t / r * sl,
+                _ => 0.,
+            }
+        }
+    }
+
+    pub fn on(&mut self) {
+        self.clock = self.level * self.attack;
+        self.triggered = true;
+    }
+
+    pub fn off(&mut self) {
+        self.clock = (self.sustain_level - self.level) * self.release / self.sustain_level;
+        self.triggered = false;
+    }
+}
+
+impl SignalG for SustainSynthG {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: f64) -> f64 {
+        let amp = graph.output(self.wave) * self.calc_level();
+        self.clock += 1. / sample_rate;
+        self.level = self.calc_level();
+        amp
+    }
+}
+
 struct Synth {
     voice: Graph,
     sender: Sender<f32>,
 }
 
 struct Model {
-    ui: Ui,
-    ids: Ids,
-    alpha: f64,
-    // attack: Amp,
-    // decay: Amp,
-    // sustain_time: Amp,
-    // sustain_level: Amp,
-    // release: Amp,
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     midi_receiver: Receiver<Vec<u8>>,
@@ -290,16 +350,7 @@ fn model(app: &App) -> Model {
 
     let _window = app.new_window().size(900, 620).view(view).build().unwrap();
 
-    let mut ui = app.new_ui().build().unwrap();
 
-    let ids = Ids {
-        alpha: ui.generate_widget_id(),
-        // attack: ui.generate_widget_id(),
-        // decay: ui.generate_widget_id(),
-        // sustain_time: ui.generate_widget_id(),
-        // sustain_level: ui.generate_widget_id(),
-        // release: ui.generate_widget_id(),
-    };
     let audio_host = audio::Host::new();
 
     let sinewave = SineOscG::new(Input::Constant(220.0));
@@ -307,8 +358,15 @@ fn model(app: &App) -> Model {
     let osc01 = Osc01::new(Input::Constant(1.0));
     let mut lerp = LerpG::new(0, 1);
     lerp.alpha = Input::Variable(2);
+    let sustain = SustainSynthG::new(3);
 
-    let voice = Graph::new(vec![arc(sinewave), arc(squarewave), arc(osc01), arc(lerp)]);
+    let voice = Graph::new(vec![
+        arc(sinewave),
+        arc(squarewave),
+        arc(osc01),
+        arc(lerp),
+        arc(sustain),
+    ]);
     let synth = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(synth)
@@ -317,29 +375,12 @@ fn model(app: &App) -> Model {
         .unwrap();
 
     Model {
-        ui,
-        ids,
-        alpha: 0.5,
-        // attack: 0.2,
-        // decay: 0.1,
-        // sustain_time: 0.2,
-        // sustain_level: 0.5,
-        // release: 0.2,
         stream,
         receiver,
         midi_receiver,
         amps: vec![],
         max_amp: 0.,
     }
-}
-
-struct Ids {
-    alpha: widget::Id,
-    // attack: widget::Id,
-    // decay: widget::Id,
-    // sustain_time: widget::Id,
-    // sustain_level: widget::Id,
-    // release: widget::Id,
 }
 
 fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
@@ -431,6 +472,50 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                         {
                             v.hz = Input::Constant(hz);
                         }
+                        if let Some(v) = synth.voice.0[4]
+                            .module
+                            .lock()
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<SustainSynthG>()
+                        {
+                            v.on();
+                        }
+                    })
+                    .unwrap();
+            } else if message[0] == 128 {
+                model
+                    .stream
+                    .send(move |synth| {
+                        let step = message[1];
+                        let hz = hz_from_step(step as f32) as f64;
+                        if let Some(v) = synth.voice.0[0]
+                            .module
+                            .lock()
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<SineOscG>()
+                        {
+                            v.hz = Input::Constant(hz);
+                        }
+                        if let Some(v) = synth.voice.0[1]
+                            .module
+                            .lock()
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<SquareOscG>()
+                        {
+                            v.hz = Input::Constant(hz);
+                        }
+                        if let Some(v) = synth.voice.0[4]
+                            .module
+                            .lock()
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<SustainSynthG>()
+                        {
+                            v.off();
+                        }
                         // synth.voice.on();
                     })
                     .unwrap();
@@ -457,109 +542,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     model.amps = clone;
 
-    //UI
-    let ui = &mut model.ui.set_widgets();
-
-    fn slider(val: f32, min: f32, max: f32) -> widget::Slider<'static, f32> {
-        widget::Slider::new(val, min, max)
-            .w_h(200.0, 30.0)
-            .label_font_size(15)
-            .rgb(0.1, 0.2, 0.5)
-            .label_rgb(1.0, 1.0, 1.0)
-            .border(0.0)
-    }
-
-    for value in slider(model.alpha as f32, 0.0, 1.0)
-        .top_left_with_margin(20.0)
-        .label("Alpha")
-        .set(model.ids.alpha, ui)
-    {
-        model.alpha = value as f64;
-        model
-            .stream
-            .send(move |synth| {
-                if let Some(v) = synth.voice.0[2]
-                    .module
-                    .lock()
-                    .unwrap()
-                    .as_any_mut()
-                    .downcast_mut::<LerpG>()
-                {
-                    v.alpha = Input::Constant(value as f64);
-                }
-            })
-            .unwrap();
-    }
-
-    // for value in slider(model.attack, 0.0, 1.0)
-    //     .down(20.)
-    //     .label("Attack")
-    //     .set(model.ids.attack, ui)
-    // {
-    //     model.attack = value;
-    //     model
-    //         .stream
-    //         .send(move |synth| {
-    //             synth.voice.attack = value;
-    //         })
-    //         .unwrap();
-    // }
-
-    // for value in slider(model.decay, 0.0, 1.0)
-    //     .down(20.)
-    //     .label("Decay")
-    //     .set(model.ids.decay, ui)
-    // {
-    //     model.decay = value;
-    //     model
-    //         .stream
-    //         .send(move |synth| {
-    //             synth.voice.decay = value;
-    //         })
-    //         .unwrap();
-    // }
-
-    // for value in slider(model.sustain_time, 0.0, 10.0)
-    //     .down(20.)
-    //     .label("Sustain Time")
-    //     .set(model.ids.sustain_time, ui)
-    // {
-    //     model.sustain_time = value;
-    //     model
-    //         .stream
-    //         .send(move |synth| {
-    //             synth.voice.sustain_time = value;
-    //         })
-    //         .unwrap();
-    // }
-
-    // for value in slider(model.sustain_level, 0.0, 1.0)
-    //     .down(20.)
-    //     .label("Sustain Level")
-    //     .set(model.ids.sustain_level, ui)
-    // {
-    //     model.sustain_level = value;
-    //     model
-    //         .stream
-    //         .send(move |synth| {
-    //             synth.voice.sustain_level = value;
-    //         })
-    //         .unwrap();
-    // }
-
-    // for value in slider(model.release, 0.0, 1.0)
-    //     .down(20.)
-    //     .label("Release")
-    //     .set(model.ids.release, ui)
-    // {
-    //     model.release = value;
-    //     model
-    //         .stream
-    //         .send(move |synth| {
-    //             synth.voice.release = value;
-    //         })
-    //         .unwrap();
-    // }
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
@@ -595,11 +577,8 @@ fn view(app: &App, model: &Model, frame: Frame) {
             .weight(2.)
             .points(points)
             .color(CORNFLOWERBLUE)
-            .x_y(-200., 0.);
+            .x_y(-300., 0.);
 
         draw.to_frame(app, &frame).unwrap();
     }
-
-    // Draw the state of the `Ui` to the frame.
-    model.ui.draw_to_frame(app, &frame).unwrap();
 }
