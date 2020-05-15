@@ -4,7 +4,6 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use math::round::floor;
 use midir::{Ignore, MidiInput};
 use nannou::prelude::*;
-use nannou::ui::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
@@ -17,12 +16,12 @@ use std::{
 };
 use swell::dsp::*;
 
-pub const TAU64: f64 = 2.0 * PI;
-pub const TAU32: f32 = TAU64 as f32;
+pub const TAU: f64 = 2.0 * PI;
 
 fn main() {
     nannou::app(model).update(update).run();
 }
+
 pub trait SignalG: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn signal(&mut self, graph: &Graph, sample_rate: f64) -> f64;
@@ -30,10 +29,19 @@ pub trait SignalG: Any {
 
 type SS = dyn SignalG + Send;
 
-#[derive(Clone)]
-pub enum Input {
-    Variable(usize),
-    Constant(f64),
+#[derive(Copy, Clone)]
+pub enum In {
+    Var(usize),
+    Const(f64),
+}
+
+impl In {
+    pub fn val(graph: &Graph, inp: In) -> f64 {
+        match inp {
+            In::Const(x) => x,
+            In::Var(n) => graph.output(n),
+        }
+    }
 }
 
 pub struct Node {
@@ -42,9 +50,9 @@ pub struct Node {
 }
 
 impl Node {
-    fn new(sig: ArcMutex<SS>) -> Self {
+    fn new(signal: ArcMutex<SS>) -> Self {
         Node {
-            module: sig,
+            module: signal,
             output: 0.0,
         }
     }
@@ -65,7 +73,7 @@ impl Graph {
         self.0[n].output
     }
 
-    fn play(&mut self, sample_rate: f64) -> f64 {
+    fn signal(&mut self, sample_rate: f64) -> f64 {
         let mut outs: Vec<f64> = Vec::new();
         for node in self.0.iter() {
             outs.push(node.module.lock().unwrap().signal(&self, sample_rate));
@@ -79,18 +87,22 @@ impl Graph {
 
 #[derive(Clone)]
 pub struct SineOscG {
-    pub hz: Input,
-    pub amplitude: Input,
-    pub phase: Input,
+    pub hz: In,
+    pub amplitude: In,
+    pub phase: In,
 }
 
 impl SineOscG {
-    fn new(hz: Input) -> Self {
+    pub fn new(hz: In) -> Self {
         SineOscG {
             hz,
-            amplitude: Input::Constant(1.0),
-            phase: Input::Constant(0.0),
+            amplitude: In::Const(1.0),
+            phase: In::Const(0.0),
         }
+    }
+
+    pub fn wrapped(hz: In) -> ArcMutex<Self> {
+        arc(SineOscG::new(hz))
     }
 }
 
@@ -100,39 +112,30 @@ impl SignalG for SineOscG {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: f64) -> f64 {
-        let hz = match self.hz {
-            Input::Variable(n) => graph.output(n),
-            Input::Constant(hz) => hz,
-        };
-        let amplitude = match self.amplitude {
-            Input::Variable(n) => graph.output(n),
-            Input::Constant(amp) => amp,
-        };
-        let phase = match self.phase {
-            Input::Variable(n) => graph.output(n),
-            Input::Constant(ph) => ph,
-        };
+        let hz = In::val(graph, self.hz);
+        let amplitude = In::val(graph, self.amplitude);
+        let phase = In::val(graph, self.phase);
         self.phase = match &self.phase {
-            Input::Constant(p) => {
+            In::Const(p) => {
                 let mut ph = p + hz / sample_rate;
                 ph %= sample_rate;
-                Input::Constant(ph)
+                In::Const(ph)
             }
-            Input::Variable(x) => Input::Variable(*x),
+            In::Var(x) => In::Var(*x),
         };
-        amplitude * (TAU64 * phase).sin()
+        amplitude * (TAU * phase).sin()
     }
 }
 pub struct Osc01 {
-    pub hz: Input,
-    pub phase: Input,
+    pub hz: In,
+    pub phase: In,
 }
 
 impl Osc01 {
-    fn new(hz: Input) -> Self {
+    fn new(hz: In) -> Self {
         Osc01 {
             hz,
-            phase: Input::Constant(0.0),
+            phase: In::Const(0.0),
         }
     }
 }
@@ -143,41 +146,35 @@ impl SignalG for Osc01 {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: f64) -> f64 {
-        let hz = match self.hz {
-            Input::Variable(n) => graph.output(n),
-            Input::Constant(hz) => hz,
-        };
-        let phase = match self.phase {
-            Input::Variable(n) => graph.output(n),
-            Input::Constant(ph) => ph,
-        };
+        let hz = In::val(graph, self.hz);
+        let phase = In::val(graph, self.phase);
         self.phase = match &self.phase {
-            Input::Constant(p) => {
+            In::Const(p) => {
                 let mut ph = p + hz / sample_rate;
                 ph %= sample_rate;
-                Input::Constant(ph)
+                In::Const(ph)
             }
-            Input::Variable(x) => Input::Variable(*x),
+            In::Var(x) => In::Var(*x),
         };
-        0.5 * ((TAU64 * phase).sin() + 1.0)
+        0.5 * ((TAU * phase).sin() + 1.0)
     }
 }
 
 #[derive(Clone)]
 pub struct SquareOscG {
-    pub hz: Input,
-    pub amplitude: Input,
-    pub phase: Input,
-    pub duty_cycle: Input,
+    pub hz: In,
+    pub amplitude: In,
+    pub phase: In,
+    pub duty_cycle: In,
 }
 
 impl SquareOscG {
-    fn new(hz: Input) -> Self {
+    fn new(hz: In) -> Self {
         SquareOscG {
             hz,
-            amplitude: Input::Constant(1.0),
-            phase: Input::Constant(0.0),
-            duty_cycle: Input::Constant(0.5),
+            amplitude: In::Const(1.0),
+            phase: In::Const(0.0),
+            duty_cycle: In::Const(0.5),
         }
     }
 }
@@ -188,30 +185,19 @@ impl SignalG for SquareOscG {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: f64) -> f64 {
-        let hz = match self.hz {
-            Input::Variable(n) => graph.output(n),
-            Input::Constant(hz) => hz,
-        };
-        let amplitude = match self.amplitude {
-            Input::Variable(n) => graph.output(n),
-            Input::Constant(amp) => amp,
-        };
-        let phase = match self.phase {
-            Input::Variable(n) => graph.output(n),
-            Input::Constant(ph) => ph,
-        };
+        let hz = In::val(graph, self.hz);
+        let amplitude = In::val(graph, self.amplitude);
+        let phase = In::val(graph, self.phase);
         self.phase = match &self.phase {
-            Input::Constant(p) => {
+            In::Const(p) => {
                 let mut ph = p + hz / sample_rate;
                 ph %= sample_rate;
-                Input::Constant(ph)
+                In::Const(ph)
             }
-            Input::Variable(x) => Input::Variable(*x),
+            In::Var(x) => In::Var(*x),
         };
-        let duty_cycle = match self.duty_cycle {
-            Input::Variable(n) => graph.output(n),
-            Input::Constant(dc) => dc,
-        };
+
+        let duty_cycle = In::val(graph, self.duty_cycle);
         let t = phase - floor(phase, 0);
         if t < 0.001 {
             0.0
@@ -226,7 +212,7 @@ impl SignalG for SquareOscG {
 pub struct LerpG {
     wave1: usize,
     wave2: usize,
-    alpha: Input,
+    alpha: In,
 }
 
 impl LerpG {
@@ -234,7 +220,7 @@ impl LerpG {
         LerpG {
             wave1,
             wave2,
-            alpha: Input::Constant(0.5),
+            alpha: In::Const(0.5),
         }
     }
 }
@@ -245,11 +231,43 @@ impl SignalG for LerpG {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: f64) -> f64 {
-        let alpha = match self.alpha {
-            Input::Constant(a) => a,
-            Input::Variable(n) => graph.output(n),
-        };
+        let alpha = In::val(graph, self.alpha);
         alpha * graph.output(self.wave1) + (1.0 - alpha) * graph.output(self.wave2)
+    }
+}
+
+pub struct Modulator {
+    pub wave: usize,
+    pub base_hz: In,
+    pub mod_hz: In,
+    pub mod_idx: In,
+}
+
+impl Modulator {
+    pub fn new(wave: usize, base_hz: f64, mod_hz: f64) -> Self {
+        Modulator {
+            wave,
+            base_hz: In::Const(base_hz),
+            mod_hz: In::Const(mod_hz),
+            mod_idx: In::Const(1.0),
+        }
+    }
+
+    pub fn wrapped(wave: usize, base_hz: f64, mod_hz: f64) -> ArcMutex<Self> {
+        arc(Modulator::new(wave, base_hz, mod_hz))
+    }
+}
+
+impl SignalG for Modulator {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, _sample_rate: f64) -> f64 {
+        let mod_hz = In::val(graph, self.mod_hz);
+        let mod_idx = In::val(graph, self.mod_idx);
+        let base_hz = In::val(graph, self.base_hz);
+        base_hz + mod_idx * mod_hz * graph.output(self.wave)
     }
 }
 
@@ -350,21 +368,23 @@ fn model(app: &App) -> Model {
 
     let _window = app.new_window().size(900, 620).view(view).build().unwrap();
 
-
     let audio_host = audio::Host::new();
 
-    let sinewave = SineOscG::new(Input::Constant(220.0));
-    let squarewave = SquareOscG::new(Input::Constant(220.0));
-    let osc01 = Osc01::new(Input::Constant(1.0));
+    let sinewave = SineOscG::new(In::Const(10.0));
+    // let squarewave = SquareOscG::new(In::Const(220.0));
+    // let osc01 = Osc01::new(In::Const(1.0));
     let mut lerp = LerpG::new(0, 1);
-    lerp.alpha = Input::Variable(2);
-    let sustain = SustainSynthG::new(3);
+    lerp.alpha = In::Var(2);
+    let sustain = SustainSynthG::new(2);
+    
+    let mut modu = Modulator::new(0, 220.0, 110.0);
+    modu.mod_idx = In::Const(8.0);
+    let fm = SineOscG { hz: In::Var(1), amplitude: In::Const(1.0), phase: In::Const(0.0) };
 
     let voice = Graph::new(vec![
         arc(sinewave),
-        arc(squarewave),
-        arc(osc01),
-        arc(lerp),
+        arc(modu),
+        arc(fm),
         arc(sustain),
     ]);
     let synth = Synth { voice, sender };
@@ -436,7 +456,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f64;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
-        amp += synth.voice.play(sample_rate);
+        amp += synth.voice.signal(sample_rate);
         for channel in frame {
             *channel = amp as f32;
         }
@@ -461,7 +481,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                             .as_any_mut()
                             .downcast_mut::<SineOscG>()
                         {
-                            v.hz = Input::Constant(hz);
+                            v.hz = In::Const(hz);
                         }
                         if let Some(v) = synth.voice.0[1]
                             .module
@@ -470,9 +490,9 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                             .as_any_mut()
                             .downcast_mut::<SquareOscG>()
                         {
-                            v.hz = Input::Constant(hz);
+                            v.hz = In::Const(hz);
                         }
-                        if let Some(v) = synth.voice.0[4]
+                        if let Some(v) = synth.voice.0[3]
                             .module
                             .lock()
                             .unwrap()
@@ -496,7 +516,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                             .as_any_mut()
                             .downcast_mut::<SineOscG>()
                         {
-                            v.hz = Input::Constant(hz);
+                            v.hz = In::Const(hz);
                         }
                         if let Some(v) = synth.voice.0[1]
                             .module
@@ -505,9 +525,9 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                             .as_any_mut()
                             .downcast_mut::<SquareOscG>()
                         {
-                            v.hz = Input::Constant(hz);
+                            v.hz = In::Const(hz);
                         }
-                        if let Some(v) = synth.voice.0[4]
+                        if let Some(v) = synth.voice.0[3]
                             .module
                             .lock()
                             .unwrap()
@@ -541,7 +561,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     }
 
     model.amps = clone;
-
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
