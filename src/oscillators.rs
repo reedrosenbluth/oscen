@@ -59,6 +59,10 @@ impl Osc01 {
             phase: fix(0.0),
         }
     }
+
+    pub fn wrapped(hz: In) -> ArcMutex<Self> {
+        arc(Osc01::new(hz))
+    }
 }
 
 impl Signal for Osc01 {
@@ -98,6 +102,10 @@ impl SquareOsc {
             phase: fix(0.0),
             duty_cycle: fix(0.5),
         }
+    }
+
+    pub fn wrapped(hz: In) -> ArcMutex<Self> {
+        arc(SquareOsc::new(hz))
     }
 }
 

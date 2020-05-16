@@ -13,6 +13,8 @@ use std::{
 };
 use swell::graph::*;
 use swell::oscillators::*;
+use swell::envelopes::*;
+use swell::operators::*;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -57,11 +59,7 @@ fn model(app: &App) -> Model {
     let sinewave = SineOsc::new(fix(10.0));
     let mut modu = Modulator::new(0, 220.0, 110.0);
     modu.mod_idx = fix(8.0);
-    let fm = SineOsc {
-        hz: In::Var(1),
-        amplitude: fix(1.0),
-        phase: fix(0.0),
-    };
+    let fm = SineOsc::new(var(1));
     let sustain = SustainSynth::new(2);
 
     let voice = Graph::new(vec![arc(sinewave), arc(modu), arc(fm), arc(sustain)]);
