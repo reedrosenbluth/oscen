@@ -150,7 +150,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                     .send(move |synth| {
                         let step = message[1];
                         let hz = hz_from_step(step as f32) as Real;
-                        if let Some(v) = synth.voice.0[0]
+                        if let Some(v) = synth.voice.nodes[0]
                             .module
                             .lock()
                             .unwrap()
@@ -159,7 +159,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                         {
                             v.hz = fix(hz);
                         }
-                        if let Some(v) = synth.voice.0[1]
+                        if let Some(v) = synth.voice.nodes[1]
                             .module
                             .lock()
                             .unwrap()
@@ -168,7 +168,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                         {
                             v.base_hz = fix(hz);
                         }
-                        if let Some(v) = synth.voice.0[3]
+                        if let Some(v) = synth.voice.nodes[3]
                             .module
                             .lock()
                             .unwrap()
@@ -183,7 +183,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                 model
                     .stream
                     .send(move |synth| {
-                        if let Some(v) = synth.voice.0[3]
+                        if let Some(v) = synth.voice.nodes[3]
                             .module
                             .lock()
                             .unwrap()

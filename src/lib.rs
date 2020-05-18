@@ -1,10 +1,6 @@
-pub mod collections;
-pub mod containers;
-pub mod dsp;
 pub mod filters;
-pub mod filtersG;
-pub mod shaper;
-pub mod reverb;
+// pub mod shaper;
+// pub mod reverb;
 pub mod graph;
 pub mod oscillators;
 pub mod operators;

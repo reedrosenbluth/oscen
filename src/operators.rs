@@ -74,6 +74,48 @@ impl Signal for Lerp {
     }
 }
 
+pub struct Lerp3 {
+    pub lerp1: Lerp,
+    pub lerp2: Lerp,
+    pub knob: In,
+}
+
+impl Lerp3 {
+    pub fn new(lerp1: Lerp, lerp2: Lerp, knob: In) -> Self {
+        Self { lerp1, lerp2, knob}
+    }
+
+    pub fn wrapped(lerp1: Lerp, lerp2: Lerp, knob: In) -> ArcMutex<Self> {
+        arc(Self::new(lerp1, lerp2, knob))
+    }
+
+    pub fn set_alphas(&mut self, graph: &Graph) {
+    let knob = In::val(graph, self.knob); 
+        if In::val(graph, self.knob) <= 0.5 {
+            self.lerp1.alpha = fix(2.0 * knob);
+            self.lerp2.alpha = fix(0.0);
+        } else {
+            self.lerp1.alpha = fix(0.0);
+            self.lerp2.alpha = fix(2.0 * (knob - 0.5));
+        }
+    }
+}
+
+impl Signal for Lerp3 {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        self.set_alphas(graph);
+        if In::val(graph, self.knob) <= 0.5 {
+            self.lerp1.signal(graph, sample_rate)
+        } else {
+            self.lerp2.signal(graph, sample_rate)
+        }
+    }
+}
+
 pub struct Modulator {
     pub wave: Tag,
     pub base_hz: In,

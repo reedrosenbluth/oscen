@@ -1,27 +1,26 @@
-use super::dsp::*;
+use super::graph::*;
 use std::f64::consts::PI;
+use std::any::Any;
 
-pub struct BiquadFilter<W>
-where
-    W: Signal + Send,
+pub struct BiquadFilter
 {
-    pub wave: ArcMutex<W>,
-    pub b1: f64,
-    pub b2: f64,
-    pub a0: f64,
-    pub a1: f64,
-    pub a2: f64,
-    x1: f32,
-    x2: f32,
-    y1: f32,
-    y2: f32,
+    pub wave: Tag,
+    pub b1: Real,
+    pub b2: Real,
+    pub a0: Real,
+    pub a1: Real,
+    pub a2: Real,
+    x1: Real,
+    x2: Real,
+    y1: Real,
+    y2: Real,
     pub off: bool,
 }
 
 // See "Audio Processes, Musical Analysis, Modification, Synthesis, and Control"
 // by David Creasy, 2017. pages 164-183.
-pub fn lpf(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
-    let phi = TAU64 * fc / sample_rate;
+pub fn lpf(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, Real) {
+    let phi = TAU * fc / sample_rate;
     let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
     let b1 = -(1.0 + b2) * phi.cos();
     let a0 = 0.25 * (1.0 + b1 + b2);
@@ -30,8 +29,8 @@ pub fn lpf(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
     (b1, b2, a0, a1, a2)
 }
 
-pub fn hpf(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
-    let phi = TAU64 * fc / sample_rate;
+pub fn hpf(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, Real) {
+    let phi = TAU * fc / sample_rate;
     let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
     let b1 = -(1.0 + b2) * phi.cos();
     let a0 = 0.25 * (1.0 - b1 + b2);
@@ -40,7 +39,7 @@ pub fn hpf(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
     (b1, b2, a0, a1, a2)
 }
 
-pub fn lphpf(sample_rate: f64, fc: Hz, q: f64, t: f64) -> (f64, f64, f64, f64, f64) {
+pub fn lphpf(sample_rate: Real, fc: Real, q: Real, t: Real) -> (Real, Real, Real, Real, Real) {
     let (b1, b2, a0l, a1l, a2l) = lpf(sample_rate, fc, q);
     let (_, _, a0h, a1h, a2h) = hpf(sample_rate, fc, q);
     (
@@ -52,8 +51,8 @@ pub fn lphpf(sample_rate: f64, fc: Hz, q: f64, t: f64) -> (f64, f64, f64, f64, f
     )
 }
 
-pub fn bpf(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
-    let phi = TAU64 * fc / sample_rate;
+pub fn bpf(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, Real) {
+    let phi = TAU * fc / sample_rate;
     let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
     let b1 = -(1.0 + b2) * phi.cos();
     let a0 = 0.5 * (1.0 - b2);
@@ -62,8 +61,8 @@ pub fn bpf(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
     (b1, b2, a0, a1, a2)
 }
 
-pub fn notch(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
-    let phi = TAU64 * fc / sample_rate;
+pub fn notch(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, Real) {
+    let phi = TAU * fc / sample_rate;
     let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
     let b1 = -(1.0 + b2) * phi.cos();
     let a0 = 0.5 * (1.0 + b2);
@@ -72,11 +71,9 @@ pub fn notch(sample_rate: f64, fc: Hz, q: f64) -> (f64, f64, f64, f64, f64) {
     (b1, b2, a0, a1, a2)
 }
 
-impl<W> BiquadFilter<W>
-where
-    W: Signal + Send,
+impl BiquadFilter
 {
-    pub fn new(wave: ArcMutex<W>, b1: f64, b2: f64, a0: f64, a1: f64, a2: f64) -> Self {
+    pub fn new(wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> Self {
         Self {
             wave,
             b1,
@@ -93,56 +90,58 @@ where
     }
 
     pub fn wrapped(
-        wave: ArcMutex<W>,
-        b1: f64,
-        b2: f64,
-        a0: f64,
-        a1: f64,
-        a2: f64,
+        wave: Tag,
+        b1: Real,
+        b2: Real,
+        a0: Real,
+        a1: Real,
+        a2: Real,
     ) -> ArcMutex<Self> {
         arc(Self::new(wave, b1, b2, a0, a1, a2))
     }
 
-    pub fn lpf(wave: ArcMutex<W>, sample_rate: f64, fc: Hz, q: f64) -> Self {
+    pub fn lpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = lpf(sample_rate, fc, q);
         Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn hpf(wave: ArcMutex<W>, sample_rate: f64, fc: Hz, q: f64) -> Self {
+    pub fn hpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = hpf(sample_rate, fc, q);
         Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn lphpf(wave: ArcMutex<W>, sample_rate: f64, fc: Hz, q: f64, t: f64) -> Self {
+    pub fn lphpf(wave: Tag, sample_rate: Real, fc: Real, q: Real, t: Real) -> Self {
         let (b1, b2, a0, a1, a2) = lphpf(sample_rate, fc, q, t);
         Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn bpf(wave: ArcMutex<W>, sample_rate: f64, fc: Hz, q: f64) -> Self {
+    pub fn bpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = bpf(sample_rate, fc, q);
         Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn notch(wave: ArcMutex<W>, sample_rate: f64, fc: Hz, q: f64) -> Self {
+    pub fn notch(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = notch(sample_rate, fc, q);
         Self::new(wave, b1, b2, a0, a1, a2)
     }
 }
 
-impl<W> Signal for BiquadFilter<W>
-where
-    W: Signal + Send,
+impl Signal for BiquadFilter
 {
-    fn signal(&mut self, sample_rate: f64) -> Amp {
-        let x0 = self.wave.signal(sample_rate);
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
+        let x0 = graph.output(self.wave);
         if self.off {
             return x0;
         };
-        let a0 = self.a0 as f32;
-        let a1 = self.a1 as f32;
-        let a2 = self.a2 as f32;
-        let b1 = self.b1 as f32;
-        let b2 = self.b2 as f32;
+        let a0 = self.a0 as Real;
+        let a1 = self.a1 as Real;
+        let a2 = self.a2 as Real;
+        let b1 = self.b1 as Real;
+        let b2 = self.b2 as Real;
         let amp = a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x0;
@@ -152,37 +151,20 @@ where
     }
 }
 
-impl<W> HasHz for BiquadFilter<W>
-where
-    W: Signal + HasHz + Send,
+pub struct Comb
 {
-    fn hz(&self) -> Hz {
-        self.wave.hz()
-    }
-
-    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave.modify_hz(f)
-    }
-}
-
-pub struct Comb<W>
-where
-    W: Signal + Send,
-{
-    pub wave: ArcMutex<W>,
-    buffer: Vec<f32>,
+    pub wave: Tag,
+    buffer: Vec<Real>,
     index: usize,
-    pub feedback: f64,
-    pub filter_state: f64,
-    pub dampening: f64,
-    pub dampening_inverse: f64,
+    pub feedback: Real,
+    pub filter_state: Real,
+    pub dampening: Real,
+    pub dampening_inverse: Real,
 }
 
-impl<W> Comb<W>
-where
-    W: Signal + Send,
+impl Comb
 {
-    pub fn new(wave: ArcMutex<W>, length: usize) -> Self {
+    pub fn new(wave: Tag, length: usize) -> Self {
         Self {
             wave,
             buffer: vec![0.0; length],
@@ -194,53 +176,42 @@ where
         }
     }
 
-    pub fn wrapped(wave:ArcMutex<W>, length: usize) -> ArcMutex<Self> {
+    pub fn wrapped(wave:Tag, length: usize) -> ArcMutex<Self> {
         arc(Self::new(wave, length))
     }
 }
 
-impl<W> Signal for Comb<W>
-where
-    W: Signal + Send,
+impl Signal for Comb
 {
-    fn signal(&mut self, sample_rate: f64) -> Amp {
-        let input = self.wave.signal(sample_rate);
-        let output = self.buffer[self.index] as f64;
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
+        let input = graph.output(self.wave);
+        let output = self.buffer[self.index] as Real;
         self.filter_state =
             output * self.dampening_inverse + self.filter_state * self.dampening;
-        self.buffer[self.index] = input + (self.filter_state * self.feedback) as f32;
+        self.buffer[self.index] = input + (self.filter_state * self.feedback) as Real;
         self.index += 1;
         if self.index == self.buffer.len() {
             self.index = 0
         }
-        output as f32
+        output as Real
     }
 }
 
-impl<W> HasHz for Comb<W>
-where W: Signal + HasHz + Send, {
-    fn hz(&self) -> Hz {
-        self.wave.hz()
-    }
-    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave.modify_hz(f);
-    }
-}
 
-pub struct AllPass<W>
-where
-    W: Signal + Send,
+pub struct AllPass
 {
-    pub wave: ArcMutex<W>,
-    buffer: Vec<f32>,
+    pub wave: Tag,
+    buffer: Vec<Real>,
     index: usize,
 }
 
-impl<W> AllPass<W>
-where
-    W: Signal + Send,
+impl AllPass
 {
-    pub fn new(wave: ArcMutex<W>, length: usize) -> Self {
+    pub fn new(wave: Tag, length: usize) -> Self {
         Self {
             wave,
             buffer: vec![0.0; length],
@@ -248,35 +219,26 @@ where
         }
     }
 
-    pub fn wrapped(wave:ArcMutex<W>, length: usize) -> ArcMutex<Self> {
+    pub fn wrapped(wave:Tag, length: usize) -> ArcMutex<Self> {
         arc(Self::new(wave, length))
     }
 }
 
-impl<W> Signal for AllPass<W>
-where
-    W: Signal + Send,
+impl Signal for AllPass
 {
-    fn signal(&mut self, sample_rate: f64) -> Amp {
-        let input = self.wave.signal(sample_rate);
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
+        let input = graph.output(self.wave);
         let delayed = self.buffer[self.index];
         let output = delayed - input;
-        self.buffer[self.index] = input + (0.5 * delayed) as f32;
+        self.buffer[self.index] = input + (0.5 * delayed) as Real;
         self.index += 1;
         if self.index == self.buffer.len() {
             self.index = 0
         }
-        output as f32
-    }
-}
-
-impl<W> HasHz for AllPass<W>
-where W: Signal + HasHz + Send, {
-    fn hz(&self) -> Hz {
-        self.wave.hz()
-    }
-    
-    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.wave.modify_hz(f)
+        output as Real
     }
 }

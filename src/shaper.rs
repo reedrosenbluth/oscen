@@ -1,30 +1,28 @@
-use super::collections::*;
-use super::containers::*;
-use super::dsp::*;
+use super::graph::*;
+use super::operators::*;
+use super::oscillators::*;
 use super::filters::*;
 
 /// Interpolate between the three oscillators depending on the value of `knob`.
 /// If `knob` is less thanb 1/2 then interpolate between square wave and sin wave,
 /// otherwise interpolate between sine wave and saw wave.
-pub struct WaveShaper {
-    pub lerp1: ArcMutex<LerpSynth<SquareOsc, SineOsc>>,
-    pub lerp2: ArcMutex<LerpSynth<SineOsc, SawOsc>>,
-    pub knob: f32,
-}
+
+pub struct WaveShaper(pub Lerp3);
 
 impl WaveShaper {
-    pub fn new(hz: Hz, knob: f32) -> Self {
-        let square = SquareOsc::wrapped(hz);
-        let sine = SineOsc::wrapped(hz);
+    pub fn new(hz: Real, knob: f32) -> Self {
+        let square = SquareOsc::new(hz);
+        let sine = SineOsc::new(hz);
         let sine2 = sine.clone();
-        let saw = SawOsc::wrapped(hz);
+        let saw = SawOsc::new(hz);
         let (a, b) = if knob <= 0.5 {
             (2.0 * knob, 0.0)
         } else {
             (0.0, 2.0 * (knob - 0.5))
         };
-        let lerp1 = LerpSynth::wrapped(square, sine, a);
-        let lerp2 = LerpSynth::wrapped(sine2, saw, b);
+        let lerp1 = Lerp::new(square, sine, a);
+        let lerp2 = Lerp::new(sine2, saw, b);
+        let lerp3 = Lerp3::new()
         WaveShaper { lerp1, lerp2, knob }
     }
 

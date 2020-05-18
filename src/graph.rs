@@ -72,31 +72,46 @@ impl Node {
 }
 
 /// A `Graph` is just a vector of nodes to be visited in order.
-pub struct Graph(pub Vec<Node>);
+pub struct Graph {
+    pub nodes: Vec<Node>,
+    pub order: Vec<Tag>,
+}
 
 impl Graph {
     pub fn new(ws: Vec<ArcMutex<Sig>>) -> Self {
-        let mut ns: Vec<Node> = Vec::new();
+        let mut nodes: Vec<Node> = Vec::new();
+        let n = ws.len();
         for s in ws {
-            ns.push(Node::new(s));
+            nodes.push(Node::new(s));
         }
-        Graph(ns)
+        let order: Vec<Tag> = (0..n).collect();
+        Graph {nodes, order}
+    }
+
+    pub fn next_tag(&self) -> Tag {
+        self.nodes.len()
+    }
+
+    pub fn out_tag(&self) -> Tag {
+        let n = self.nodes.len() - 1;
+        self.order[n]
     }
 
     pub fn output(&self, n: Tag) -> Real {
-        self.0[n].output
+        self.nodes[n].output
     }
+
     /// A `Graph` generates a signal by travesing the list of modules and
     /// updating each one's output in turn. The output of the last `Node` is
     /// returned.
     pub fn signal(&mut self, sample_rate: Real) -> Real {
         let mut outs: Vec<Real> = Vec::new();
-        for node in self.0.iter() {
-            outs.push(node.module.lock().unwrap().signal(&self, sample_rate));
+        for o in self.order.iter() {
+            outs.push(self.nodes[*o].module.lock().unwrap().signal(&self, sample_rate));
         }
-        for (i, node) in self.0.iter_mut().enumerate() {
-            node.output = outs[i];
+        for o in self.order.iter() {
+            self.nodes[*o].output = outs[*o];
         }
-        self.0[self.0.len() - 1].output
+        self.nodes[self.out_tag()].output
     }
 }
