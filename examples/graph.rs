@@ -11,10 +11,10 @@ use std::{
     io::{stdin, stdout, Write},
     thread,
 };
-use swell::graph::*;
-use swell::oscillators::*;
 use swell::envelopes::*;
+use swell::graph::*;
 use swell::operators::*;
+use swell::oscillators::*;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -164,9 +164,9 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                             .lock()
                             .unwrap()
                             .as_any_mut()
-                            .downcast_mut::<SquareOsc>()
+                            .downcast_mut::<Modulator>()
                         {
-                            v.hz = fix(hz);
+                            v.base_hz = fix(hz);
                         }
                         if let Some(v) = synth.voice.0[3]
                             .module
@@ -183,26 +183,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                 model
                     .stream
                     .send(move |synth| {
-                        let step = message[1];
-                        let hz = hz_from_step(step as f32) as Real;
-                        if let Some(v) = synth.voice.0[0]
-                            .module
-                            .lock()
-                            .unwrap()
-                            .as_any_mut()
-                            .downcast_mut::<SineOsc>()
-                        {
-                            v.hz = fix(hz);
-                        }
-                        if let Some(v) = synth.voice.0[1]
-                            .module
-                            .lock()
-                            .unwrap()
-                            .as_any_mut()
-                            .downcast_mut::<SquareOsc>()
-                        {
-                            v.hz = fix(hz);
-                        }
                         if let Some(v) = synth.voice.0[3]
                             .module
                             .lock()
@@ -212,7 +192,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                         {
                             v.off();
                         }
-                        // synth.voice.on();
                     })
                     .unwrap();
             }
