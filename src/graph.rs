@@ -57,6 +57,7 @@ pub fn fix(x: Real) -> In {
 
 /// Nodes for the graph will have both a synth module (i.e an implentor of
 /// `Signal`) and will store there previous signal value as `output`
+#[derive(Clone)]
 pub struct Node {
     pub module: ArcMutex<Sig>,
     pub output: Real,
@@ -71,7 +72,8 @@ impl Node {
     }
 }
 
-/// A `Graph` is just a vector of nodes to be visited in order.
+/// A `Graph` is basically a vector of nodes to be visited in the specified order.
+#[derive(Clone)]
 pub struct Graph {
     pub nodes: Vec<Node>,
     pub order: Vec<Tag>,
@@ -85,7 +87,7 @@ impl Graph {
             nodes.push(Node::new(s));
         }
         let order: Vec<Tag> = (0..n).collect();
-        Graph {nodes, order}
+        Graph { nodes, order }
     }
 
     pub fn next_tag(&self) -> Tag {
@@ -101,13 +103,36 @@ impl Graph {
         self.nodes[n].output
     }
 
+    /// Insert a sub-graph into the graph before node `loc`.
+    pub fn insert(&mut self, graph: &mut Graph, loc: Tag) {
+        let n = graph.nodes.len() + self.nodes.len();
+        self.nodes.append(&mut graph.nodes);
+        let mut new_order: Vec<Tag> = Vec::with_capacity(n);
+        for i in 0..loc {
+            new_order.push(self.order[i])
+        }
+        for i in 0..graph.order.len() {
+            new_order.push(graph.order[i])
+        }
+        for i in loc..self.nodes.len() {
+            new_order.push(self.order[i])
+        }
+        self.order = new_order;
+    }
+
     /// A `Graph` generates a signal by travesing the list of modules and
     /// updating each one's output in turn. The output of the last `Node` is
     /// returned.
     pub fn signal(&mut self, sample_rate: Real) -> Real {
         let mut outs: Vec<Real> = Vec::new();
         for o in self.order.iter() {
-            outs.push(self.nodes[*o].module.lock().unwrap().signal(&self, sample_rate));
+            outs.push(
+                self.nodes[*o]
+                    .module
+                    .lock()
+                    .unwrap()
+                    .signal(&self, sample_rate),
+            );
         }
         for o in self.order.iter() {
             self.nodes[*o].output = outs[*o];

@@ -26,6 +26,10 @@ impl SustainSynth {
         }
     }
 
+    pub fn wrapped(wave: Tag) -> ArcMutex<Self> {
+        arc(Self::new(wave))
+    }
+
     pub fn calc_level(&self) -> Real {
         let a = self.attack;
         let d = self.decay;

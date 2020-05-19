@@ -15,6 +15,7 @@ use swell::envelopes::*;
 use swell::graph::*;
 use swell::operators::*;
 use swell::oscillators::*;
+use swell::shaping::*;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -51,18 +52,25 @@ fn model(app: &App) -> Model {
 
     let audio_host = audio::Host::new();
 
+    // Lerp Example.
     // let squarewave = SquareOsc::new(fix(220.0));
     // let osc01 = Osc01::new(fix(1.0));
     // let mut lerp = Lerp::new(0, 1);
     // lerp.alpha = In::Var(2);
 
-    let sinewave = SineOsc::new(fix(10.0));
-    let mut modu = Modulator::new(0, 220.0, 110.0);
-    modu.mod_idx = fix(8.0);
-    let fm = SineOsc::new(var(1));
-    let sustain = SustainSynth::new(2);
+    // FM Example.
+    // let sinewave = SineOsc::new(fix(10.0));
+    // let mut modu = Modulator::new(0, 220.0, 110.0);
+    // modu.mod_idx = fix(8.0);
+    // let fm = SineOsc::new(var(1));
+    // let sustain = SustainSynth::new(2);
 
-    let voice = Graph::new(vec![arc(sinewave), arc(modu), arc(fm), arc(sustain)]);
+    // Wavefold example.
+    let sinewave = SineOsc::wrapped(fix(440.));
+    let sinefold = SineFold::wrapped(0);
+    let sustain = SustainSynth::wrapped(1);
+
+    let voice = Graph::new(vec![sinewave, sinefold,  sustain]);
     let synth = Synth { voice, sender };
     let stream = audio_host
         .new_output_stream(synth)
@@ -159,16 +167,16 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                         {
                             v.hz = fix(hz);
                         }
-                        if let Some(v) = synth.voice.nodes[1]
-                            .module
-                            .lock()
-                            .unwrap()
-                            .as_any_mut()
-                            .downcast_mut::<Modulator>()
-                        {
-                            v.base_hz = fix(hz);
-                        }
-                        if let Some(v) = synth.voice.nodes[3]
+                        // if let Some(v) = synth.voice.nodes[1]
+                        //     .module
+                        //     .lock()
+                        //     .unwrap()
+                        //     .as_any_mut()
+                        //     .downcast_mut::<Modulator>()
+                        // {
+                        //     v.base_hz = fix(hz);
+                        // }
+                        if let Some(v) = synth.voice.nodes[2]
                             .module
                             .lock()
                             .unwrap()
@@ -183,7 +191,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                 model
                     .stream
                     .send(move |synth| {
-                        if let Some(v) = synth.voice.nodes[3]
+                        if let Some(v) = synth.voice.nodes[2]
                             .module
                             .lock()
                             .unwrap()
