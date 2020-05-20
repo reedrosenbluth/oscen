@@ -1,15 +1,14 @@
 use super::graph::*;
-use std::f64::consts::PI;
 use std::any::Any;
+use std::f64::consts::PI;
 
-pub struct BiquadFilter
-{
+pub struct BiquadFilter {
     pub wave: Tag,
-    pub b1: Real,
-    pub b2: Real,
-    pub a0: Real,
-    pub a1: Real,
-    pub a2: Real,
+    pub b1: In,
+    pub b2: In,
+    pub a0: In,
+    pub a1: In,
+    pub a2: In,
     x1: Real,
     x2: Real,
     y1: Real,
@@ -71,32 +70,24 @@ pub fn notch(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, R
     (b1, b2, a0, a1, a2)
 }
 
-impl BiquadFilter
-{
+impl BiquadFilter {
     pub fn new(wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> Self {
         Self {
             wave,
-            b1,
-            b2,
-            a0,
-            a1,
-            a2,
+            b1: fix(b1),
+            b2: fix(b2),
+            a0: fix(a0),
+            a1: fix(a1),
+            a2: fix(a2),
             x1: 0.0,
             x2: 0.0,
             y1: 0.0,
             y2: 0.0,
-            off: false,
+            off: true,
         }
     }
 
-    pub fn wrapped(
-        wave: Tag,
-        b1: Real,
-        b2: Real,
-        a0: Real,
-        a1: Real,
-        a2: Real,
-    ) -> ArcMutex<Self> {
+    pub fn wrapped(wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> ArcMutex<Self> {
         arc(Self::new(wave, b1, b2, a0, a1, a2))
     }
 
@@ -126,8 +117,7 @@ impl BiquadFilter
     }
 }
 
-impl Signal for BiquadFilter
-{
+impl Signal for BiquadFilter {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -137,11 +127,11 @@ impl Signal for BiquadFilter
         if self.off {
             return x0;
         };
-        let a0 = self.a0 as Real;
-        let a1 = self.a1 as Real;
-        let a2 = self.a2 as Real;
-        let b1 = self.b1 as Real;
-        let b2 = self.b2 as Real;
+        let a0 = In::val(graph, self.a0);
+        let a1 = In::val(graph, self.a1);
+        let a2 = In::val(graph, self.a2);
+        let b1 = In::val(graph, self.b1);
+        let b2 = In::val(graph, self.b2);
         let amp = a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x0;
@@ -151,8 +141,7 @@ impl Signal for BiquadFilter
     }
 }
 
-pub struct Comb
-{
+pub struct Comb {
     pub wave: Tag,
     buffer: Vec<Real>,
     index: usize,
@@ -162,8 +151,7 @@ pub struct Comb
     pub dampening_inverse: Real,
 }
 
-impl Comb
-{
+impl Comb {
     pub fn new(wave: Tag, length: usize) -> Self {
         Self {
             wave,
@@ -176,13 +164,12 @@ impl Comb
         }
     }
 
-    pub fn wrapped(wave:Tag, length: usize) -> ArcMutex<Self> {
+    pub fn wrapped(wave: Tag, length: usize) -> ArcMutex<Self> {
         arc(Self::new(wave, length))
     }
 }
 
-impl Signal for Comb
-{
+impl Signal for Comb {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -190,8 +177,7 @@ impl Signal for Comb
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let input = graph.output(self.wave);
         let output = self.buffer[self.index] as Real;
-        self.filter_state =
-            output * self.dampening_inverse + self.filter_state * self.dampening;
+        self.filter_state = output * self.dampening_inverse + self.filter_state * self.dampening;
         self.buffer[self.index] = input + (self.filter_state * self.feedback) as Real;
         self.index += 1;
         if self.index == self.buffer.len() {
@@ -201,16 +187,13 @@ impl Signal for Comb
     }
 }
 
-
-pub struct AllPass
-{
+pub struct AllPass {
     pub wave: Tag,
     buffer: Vec<Real>,
     index: usize,
 }
 
-impl AllPass
-{
+impl AllPass {
     pub fn new(wave: Tag, length: usize) -> Self {
         Self {
             wave,
@@ -219,13 +202,12 @@ impl AllPass
         }
     }
 
-    pub fn wrapped(wave:Tag, length: usize) -> ArcMutex<Self> {
+    pub fn wrapped(wave: Tag, length: usize) -> ArcMutex<Self> {
         arc(Self::new(wave, length))
     }
 }
 
-impl Signal for AllPass
-{
+impl Signal for AllPass {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }

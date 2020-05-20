@@ -45,6 +45,53 @@ impl Signal for SineOsc {
         amplitude * (TAU * phase).sin()
     }
 }
+
+pub struct SawOsc {
+    pub hz: In,
+    pub amplitude: In,
+    pub phase: In,
+}
+
+impl SawOsc {
+    pub fn new(hz: In) -> Self {
+        SawOsc {
+            hz,
+            amplitude: fix(1.0),
+            phase: fix(0.0),
+        }
+    }
+
+    pub fn wrapped(hz: In) -> ArcMutex<Self> {
+        arc(SawOsc::new(hz))
+    }
+}
+
+impl Signal for SawOsc {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        let hz = In::val(graph, self.hz);
+        let amplitude = In::val(graph, self.amplitude);
+        let phase = In::val(graph, self.phase);
+        self.phase = match &self.phase {
+            In::Fixed(p) => {
+                let mut ph = p + hz / sample_rate;
+                ph %= sample_rate;
+                In::Fixed(ph)
+            }
+            In::Var(x) => In::Var(*x),
+        };
+        let t = phase - 0.5;
+        let s = -t - floor(0.5 - t, 0);
+        if s < -0.499 {
+            0.0
+        } else {
+            amplitude * 2.0 * s
+        }
+    }
+}
 /// An oscillator used to modulate parameters that take values between 0 and 1,
 /// based on a sinusoid.
 pub struct Osc01 {

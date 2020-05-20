@@ -61,6 +61,10 @@ impl Lerp {
             alpha: fix(0.5),
         }
     }
+
+    pub fn wrapped(wave1: Tag, wave2: Tag) -> ArcMutex<Self> {
+        arc(Self::new(wave1, wave2))
+    }
 }
 
 impl Signal for Lerp {
@@ -70,33 +74,65 @@ impl Signal for Lerp {
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let alpha = In::val(graph, self.alpha);
-        alpha * graph.output(self.wave1) + (1.0 - alpha) * graph.output(self.wave2)
+        alpha * graph.output(self.wave2) + (1.0 - alpha) * graph.output(self.wave1)
     }
 }
 
 pub struct Lerp3 {
-    pub lerp1: Lerp,
-    pub lerp2: Lerp,
+    pub lerp1: Tag,
+    pub lerp2: Tag,
     pub knob: In,
 }
 
 impl Lerp3 {
-    pub fn new(lerp1: Lerp, lerp2: Lerp, knob: In) -> Self {
-        Self { lerp1, lerp2, knob}
+    pub fn new(lerp1: Tag, lerp2: Tag, knob: In) -> Self {
+        Self { lerp1, lerp2, knob }
     }
 
-    pub fn wrapped(lerp1: Lerp, lerp2: Lerp, knob: In) -> ArcMutex<Self> {
+    pub fn wrapped(lerp1: Tag, lerp2: Tag, knob: In) -> ArcMutex<Self> {
         arc(Self::new(lerp1, lerp2, knob))
     }
 
     pub fn set_alphas(&mut self, graph: &Graph) {
-    let knob = In::val(graph, self.knob); 
+        let knob = In::val(graph, self.knob);
         if In::val(graph, self.knob) <= 0.5 {
-            self.lerp1.alpha = fix(2.0 * knob);
-            self.lerp2.alpha = fix(0.0);
+            if let Some(a) = graph.nodes[self.lerp1]
+                .module
+                .lock()
+                .unwrap()
+                .as_any_mut()
+                .downcast_mut::<Lerp>()
+            {
+                a.alpha = fix(2.0 * knob);
+            }
+            if let Some(a) = graph.nodes[self.lerp2]
+                .module
+                .lock()
+                .unwrap()
+                .as_any_mut()
+                .downcast_mut::<Lerp>()
+            {
+                a.alpha = fix(0.0);
+            }
         } else {
-            self.lerp1.alpha = fix(0.0);
-            self.lerp2.alpha = fix(2.0 * (knob - 0.5));
+            if let Some(a) = graph.nodes[self.lerp1]
+                .module
+                .lock()
+                .unwrap()
+                .as_any_mut()
+                .downcast_mut::<Lerp>()
+            {
+                a.alpha = fix(0.0);
+            }
+            if let Some(a) = graph.nodes[self.lerp2]
+                .module
+                .lock()
+                .unwrap()
+                .as_any_mut()
+                .downcast_mut::<Lerp>()
+            {
+                a.alpha = fix(2.0 * (knob - 0.5));
+            }
         }
     }
 }
@@ -106,12 +142,12 @@ impl Signal for Lerp3 {
         self
     }
 
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         self.set_alphas(graph);
         if In::val(graph, self.knob) <= 0.5 {
-            self.lerp1.signal(graph, sample_rate)
+            graph.output(self.lerp1)
         } else {
-            self.lerp2.signal(graph, sample_rate)
+            graph.output(self.lerp2)
         }
     }
 }

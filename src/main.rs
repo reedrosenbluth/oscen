@@ -10,8 +10,11 @@ use pitch_calc::calc::hz_from_step;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
 use std::thread;
-use swell::dsp::*;
-use swell::shaper::*;
+use swell::envelopes::*;
+use swell::filters::*;
+use swell::graph::*;
+use swell::operators::*;
+use swell::oscillators::*;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -20,16 +23,16 @@ fn main() {
 struct Model {
     ui: Ui,
     ids: Ids,
-    knob: Amp,
-    ratio: Hz,
-    mod_idx: Phase,
-    cutoff: Hz,
-    q: f64,
-    t: f64,
-    attack: Amp,
-    decay: Amp,
-    sustain_level: Amp,
-    release: Amp,
+    knob: Real,
+    ratio: Real,
+    mod_idx: Real,
+    cutoff: Real,
+    q: Real,
+    t: Real,
+    attack: Real,
+    decay: Real,
+    sustain_level: Real,
+    release: Real,
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     midi_receiver: Receiver<Vec<u8>>,
@@ -103,7 +106,7 @@ fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
 
 struct Synth {
     // voice: Box<dyn Wave + Send>,
-    voice: ShaperSynth,
+    voice: Graph,
     sender: Sender<f32>,
 }
 
@@ -145,9 +148,28 @@ fn model(app: &App) -> Model {
     };
     let audio_host = audio::Host::new();
 
-    let mut voice = ShaperSynth::new(440., 1.0, 0.0, 0.2, 0.1, 0.8, 0.2, 0.0, 0.707, 1.0);
-    voice.set_knob(0.5);
-    voice.0.lphp.off = true;
+    let node_0 = SineOsc::wrapped(fix(440.0));
+    let node_1 = Modulator::wrapped(0, 110., 10.);
+    let node_2 = SquareOsc::wrapped(fix(440.));
+    let node_3 = SineOsc::wrapped(fix(440.));
+    let node_4 = SawOsc::wrapped(fix(440.));
+    let node_5 = Lerp::wrapped(2, 3);
+    let node_6 = Lerp::wrapped(3, 4);
+    let node_7 = Lerp3::wrapped(5, 6, fix(0.5));
+    let node_8 = BiquadFilter::lphpf(7, 44100.0, 440., 0.707, 1.0);
+    let node_9 = SustainSynth::wrapped(8);
+    let voice = Graph::new(vec![
+        node_0,
+        node_1,
+        node_2,
+        node_3,
+        node_4,
+        node_5,
+        node_6,
+        node_7,
+        arc(node_8),
+        node_9,
+    ]);
 
     let synth = Synth { voice, sender };
     let stream = audio_host
@@ -180,14 +202,14 @@ fn model(app: &App) -> Model {
 // A function that renders the given `Audio` to the given `Buffer`.
 // In this case we play a simple sine wave at the audio's current frequency in `hz`.
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
-    let sample_rate = buffer.sample_rate() as f64;
+    let sample_rate = buffer.sample_rate() as Real;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
         amp += synth.voice.signal(sample_rate);
         for channel in frame {
-            *channel = amp;
+            *channel = amp as f32;
         }
-        synth.sender.send(amp).unwrap();
+        synth.sender.send(amp as f32).unwrap();
     }
 }
 
@@ -199,7 +221,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
             model
                 .stream
                 .send(move |synth| {
-                    synth.voice.0.lphp.wave.mtx().on();
+                    // synth.voice.0.lphp.wave.mtx().on();
                 })
                 .unwrap();
         }
@@ -216,19 +238,58 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                     .stream
                     .send(move |synth| {
                         let step = message[1];
-                        let hz = hz_from_step(step as f32);
-                        synth.voice.set_hz(hz as f64);
-                        synth.voice.0.lphp.wave.mtx().on();
+                        let hz = hz_from_step(step as f32) as Real;
+                        if let Some(v) = synth.voice.nodes[2]
+                            .module
+                            .lock()
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<SquareOsc>()
+                        {
+                            v.hz = fix(hz);
+                        }
+                        if let Some(v) = synth.voice.nodes[3]
+                            .module
+                            .lock()
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<SineOsc>()
+                        {
+                            v.hz = fix(hz);
+                        }
+                        if let Some(v) = synth.voice.nodes[4]
+                            .module
+                            .lock()
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<SawOsc>()
+                        {
+                            v.hz = fix(hz);
+                        }
+                        if let Some(v) = synth.voice.nodes[9]
+                            .module
+                            .lock()
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<SustainSynth>()
+                        {
+                            v.triggered = true;
+                        }
                     })
                     .unwrap();
             } else if message[0] == 128 {
                 model
                     .stream
                     .send(move |synth| {
-                        let step = message[1];
-                        let hz = hz_from_step(step as f32);
-                        synth.voice.set_hz(hz as f64);
-                        synth.voice.0.lphp.wave.mtx().off();
+                        if let Some(v) = synth.voice.nodes[9]
+                            .module
+                            .lock()
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<SustainSynth>()
+                        {
+                            v.triggered = false;
+                        }
                     })
                     .unwrap();
             }
@@ -277,7 +338,17 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model.knob = value;
         model
             .stream
-            .send(move |synth| synth.voice.set_knob(value))
+            .send(move |synth| {
+                if let Some(v) = synth.voice.nodes[7]
+                    .module
+                    .lock()
+                    .unwrap()
+                    .as_any_mut()
+                    .downcast_mut::<Lerp3>()
+                {
+                    v.knob = fix(value);
+                }
+            })
             .unwrap();
     }
 
@@ -291,7 +362,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_ratio(value);
+                // synth.voice.set_ratio(value);
             })
             .unwrap();
     }
@@ -305,7 +376,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_mod_idx(value);
+                // synth.voice.set_mod_idx(value);
             })
             .unwrap();
     }
@@ -320,10 +391,28 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .stream
             .send(move |synth| {
                 if value < 1.0 {
-                    synth.voice.0.lphp.off = true;
+                    if let Some(v) = synth.voice.nodes[9]
+                        .module
+                        .lock()
+                        .unwrap()
+                        .as_any_mut()
+                        .downcast_mut::<BiquadFilter>()
+                    {
+                        v.off = true;
+                    }
                 } else {
-                    synth.voice.0.lphp.off = false;
-                    synth.voice.set_cutoff(value);
+                    if let Some(v) = synth.voice.nodes[9]
+                        .module
+                        .lock()
+                        .unwrap()
+                        .as_any_mut()
+                        .downcast_mut::<BiquadFilter>()
+                    {
+                        v.off = false;
+                        // v.cutoff = fix(value);
+                    }
+                    // synth.voice.0.lphp.off = fals;
+                    // synth.voice.set_cutoff(value);
                 }
             })
             .unwrap();
@@ -338,7 +427,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_q(value);
+                // synth.voice.set_q(value);
             })
             .unwrap();
     }
@@ -348,12 +437,12 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         .label(format!("Filter Knob: {:.2}", model.t).as_str())
         .set(model.ids.t, ui)
     {
-        let value = value as f64;
+        let value = value as Real;
         model.t = value;
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_t(value);
+                // synth.voice.set_t(value);
             })
             .unwrap();
     }
@@ -367,7 +456,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_attack(value);
+                // synth.voice.set_attack(value);
             })
             .unwrap();
     }
@@ -381,7 +470,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_decay(value);
+                // synth.voice.set_decay(value);
             })
             .unwrap();
     }
@@ -395,7 +484,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_sustain_level(value);
+                // synth.voice.set_sustain_level(value);
             })
             .unwrap();
     }
@@ -409,7 +498,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_release(value);
+                // synth.voice.set_release(value);
             })
             .unwrap();
     }
