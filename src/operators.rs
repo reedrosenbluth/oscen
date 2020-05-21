@@ -153,17 +153,17 @@ pub struct Modulator {
 }
 
 impl Modulator {
-    pub fn new(wave: Tag, base_hz: Real, mod_hz: Real) -> Self {
+    pub fn new(wave: Tag, base_hz: Real, mod_hz: Real, mod_idx: Real) -> Self {
         Modulator {
             wave,
             base_hz: fix(base_hz),
             mod_hz: fix(mod_hz),
-            mod_idx: fix(1.0),
+            mod_idx: fix(mod_idx),
         }
     }
 
-    pub fn wrapped(wave: Tag, base_hz: Real, mod_hz: Real) -> ArcMutex<Self> {
-        arc(Modulator::new(wave, base_hz, mod_hz))
+    pub fn wrapped(wave: Tag, base_hz: Real, mod_hz: Real, mod_idx: Real) -> ArcMutex<Self> {
+        arc(Modulator::new(wave, base_hz, mod_hz, mod_idx))
     }
 }
 
@@ -177,5 +177,41 @@ impl Signal for Modulator {
         let mod_idx = In::val(graph, self.mod_idx);
         let base_hz = In::val(graph, self.base_hz);
         base_hz + mod_idx * mod_hz * graph.output(self.wave)
+    }
+}
+
+pub fn set_mod_hz(graph: &Graph, n: Tag, hz: Real) {
+    if let Some(v) = graph.nodes[n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<Modulator>()
+    {
+        v.mod_hz = fix(hz);
+    }
+}
+
+pub fn set_mod_idx(graph: &Graph, n: Tag, idx: Real) {
+    if let Some(v) = graph.nodes[n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<Modulator>()
+    {
+        v.mod_idx = fix(idx);
+    }
+}
+
+pub fn set_base_hz(graph: &Graph, n: Tag, hz: Real) {
+    if let Some(v) = graph.nodes[n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<Modulator>()
+    {
+        v.base_hz = fix(hz);
     }
 }

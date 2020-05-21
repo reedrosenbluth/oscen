@@ -3,17 +3,18 @@ mod midi;
 use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
-use nannou::prelude::*;
-use nannou::ui::prelude::*;
+use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
 use std::thread;
-use swell::envelopes::*;
-use swell::filters::*;
-use swell::graph::*;
-use swell::operators::*;
-use swell::oscillators::*;
+use swell::envelopes::{
+    off, on, set_attack, set_decay, set_release, set_sustain_level, SustainSynth,
+};
+use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
+use swell::graph::{arc, fix, var, Graph, Real};
+use swell::operators::{set_base_hz, set_knob, set_mod_idx, Lerp, Lerp3, Modulator};
+use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc};
 
 use midi::listen_midi;
 
@@ -24,6 +25,7 @@ fn main() {
 struct Model {
     ui: Ui,
     ids: Ids,
+    hz: Real,
     knob: Real,
     ratio: Real,
     mod_idx: Real,
@@ -93,10 +95,10 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
 
     let node_0 = SineOsc::wrapped(fix(110.0));
-    let node_1 = Modulator::wrapped(0, 110., 10.);
-    let node_2 = SquareOsc::wrapped(fix(440.));
-    let node_3 = SineOsc::wrapped(fix(440.));
-    let node_4 = SawOsc::wrapped(fix(440.));
+    let node_1 = Modulator::wrapped(0, 110., 10., 8.);
+    let node_2 = SquareOsc::wrapped(var(1));
+    let node_3 = SineOsc::wrapped(var(1));
+    let node_4 = SawOsc::wrapped(var(1));
     let node_5 = Lerp::wrapped(2, 3);
     let node_6 = Lerp::wrapped(3, 4);
     let node_7 = Lerp3::wrapped(5, 6, fix(0.5));
@@ -125,6 +127,7 @@ fn model(app: &App) -> Model {
     Model {
         ui,
         ids,
+        hz: 440.,
         knob: 0.5,
         ratio: 1.0,
         mod_idx: 0.0,
@@ -160,16 +163,16 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 fn update(_app: &App, model: &mut Model, _update: Update) {
     let midi_messages: Vec<Vec<u8>> = model.midi_receiver.try_iter().collect();
     for message in midi_messages {
+        let step = message[1];
+        let hz = hz_from_step(step as f32) as Real;
+        model.hz = hz;
         if message.len() == 3 {
             if message[0] == 144 {
                 model
                     .stream
                     .send(move |synth| {
-                        let step = message[1];
-                        let hz = hz_from_step(step as f32) as Real;
-                        set_hz(&synth.voice, 2, hz);
-                        set_hz(&synth.voice, 3, hz);
-                        set_hz(&synth.voice, 4, hz);
+                        set_hz(&synth.voice, 1, hz);
+                        set_base_hz(&synth.voice, 1, hz);
                         on(&synth.voice, 9);
                     })
                     .unwrap();
@@ -237,11 +240,10 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     {
         let value = math::round::half_up(value, 0);
         model.ratio = value;
+        let hz = model.hz;
         model
             .stream
-            .send(move |synth| {
-                // synth.voice.set_ratio(value);
-            })
+            .send(move |synth| set_hz(&synth.voice, 0, hz / value))
             .unwrap();
     }
 
@@ -254,7 +256,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                // synth.voice.set_mod_idx(value);
+                set_mod_idx(&synth.voice, 1, value);
             })
             .unwrap();
     }
