@@ -223,9 +223,10 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.knob, 0., 1.)
         .top_left_with_margin(20.0)
-        .label(format!("Wave Knob: {:.2}", model.knob).as_str())
+        .label(format!("Sq  ..  Sin  ..  Saw  :    {:.1}", model.knob).as_str())
         .set(model.ids.knob, ui)
     {
+        let value = math::round::half_up(value, 1);
         model.knob = value;
         model
             .stream
@@ -233,9 +234,9 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.ratio, 1.0, 16.)
+    for value in slider(model.ratio, 1.0, 24.).skew(2.0)
         .down(20.)
-        .label(format!("Ratio: {:.2}", model.ratio).as_str())
+        .label(format!("Ratio: {:.0}", model.ratio).as_str())
         .set(model.ids.ratio, ui)
     {
         let value = math::round::half_up(value, 0);
@@ -247,11 +248,12 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.mod_idx, 0.0, 16.)
+    for value in slider(model.mod_idx, 0.0, 24.).skew(2.0)
         .down(20.)
-        .label(format!("Modulation Index: {:.2}", model.mod_idx).as_str())
+        .label(format!("Modulation Index: {:.0}", model.mod_idx).as_str())
         .set(model.ids.mod_idx, ui)
     {
+        let value = math::round::half_up(value, 0);
         model.mod_idx = value;
         model
             .stream
@@ -261,11 +263,12 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.cutoff, 0.0, 2400.0)
+    for value in slider(model.cutoff, 0.0, 2400.0).skew(3.0)
         .down(20.)
-        .label(format!("Filter Cutoff: {:.1}", model.cutoff).as_str())
+        .label(format!("Filter Cutoff: {:.0}", model.cutoff).as_str())
         .set(model.ids.cutoff, ui)
     {
+        let value = math::round::half_up(value, -1);
         model.cutoff = value;
         let q = model.q;
         let t = model.t;
@@ -282,7 +285,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.q, 0.7071, 10.0)
+    for value in slider(model.q, 0.7071, 10.0).skew(2.0)
         .down(20.)
         .label(format!("Filter Q: {:.3}", model.q).as_str())
         .set(model.ids.q, ui)
@@ -298,12 +301,12 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.t as f32, 0.0, 1.0)
+    for value in slider(model.t, 0.0, 1.0)
         .down(20.)
         .label(format!("Filter Knob: {:.2}", model.t).as_str())
         .set(model.ids.t, ui)
     {
-        let value = value as Real;
+        let value = value;
         model.t = value;
         let cutoff = model.cutoff;
         let q = model.q;

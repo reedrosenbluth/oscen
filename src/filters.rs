@@ -142,6 +142,7 @@ impl Signal for BiquadFilter {
 }
 
 pub fn biquad_on(graph: &Graph, n: Tag) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
@@ -154,6 +155,7 @@ pub fn biquad_on(graph: &Graph, n: Tag) {
 }
 
 pub fn biquad_off(graph: &Graph, n: Tag) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
@@ -166,6 +168,7 @@ pub fn biquad_off(graph: &Graph, n: Tag) {
 }
 
 pub fn set_lphpf(graph: &Graph, n: Tag, cutoff: Real, q: Real, t: Real) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()

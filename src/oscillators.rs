@@ -146,6 +146,7 @@ impl Signal for SquareOsc {
 }
 
 pub fn set_hz(graph: &Graph, n: Tag, hz: Real) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()

@@ -74,6 +74,7 @@ impl Signal for SustainSynth {
     }
 }
 pub fn set_attack(graph: &Graph, n: Tag, a: Real) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
@@ -86,6 +87,7 @@ pub fn set_attack(graph: &Graph, n: Tag, a: Real) {
 }
 
 pub fn set_decay(graph: &Graph, n: Tag, d: Real) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
@@ -98,6 +100,7 @@ pub fn set_decay(graph: &Graph, n: Tag, d: Real) {
 }
 
 pub fn set_release(graph: &Graph, n: Tag, r: Real) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
@@ -110,6 +113,7 @@ pub fn set_release(graph: &Graph, n: Tag, r: Real) {
 }
 
 pub fn set_sustain_level(graph: &Graph, n: Tag, s: Real) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
@@ -122,6 +126,7 @@ pub fn set_sustain_level(graph: &Graph, n: Tag, s: Real) {
 }
 
 pub fn on(graph: &Graph, n: Tag) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
@@ -134,6 +139,7 @@ pub fn on(graph: &Graph, n: Tag) {
 }
 
 pub fn off(graph: &Graph, n: Tag) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()

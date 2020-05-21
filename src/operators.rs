@@ -79,6 +79,7 @@ impl Signal for Lerp {
 }
 
 pub fn set_alpha(graph: &Graph, n: Tag, a: Real) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
@@ -133,6 +134,7 @@ impl Signal for Lerp3 {
 }
 
 pub fn set_knob(graph: &Graph, n: Tag, k: Real) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
@@ -181,6 +183,7 @@ impl Signal for Modulator {
 }
 
 pub fn set_mod_hz(graph: &Graph, n: Tag, hz: Real) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
@@ -193,6 +196,7 @@ pub fn set_mod_hz(graph: &Graph, n: Tag, hz: Real) {
 }
 
 pub fn set_mod_idx(graph: &Graph, n: Tag, idx: Real) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
@@ -205,6 +209,7 @@ pub fn set_mod_idx(graph: &Graph, n: Tag, idx: Real) {
 }
 
 pub fn set_base_hz(graph: &Graph, n: Tag, hz: Real) {
+    assert!(n < graph.nodes.len());
     if let Some(v) = graph.nodes[n]
         .module
         .lock()
