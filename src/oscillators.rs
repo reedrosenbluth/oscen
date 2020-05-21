@@ -1,4 +1,3 @@
-
 use super::graph::*;
 use math::round::floor;
 use std::any::Any;
@@ -92,46 +91,6 @@ impl Signal for SawOsc {
         }
     }
 }
-/// An oscillator used to modulate parameters that take values between 0 and 1,
-/// based on a sinusoid.
-pub struct Osc01 {
-    pub hz: In,
-    pub phase: In,
-}
-
-impl Osc01 {
-    pub fn new(hz: In) -> Self {
-        Osc01 {
-            hz,
-            phase: fix(0.0),
-        }
-    }
-
-    pub fn wrapped(hz: In) -> ArcMutex<Self> {
-        arc(Osc01::new(hz))
-    }
-}
-
-impl Signal for Osc01 {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let phase = In::val(graph, self.phase);
-        self.phase = match &self.phase {
-            In::Fixed(p) => {
-                let mut ph = p + hz / sample_rate;
-                ph %= sample_rate;
-                fix(ph)
-            }
-            In::Var(x) => In::Var(*x),
-        };
-        0.5 * ((TAU * phase).sin() + 1.0)
-    }
-}
-
 /// Square wave oscillator with a `duty_cycle` that takes values in (0, 1).
 #[derive(Clone)]
 pub struct SquareOsc {
@@ -183,5 +142,78 @@ impl Signal for SquareOsc {
         } else {
             -amplitude
         }
+    }
+}
+
+pub fn set_hz(graph: &Graph, n: Tag, hz: Real) {
+    if let Some(v) = graph.nodes[n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<SineOsc>()
+    {
+        v.hz = fix(hz);
+        return;
+    }
+    if let Some(v) = graph.nodes[n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<SquareOsc>()
+    {
+        v.hz = fix(hz);
+        return;
+    }
+    if let Some(v) = graph.nodes[n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<SawOsc>()
+    {
+        v.hz = fix(hz);
+        return;
+    }
+}
+
+/// An oscillator used to modulate parameters that take values between 0 and 1,
+/// based on a sinusoid.
+pub struct Osc01 {
+    pub hz: In,
+    pub phase: In,
+}
+
+impl Osc01 {
+    pub fn new(hz: In) -> Self {
+        Osc01 {
+            hz,
+            phase: fix(0.0),
+        }
+    }
+
+    pub fn wrapped(hz: In) -> ArcMutex<Self> {
+        arc(Osc01::new(hz))
+    }
+}
+
+impl Signal for Osc01 {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        let hz = In::val(graph, self.hz);
+        let phase = In::val(graph, self.phase);
+        self.phase = match &self.phase {
+            In::Fixed(p) => {
+                let mut ph = p + hz / sample_rate;
+                ph %= sample_rate;
+                fix(ph)
+            }
+            In::Var(x) => In::Var(*x),
+        };
+        0.5 * ((TAU * phase).sin() + 1.0)
     }
 }

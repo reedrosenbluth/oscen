@@ -124,13 +124,7 @@ fn model(app: &App) -> Model {
         update_interval: Duration::from_millis(1),
     });
 
-    let _window = app
-        .new_window()
-        .size(900, 520)
-        .key_pressed(key_pressed)
-        .view(view)
-        .build()
-        .unwrap();
+    let _window = app.new_window().size(900, 520).view(view).build().unwrap();
 
     let mut ui = app.new_ui().build().unwrap();
 
@@ -148,7 +142,7 @@ fn model(app: &App) -> Model {
     };
     let audio_host = audio::Host::new();
 
-    let node_0 = SineOsc::wrapped(fix(440.0));
+    let node_0 = SineOsc::wrapped(fix(110.0));
     let node_1 = Modulator::wrapped(0, 110., 10.);
     let node_2 = SquareOsc::wrapped(fix(440.));
     let node_3 = SineOsc::wrapped(fix(440.));
@@ -213,22 +207,6 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     }
 }
 
-fn key_pressed(_app: &App, model: &mut Model, key: Key) {
-    model.max_amp = 0.;
-    match key {
-        // Pause or unpause the audio when Space is pressed.
-        Key::Space => {
-            model
-                .stream
-                .send(move |synth| {
-                    // synth.voice.0.lphp.wave.mtx().on();
-                })
-                .unwrap();
-        }
-        _ => {}
-    }
-}
-
 fn update(_app: &App, model: &mut Model, _update: Update) {
     let midi_messages: Vec<Vec<u8>> = model.midi_receiver.try_iter().collect();
     for message in midi_messages {
@@ -239,57 +217,17 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                     .send(move |synth| {
                         let step = message[1];
                         let hz = hz_from_step(step as f32) as Real;
-                        if let Some(v) = synth.voice.nodes[2]
-                            .module
-                            .lock()
-                            .unwrap()
-                            .as_any_mut()
-                            .downcast_mut::<SquareOsc>()
-                        {
-                            v.hz = fix(hz);
-                        }
-                        if let Some(v) = synth.voice.nodes[3]
-                            .module
-                            .lock()
-                            .unwrap()
-                            .as_any_mut()
-                            .downcast_mut::<SineOsc>()
-                        {
-                            v.hz = fix(hz);
-                        }
-                        if let Some(v) = synth.voice.nodes[4]
-                            .module
-                            .lock()
-                            .unwrap()
-                            .as_any_mut()
-                            .downcast_mut::<SawOsc>()
-                        {
-                            v.hz = fix(hz);
-                        }
-                        if let Some(v) = synth.voice.nodes[9]
-                            .module
-                            .lock()
-                            .unwrap()
-                            .as_any_mut()
-                            .downcast_mut::<SustainSynth>()
-                        {
-                            v.triggered = true;
-                        }
+                        set_hz(&synth.voice, 2, hz);
+                        set_hz(&synth.voice, 3, hz);
+                        set_hz(&synth.voice, 4, hz);
+                        on(&synth.voice, 9);
                     })
                     .unwrap();
             } else if message[0] == 128 {
                 model
                     .stream
                     .send(move |synth| {
-                        if let Some(v) = synth.voice.nodes[9]
-                            .module
-                            .lock()
-                            .unwrap()
-                            .as_any_mut()
-                            .downcast_mut::<SustainSynth>()
-                        {
-                            v.triggered = false;
-                        }
+                        off(&synth.voice, 9);
                     })
                     .unwrap();
             }
@@ -338,17 +276,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model.knob = value;
         model
             .stream
-            .send(move |synth| {
-                if let Some(v) = synth.voice.nodes[7]
-                    .module
-                    .lock()
-                    .unwrap()
-                    .as_any_mut()
-                    .downcast_mut::<Lerp3>()
-                {
-                    v.knob = fix(value);
-                }
-            })
+            .send(move |synth| set_knob(&synth.voice, 7, value))
             .unwrap();
     }
 
@@ -411,8 +339,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                         v.off = false;
                         // v.cutoff = fix(value);
                     }
-                    // synth.voice.0.lphp.off = fals;
-                    // synth.voice.set_cutoff(value);
                 }
             })
             .unwrap();
@@ -456,7 +382,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                // synth.voice.set_attack(value);
+                set_attack(&synth.voice, 9, value);
             })
             .unwrap();
     }
@@ -470,7 +396,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                // synth.voice.set_decay(value);
+                set_decay(&synth.voice, 9, value);
             })
             .unwrap();
     }
@@ -484,7 +410,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                // synth.voice.set_sustain_level(value);
+                set_sustain_level(&synth.voice, 9, value);
             })
             .unwrap();
     }
@@ -498,7 +424,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                // synth.voice.set_release(value);
+                set_release(&synth.voice, 9, value);
             })
             .unwrap();
     }

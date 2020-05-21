@@ -152,6 +152,13 @@ impl Signal for Lerp3 {
     }
 }
 
+pub fn set_knob(graph: &Graph, n: Tag, k: Real) {
+    if let Some(v) = graph.nodes[n].module.lock().unwrap().as_any_mut().downcast_mut::<Lerp3>() {
+        v.knob = fix(k);
+        v.set_alphas(graph);
+    }
+}
+
 pub struct Modulator {
     pub wave: Tag,
     pub base_hz: In,
