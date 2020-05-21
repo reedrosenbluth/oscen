@@ -141,6 +141,47 @@ impl Signal for BiquadFilter {
     }
 }
 
+pub fn biquad_on(graph: &Graph, n: Tag) {
+    if let Some(v) = graph.nodes[n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<BiquadFilter>()
+    {
+        v.off = false;
+    }
+}
+
+pub fn biquad_off(graph: &Graph, n: Tag) {
+    if let Some(v) = graph.nodes[n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<BiquadFilter>()
+    {
+        v.off = true;
+    }
+}
+
+pub fn set_lphpf(graph: &Graph, n: Tag, cutoff: Real, q: Real, t: Real) {
+    if let Some(v) = graph.nodes[n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<BiquadFilter>()
+    {
+        let (b1, b2, a0, a1, a2) = lphpf(44_100., cutoff, q, t);
+        v.a0 = fix(a0);
+        v.a1 = fix(a1);
+        v.a2 = fix(a2);
+        v.b1 = fix(b1);
+        v.b2 = fix(b2);
+    }
+}
+
 pub struct Comb {
     pub wave: Tag,
     buffer: Vec<Real>,

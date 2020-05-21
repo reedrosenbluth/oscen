@@ -54,7 +54,6 @@ struct Ids {
     release: widget::Id,
 }
 
-
 struct Synth {
     // voice: Box<dyn Wave + Send>,
     voice: Graph,
@@ -266,30 +265,16 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         .set(model.ids.cutoff, ui)
     {
         model.cutoff = value;
+        let q = model.q;
+        let t = model.t;
         model
             .stream
             .send(move |synth| {
                 if value < 1.0 {
-                    if let Some(v) = synth.voice.nodes[9]
-                        .module
-                        .lock()
-                        .unwrap()
-                        .as_any_mut()
-                        .downcast_mut::<BiquadFilter>()
-                    {
-                        v.off = true;
-                    }
+                    biquad_off(&synth.voice, 8)
                 } else {
-                    if let Some(v) = synth.voice.nodes[9]
-                        .module
-                        .lock()
-                        .unwrap()
-                        .as_any_mut()
-                        .downcast_mut::<BiquadFilter>()
-                    {
-                        v.off = false;
-                        // v.cutoff = fix(value);
-                    }
+                    biquad_on(&synth.voice, 8);
+                    set_lphpf(&synth.voice, 8, value, q, t);
                 }
             })
             .unwrap();
@@ -301,10 +286,12 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         .set(model.ids.q, ui)
     {
         model.q = value;
+        let cutoff = model.cutoff;
+        let t = model.t;
         model
             .stream
             .send(move |synth| {
-                // synth.voice.set_q(value);
+                set_lphpf(&synth.voice, 8, cutoff, value, t);
             })
             .unwrap();
     }
@@ -316,10 +303,12 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
     {
         let value = value as Real;
         model.t = value;
+        let cutoff = model.cutoff;
+        let q = model.q;
         model
             .stream
             .send(move |synth| {
-                // synth.voice.set_t(value);
+                set_lphpf(&synth.voice, 8, cutoff, q, value);
             })
             .unwrap();
     }
