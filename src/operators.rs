@@ -78,6 +78,18 @@ impl Signal for Lerp {
     }
 }
 
+pub fn set_alpha(graph: &Graph, n: Tag, a: Real) {
+    if let Some(v) = graph.nodes[n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<Lerp>()
+    {
+        v.alpha = fix(a)
+    }
+}
+
 pub struct Lerp3 {
     pub lerp1: Tag,
     pub lerp2: Tag,
@@ -96,43 +108,11 @@ impl Lerp3 {
     pub fn set_alphas(&mut self, graph: &Graph) {
         let knob = In::val(graph, self.knob);
         if In::val(graph, self.knob) <= 0.5 {
-            if let Some(a) = graph.nodes[self.lerp1]
-                .module
-                .lock()
-                .unwrap()
-                .as_any_mut()
-                .downcast_mut::<Lerp>()
-            {
-                a.alpha = fix(2.0 * knob);
-            }
-            if let Some(a) = graph.nodes[self.lerp2]
-                .module
-                .lock()
-                .unwrap()
-                .as_any_mut()
-                .downcast_mut::<Lerp>()
-            {
-                a.alpha = fix(0.0);
-            }
+            set_alpha(&graph, self.lerp1, 2.0 * knob);
+            set_alpha(&graph, self.lerp2, 0.0);
         } else {
-            if let Some(a) = graph.nodes[self.lerp1]
-                .module
-                .lock()
-                .unwrap()
-                .as_any_mut()
-                .downcast_mut::<Lerp>()
-            {
-                a.alpha = fix(0.0);
-            }
-            if let Some(a) = graph.nodes[self.lerp2]
-                .module
-                .lock()
-                .unwrap()
-                .as_any_mut()
-                .downcast_mut::<Lerp>()
-            {
-                a.alpha = fix(2.0 * (knob - 0.5));
-            }
+            set_alpha(&graph, self.lerp1, 0.0);
+            set_alpha(&graph, self.lerp2, 2.0 * (knob - 0.5));
         }
     }
 }
@@ -153,7 +133,13 @@ impl Signal for Lerp3 {
 }
 
 pub fn set_knob(graph: &Graph, n: Tag, k: Real) {
-    if let Some(v) = graph.nodes[n].module.lock().unwrap().as_any_mut().downcast_mut::<Lerp3>() {
+    if let Some(v) = graph.nodes[n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<Lerp3>()
+    {
         v.knob = fix(k);
         v.set_alphas(graph);
     }
