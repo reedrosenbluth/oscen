@@ -185,6 +185,8 @@ pub fn set_lphpf(graph: &Graph, n: Tag, cutoff: Real, q: Real, t: Real) {
     }
 }
 
+/// Lowpass-Feedback Comb Filter
+/// https://ccrma.stanford.edu/~jos/pasp/Lowpass_Feedback_Comb_Filter.html
 pub struct Comb {
     pub wave: Tag,
     buffer: Vec<Real>,

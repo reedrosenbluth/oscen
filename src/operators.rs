@@ -149,7 +149,7 @@ pub fn set_knob(graph: &Graph, n: Tag, k: Real) {
 }
 
 pub struct Modulator {
-    pub wave: Tag,
+    pub wave: In,
     pub base_hz: In,
     pub mod_hz: In,
     pub mod_idx: In,
@@ -158,7 +158,7 @@ pub struct Modulator {
 impl Modulator {
     pub fn new(wave: Tag, base_hz: Real, mod_hz: Real, mod_idx: Real) -> Self {
         Modulator {
-            wave,
+            wave: var(wave),
             base_hz: fix(base_hz),
             mod_hz: fix(mod_hz),
             mod_idx: fix(mod_idx),
@@ -179,7 +179,7 @@ impl Signal for Modulator {
         let mod_hz = In::val(graph, self.mod_hz);
         let mod_idx = In::val(graph, self.mod_idx);
         let base_hz = In::val(graph, self.base_hz);
-        base_hz + mod_idx * mod_hz * graph.output(self.wave)
+        base_hz + mod_idx * mod_hz *  In::val(graph, self.wave)
     }
 }
 
@@ -188,6 +188,7 @@ impl Index<&str> for Modulator {
 
     fn index(&self, index: &str) -> &Self::Output {
         match index {
+            "wave" => &self.wave,
             "base_hz" => &self.base_hz,
             "mod_hz" => &self.mod_hz,
             "mod_idx" => &self.mod_idx,
@@ -199,6 +200,7 @@ impl Index<&str> for Modulator {
 impl IndexMut<&str> for Modulator {
     fn index_mut(&mut self, index: &str) -> &mut Self::Output {
         match index {
+            "wave" => &mut self.wave,
             "base_hz" => &mut self.base_hz,
             "mod_hz" => &mut self.mod_hz,
             "mod_idx" => &mut self.mod_idx,
