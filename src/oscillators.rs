@@ -1,6 +1,7 @@
 use super::graph::*;
 use math::round::floor;
 use std::any::Any;
+use std::ops::{Index, IndexMut};
 
 /// A basic sine oscillator.
 #[derive(Clone)]
@@ -22,6 +23,7 @@ impl SineOsc {
     pub fn wrapped(hz: In) -> ArcMutex<Self> {
         arc(SineOsc::new(hz))
     }
+
 }
 
 impl Signal for SineOsc {
@@ -42,6 +44,45 @@ impl Signal for SineOsc {
             In::Var(x) => In::Var(*x),
         };
         amplitude * (TAU * phase).sin()
+    }
+}
+
+impl Index<&str> for SineOsc {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "hz" => &self.hz,
+            "amp" => &self.amplitude,
+            "phase" => &self.phase,
+            _ => panic!("SineOsc only does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for SineOsc {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "hz" => &mut self.hz,
+            "amp" => &mut self.amplitude,
+            "phase" => &mut self.phase,
+            _ => panic!("SineOsc only does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for SineOsc {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        assert!(n < graph.nodes.len());
+        if let Some(v) = graph.nodes[n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
     }
 }
 
@@ -88,6 +129,45 @@ impl Signal for SawOsc {
             0.0
         } else {
             amplitude * 2.0 * s
+        }
+    }
+}
+
+impl Index<&str> for SawOsc {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "hz" => &self.hz,
+            "amp" => &self.amplitude,
+            "phase" => &self.phase,
+            _ => panic!("SawOsc only does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for SawOsc {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "hz" => &mut self.hz,
+            "amp" => &mut self.amplitude,
+            "phase" => &mut self.phase,
+            _ => panic!("SawOsc only does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for SawOsc {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        assert!(n < graph.nodes.len());
+        if let Some(v) = graph.nodes[n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
         }
     }
 }
@@ -145,40 +225,44 @@ impl Signal for SquareOsc {
     }
 }
 
-pub fn set_hz(graph: &Graph, n: Tag, hz: Real) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<SineOsc>()
-    {
-        v.hz = fix(hz);
-        return;
-    }
-    if let Some(v) = graph.nodes[n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<SquareOsc>()
-    {
-        v.hz = fix(hz);
-        return;
-    }
-    if let Some(v) = graph.nodes[n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<SawOsc>()
-    {
-        v.hz = fix(hz);
-        return;
+impl Index<&str> for SquareOsc {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "hz" => &self.hz,
+            "amp" => &self.amplitude,
+            "phase" => &self.phase,
+            _ => panic!("SquareOsc only does not have a field named:  {}", index),
+        }
     }
 }
 
+impl IndexMut<&str> for SquareOsc {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "hz" => &mut self.hz,
+            "amp" => &mut self.amplitude,
+            "phase" => &mut self.phase,
+            _ => panic!("SquareOsc only does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for SquareOsc {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        assert!(n < graph.nodes.len());
+        if let Some(v) = graph.nodes[n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
+    }
+}
 /// An oscillator used to modulate parameters that take values between 0 and 1,
 /// based on a sinusoid.
 pub struct Osc01 {
@@ -217,4 +301,49 @@ impl Signal for Osc01 {
         };
         0.5 * ((TAU * phase).sin() + 1.0)
     }
+}
+
+impl Index<&str> for Osc01 {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "hz" => &self.hz,
+            "phase" => &self.phase,
+            _ => panic!("Osc01 only does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Osc01 {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "hz" => &mut self.hz,
+            "phase" => &mut self.phase,
+            _ => panic!("Osc01 only does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for Osc01 {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        assert!(n < graph.nodes.len());
+        if let Some(v) = graph.nodes[n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
+    }
+}
+
+pub fn set_hz(graph: &Graph, n: Tag, hz: Real) {
+    assert!(n < graph.nodes.len());
+    SineOsc::set(graph, n, "hz", hz);
+    SawOsc::set(graph, n, "hz", hz);
+    SquareOsc::set(graph, n, "hz", hz);
+    Osc01::set(graph, n, "hz", hz);
 }

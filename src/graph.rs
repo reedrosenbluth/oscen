@@ -1,6 +1,7 @@
 use std::{
     any::Any,
     f64::consts::PI,
+    ops::IndexMut,
     sync::{Arc, Mutex},
 };
 
@@ -139,4 +140,8 @@ impl Graph {
         }
         self.nodes[self.out_tag()].output
     }
+}
+
+pub trait Set<'a>: IndexMut<&'a str> {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real); 
 }
