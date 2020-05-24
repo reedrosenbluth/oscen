@@ -1,5 +1,6 @@
 use super::graph::*;
 use std::any::Any;
+use std::ops::{Index, IndexMut};
 
 pub struct Product {
     pub waves: Vec<Tag>,
@@ -179,6 +180,45 @@ impl Signal for Modulator {
         let mod_idx = In::val(graph, self.mod_idx);
         let base_hz = In::val(graph, self.base_hz);
         base_hz + mod_idx * mod_hz * graph.output(self.wave)
+    }
+}
+
+impl Index<&str> for Modulator {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "base_hz" => &self.base_hz,
+            "mod_hz" => &self.mod_hz,
+            "mod_idx" => &self.mod_idx,
+            _ => panic!("Modulator only does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Modulator {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "base_hz" => &mut self.base_hz,
+            "mod_hz" => &mut self.mod_hz,
+            "mod_idx" => &mut self.mod_idx,
+            _ => panic!("Modulator only does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for Modulator {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        assert!(n < graph.nodes.len());
+        if let Some(v) = graph.nodes[n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
     }
 }
 
