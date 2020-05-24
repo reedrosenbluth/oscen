@@ -18,7 +18,3 @@ pitch_calc = "0.12.0"
 crossbeam = "0.7.3"
 libmath = "0.2.1"
 rand = "0.7"
-
-[[example]]
-name = "wavetypes"
-path = "examples/wavetypes.rs"

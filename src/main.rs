@@ -1,17 +1,22 @@
+mod midi;
+
 use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
-use midir::{Ignore, MidiInput};
-use nannou::prelude::*;
-use nannou::ui::prelude::*;
+use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
-use std::error::Error;
-use std::io::{stdin, stdout, Write};
 use std::thread;
-use swell::dsp::*;
-use swell::shaper::*;
+use swell::envelopes::{
+    off, on, set_attack, set_decay, set_release, set_sustain_level, SustainSynth,
+};
+use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
+use swell::graph::{arc, fix, var, Graph, Real};
+use swell::operators::{set_base_hz, set_knob, set_mod_idx, Lerp, Lerp3, Modulator};
+use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc};
+
+use midi::listen_midi;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -20,16 +25,17 @@ fn main() {
 struct Model {
     ui: Ui,
     ids: Ids,
-    knob: Amp,
-    ratio: Hz,
-    mod_idx: Phase,
-    cutoff: Hz,
-    q: f64,
-    t: f64,
-    attack: Amp,
-    decay: Amp,
-    sustain_level: Amp,
-    release: Amp,
+    hz: Real,
+    knob: Real,
+    ratio: Real,
+    mod_idx: Real,
+    cutoff: Real,
+    q: Real,
+    t: Real,
+    attack: Real,
+    decay: Real,
+    sustain_level: Real,
+    release: Real,
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     midi_receiver: Receiver<Vec<u8>>,
@@ -50,60 +56,9 @@ struct Ids {
     release: widget::Id,
 }
 
-fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
-    let mut input = String::new();
-    let mut midi_in = MidiInput::new("midir reading input")?;
-    midi_in.ignore(Ignore::None);
-
-    // Get an input port (read from console if multiple are available)
-    let in_ports = midi_in.port_count();
-    let in_port = match in_ports {
-        0 => return Err("no input port found".into()),
-        1 => {
-            println!(
-                "Choosing the only available input port: {}",
-                midi_in.port_name(0).unwrap()
-            );
-            0
-        }
-        _ => {
-            println!("\nAvailable input ports:");
-            for i in 0..in_ports {
-                println!("{}: {}", i, midi_in.port_name(i).unwrap());
-            }
-            print!("Please select input port: ");
-            stdout().flush()?;
-            let mut input = String::new();
-            stdin().read_line(&mut input)?;
-            input.trim().parse::<usize>()?
-        }
-    };
-
-    println!("\nOpening connection");
-
-    // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
-    let _conn_in = midi_in.connect(
-        in_port,
-        "midir-read-input",
-        move |_, message, _| {
-            // println!("{}: {:?} (len = {})", stamp, message, message.len());
-            midi_sender.send(message.to_vec()).unwrap();
-        },
-        (),
-    )?;
-
-    // println!("Connection open, reading input from '{}' (press enter to exit) ...", in_port_name);
-
-    input.clear();
-    stdin().read_line(&mut input)?; // wait for next enter key press
-
-    println!("Closing connection");
-    Ok(())
-}
-
 struct Synth {
     // voice: Box<dyn Wave + Send>,
-    voice: ShaperSynth,
+    voice: Graph,
     sender: Sender<f32>,
 }
 
@@ -121,13 +76,7 @@ fn model(app: &App) -> Model {
         update_interval: Duration::from_millis(1),
     });
 
-    let _window = app
-        .new_window()
-        .size(900, 520)
-        .key_pressed(key_pressed)
-        .view(view)
-        .build()
-        .unwrap();
+    let _window = app.new_window().size(900, 520).view(view).build().unwrap();
 
     let mut ui = app.new_ui().build().unwrap();
 
@@ -145,9 +94,28 @@ fn model(app: &App) -> Model {
     };
     let audio_host = audio::Host::new();
 
-    let mut voice = ShaperSynth::new(440., 1.0, 0.0, 0.2, 0.1, 0.8, 0.2, 0.0, 0.707, 1.0);
-    voice.set_knob(0.5);
-    voice.0.lphp.off = true;
+    let node_0 = SineOsc::wrapped(fix(110.0));
+    let node_1 = Modulator::wrapped(0, 110., 10., 8.);
+    let node_2 = SquareOsc::wrapped(var(1));
+    let node_3 = SineOsc::wrapped(var(1));
+    let node_4 = SawOsc::wrapped(var(1));
+    let node_5 = Lerp::wrapped(2, 3);
+    let node_6 = Lerp::wrapped(3, 4);
+    let node_7 = Lerp3::wrapped(5, 6, fix(0.5));
+    let node_8 = BiquadFilter::lphpf(7, 44100.0, 440., 0.707, 1.0);
+    let node_9 = SustainSynth::wrapped(8);
+    let voice = Graph::new(vec![
+        node_0,
+        node_1,
+        node_2,
+        node_3,
+        node_4,
+        node_5,
+        node_6,
+        node_7,
+        arc(node_8),
+        node_9,
+    ]);
 
     let synth = Synth { voice, sender };
     let stream = audio_host
@@ -159,6 +127,7 @@ fn model(app: &App) -> Model {
     Model {
         ui,
         ids,
+        hz: 440.,
         knob: 0.5,
         ratio: 1.0,
         mod_idx: 0.0,
@@ -180,55 +149,38 @@ fn model(app: &App) -> Model {
 // A function that renders the given `Audio` to the given `Buffer`.
 // In this case we play a simple sine wave at the audio's current frequency in `hz`.
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
-    let sample_rate = buffer.sample_rate() as f64;
+    let sample_rate = buffer.sample_rate() as Real;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
         amp += synth.voice.signal(sample_rate);
         for channel in frame {
-            *channel = amp;
+            *channel = amp as f32;
         }
-        synth.sender.send(amp).unwrap();
-    }
-}
-
-fn key_pressed(_app: &App, model: &mut Model, key: Key) {
-    model.max_amp = 0.;
-    match key {
-        // Pause or unpause the audio when Space is pressed.
-        Key::Space => {
-            model
-                .stream
-                .send(move |synth| {
-                    synth.voice.0.lphp.wave.mtx().on();
-                })
-                .unwrap();
-        }
-        _ => {}
+        synth.sender.send(amp as f32).unwrap();
     }
 }
 
 fn update(_app: &App, model: &mut Model, _update: Update) {
     let midi_messages: Vec<Vec<u8>> = model.midi_receiver.try_iter().collect();
     for message in midi_messages {
+        let step = message[1];
+        let hz = hz_from_step(step as f32) as Real;
+        model.hz = hz;
         if message.len() == 3 {
             if message[0] == 144 {
                 model
                     .stream
                     .send(move |synth| {
-                        let step = message[1];
-                        let hz = hz_from_step(step as f32);
-                        synth.voice.set_hz(hz as f64);
-                        synth.voice.0.lphp.wave.mtx().on();
+                        set_hz(&synth.voice, 1, hz);
+                        set_base_hz(&synth.voice, 1, hz);
+                        on(&synth.voice, 9);
                     })
                     .unwrap();
             } else if message[0] == 128 {
                 model
                     .stream
                     .send(move |synth| {
-                        let step = message[1];
-                        let hz = hz_from_step(step as f32);
-                        synth.voice.set_hz(hz as f64);
-                        synth.voice.0.lphp.wave.mtx().off();
+                        off(&synth.voice, 9);
                     })
                     .unwrap();
             }
@@ -271,89 +223,97 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 
     for value in slider(model.knob, 0., 1.)
         .top_left_with_margin(20.0)
-        .label(format!("Wave Knob: {:.2}", model.knob).as_str())
+        .label(format!("Sq  ..  Sin  ..  Saw  :    {:.1}", model.knob).as_str())
         .set(model.ids.knob, ui)
     {
+        let value = math::round::half_up(value, 1);
         model.knob = value;
         model
             .stream
-            .send(move |synth| synth.voice.set_knob(value))
+            .send(move |synth| set_knob(&synth.voice, 7, value))
             .unwrap();
     }
 
-    for value in slider(model.ratio, 1.0, 16.)
+    for value in slider(model.ratio, 1.0, 24.).skew(2.0)
         .down(20.)
-        .label(format!("Ratio: {:.2}", model.ratio).as_str())
+        .label(format!("Ratio: {:.0}", model.ratio).as_str())
         .set(model.ids.ratio, ui)
     {
         let value = math::round::half_up(value, 0);
         model.ratio = value;
+        let hz = model.hz;
         model
             .stream
-            .send(move |synth| {
-                synth.voice.set_ratio(value);
-            })
+            .send(move |synth| set_hz(&synth.voice, 0, hz / value))
             .unwrap();
     }
 
-    for value in slider(model.mod_idx, 0.0, 16.)
+    for value in slider(model.mod_idx, 0.0, 24.).skew(2.0)
         .down(20.)
-        .label(format!("Modulation Index: {:.2}", model.mod_idx).as_str())
+        .label(format!("Modulation Index: {:.0}", model.mod_idx).as_str())
         .set(model.ids.mod_idx, ui)
     {
+        let value = math::round::half_up(value, 0);
         model.mod_idx = value;
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_mod_idx(value);
+                set_mod_idx(&synth.voice, 1, value);
             })
             .unwrap();
     }
 
-    for value in slider(model.cutoff, 0.0, 2400.0)
+    for value in slider(model.cutoff, 0.0, 2400.0).skew(3.0)
         .down(20.)
-        .label(format!("Filter Cutoff: {:.1}", model.cutoff).as_str())
+        .label(format!("Filter Cutoff: {:.0}", model.cutoff).as_str())
         .set(model.ids.cutoff, ui)
     {
+        let value = math::round::half_up(value, -1);
         model.cutoff = value;
+        let q = model.q;
+        let t = model.t;
         model
             .stream
             .send(move |synth| {
                 if value < 1.0 {
-                    synth.voice.0.lphp.off = true;
+                    biquad_off(&synth.voice, 8)
                 } else {
-                    synth.voice.0.lphp.off = false;
-                    synth.voice.set_cutoff(value);
+                    biquad_on(&synth.voice, 8);
+                    set_lphpf(&synth.voice, 8, value, q, t);
                 }
             })
             .unwrap();
     }
 
-    for value in slider(model.q, 0.7071, 10.0)
+    for value in slider(model.q, 0.7071, 10.0).skew(2.0)
         .down(20.)
         .label(format!("Filter Q: {:.3}", model.q).as_str())
         .set(model.ids.q, ui)
     {
         model.q = value;
+        let cutoff = model.cutoff;
+        let t = model.t;
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_q(value);
+                set_lphpf(&synth.voice, 8, cutoff, value, t);
             })
             .unwrap();
     }
 
-    for value in slider(model.t as f32, 0.0, 1.0)
+    for value in slider(model.t, 0.0, 1.0)
         .down(20.)
         .label(format!("Filter Knob: {:.2}", model.t).as_str())
         .set(model.ids.t, ui)
     {
-        let value = value as f64;
+        let value = value;
         model.t = value;
+        let cutoff = model.cutoff;
+        let q = model.q;
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_t(value);
+                set_lphpf(&synth.voice, 8, cutoff, q, value);
             })
             .unwrap();
     }
@@ -367,7 +327,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_attack(value);
+                set_attack(&synth.voice, 9, value);
             })
             .unwrap();
     }
@@ -381,7 +341,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_decay(value);
+                set_decay(&synth.voice, 9, value);
             })
             .unwrap();
     }
@@ -395,7 +355,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_sustain_level(value);
+                set_sustain_level(&synth.voice, 9, value);
             })
             .unwrap();
     }
@@ -409,7 +369,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                synth.voice.set_release(value);
+                set_release(&synth.voice, 9, value);
             })
             .unwrap();
     }
