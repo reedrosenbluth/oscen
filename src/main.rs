@@ -12,8 +12,8 @@ use swell::envelopes::{
     off, on, set_attack, set_decay, set_release, set_sustain_level, SustainSynth,
 };
 use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
-use swell::graph::{arc, fix, var, Graph, Real};
-use swell::operators::{set_base_hz, set_knob, set_mod_idx, Lerp, Lerp3, Modulator};
+use swell::graph::{arc, fix, var, Graph, Real, Set};
+use swell::operators::{set_knob, Lerp, Lerp3, Modulator};
 use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc};
 
 use midi::listen_midi;
@@ -172,7 +172,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                     .stream
                     .send(move |synth| {
                         set_hz(&synth.voice, 1, hz);
-                        set_base_hz(&synth.voice, 1, hz);
+                        Modulator::set(&synth.voice, 1, "base_hz", hz);
                         on(&synth.voice, 9);
                     })
                     .unwrap();
@@ -258,7 +258,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                set_mod_idx(&synth.voice, 1, value);
+                Modulator::set(&synth.voice, 1, "mod_idx", value);
             })
             .unwrap();
     }

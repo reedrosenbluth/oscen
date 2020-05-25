@@ -143,5 +143,5 @@ impl Graph {
 }
 
 pub trait Set<'a>: IndexMut<&'a str> {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real); 
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real);
 }

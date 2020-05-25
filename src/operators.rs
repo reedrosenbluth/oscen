@@ -49,16 +49,16 @@ impl Signal for Sum {
 }
 
 pub struct Lerp {
-    wave1: Tag,
-    wave2: Tag,
+    wave1: In,
+    wave2: In,
     alpha: In,
 }
 
 impl Lerp {
     pub fn new(wave1: Tag, wave2: Tag) -> Self {
         Lerp {
-            wave1,
-            wave2,
+            wave1: var(wave1),
+            wave2: var(wave2),
             alpha: fix(0.5),
         }
     }
@@ -75,32 +75,41 @@ impl Signal for Lerp {
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let alpha = In::val(graph, self.alpha);
-        alpha * graph.output(self.wave2) + (1.0 - alpha) * graph.output(self.wave1)
+        alpha * In::val(graph, self.wave2) + (1.0 - alpha) * In::val(graph, self.wave1)
     }
 }
 
-pub fn set_alpha(graph: &Graph, n: Tag, a: Real) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<Lerp>()
-    {
-        v.alpha = fix(a)
+pub fn set_alpha(graph: &Graph, k: In, a: Real) {
+    match k {
+        In::Var(n) => {
+            assert!(n < graph.nodes.len());
+            if let Some(v) = graph.nodes[n]
+                .module
+                .lock()
+                .unwrap()
+                .as_any_mut()
+                .downcast_mut::<Lerp>()
+            {
+                v.alpha = fix(a)
+            }
+        }
+        In::Fixed(_) => panic!("Lerp wave can only be a In::Var"),
     }
 }
 
 pub struct Lerp3 {
-    pub lerp1: Tag,
-    pub lerp2: Tag,
+    pub lerp1: In,
+    pub lerp2: In,
     pub knob: In,
 }
 
 impl Lerp3 {
     pub fn new(lerp1: Tag, lerp2: Tag, knob: In) -> Self {
-        Self { lerp1, lerp2, knob }
+        Self {
+            lerp1: var(lerp1),
+            lerp2: var(lerp2),
+            knob,
+        }
     }
 
     pub fn wrapped(lerp1: Tag, lerp2: Tag, knob: In) -> ArcMutex<Self> {
@@ -127,9 +136,9 @@ impl Signal for Lerp3 {
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         self.set_alphas(graph);
         if In::val(graph, self.knob) <= 0.5 {
-            graph.output(self.lerp1)
+            In::val(graph, self.lerp1)
         } else {
-            graph.output(self.lerp2)
+            In::val(graph, self.lerp2)
         }
     }
 }
@@ -179,7 +188,7 @@ impl Signal for Modulator {
         let mod_hz = In::val(graph, self.mod_hz);
         let mod_idx = In::val(graph, self.mod_idx);
         let base_hz = In::val(graph, self.base_hz);
-        base_hz + mod_idx * mod_hz *  In::val(graph, self.wave)
+        base_hz + mod_idx * mod_hz * In::val(graph, self.wave)
     }
 }
 
@@ -221,44 +230,5 @@ impl<'a> Set<'a> for Modulator {
         {
             v[field] = fix(value);
         }
-    }
-}
-
-pub fn set_mod_hz(graph: &Graph, n: Tag, hz: Real) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<Modulator>()
-    {
-        v.mod_hz = fix(hz);
-    }
-}
-
-pub fn set_mod_idx(graph: &Graph, n: Tag, idx: Real) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<Modulator>()
-    {
-        v.mod_idx = fix(idx);
-    }
-}
-
-pub fn set_base_hz(graph: &Graph, n: Tag, hz: Real) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<Modulator>()
-    {
-        v.base_hz = fix(hz);
     }
 }
