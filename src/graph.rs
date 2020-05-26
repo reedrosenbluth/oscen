@@ -28,32 +28,32 @@ pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
     Arc::new(Mutex::new(x))
 }
 
-/// Inputs to synth modules can either be constant (`Fixed`) or modulated by
-/// another signal (`Var`).
+/// Inputs to synth modules can either be constant (`Fixed`) or a control voltage
+/// from another synth module (`Cv`).
 #[derive(Copy, Clone)]
 pub enum In {
-    Var(Tag),
-    Fixed(Real),
+    Cv(Tag),
+    Fix(Real),
 }
 
 impl In {
     /// Get the signal value. Look it up in the graph if it is `Var`.
     pub fn val(graph: &Graph, inp: In) -> Real {
         match inp {
-            In::Fixed(x) => x,
-            In::Var(n) => graph.output(n),
+            In::Fix(x) => x,
+            In::Cv(n) => graph.output(n),
         }
     }
 }
 
 /// Create a modulateable input.
-pub fn var(n: Tag) -> In {
-    In::Var(n)
+pub fn cv(n: Tag) -> In {
+    In::Cv(n)
 }
 
 /// Create a constant input.
 pub fn fix(x: Real) -> In {
-    In::Fixed(x)
+    In::Fix(x)
 }
 
 /// Nodes for the graph will have both a synth module (i.e an implentor of
@@ -142,6 +142,7 @@ impl Graph {
     }
 }
 
+//TODO: return Result struct indicating success or failure
 pub trait Set<'a>: IndexMut<&'a str> {
     fn set(graph: &Graph, n: Tag, field: &str, value: Real);
 }

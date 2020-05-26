@@ -1,7 +1,7 @@
-use midir::{Ignore, MidiInput};
-use std::io::{stdin, stdout, Write};
-use std::error::Error;
 use crossbeam::crossbeam_channel::Sender;
+use midir::{Ignore, MidiInput};
+use std::error::Error;
+use std::io::{stdin, stdout, Write};
 
 pub fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     let mut input = String::new();

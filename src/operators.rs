@@ -25,21 +25,21 @@ impl Signal for Product {
     }
 }
 
-pub struct Sum {
+pub struct Mixer {
     pub waves: Vec<Tag>,
 }
 
-impl Sum {
+impl Mixer {
     pub fn new(waves: Vec<Tag>) -> Self {
-        Sum { waves }
+        Mixer { waves }
     }
 
     pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
-        arc(Sum::new(waves))
+        arc(Mixer::new(waves))
     }
 }
 
-impl Signal for Sum {
+impl Signal for Mixer {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -57,8 +57,8 @@ pub struct Lerp {
 impl Lerp {
     pub fn new(wave1: Tag, wave2: Tag) -> Self {
         Lerp {
-            wave1: var(wave1),
-            wave2: var(wave2),
+            wave1: cv(wave1),
+            wave2: cv(wave2),
             alpha: fix(0.5),
         }
     }
@@ -81,7 +81,7 @@ impl Signal for Lerp {
 
 pub fn set_alpha(graph: &Graph, k: In, a: Real) {
     match k {
-        In::Var(n) => {
+        In::Cv(n) => {
             assert!(n < graph.nodes.len());
             if let Some(v) = graph.nodes[n]
                 .module
@@ -93,7 +93,7 @@ pub fn set_alpha(graph: &Graph, k: In, a: Real) {
                 v.alpha = fix(a)
             }
         }
-        In::Fixed(_) => panic!("Lerp wave can only be a In::Var"),
+        In::Fix(_) => panic!("Lerp wave can only be a In::Var"),
     }
 }
 
@@ -106,8 +106,8 @@ pub struct Lerp3 {
 impl Lerp3 {
     pub fn new(lerp1: Tag, lerp2: Tag, knob: In) -> Self {
         Self {
-            lerp1: var(lerp1),
-            lerp2: var(lerp2),
+            lerp1: cv(lerp1),
+            lerp2: cv(lerp2),
             knob,
         }
     }
@@ -167,7 +167,7 @@ pub struct Modulator {
 impl Modulator {
     pub fn new(wave: Tag, base_hz: Real, mod_hz: Real, mod_idx: Real) -> Self {
         Modulator {
-            wave: var(wave),
+            wave: cv(wave),
             base_hz: fix(base_hz),
             mod_hz: fix(mod_hz),
             mod_idx: fix(mod_idx),
