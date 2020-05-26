@@ -31,7 +31,7 @@ impl Signal for MidiPitch {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        In::val(graph, &self.hz)
+        In::val(graph, self.hz)
     }
 }
 
@@ -101,9 +101,9 @@ impl Signal for SineOsc {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, &self.hz);
-        let amplitude = In::val(graph, &self.amplitude);
-        let phase = In::val(graph, &self.phase);
+        let hz = In::val(graph, self.hz);
+        let amplitude = In::val(graph, self.amplitude);
+        let phase = In::val(graph, self.phase);
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
@@ -124,7 +124,7 @@ impl Index<&str> for SineOsc {
             "hz" => &self.hz,
             "amp" => &self.amplitude,
             "phase" => &self.phase,
-            _ => panic!("SineOsc only does not have a field named:  {}", index),
+            _ => panic!("SineOsc does not have a field named:  {}", index),
         }
     }
 }
@@ -135,7 +135,7 @@ impl IndexMut<&str> for SineOsc {
             "hz" => &mut self.hz,
             "amp" => &mut self.amplitude,
             "phase" => &mut self.phase,
-            _ => panic!("SineOsc only does not have a field named:  {}", index),
+            _ => panic!("SineOsc does not have a field named:  {}", index),
         }
     }
 }
@@ -184,9 +184,9 @@ impl Signal for SawOsc {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, &self.hz);
-        let amplitude = In::val(graph, &self.amplitude);
-        let phase = In::val(graph, &self.phase);
+        let hz = In::val(graph, self.hz);
+        let amplitude = In::val(graph, self.amplitude);
+        let phase = In::val(graph, self.phase);
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
@@ -213,7 +213,7 @@ impl Index<&str> for SawOsc {
             "hz" => &self.hz,
             "amp" => &self.amplitude,
             "phase" => &self.phase,
-            _ => panic!("SawOsc only does not have a field named:  {}", index),
+            _ => panic!("SawOsc does not have a field named:  {}", index),
         }
     }
 }
@@ -224,7 +224,7 @@ impl IndexMut<&str> for SawOsc {
             "hz" => &mut self.hz,
             "amp" => &mut self.amplitude,
             "phase" => &mut self.phase,
-            _ => panic!("SawOsc only does not have a field named:  {}", index),
+            _ => panic!("SawOsc does not have a field named:  {}", index),
         }
     }
 }
@@ -273,9 +273,9 @@ impl Signal for TriangleOsc {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, &self.hz);
-        let amplitude = In::val(graph, &self.amplitude);
-        let phase = In::val(graph, &self.phase);
+        let hz = In::val(graph, self.hz);
+        let amplitude = In::val(graph, self.amplitude);
+        let phase = In::val(graph, self.phase);
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
@@ -298,7 +298,7 @@ impl Index<&str> for TriangleOsc {
             "hz" => &self.hz,
             "amp" => &self.amplitude,
             "phase" => &self.phase,
-            _ => panic!("TriangleOsc only does not have a field named:  {}", index),
+            _ => panic!("TriangleOsc does not have a field named:  {}", index),
         }
     }
 }
@@ -309,7 +309,7 @@ impl IndexMut<&str> for TriangleOsc {
             "hz" => &mut self.hz,
             "amp" => &mut self.amplitude,
             "phase" => &mut self.phase,
-            _ => panic!("TriangleOsc only does not have a field named:  {}", index),
+            _ => panic!("TriangleOsc does not have a field named:  {}", index),
         }
     }
 }
@@ -362,9 +362,9 @@ impl Signal for SquareOsc {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, &self.hz);
-        let amplitude = In::val(graph, &self.amplitude);
-        let phase = In::val(graph, &self.phase);
+        let hz = In::val(graph, self.hz);
+        let amplitude = In::val(graph, self.amplitude);
+        let phase = In::val(graph, self.phase);
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
@@ -373,7 +373,7 @@ impl Signal for SquareOsc {
             }
             In::Cv(_) => {}
         };
-        let duty_cycle = In::val(graph, &self.duty_cycle);
+        let duty_cycle = In::val(graph, self.duty_cycle);
         let t = phase - floor(phase, 0);
         if t < 0.001 {
             0.0
@@ -393,7 +393,7 @@ impl Index<&str> for SquareOsc {
             "hz" => &self.hz,
             "amp" => &self.amplitude,
             "phase" => &self.phase,
-            _ => panic!("SquareOsc only does not have a field named:  {}", index),
+            _ => panic!("SquareOsc does not have a field named:  {}", index),
         }
     }
 }
@@ -404,7 +404,7 @@ impl IndexMut<&str> for SquareOsc {
             "hz" => &mut self.hz,
             "amp" => &mut self.amplitude,
             "phase" => &mut self.phase,
-            _ => panic!("SquareOsc only does not have a field named:  {}", index),
+            _ => panic!("SquareOsc does not have a field named:  {}", index),
         }
     }
 }
@@ -447,7 +447,7 @@ impl Signal for WhiteNoise {
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let mut rng = rand::thread_rng();
-        let amplitude = In::val(graph, &self.amplitude);
+        let amplitude = In::val(graph, self.amplitude);
         self.dist.sample(&mut rng) * amplitude
     }
 }
@@ -458,7 +458,7 @@ impl Index<&str> for WhiteNoise {
     fn index(&self, index: &str) -> &Self::Output {
         match index {
             "amp" => &self.amplitude,
-            _ => panic!("WhiteNoise only does not have a field named:  {}", index),
+            _ => panic!("WhiteNoise does not have a field named:  {}", index),
         }
     }
 }
@@ -467,7 +467,7 @@ impl IndexMut<&str> for WhiteNoise {
     fn index_mut(&mut self, index: &str) -> &mut Self::Output {
         match index {
             "amp" => &mut self.amplitude,
-            _ => panic!("WhiteNoise only does not have a field named:  {}", index),
+            _ => panic!("WhiteNoise does not have a field named:  {}", index),
         }
     }
 }
@@ -515,8 +515,8 @@ impl Signal for Osc01 {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, &self.hz);
-        let phase = In::val(graph, &self.phase);
+        let hz = In::val(graph, self.hz);
+        let phase = In::val(graph, self.phase);
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
@@ -536,7 +536,7 @@ impl Index<&str> for Osc01 {
         match index {
             "hz" => &self.hz,
             "phase" => &self.phase,
-            _ => panic!("Osc01 only does not have a field named:  {}", index),
+            _ => panic!("Osc01 does not have a field named:  {}", index),
         }
     }
 }
@@ -546,7 +546,7 @@ impl IndexMut<&str> for Osc01 {
         match index {
             "hz" => &mut self.hz,
             "phase" => &mut self.phase,
-            _ => panic!("Osc01 only does not have a field named:  {}", index),
+            _ => panic!("Osc01 does not have a field named:  {}", index),
         }
     }
 }

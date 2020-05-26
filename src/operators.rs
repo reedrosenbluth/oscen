@@ -74,8 +74,8 @@ impl Signal for Lerp {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let alpha = In::val(graph, &self.alpha);
-        alpha * In::val(graph, &self.wave2) + (1.0 - alpha) * In::val(graph, &self.wave1)
+        let alpha = In::val(graph, self.alpha);
+        alpha * In::val(graph, self.wave2) + (1.0 - alpha) * In::val(graph, self.wave1)
     }
 }
 
@@ -116,8 +116,8 @@ impl Lerp3 {
     }
 
     pub fn set_alphas(&mut self, graph: &Graph) {
-        let knob = In::val(graph, &self.knob);
-        if In::val(graph, &self.knob) <= 0.5 {
+        let knob = In::val(graph, self.knob);
+        if In::val(graph, self.knob) <= 0.5 {
             set_alpha(&graph, self.lerp1, 2.0 * knob);
             set_alpha(&graph, self.lerp2, 0.0);
         } else {
@@ -134,10 +134,10 @@ impl Signal for Lerp3 {
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         self.set_alphas(graph);
-        if In::val(graph, &self.knob) <= 0.5 {
-            In::val(graph, &self.lerp1)
+        if In::val(graph, self.knob) <= 0.5 {
+            In::val(graph, self.lerp1)
         } else {
-            In::val(graph, &self.lerp2)
+            In::val(graph, self.lerp2)
         }
     }
 }
@@ -183,10 +183,10 @@ impl Signal for Modulator {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let mod_hz = In::val(graph, &self.mod_hz);
-        let mod_idx = In::val(graph, &self.mod_idx);
-        let base_hz = In::val(graph, &self.base_hz);
-        base_hz + mod_idx * mod_hz * In::val(graph, &self.wave)
+        let mod_hz = In::val(graph, self.mod_hz);
+        let mod_idx = In::val(graph, self.mod_idx);
+        let base_hz = In::val(graph, self.base_hz);
+        base_hz + mod_idx * mod_hz * In::val(graph, self.wave)
     }
 }
 

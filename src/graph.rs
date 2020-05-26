@@ -39,10 +39,10 @@ pub enum In {
 
 impl In {
     /// Get the signal value. Look it up in the graph if it is `Var`.
-    pub fn val(graph: &Graph, inp: &In) -> Real {
+    pub fn val(graph: &Graph, inp: In) -> Real {
         match inp {
-            In::Fix(x) => *x,
-            In::Cv(n) => graph.output(&n),
+            In::Fix(x) => x,
+            In::Cv(n) => graph.output(n),
         }
     }
 }

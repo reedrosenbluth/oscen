@@ -127,11 +127,11 @@ impl Signal for BiquadFilter {
         if self.off {
             return x0;
         };
-        let a0 = In::val(graph, &self.a0);
-        let a1 = In::val(graph, &self.a1);
-        let a2 = In::val(graph, &self.a2);
-        let b1 = In::val(graph, &self.b1);
-        let b2 = In::val(graph, &self.b2);
+        let a0 = In::val(graph, self.a0);
+        let a1 = In::val(graph, self.a1);
+        let a2 = In::val(graph, self.a2);
+        let b1 = In::val(graph, self.b1);
+        let b2 = In::val(graph, self.b2);
         let amp = a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x0;
