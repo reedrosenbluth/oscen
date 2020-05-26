@@ -123,15 +123,15 @@ impl Signal for BiquadFilter {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let x0 = graph.output(self.wave);
+        let x0 = graph.output(&self.wave);
         if self.off {
             return x0;
         };
-        let a0 = In::val(graph, self.a0);
-        let a1 = In::val(graph, self.a1);
-        let a2 = In::val(graph, self.a2);
-        let b1 = In::val(graph, self.b1);
-        let b2 = In::val(graph, self.b2);
+        let a0 = In::val(graph, &self.a0);
+        let a1 = In::val(graph, &self.a1);
+        let a2 = In::val(graph, &self.a2);
+        let b1 = In::val(graph, &self.b1);
+        let b2 = In::val(graph, &self.b2);
         let amp = a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x0;
@@ -142,8 +142,7 @@ impl Signal for BiquadFilter {
 }
 
 pub fn biquad_on(graph: &Graph, n: Tag) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
+    if let Some(v) = graph.nodes[&n]
         .module
         .lock()
         .unwrap()
@@ -155,8 +154,7 @@ pub fn biquad_on(graph: &Graph, n: Tag) {
 }
 
 pub fn biquad_off(graph: &Graph, n: Tag) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
+    if let Some(v) = graph.nodes[&n]
         .module
         .lock()
         .unwrap()
@@ -168,8 +166,7 @@ pub fn biquad_off(graph: &Graph, n: Tag) {
 }
 
 pub fn set_lphpf(graph: &Graph, n: Tag, cutoff: Real, q: Real, t: Real) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
+    if let Some(v) = graph.nodes[&n]
         .module
         .lock()
         .unwrap()
@@ -221,7 +218,7 @@ impl Signal for Comb {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let input = graph.output(self.wave);
+        let input = graph.output(&self.wave);
         let output = self.buffer[self.index] as Real;
         self.filter_state = output * self.dampening_inverse + self.filter_state * self.dampening;
         self.buffer[self.index] = input + (self.filter_state * self.feedback) as Real;
@@ -259,7 +256,7 @@ impl Signal for AllPass {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let input = graph.output(self.wave);
+        let input = graph.output(&self.wave);
         let delayed = self.buffer[self.index];
         let output = delayed - input;
         self.buffer[self.index] = input + (0.5 * delayed) as Real;

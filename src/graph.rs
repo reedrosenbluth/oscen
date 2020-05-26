@@ -3,11 +3,12 @@ use std::{
     f64::consts::PI,
     ops::IndexMut,
     sync::{Arc, Mutex},
+    collections::HashMap,
 };
 
 pub const TAU: f64 = 2.0 * PI;
 pub type Real = f64;
-pub type Tag = usize;
+pub type Tag = &'static str;
 
 /// Synth modules must implement the Signal trait. `as_any_mut` is necessary
 /// so that modules can be downcast in order to access their specific fields.
@@ -38,10 +39,10 @@ pub enum In {
 
 impl In {
     /// Get the signal value. Look it up in the graph if it is `Var`.
-    pub fn val(graph: &Graph, inp: In) -> Real {
+    pub fn val(graph: &Graph, inp: &In) -> Real {
         match inp {
-            In::Fix(x) => x,
-            In::Cv(n) => graph.output(n),
+            In::Fix(x) => *x,
+            In::Cv(n) => graph.output(&n),
         }
     }
 }
@@ -66,33 +67,32 @@ pub struct Node {
 
 impl Node {
     fn new(signal: ArcMutex<Sig>) -> Self {
-        Node {
+        Self {
             module: signal,
             output: 0.0,
         }
     }
 }
 
+type GraphMap = HashMap<Tag, Node>;
+
 /// A `Graph` is basically a vector of nodes to be visited in the specified order.
 #[derive(Clone)]
 pub struct Graph {
-    pub nodes: Vec<Node>,
+    // pub nodes: Vec<Node>,
+    pub nodes: GraphMap,
     pub order: Vec<Tag>,
 }
 
 impl Graph {
-    pub fn new(ws: Vec<ArcMutex<Sig>>) -> Self {
-        let mut nodes: Vec<Node> = Vec::new();
-        let n = ws.len();
+    pub fn new(ws: Vec<(Tag, ArcMutex<Sig>)>) -> Self {
+        let mut nodes: GraphMap = HashMap::new();
+        let mut order: Vec<Tag> = Vec::new();
         for s in ws {
-            nodes.push(Node::new(s));
+            nodes.insert(s.0, Node::new(s.1));
+            order.push(&s.0)
         }
-        let order: Vec<Tag> = (0..n).collect();
         Graph { nodes, order }
-    }
-
-    pub fn next_tag(&self) -> Tag {
-        self.nodes.len()
     }
 
     pub fn out_tag(&self) -> Tag {
@@ -105,9 +105,8 @@ impl Graph {
     }
 
     /// Insert a sub-graph into the graph before node `loc`.
-    pub fn insert(&mut self, graph: &mut Graph, loc: Tag) {
+    pub fn insert(&mut self, graph: Graph, loc: usize) {
         let n = graph.nodes.len() + self.nodes.len();
-        self.nodes.append(&mut graph.nodes);
         let mut new_order: Vec<Tag> = Vec::with_capacity(n);
         for i in 0..loc {
             new_order.push(self.order[i])
@@ -119,6 +118,7 @@ impl Graph {
             new_order.push(self.order[i])
         }
         self.order = new_order;
+        self.nodes.extend(graph.nodes);
     }
 
     /// A `Graph` generates a signal by travesing the list of modules and
@@ -135,8 +135,8 @@ impl Graph {
                     .signal(&self, sample_rate),
             );
         }
-        for o in self.order.iter() {
-            self.nodes[*o].output = outs[*o];
+        for (i, o) in self.order.iter().enumerate() {
+            self.nodes.get_mut(o).unwrap().output = outs[i];
         }
         self.nodes[self.out_tag()].output
     }

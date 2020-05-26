@@ -30,12 +30,12 @@ impl Signal for MidiPitch {
         self
     }
 
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        self.hz
+    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
+        In::val(graph, &self.hz)
     }
 }
 
-impl Index<&str> for SineOsc {
+impl Index<&str> for MidiPitch {
     type Output = In;
 
     fn index(&self, index: &str) -> &Self::Output {
@@ -57,8 +57,7 @@ impl IndexMut<&str> for MidiPitch {
 
 impl<'a> Set<'a> for MidiPitch {
     fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        assert!(n < graph.nodes.len());
-        if let Some(v) = graph.nodes[n]
+        if let Some(v) = graph.nodes[&n]
             .module
             .lock()
             .unwrap()
@@ -80,15 +79,19 @@ pub struct SineOsc {
 
 impl SineOsc {
     pub fn new() -> Self {
-        SineOsc {
+        Self {
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
         }
     }
 
+    pub fn with_hz(hz: In) -> Self {
+        Self {hz, amplitude: fix(1.0), phase: fix(0.0)}
+    }
+
     pub fn wrapped() -> ArcMutex<Self> {
-        arc(SineOsc::new())
+        arc(Self::new())
     }
 }
 
@@ -98,16 +101,16 @@ impl Signal for SineOsc {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let amplitude = In::val(graph, self.amplitude);
-        let phase = In::val(graph, self.phase);
-        self.phase = match &self.phase {
+        let hz = In::val(graph, &self.hz);
+        let amplitude = In::val(graph, &self.amplitude);
+        let phase = In::val(graph, &self.phase);
+        match &self.phase {
             In::Fix(p) => {
-                let mut ph = p + hz / sample_rate;
+                let mut ph = *p + hz / sample_rate;
                 ph %= sample_rate;
-                In::Fix(ph)
+                self.phase = In::Fix(ph);
             }
-            In::Cv(x) => In::Cv(*x),
+            In::Cv(_) => {}
         };
         amplitude * (TAU * phase).sin()
     }
@@ -139,8 +142,7 @@ impl IndexMut<&str> for SineOsc {
 
 impl<'a> Set<'a> for SineOsc {
     fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        assert!(n < graph.nodes.len());
-        if let Some(v) = graph.nodes[n]
+        if let Some(v) = graph.nodes[&n]
             .module
             .lock()
             .unwrap()
@@ -160,15 +162,19 @@ pub struct SawOsc {
 
 impl SawOsc {
     pub fn new() -> Self {
-        SawOsc {
+        Self {
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
         }
     }
 
+    pub fn with_hz(hz: In) -> Self {
+        Self {hz, amplitude: fix(1.0), phase: fix(0.0)}
+    }
+
     pub fn wrapped() -> ArcMutex<Self> {
-        arc(SawOsc::new())
+        arc(Self::new())
     }
 }
 
@@ -178,16 +184,16 @@ impl Signal for SawOsc {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let amplitude = In::val(graph, self.amplitude);
-        let phase = In::val(graph, self.phase);
-        self.phase = match &self.phase {
+        let hz = In::val(graph, &self.hz);
+        let amplitude = In::val(graph, &self.amplitude);
+        let phase = In::val(graph, &self.phase);
+        match &self.phase {
             In::Fix(p) => {
-                let mut ph = p + hz / sample_rate;
+                let mut ph = *p + hz / sample_rate;
                 ph %= sample_rate;
-                In::Fix(ph)
+                self.phase = In::Fix(ph);
             }
-            In::Cv(x) => In::Cv(*x),
+            In::Cv(_) => {}
         };
         let t = phase - 0.5;
         let s = -t - floor(0.5 - t, 0);
@@ -225,8 +231,7 @@ impl IndexMut<&str> for SawOsc {
 
 impl<'a> Set<'a> for SawOsc {
     fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        assert!(n < graph.nodes.len());
-        if let Some(v) = graph.nodes[n]
+        if let Some(v) = graph.nodes[&n]
             .module
             .lock()
             .unwrap()
@@ -246,15 +251,19 @@ pub struct TriangleOsc {
 
 impl TriangleOsc {
     pub fn new() -> Self {
-        TriangleOsc {
+        Self {
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
         }
     }
 
+    pub fn with_hz(hz: In) -> Self {
+        Self {hz, amplitude: fix(1.0), phase: fix(0.0)}
+    }
+
     pub fn wrapped() -> ArcMutex<Self> {
-        arc(TriangleOsc::new())
+        arc(Self::new())
     }
 }
 
@@ -264,16 +273,16 @@ impl Signal for TriangleOsc {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let amplitude = In::val(graph, self.amplitude);
-        let phase = In::val(graph, self.phase);
-        self.phase = match &self.phase {
+        let hz = In::val(graph, &self.hz);
+        let amplitude = In::val(graph, &self.amplitude);
+        let phase = In::val(graph, &self.phase);
+        match &self.phase {
             In::Fix(p) => {
-                let mut ph = p + hz / sample_rate;
+                let mut ph = *p + hz / sample_rate;
                 ph %= sample_rate;
-                In::Fix(ph)
+                self.phase = In::Fix(ph);
             }
-            In::Cv(x) => In::Cv(*x),
+            In::Cv(_) => {}
         };
         let t = phase - 0.75;
         let saw_amp = 2. * (-t - floor(0.5 - t, 0));
@@ -307,8 +316,7 @@ impl IndexMut<&str> for TriangleOsc {
 
 impl<'a> Set<'a> for TriangleOsc {
     fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        assert!(n < graph.nodes.len());
-        if let Some(v) = graph.nodes[n]
+        if let Some(v) = graph.nodes[&n]
             .module
             .lock()
             .unwrap()
@@ -339,6 +347,10 @@ impl SquareOsc {
         }
     }
 
+    pub fn with_hz(hz: In) -> Self {
+        Self {hz, amplitude: fix(1.0), phase: fix(0.0), duty_cycle: fix(0.5)}
+    }
+
     pub fn wrapped() -> ArcMutex<Self> {
         arc(SquareOsc::new())
     }
@@ -350,19 +362,18 @@ impl Signal for SquareOsc {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let amplitude = In::val(graph, self.amplitude);
-        let phase = In::val(graph, self.phase);
-        self.phase = match &self.phase {
+        let hz = In::val(graph, &self.hz);
+        let amplitude = In::val(graph, &self.amplitude);
+        let phase = In::val(graph, &self.phase);
+        match &self.phase {
             In::Fix(p) => {
-                let mut ph = p + hz / sample_rate;
+                let mut ph = *p + hz / sample_rate;
                 ph %= sample_rate;
-                fix(ph)
+                self.phase = In::Fix(ph);
             }
-            In::Cv(x) => In::Cv(*x),
+            In::Cv(_) => {}
         };
-
-        let duty_cycle = In::val(graph, self.duty_cycle);
+        let duty_cycle = In::val(graph, &self.duty_cycle);
         let t = phase - floor(phase, 0);
         if t < 0.001 {
             0.0
@@ -400,8 +411,7 @@ impl IndexMut<&str> for SquareOsc {
 
 impl<'a> Set<'a> for SquareOsc {
     fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        assert!(n < graph.nodes.len());
-        if let Some(v) = graph.nodes[n]
+        if let Some(v) = graph.nodes[&n]
             .module
             .lock()
             .unwrap()
@@ -437,7 +447,7 @@ impl Signal for WhiteNoise {
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let mut rng = rand::thread_rng();
-        let amplitude = In::val(graph, self.amplitude);
+        let amplitude = In::val(graph, &self.amplitude);
         self.dist.sample(&mut rng) * amplitude
     }
 }
@@ -464,8 +474,7 @@ impl IndexMut<&str> for WhiteNoise {
 
 impl<'a> Set<'a> for WhiteNoise {
     fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        assert!(n < graph.nodes.len());
-        if let Some(v) = graph.nodes[n]
+        if let Some(v) = graph.nodes[&n]
             .module
             .lock()
             .unwrap()
@@ -491,6 +500,10 @@ impl Osc01 {
         }
     }
 
+    pub fn with_hz(hz: In) -> Self {
+        Self {hz, phase: fix(0.0)}
+    }
+
     pub fn wrapped() -> ArcMutex<Self> {
         arc(Osc01::new())
     }
@@ -502,15 +515,15 @@ impl Signal for Osc01 {
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let phase = In::val(graph, self.phase);
-        self.phase = match &self.phase {
+        let hz = In::val(graph, &self.hz);
+        let phase = In::val(graph, &self.phase);
+        match &self.phase {
             In::Fix(p) => {
-                let mut ph = p + hz / sample_rate;
+                let mut ph = *p + hz / sample_rate;
                 ph %= sample_rate;
-                fix(ph)
+                self.phase = In::Fix(ph);
             }
-            In::Cv(x) => In::Cv(*x),
+            In::Cv(_) => {}
         };
         0.5 * ((TAU * phase).sin() + 1.0)
     }
@@ -540,8 +553,7 @@ impl IndexMut<&str> for Osc01 {
 
 impl<'a> Set<'a> for Osc01 {
     fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        assert!(n < graph.nodes.len());
-        if let Some(v) = graph.nodes[n]
+        if let Some(v) = graph.nodes[&n]
             .module
             .lock()
             .unwrap()
@@ -555,7 +567,6 @@ impl<'a> Set<'a> for Osc01 {
 
 /// "pattern match" node on each oscillator type and set hz
 pub fn set_hz(graph: &Graph, n: Tag, hz: Real) {
-    assert!(n < graph.nodes.len());
     SineOsc::set(graph, n, "hz", hz);
     SawOsc::set(graph, n, "hz", hz);
     TriangleOsc::set(graph, n, "hz", hz);

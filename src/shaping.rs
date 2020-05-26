@@ -21,7 +21,7 @@ impl Signal for SineFold {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let a = graph.output(self.wave);
+        let a = graph.output(&self.wave);
         (a * TAU * 1.0 / 2.5).sin()
     }
 }
