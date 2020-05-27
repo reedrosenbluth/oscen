@@ -1,12 +1,12 @@
-use super::{collections::*, dsp::*, filters::*};
+use super::{filters::*, graph::*, operators::*};
+use std::any::Any;
 
-// const FIXED_GAIN: f64 = 0.015;
+// const FIXED_GAIN: Real = 0.015;
 
-const SCALE_WET: f64 = 3.0;
-const SCALE_DAMPENING: f64 = 0.4;
-
-const SCALE_ROOM: f64 = 0.28;
-const OFFSET_ROOM: f64 = 0.7;
+const SCALE_WET: Real = 3.0;
+const SCALE_DAMPENING: Real = 0.4;
+const SCALE_ROOM: Real = 0.28;
+const OFFSET_ROOM: Real = 0.7;
 
 const COMB_TUNING_1: usize = 1116;
 const COMB_TUNING_2: usize = 1188;
@@ -22,62 +22,56 @@ const ALLPASS_TUNING_2: usize = 441;
 const ALLPASS_TUNING_3: usize = 341;
 const ALLPASS_TUNING_4: usize = 225;
 
-fn combs<W>(wave: ArcMutex<W>) -> ArcMutex<PolySynth<Comb<W>>>
-where
-    W: Signal + Send,
-{
-    let mut combs: Vec<ArcMutex<Comb<W>>> = Vec::new();
-    let w2 = wave.clone();
-    let w3 = wave.clone();
-    let w4 = wave.clone();
-    let w5 = wave.clone();
-    let w6 = wave.clone();
-    let w7 = wave.clone();
-    let w8 = wave.clone();
-    combs.push(Comb::<W>::wrapped(wave, COMB_TUNING_1));
-    combs.push(Comb::<W>::wrapped(w2, COMB_TUNING_2));
-    combs.push(Comb::<W>::wrapped(w3, COMB_TUNING_3));
-    combs.push(Comb::<W>::wrapped(w4, COMB_TUNING_4));
-    combs.push(Comb::<W>::wrapped(w5, COMB_TUNING_5));
-    combs.push(Comb::<W>::wrapped(w6, COMB_TUNING_6));
-    combs.push(Comb::<W>::wrapped(w7, COMB_TUNING_7));
-    combs.push(Comb::<W>::wrapped(w8, COMB_TUNING_8));
-    PolySynth::wrapped(combs, 1.0)
-}
-
-pub struct Freeverb<W>
-where
-    W: Signal + Send,
-{
-    pub allpasses: ArcMutex<AllPass<AllPass<AllPass<AllPass<PolySynth<Comb<W>>>>>>>,
-    wet_gain: f64,
-    wet: f64,
-    width: f64,
-    dry: f64,
-    input_gain: f64,
-    dampening: f64,
-    room_size: f64,
+pub struct Freeverb {
+    pub wave: Tag,
+    graph: Graph,
+    wet_gain: Real,
+    wet: Real,
+    width: Real,
+    dry: Real,
+    input_gain: Real,
+    dampening: Real,
+    room_size: Real,
     frozen: bool,
 }
 
-impl<W> Freeverb<W>
-where
-    W: Signal + Send,
-{
-    pub fn new(wave: ArcMutex<W>) -> Self {
-        let combs = combs(wave);
-        let allpasses = AllPass::wrapped(
-            AllPass::wrapped(
-                AllPass::wrapped(
-                    AllPass::<PolySynth<Comb<W>>>::wrapped(combs, ALLPASS_TUNING_1),
-                    ALLPASS_TUNING_2,
-                ),
-                ALLPASS_TUNING_3,
-            ),
-            ALLPASS_TUNING_4,
-        );
+impl Freeverb {
+    pub fn new(wave: Tag) -> Self {
+        let input = Connect::wrapped();
+        let comb1 = Comb::wrapped("input", COMB_TUNING_1);
+        let comb2 = Comb::wrapped("input", COMB_TUNING_2);
+        let comb3 = Comb::wrapped("input", COMB_TUNING_3);
+        let comb4 = Comb::wrapped("input", COMB_TUNING_4);
+        let comb5 = Comb::wrapped("input", COMB_TUNING_5);
+        let comb6 = Comb::wrapped("input", COMB_TUNING_6);
+        let comb7 = Comb::wrapped("input", COMB_TUNING_7);
+        let comb8 = Comb::wrapped("input", COMB_TUNING_8);
+        let combs = Mixer::wrapped(vec![
+            "comb1", "comb2", "comb3", "comb4", "comb5", "comb6", "comb7", "comb8",
+        ]);
+        let all1 = AllPass::wrapped("combs", ALLPASS_TUNING_1);
+        let all2 = AllPass::wrapped("all1", ALLPASS_TUNING_2);
+        let all3 = AllPass::wrapped("all2", ALLPASS_TUNING_3);
+        let all4 = AllPass::wrapped("all3", ALLPASS_TUNING_4);
+        let graph = Graph::new(vec![
+            ("input", input),
+            ("comb1", comb1),
+            ("comb2", comb2),
+            ("comb3", comb3),
+            ("comb4", comb4),
+            ("comb5", comb5),
+            ("comb6", comb6),
+            ("comb7", comb7),
+            ("comb8", comb8),
+            ("combs", combs),
+            ("all1", all1),
+            ("all2", all2),
+            ("all3", all3),
+            ("all4", all4),
+        ]);
         Freeverb {
-            allpasses,
+            wave,
+            graph,
             wet_gain: 0.5,
             wet: 1.0,
             dry: 0.0,
@@ -89,26 +83,26 @@ where
         }
     }
 
-    pub fn wrapped(wave: ArcMutex<W>) -> ArcMutex<Self> {
+    pub fn wrapped(wave: Tag) -> ArcMutex<Self> {
         arc(Freeverb::new(wave))
     }
 
-    pub fn set_dampening(&mut self, value: f64) {
-        self.dampening = value * SCALE_DAMPENING;
-        self.update_combs();
-    }
+    // pub fn set_dampening(&mut self, value: Real) {
+    //     self.dampening = value * SCALE_DAMPENING;
+    //     self.update_combs();
+    // }
 
-    pub fn set_freeze(&mut self, frozen: bool) {
-        self.frozen = frozen;
-        self.update_combs();
-    }
+    // pub fn set_freeze(&mut self, frozen: bool) {
+    //     self.frozen = frozen;
+    //     self.update_combs();
+    // }
 
-    pub fn set_wet(&mut self, value: f64) {
+    pub fn set_wet(&mut self, value: Real) {
         self.wet = value * SCALE_WET;
         self.update_wet_gains();
     }
 
-    pub fn set_width(&mut self, value: f64) {
+    pub fn set_width(&mut self, value: Real) {
         self.width = value;
         self.update_wet_gains();
     }
@@ -117,68 +111,65 @@ where
         self.wet_gain = self.wet * (self.width / 2.0 + 0.5);
     }
 
-    pub fn set_frozen(&mut self, frozen: bool) {
-        self.frozen = frozen;
-        self.input_gain = if frozen { 0.0 } else { 1.0 };
-        self.update_combs();
-    }
+    // pub fn set_frozen(&mut self, frozen: bool) {
+    //     self.frozen = frozen;
+    //     self.input_gain = if frozen { 0.0 } else { 1.0 };
+    //     self.update_combs();
+    // }
 
-    pub fn set_room_size(&mut self, value: f64) {
-        self.room_size = value * SCALE_ROOM + OFFSET_ROOM;
-        self.update_combs();
-    }
+    // pub fn set_room_size(&mut self, value: Real) {
+    //     self.room_size = value * SCALE_ROOM + OFFSET_ROOM;
+    //     self.update_combs();
+    // }
 
-    fn update_combs(&mut self) {
-        let (feedback, dampening) = if self.frozen {
-            (1.0, 0.0)
-        } else {
-            (self.room_size, self.dampening)
-        };
+    // fn update_combs(&mut self) {
+    //     let (feedback, dampening) = if self.frozen {
+    //         (1.0, 0.0)
+    //     } else {
+    //         (self.room_size, self.dampening)
+    //     };
 
-        for comb in self
-            .allpasses
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .wave
-            .mtx()
-            .waves
-            .iter_mut()
-        {
-            comb.mtx().feedback = feedback;
-            comb.mtx().dampening = dampening;
-        }
-    }
+    //     for comb in self
+    //         .allpasses
+    //         .mtx()
+    //         .wave
+    //         .mtx()
+    //         .wave
+    //         .mtx()
+    //         .wave
+    //         .mtx()
+    //         .wave
+    //         .mtx()
+    //         .waves
+    //         .iter_mut()
+    //     {
+    //         comb.mtx().feedback = feedback;
+    //         comb.mtx().dampening = dampening;
+    //     }
+    // }
 
-    pub fn set_dry(&mut self, value: f64) {
+    pub fn set_dry(&mut self, value: Real) {
         self.dry = value;
     }
 }
 
-impl<W> Signal for Freeverb<W>
-where
-    W: Signal + Send,
-{
-    fn signal(&mut self, sample_rate: f64) -> Amp {
-        let input = self.allpasses.signal(sample_rate);
-        let out = self.allpasses.signal(sample_rate);
-        (out as f64 * self.wet_gain + input as f64 * self.dry) as f32
-    }
-}
-
-impl<W> HasHz for Freeverb<W>
-where
-    W: Signal + HasHz + Send,
-{
-    fn hz(&self) -> Hz {
-        self.allpasses.hz()
+impl Signal for Freeverb {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 
-    fn modify_hz(&mut self, f: &dyn Fn(Hz) -> Hz) {
-        self.allpasses.modify_hz(f);
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        let inp = graph.output(self.wave);
+        if let Some(v) = self.graph.nodes["input"]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Connect>()
+        {
+            v.set(inp);
+        }
+        let out = self.graph.signal(sample_rate);
+        out * self.wet_gain + inp * self.dry
     }
 }

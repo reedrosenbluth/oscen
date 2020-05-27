@@ -15,6 +15,7 @@ use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
 use swell::graph::{arc, fix, cv, Graph, Real, Set};
 use swell::operators::{set_knob, Lerp, Lerp3, Modulator};
 use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc};
+use swell::reverb::*;
 
 use midi::listen_midi;
 
@@ -103,7 +104,8 @@ fn model(app: &App) -> Model {
     let node_6 = Lerp::wrapped("sine", "saw");
     let node_7 = Lerp3::wrapped("lerp1", "lerp2", fix(0.5));
     let node_8 = BiquadFilter::lphpf("lerp3", 44100.0, 440., 0.707, 1.0);
-    let node_9 = SustainSynth::wrapped("biquad");
+    let freeverb = Freeverb::wrapped("biquad");
+    let node_9 = SustainSynth::wrapped("freeverb");
     let voice = Graph::new(vec![
         ("sine_mod", node_0),
         ("modulator", node_1),
@@ -114,6 +116,7 @@ fn model(app: &App) -> Model {
         ("lerp2", node_6),
         ("lerp3", node_7),
         ("biquad", arc(node_8)),
+        ("freeverb", freeverb),
         ("adsr", node_9),
     ]);
 

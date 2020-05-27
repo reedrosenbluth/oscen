@@ -146,3 +146,32 @@ impl Graph {
 pub trait Set<'a>: IndexMut<&'a str> {
     fn set(graph: &Graph, n: Tag, field: &str, value: Real);
 }
+
+pub struct Connect {
+    pub value: Real
+}
+
+impl Connect {
+    pub fn new() -> Self {
+        Self {value: 0.0}
+    }
+    
+    pub fn wrapped() -> ArcMutex<Self> {
+        arc(Self::new())
+    }
+
+    pub fn set(&mut self, value: Real) {
+        self.value = value;
+    }
+}
+
+impl Signal for Connect {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
+       self.value 
+    }
+
+}
