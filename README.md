@@ -16,6 +16,7 @@ fn build_synth(midi_pitch: ArcMutex<MidiPitch>) -> Graph {
     let square1 = SquareOsc::with_hz(cv("midi_pitch"));
     let triangle1 = TriangleOsc::with_hz(cv("midi_pitch"));
 
+    // FM modulator for oscillator 1
     let modulator_osc1 = Modulator::wrapped("sine2", cv("midi_pitch"), fix(0.0), fix(0.0));
 
     // Oscillator 2
@@ -24,6 +25,7 @@ fn build_synth(midi_pitch: ArcMutex<MidiPitch>) -> Graph {
     let square2 = SquareOsc::with_hz(cv("midi_pitch"));
     let triangle2 = TriangleOsc::with_hz(cv("midi_pitch"));
 
+    // FM modulator for oscillator 2
     let modulator_osc2 = Modulator::wrapped("tri_lfo", cv("midi_pitch"), fix(0.0), fix(0.0));
 
     // LFO
