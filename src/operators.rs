@@ -208,6 +208,46 @@ impl Signal for Lerp3 {
     }
 }
 
+impl Index<&str> for Lerp3 {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "lerp1" => &self.lerp1,
+            "lerp2" => &self.lerp2,
+            "knob" => &self.knob,
+            _ => panic!("Lerp3 does not have a field named: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Lerp3 {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "lerp1" => &mut self.lerp1,
+            "lerp2" => &mut self.lerp2,
+            "knob" => &mut self.knob,
+            _ => panic!("Lerp does not have a field named: {}", index),
+        }
+    }
+
+}
+
+impl<'a> Set<'a> for Lerp3 {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.nodes[&n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
+    }
+}
+
+
 pub fn set_knob(graph: &Graph, n: Tag, k: Real) {
     if let Some(v) = graph.nodes[&n]
         .module
