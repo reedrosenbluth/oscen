@@ -25,6 +25,20 @@ impl Signal for Product {
     }
 }
 
+impl Index<usize> for Product {
+    type Output = Tag;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.waves[index]
+    }
+}
+
+impl IndexMut<usize> for Product {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.waves[index]
+    }
+}
+
 pub struct Mixer {
     pub waves: Vec<Tag>,
 }
@@ -48,6 +62,19 @@ impl Signal for Mixer {
     }
 }
 
+impl Index<usize> for Mixer {
+    type Output = Tag;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.waves[index]
+    }
+}
+
+impl IndexMut<usize> for Mixer {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.waves[index]
+    }
+}
 pub struct Lerp {
     wave1: In,
     wave2: In,
@@ -76,6 +103,45 @@ impl Signal for Lerp {
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let alpha = In::val(graph, self.alpha);
         alpha * In::val(graph, self.wave2) + (1.0 - alpha) * In::val(graph, self.wave1)
+    }
+}
+
+impl Index<&str> for Lerp {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "wave1" => &self.wave1,
+            "wave2" => &self.wave2,
+            "alpha" => &self.alpha,
+            _ => panic!("Lerp does not have a field named: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Lerp {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "wave1" => &mut self.wave1,
+            "wave2" => &mut self.wave2,
+            "alpha" => &mut self.alpha,
+            _ => panic!("Lerp does not have a field named: {}", index),
+        }
+    }
+
+}
+
+impl<'a> Set<'a> for Lerp {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.nodes[&n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
     }
 }
 

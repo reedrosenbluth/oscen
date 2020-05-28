@@ -160,15 +160,7 @@ impl Signal for Freeverb {
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let inp = graph.output(self.wave);
-        if let Some(v) = self.graph.nodes["input"]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Connect>()
-        {
-            v.set(inp);
-        }
+        Connect::set(&self.graph, "input", "value", inp);
         let out = self.graph.signal(sample_rate);
         out * self.wet_gain + inp * self.dry
     }

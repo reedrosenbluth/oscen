@@ -5,6 +5,7 @@ use rand::prelude::*;
 use std::any::Any;
 use std::ops::{Index, IndexMut};
 
+/// The most recent note received from the midi source.
 pub struct MidiPitch {
     pub hz: In,
 }
@@ -70,7 +71,7 @@ impl<'a> Set<'a> for MidiPitch {
 }
 
 /// A basic sine oscillator.
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct SineOsc {
     pub hz: In,
     pub amplitude: In,
@@ -154,6 +155,7 @@ impl<'a> Set<'a> for SineOsc {
     }
 }
 
+/// Saw wave oscillator.
 pub struct SawOsc {
     pub hz: In,
     pub amplitude: In,
@@ -243,6 +245,7 @@ impl<'a> Set<'a> for SawOsc {
     }
 }
 
+/// Triangle wave oscillator.
 pub struct TriangleOsc {
     pub hz: In,
     pub amplitude: In,
@@ -339,7 +342,7 @@ pub struct SquareOsc {
 
 impl SquareOsc {
     pub fn new() -> Self {
-        SquareOsc {
+        Self {
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
@@ -352,7 +355,7 @@ impl SquareOsc {
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
-        arc(SquareOsc::new())
+        arc(Self::new())
     }
 }
 
@@ -429,14 +432,14 @@ pub struct WhiteNoise {
 
 impl WhiteNoise {
     pub fn new() -> Self {
-        WhiteNoise {
+        Self {
             amplitude: fix(1.0),
             dist: Uniform::new_inclusive(-1.0, 1.0),
         }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
-        arc(WhiteNoise::new())
+        arc(Self::new())
     }
 }
 
@@ -494,7 +497,7 @@ pub struct Osc01 {
 
 impl Osc01 {
     pub fn new() -> Self {
-        Osc01 {
+        Self {
             hz: fix(0.0),
             phase: fix(0.0),
         }
@@ -505,7 +508,7 @@ impl Osc01 {
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
-        arc(Osc01::new())
+        arc(Self::new())
     }
 }
 

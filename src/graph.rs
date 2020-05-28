@@ -1,7 +1,7 @@
 use std::{
     any::Any,
     f64::consts::PI,
-    ops::IndexMut,
+    ops::{Index, IndexMut},
     sync::{Arc, Mutex},
     collections::HashMap,
 };
@@ -13,6 +13,9 @@ pub type Tag = &'static str;
 /// Synth modules must implement the Signal trait. `as_any_mut` is necessary
 /// so that modules can be downcast in order to access their specific fields.
 pub trait Signal: Any {
+    /// This method has the same trivial implementation for all implentors of
+    /// the trait. We need it to downcast trait objects to their underlying
+    /// type.
     fn as_any_mut(&mut self) -> &mut dyn Any;
     /// Responsible for updating the `phase` and returning the next signal
     /// value, i.e. `amplitude`.
@@ -29,7 +32,7 @@ pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
     Arc::new(Mutex::new(x))
 }
 
-/// Inputs to synth modules can either be constant (`Fixed`) or a control voltage
+/// Inputs to synth modules can either be constant (`Fix`) or a control voltage
 /// from another synth module (`Cv`).
 #[derive(Copy, Clone)]
 pub enum In {
@@ -38,7 +41,7 @@ pub enum In {
 }
 
 impl In {
-    /// Get the signal value. Look it up in the graph if it is `Var`.
+    /// Get the signal value. Look it up in the graph if it is `Cv`.
     pub fn val(graph: &Graph, inp: In) -> Real {
         match inp {
             In::Fix(x) => x,
@@ -58,7 +61,7 @@ pub fn fix(x: Real) -> In {
 }
 
 /// Nodes for the graph will have both a synth module (i.e an implentor of
-/// `Signal`) and will store there previous signal value as `output`
+/// `Signal`) and will store their current signal value as `output`
 #[derive(Clone)]
 pub struct Node {
     pub module: ArcMutex<Sig>,
@@ -76,15 +79,16 @@ impl Node {
 
 type GraphMap = HashMap<Tag, Node>;
 
-/// A `Graph` is basically a vector of nodes to be visited in the specified order.
+/// A `Graph` is basically a `HashMap` of nodes to be visited in the specified order.
 #[derive(Clone)]
 pub struct Graph {
-    // pub nodes: Vec<Node>,
     pub nodes: GraphMap,
     pub order: Vec<Tag>,
 }
 
 impl Graph {
+    /// Create a `Graph` object whose order is set to the order of the `Signal`s
+    /// in the input `ws`.
     pub fn new(ws: Vec<(Tag, ArcMutex<Sig>)>) -> Self {
         let mut nodes: GraphMap = HashMap::new();
         let mut order: Vec<Tag> = Vec::new();
@@ -95,11 +99,13 @@ impl Graph {
         Graph { nodes, order }
     }
 
+    /// Convenience function get the `Tag` of the final node in the `Graph`.
     pub fn out_tag(&self) -> Tag {
         let n = self.nodes.len() - 1;
         self.order[n]
     }
 
+    /// Get the `output` of a `Node`.
     pub fn output(&self, n: Tag) -> Real {
         self.nodes[n].output
     }
@@ -147,6 +153,9 @@ pub trait Set<'a>: IndexMut<&'a str> {
     fn set(graph: &Graph, n: Tag, field: &str, value: Real);
 }
 
+/// Use to connect subgraphs to the main graph. Simply store the value of the
+/// input node from the main graph as a connect node, which will be the first
+/// node in the subgraph.
 pub struct Connect {
     pub value: Real
 }
@@ -159,10 +168,6 @@ impl Connect {
     pub fn wrapped() -> ArcMutex<Self> {
         arc(Self::new())
     }
-
-    pub fn set(&mut self, value: Real) {
-        self.value = value;
-    }
 }
 
 impl Signal for Connect {
@@ -174,4 +179,38 @@ impl Signal for Connect {
        self.value 
     }
 
+}
+
+impl Index<&str> for Connect {
+    type Output = Real;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "value" => &self.value,
+            _ => panic!("Connect does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Connect {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "value" => &mut self.value,
+            _ => panic!("MidiPitch does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for Connect {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.nodes[&n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = value;
+        }
+    }
 }
