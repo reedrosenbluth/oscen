@@ -12,7 +12,7 @@ use swell::envelopes::{
     off, on, set_attack, set_decay, set_release, set_sustain_level, SustainSynth,
 };
 use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
-use swell::graph::{arc, cv, fix, Graph, Real, Set};
+use swell::graph::{ArcMutex, arc, cv, fix, Graph, Real, Set};
 use swell::operators::{set_knob, Lerp, Lerp3, Mixer, Modulator};
 use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise, MidiPitch};
 
@@ -29,59 +29,71 @@ struct Model {
 }
 
 struct Synth {
-    midi_pitch: MidiPitch,
+    midi_pitch: ArcMutex<MidiPitch>,
     voice: Graph,
 }
 
-fn build_synth(midi_pitch: MidiPitch) -> Graph {
+fn build_synth(midi_pitch: ArcMutex<MidiPitch>) -> Graph {
     // Oscillator 1
-    let sine1 = SineOsc::wrapped(); //1
-    let saw1 = SawOsc::wrapped(); //2
-    let square1 = SquareOsc::wrapped(); //3
-    let triangle1 = TriangleOsc::wrapped(); //4
+    let sine1 = SineOsc::with_hz(cv("modulator_osc1"));
+    let saw1 = SawOsc::with_hz(cv("midi_pitch"));
+    let square1 = SquareOsc::with_hz(cv("midi_pitch"));
+    let triangle1 = TriangleOsc::with_hz(cv("midi_pitch"));
 
-    let modulator_osc1 = Modulator::wrapped(7, 0.0, 0.0, 0.0);
+    let modulator_osc1 = Modulator::wrapped("sine2", cv("midi_pitch"), fix(0.0), fix(0.0));
 
-    sine1.hz = cv(modulator_osc1);
-
+    // TODO: tune these lower
     // Sub Oscillators for Osc 1
-    let sub1 = SquareOsc::wrapped(); //5
-    let sub2 = SquareOsc::wrapped(); //6
+    let sub1 = SquareOsc::with_hz(cv("midi_pitch"));
+    let sub2 = SquareOsc::with_hz(cv("midi_pitch"));
 
     // Oscillator 2
-    let sine2 = SineOsc::wrapped(); //7
-    let saw2 = SawOsc::wrapped(); //8
-    let square2 = SquareOsc::wrapped(); //9
-    let triangle2 = TriangleOsc::wrapped(); //10
+    let sine2 = SineOsc::with_hz(cv("modulator_osc2"));
+    let saw2 = SawOsc::with_hz(cv("midi_pitch"));
+    let square2 = SquareOsc::with_hz(cv("midi_pitch"));
+    let triangle2 = TriangleOsc::with_hz(cv("midi_pitch"));
 
-    let modulator_osc2 = Modulator::wrapped(12, 0.0, 0.0, 0.0);
+    let modulator_osc2 = Modulator::wrapped("tri_lfo", cv("midi_pitch"), fix(0.0), fix(0.0));
 
     // Noise
-    let noise = WhiteNoise::wrapped(); //11
+    let noise = WhiteNoise::wrapped();
 
     // LFO
-    let tri_lfo = TriangleOsc::wrapped(); //12
-    let square_lfo = SquareOsc::wrapped(); //13
+    let tri_lfo = TriangleOsc::wrapped();
+    let square_lfo = SquareOsc::wrapped();
 
     // Mixers
     // sine1 + saw1
-    let mixer1 = Mixer::wrapped(vec![1, 2]); //14
+    let mixer1 = Mixer::wrapped(vec!["sine1", "saw1"]);
     // square1 + sub1
-    let mixer2 = Mixer::wrapped(vec![3, 5]); //15
+    let mixer2 = Mixer::wrapped(vec!["square1", "sub1"]);
     // mixer1 + mixer2
-    let mixer3 = Mixer::wrapped(vec![14, 15]); //16
+    let mixer3 = Mixer::wrapped(vec!["mixer1", "mixer2"]);
 
     // Envelope Generator
-    let adsr = SustainSynth::wrapped(16); //17
+    let adsr = SustainSynth::wrapped("mixer3");
 
-    Graph::new(vec![midi_pitch,
-                        sine1, saw1, square1, triangle1,
-                        sub1, sub2,
-                        sine2, saw2, square2, triangle2,
-                        noise,
-                        tri_lfo, square_lfo,
-                        mixer1, mixer2, mixer3,
-                        adsr])
+    Graph::new(vec![("midi_pitch", midi_pitch),
+                        ("sine1", arc(sine1)),
+                        ("saw1", arc(saw1)),
+                        ("square1", arc(square1)),
+                        ("triangle1", arc(triangle1)),
+                        ("sub1", arc(sub1)),
+                        ("sub2", arc(sub2)),
+                        ("sine2", arc(sine2)),
+                        ("saw2", arc(saw2)),
+                        ("square2", arc(square2)),
+                        ("triangle2", arc(triangle2)),
+                        ("modulator_osc1", modulator_osc1),
+                        ("modulator_osc2", modulator_osc2),
+                        ("noise", noise),
+                        ("tri_lfo", tri_lfo),
+                        ("square_lfo", square_lfo),
+                        ("mixer1", mixer1),
+                        ("mixer2", mixer2),
+                        ("mixer3", mixer3),
+                        ("adsr", adsr),
+                       ])
 }
 
 fn model(app: &App) -> Model {
@@ -102,12 +114,12 @@ fn model(app: &App) -> Model {
     // Create audio host
     let audio_host = audio::Host::new();
 
-    let midi_pitch = MidiPitch::new();
+    let midi_pitch = arc(MidiPitch::new());
 
     // Build synth
     let synth = Synth {
-        midi_pitch,
-        voice: build_synth(),
+        midi_pitch: midi_pitch.clone(),
+        voice: build_synth(midi_pitch),
     };
 
     let stream = audio_host
@@ -147,15 +159,15 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                 model
                     .stream
                     .send(move |synth| {
-                        &synth.midi_pitch.set_hz(hz);
-                        on(&synth.voice, 9);
+                        &synth.midi_pitch.lock().unwrap().set_hz(hz);
+                        on(&synth.voice, "adsr");
                     })
                     .unwrap();
             } else if message[0] == 128 {
                 model
                     .stream
                     .send(move |synth| {
-                        off(&synth.voice, 9);
+                        off(&synth.voice, "adsr");
                     })
                     .unwrap();
             }

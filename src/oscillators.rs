@@ -6,6 +6,7 @@ use std::any::Any;
 use std::ops::{Index, IndexMut};
 
 /// The most recent note received from the midi source.
+#[derive(Clone)]
 pub struct MidiPitch {
     pub hz: In,
 }

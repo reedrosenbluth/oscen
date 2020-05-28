@@ -269,16 +269,16 @@ pub struct Modulator {
 }
 
 impl Modulator {
-    pub fn new(wave: Tag, base_hz: Real, mod_hz: Real, mod_idx: Real) -> Self {
+    pub fn new(wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> Self {
         Modulator {
             wave: cv(wave),
-            base_hz: fix(base_hz),
-            mod_hz: fix(mod_hz),
-            mod_idx: fix(mod_idx),
+            base_hz: base_hz,
+            mod_hz: mod_hz,
+            mod_idx: mod_idx,
         }
     }
 
-    pub fn wrapped(wave: Tag, base_hz: Real, mod_hz: Real, mod_idx: Real) -> ArcMutex<Self> {
+    pub fn wrapped(wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> ArcMutex<Self> {
         arc(Modulator::new(wave, base_hz, mod_hz, mod_idx))
     }
 }
