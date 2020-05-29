@@ -96,7 +96,7 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
 
     let node_0 = SineOsc::wrapped();
-    let node_1 = Modulator::wrapped("sine_mod", 110., 10., 8.);
+    let node_1 = Modulator::wrapped("sine_mod", fix(110.), fix(10.), fix(8.));
     let node_2 = SquareOsc::with_hz(cv("modulator"));
     let node_3 = SineOsc::with_hz(cv("modulator"));
     let node_4 = SawOsc::with_hz(cv("modulator"));

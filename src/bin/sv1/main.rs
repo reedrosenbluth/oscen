@@ -8,7 +8,7 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
 use std::thread;
-use swell::envelopes::{off, on, set_attack, set_decay, set_release, set_sustain_level, Adsr};
+use swell::envelopes::{off, on, Adsr};
 use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
 use swell::graph::{arc, cv, fix, ArcMutex, Graph, Real, Set};
 use swell::operators::{set_knob, Lerp, Lerp3, Mixer, Modulator, Vca};
@@ -81,6 +81,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>) -> Synth {
     let mut mixer3 = Mixer::new(vec!["saw1"]);
     mixer3.level = cv("adsr");
 
+    // let vca = Vca::wrapped("mixer3", fix(0.5));
     let vca = Vca::wrapped("mixer3", cv("midi_volume"));
 
     let graph = Graph::new(vec![
@@ -160,26 +161,10 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
             let hz = hz_from_step(step as f32) as Real;
             if message[0] == 144 {
                 &synth.midi.lock().unwrap().midi_pitch.lock().unwrap().set_hz(hz);
-                if let Some(v) = synth.voice.nodes["adsr"]
-                    .module
-                    .lock()
-                    .unwrap()
-                    .as_any_mut()
-                    .downcast_mut::<Adsr>()
-                {
-                    v.on();
-                }
+                on(&synth.voice, "adsr");
             } else if message[0] == 128 {
-                if let Some(v) = synth.voice.nodes["adsr"]
-                    .module
-                    .lock()
-                    .unwrap()
-                    .as_any_mut()
-                    .downcast_mut::<Adsr>()
-                {
-                    v.off();
-                }
-            } else if message[0] == 176 {
+                off(&synth.voice, "adsr");
+           } else if message[0] == 176 {
                 for c in &synth.midi.lock().unwrap().midi_controls {
                     let mut control = c.lock().unwrap();
                     if control.controller == message[1] {
