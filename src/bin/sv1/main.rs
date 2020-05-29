@@ -8,32 +8,42 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
 use std::thread;
-use swell::envelopes::{
-    off, on, set_attack, set_decay, set_release, set_sustain_level, SustainSynth,
-};
+use swell::envelopes::{off, on, set_attack, set_decay, set_release, set_sustain_level, Adsr};
 use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
-use swell::graph::{ArcMutex, arc, cv, fix, Graph, Real, Set};
-use swell::operators::{set_knob, Lerp, Lerp3, Mixer, Modulator};
-use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise, MidiPitch};
-
-use midi::listen_midi;
+use swell::graph::{arc, cv, fix, ArcMutex, Graph, Real, Set};
+use swell::operators::{set_knob, Lerp, Lerp3, Mixer, Modulator, Vca};
+use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
+use midi::{MidiPitch, MidiControl, listen_midi};
 
 fn main() {
-    nannou::app(model).update(update).run();
+    nannou::app(model).run();
 }
 
 struct Model {
     stream: audio::Stream<Synth>,
-    midi_receiver: Receiver<Vec<u8>>,
-    osc1_freq: Real,
 }
 
 struct Synth {
-    midi_pitch: ArcMutex<MidiPitch>,
+    midi: ArcMutex<Midi>,
+    midi_receiver: Receiver<Vec<u8>>,
     voice: Graph,
 }
 
-fn build_synth(midi_pitch: ArcMutex<MidiPitch>) -> Graph {
+
+#[derive(Clone)]
+struct Midi {
+    midi_pitch: ArcMutex<MidiPitch>,
+    midi_controls: Vec<ArcMutex<MidiControl>>, 
+}
+
+fn build_synth(midi_receiver: Receiver<Vec<u8>>) -> Synth {
+    //  Midi
+    let midi_pitch = MidiPitch::wrapped();
+    let midi_volume = MidiControl::wrapped(1);
+
+    // Envelope Generator
+    let adsr = Adsr::wrapped(0.01, 0.0, 1.0, 0.1);
+
     // Oscillator 1
     let sine1 = SineOsc::with_hz(cv("modulator_osc1"));
     let saw1 = SawOsc::with_hz(cv("midi_pitch"));
@@ -68,32 +78,44 @@ fn build_synth(midi_pitch: ArcMutex<MidiPitch>) -> Graph {
     // square1 + sub1
     let mixer2 = Mixer::wrapped(vec!["square1", "sub1"]);
     // mixer1 + mixer2
-    let mixer3 = Mixer::wrapped(vec!["mixer1", "mixer2"]);
+    let mut mixer3 = Mixer::new(vec!["saw1"]);
+    mixer3.level = cv("adsr");
 
-    // Envelope Generator
-    let adsr = SustainSynth::wrapped("mixer3");
+    let vca = Vca::wrapped("mixer3", cv("midi_volume"));
 
-    Graph::new(vec![("midi_pitch", midi_pitch),
-                        ("sine1", arc(sine1)),
-                        ("saw1", arc(saw1)),
-                        ("square1", arc(square1)),
-                        ("triangle1", arc(triangle1)),
-                        ("sub1", arc(sub1)),
-                        ("sub2", arc(sub2)),
-                        ("sine2", arc(sine2)),
-                        ("saw2", arc(saw2)),
-                        ("square2", arc(square2)),
-                        ("triangle2", arc(triangle2)),
-                        ("modulator_osc1", modulator_osc1),
-                        ("modulator_osc2", modulator_osc2),
-                        ("noise", noise),
-                        ("tri_lfo", tri_lfo),
-                        ("square_lfo", square_lfo),
-                        ("mixer1", mixer1),
-                        ("mixer2", mixer2),
-                        ("mixer3", mixer3),
-                        ("adsr", adsr),
-                       ])
+    let graph = Graph::new(vec![
+        ("midi_pitch", midi_pitch.clone()),
+        ("midi_volume", midi_volume.clone()),
+        ("adsr", adsr),
+        ("sine1", arc(sine1)),
+        ("saw1", arc(saw1)),
+        ("square1", arc(square1)),
+        ("triangle1", arc(triangle1)),
+        ("sub1", arc(sub1)),
+        ("sub2", arc(sub2)),
+        ("sine2", arc(sine2)),
+        ("saw2", arc(saw2)),
+        ("square2", arc(square2)),
+        ("triangle2", arc(triangle2)),
+        ("modulator_osc1", modulator_osc1),
+        ("modulator_osc2", modulator_osc2),
+        ("noise", noise),
+        ("tri_lfo", tri_lfo),
+        ("square_lfo", square_lfo),
+        ("mixer1", mixer1),
+        ("mixer2", mixer2),
+        ("mixer3", arc(mixer3)),
+        ("vca", vca),
+    ]);
+
+    Synth {
+        midi: arc(Midi {
+            midi_pitch,
+            midi_controls: vec![midi_volume]
+        }),
+        midi_receiver,
+        voice: graph,
+    }
 }
 
 fn model(app: &App) -> Model {
@@ -114,13 +136,8 @@ fn model(app: &App) -> Model {
     // Create audio host
     let audio_host = audio::Host::new();
 
-    let midi_pitch = arc(MidiPitch::new());
-
     // Build synth
-    let synth = Synth {
-        midi_pitch: midi_pitch.clone(),
-        voice: build_synth(midi_pitch),
-    };
+    let synth = build_synth(midi_receiver);
 
     let stream = audio_host
         .new_output_stream(synth)
@@ -130,47 +147,55 @@ fn model(app: &App) -> Model {
 
     Model {
         stream,
-        midi_receiver,
-        osc1_freq: 0.,
     }
 }
 
 // A function that renders the given `Audio` to the given `Buffer`.
 // In this case we play a simple sine wave at the audio's current frequency in `hz`.
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
+    let midi_messages: Vec<Vec<u8>> = synth.midi_receiver.try_iter().collect();
+    for message in midi_messages {
+        if message.len() == 3 {
+            let step = message[1];
+            let hz = hz_from_step(step as f32) as Real;
+            if message[0] == 144 {
+                &synth.midi.lock().unwrap().midi_pitch.lock().unwrap().set_hz(hz);
+                if let Some(v) = synth.voice.nodes["adsr"]
+                    .module
+                    .lock()
+                    .unwrap()
+                    .as_any_mut()
+                    .downcast_mut::<Adsr>()
+                {
+                    v.on();
+                }
+            } else if message[0] == 128 {
+                if let Some(v) = synth.voice.nodes["adsr"]
+                    .module
+                    .lock()
+                    .unwrap()
+                    .as_any_mut()
+                    .downcast_mut::<Adsr>()
+                {
+                    v.off();
+                }
+            } else if message[0] == 176 {
+                for c in &synth.midi.lock().unwrap().midi_controls {
+                    let mut control = c.lock().unwrap();
+                    if control.controller == message[1] {
+                        control.set_value(message[2]);
+                    }
+                }
+            }
+        }
+    }
+
     let sample_rate = buffer.sample_rate() as Real;
     for frame in buffer.frames_mut() {
         let mut amp = 0.;
         amp += synth.voice.signal(sample_rate);
         for channel in frame {
             *channel = amp as f32;
-        }
-    }
-}
-
-fn update(_app: &App, model: &mut Model, _update: Update) {
-    let midi_messages: Vec<Vec<u8>> = model.midi_receiver.try_iter().collect();
-    for message in midi_messages {
-        let step = message[1];
-        let hz = hz_from_step(step as f32) as Real;
-        model.osc1_freq = hz;
-        if message.len() == 3 {
-            if message[0] == 144 {
-                model
-                    .stream
-                    .send(move |synth| {
-                        &synth.midi_pitch.lock().unwrap().set_hz(hz);
-                        on(&synth.voice, "adsr");
-                    })
-                    .unwrap();
-            } else if message[0] == 128 {
-                model
-                    .stream
-                    .send(move |synth| {
-                        off(&synth.voice, "adsr");
-                    })
-                    .unwrap();
-            }
         }
     }
 }

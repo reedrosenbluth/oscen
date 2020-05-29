@@ -39,13 +39,58 @@ impl IndexMut<usize> for Product {
     }
 }
 
+pub struct Vca {
+    pub wave: Tag,
+    pub level: In,
+}
+
+impl Vca {
+    pub fn new(wave: Tag, level: In) -> Self {
+        Self { wave, level: level }
+    }
+
+    pub fn wrapped(wave: Tag, level: In) -> ArcMutex<Self> {
+        arc(Self::new(wave, level))
+    }
+}
+
+impl Signal for Vca {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
+        graph.output(self.wave) * In::val(graph, self.level)
+    }
+}
+
+impl Index<&str> for Vca {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "level" => &self.level,
+            _ => panic!("Vca does not have a field named: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Vca {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "level" => &mut self.level,
+            _ => panic!("Vca does not have a field named: {}", index),
+        }
+    }
+}
+
 pub struct Mixer {
     pub waves: Vec<Tag>,
+    pub level: In,
 }
 
 impl Mixer {
     pub fn new(waves: Vec<Tag>) -> Self {
-        Mixer { waves }
+        Mixer { waves, level: fix(1.0) }
     }
 
     pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
@@ -58,7 +103,7 @@ impl Signal for Mixer {
         self
     }
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        self.waves.iter().fold(0.0, |acc, n| acc + graph.output(n))
+        self.waves.iter().fold(0.0, |acc, n| acc + graph.output(n)) * In::val(graph, self.level)
     }
 }
 
@@ -128,7 +173,6 @@ impl IndexMut<&str> for Lerp {
             _ => panic!("Lerp does not have a field named: {}", index),
         }
     }
-
 }
 
 impl<'a> Set<'a> for Lerp {

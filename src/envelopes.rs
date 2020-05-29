@@ -2,6 +2,85 @@ use super::graph::*;
 use std::any::Any;
 
 #[derive(Clone)]
+pub struct Adsr {
+    pub attack: Real,
+    pub decay: Real,
+    pub sustain: Real,
+    pub release: Real,
+    pub clock: Real,
+    pub triggered: bool,
+    pub level: Real,
+}
+
+impl Adsr {
+    pub fn new(attack: Real, decay: Real, sustain: Real, release: Real) -> Self {
+        Self {
+            attack,
+            decay,
+            sustain,
+            release,
+            clock: 0.0,
+            triggered: false,
+            level: 0.0,
+        }
+    }
+
+    pub fn wrapped(attack: Real, decay: Real, sustain: Real, release: Real) -> ArcMutex<Self> {
+        arc(Self::new(attack, decay, sustain, release))
+    }
+
+    pub fn calc_level(&self) -> Real {
+        let a = self.attack;
+        let d = self.decay;
+        let s = self.sustain;
+        let r = self.release;
+
+        if self.triggered {
+            match self.clock {
+                // Attack
+                t if t < a => t / a,
+                // Decay
+                t if t < a + d => 1.0 + (t - a) * (s - 1.0) / d,
+                // Sustain
+                _ => s,
+            }
+        } else {
+            match self.clock {
+                // Release
+                t if t < r => {
+                    s - t / r * s
+                },
+                // Off
+                _ => 0.,
+            }
+        }
+    }
+
+    pub fn on(&mut self) {
+        self.triggered = true;
+        self.clock = self.level * self.attack;
+    }
+
+    pub fn off(&mut self) {
+        self.triggered = false;
+        self.clock = (self.sustain - self.level) * self.release / self.sustain;
+    }
+}
+
+impl Signal for Adsr {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, _: &Graph, sample_rate: Real) -> Real {
+        let amp = self.calc_level();
+        self.clock += 1. / sample_rate;
+        self.level = self.calc_level();
+        amp
+    }
+}
+
+#[derive(Clone)]
 pub struct SustainSynth {
     pub wave: Tag,
     pub attack: Real,
