@@ -3,6 +3,7 @@ use std::any::Any;
 use std::f64::consts::PI;
 
 pub struct BiquadFilter {
+    pub tag: Tag,
     pub wave: Tag,
     pub b1: In,
     pub b2: In,
@@ -71,8 +72,9 @@ pub fn notch(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, R
 }
 
 impl BiquadFilter {
-    pub fn new(wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> Self {
+    pub fn new(tag: Tag, wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> Self {
         Self {
+            tag,
             wave,
             b1: fix(b1),
             b2: fix(b2),
@@ -87,33 +89,33 @@ impl BiquadFilter {
         }
     }
 
-    pub fn wrapped(wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> ArcMutex<Self> {
-        arc(Self::new(wave, b1, b2, a0, a1, a2))
+    pub fn wrapped(tag: Tag, wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> ArcMutex<Self> {
+        arc(Self::new(tag, wave, b1, b2, a0, a1, a2))
     }
 
-    pub fn lpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
+    pub fn lpf(tag: Tag, wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = lpf(sample_rate, fc, q);
-        Self::new(wave, b1, b2, a0, a1, a2)
+        Self::new(tag, wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn hpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
+    pub fn hpf(tag: Tag, wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = hpf(sample_rate, fc, q);
-        Self::new(wave, b1, b2, a0, a1, a2)
+        Self::new(tag, wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn lphpf(wave: Tag, sample_rate: Real, fc: Real, q: Real, t: Real) -> Self {
+    pub fn lphpf(tag: Tag, wave: Tag, sample_rate: Real, fc: Real, q: Real, t: Real) -> Self {
         let (b1, b2, a0, a1, a2) = lphpf(sample_rate, fc, q, t);
-        Self::new(wave, b1, b2, a0, a1, a2)
+        Self::new(tag, wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn bpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
+    pub fn bpf(tag: Tag, wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = bpf(sample_rate, fc, q);
-        Self::new(wave, b1, b2, a0, a1, a2)
+        Self::new(tag, wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn notch(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
+    pub fn notch(tag: Tag, wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = notch(sample_rate, fc, q);
-        Self::new(wave, b1, b2, a0, a1, a2)
+        Self::new(tag, wave, b1, b2, a0, a1, a2)
     }
 }
 
@@ -138,6 +140,9 @@ impl Signal for BiquadFilter {
         self.y2 = self.y1;
         self.y1 = amp;
         amp
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }
 
@@ -185,6 +190,7 @@ pub fn set_lphpf(graph: &Graph, n: Tag, cutoff: Real, q: Real, t: Real) {
 /// Lowpass-Feedback Comb Filter
 /// https://ccrma.stanford.edu/~jos/pasp/Lowpass_Feedback_Comb_Filter.html
 pub struct Comb {
+    pub tag: Tag,
     pub wave: Tag,
     buffer: Vec<Real>,
     index: usize,
@@ -195,8 +201,9 @@ pub struct Comb {
 }
 
 impl Comb {
-    pub fn new(wave: Tag, length: usize) -> Self {
+    pub fn new(tag: Tag, wave: Tag, length: usize) -> Self {
         Self {
+            tag,
             wave,
             buffer: vec![0.0; length],
             index: 0,
@@ -207,8 +214,8 @@ impl Comb {
         }
     }
 
-    pub fn wrapped(wave: Tag, length: usize) -> ArcMutex<Self> {
-        arc(Self::new(wave, length))
+    pub fn wrapped(tag: Tag, wave: Tag, length: usize) -> ArcMutex<Self> {
+        arc(Self::new(tag, wave, length))
     }
 }
 
@@ -228,25 +235,30 @@ impl Signal for Comb {
         }
         output as Real
     }
+    fn tag(&self) -> Tag {
+        self.tag
+    }
 }
 
 pub struct AllPass {
+    pub tag: Tag,
     pub wave: Tag,
     buffer: Vec<Real>,
     index: usize,
 }
 
 impl AllPass {
-    pub fn new(wave: Tag, length: usize) -> Self {
+    pub fn new(tag: Tag, wave: Tag, length: usize) -> Self {
         Self {
+            tag,
             wave,
             buffer: vec![0.0; length],
             index: 0,
         }
     }
 
-    pub fn wrapped(wave: Tag, length: usize) -> ArcMutex<Self> {
-        arc(Self::new(wave, length))
+    pub fn wrapped(tag: Tag, wave: Tag, length: usize) -> ArcMutex<Self> {
+        arc(Self::new(tag, wave, length))
     }
 }
 
@@ -265,5 +277,8 @@ impl Signal for AllPass {
             self.index = 0
         }
         output as Real
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }

@@ -8,26 +8,28 @@ use std::ops::{Index, IndexMut};
 /// A basic sine oscillator.
 #[derive(Copy, Clone)]
 pub struct SineOsc {
+    pub tag: Tag,
     pub hz: In,
     pub amplitude: In,
     pub phase: In,
 }
 
 impl SineOsc {
-    pub fn new() -> Self {
+    pub fn new(tag: Tag) -> Self {
         Self {
+            tag,
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {hz, amplitude: fix(1.0), phase: fix(0.0)}
+    pub fn with_hz(tag: Tag, hz: In) -> Self {
+        Self { tag, hz, amplitude: fix(1.0), phase: fix(0.0) }
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn wrapped(tag: Tag) -> ArcMutex<Self> {
+        arc(Self::new(tag))
     }
 }
 
@@ -49,6 +51,9 @@ impl Signal for SineOsc {
             In::Cv(_) => {}
         };
         amplitude * (TAU * phase).sin()
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }
 
@@ -92,26 +97,28 @@ impl<'a> Set<'a> for SineOsc {
 
 /// Saw wave oscillator.
 pub struct SawOsc {
+    pub tag: Tag,
     pub hz: In,
     pub amplitude: In,
     pub phase: In,
 }
 
 impl SawOsc {
-    pub fn new() -> Self {
+    pub fn new(tag: Tag) -> Self {
         Self {
+            tag,
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {hz, amplitude: fix(1.0), phase: fix(0.0)}
+    pub fn with_hz(tag: Tag, hz: In) -> Self {
+        Self { tag, hz, amplitude: fix(1.0), phase: fix(0.0) }
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn wrapped(tag: Tag) -> ArcMutex<Self> {
+        arc(Self::new(tag))
     }
 }
 
@@ -139,6 +146,9 @@ impl Signal for SawOsc {
         } else {
             amplitude * 2.0 * s
         }
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }
 
@@ -182,26 +192,28 @@ impl<'a> Set<'a> for SawOsc {
 
 /// Triangle wave oscillator.
 pub struct TriangleOsc {
+    pub tag: Tag,
     pub hz: In,
     pub amplitude: In,
     pub phase: In,
 }
 
 impl TriangleOsc {
-    pub fn new() -> Self {
+    pub fn new(tag: Tag) -> Self {
         Self {
+            tag,
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {hz, amplitude: fix(1.0), phase: fix(0.0)}
+    pub fn with_hz(tag: Tag, hz: In) -> Self {
+        Self { tag, hz, amplitude: fix(1.0), phase: fix(0.0) }
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn wrapped(tag: Tag) -> ArcMutex<Self> {
+        arc(Self::new(tag))
     }
 }
 
@@ -225,6 +237,9 @@ impl Signal for TriangleOsc {
         let t = phase - 0.75;
         let saw_amp = 2. * (-t - floor(0.5 - t, 0));
         (2. * saw_amp.abs() - amplitude) * amplitude
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }
 
@@ -269,6 +284,7 @@ impl<'a> Set<'a> for TriangleOsc {
 /// Square wave oscillator with a `duty_cycle` that takes values in (0, 1).
 #[derive(Clone)]
 pub struct SquareOsc {
+    pub tag: Tag,
     pub hz: In,
     pub amplitude: In,
     pub phase: In,
@@ -276,8 +292,9 @@ pub struct SquareOsc {
 }
 
 impl SquareOsc {
-    pub fn new() -> Self {
+    pub fn new(tag: Tag) -> Self {
         Self {
+            tag,
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
@@ -285,12 +302,12 @@ impl SquareOsc {
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {hz, amplitude: fix(1.0), phase: fix(0.0), duty_cycle: fix(0.5)}
+    pub fn with_hz(tag: Tag, hz: In) -> Self {
+        Self { tag, hz, amplitude: fix(1.0), phase: fix(0.0), duty_cycle: fix(0.5) }
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn wrapped(tag: Tag) -> ArcMutex<Self> {
+        arc(Self::new(tag))
     }
 }
 
@@ -320,6 +337,9 @@ impl Signal for SquareOsc {
         } else {
             -amplitude
         }
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }
 
@@ -361,20 +381,22 @@ impl<'a> Set<'a> for SquareOsc {
     }
 }
 pub struct WhiteNoise {
+    pub tag: Tag,
     pub amplitude: In,
     dist: Uniform<Real>,
 }
 
 impl WhiteNoise {
-    pub fn new() -> Self {
+    pub fn new(tag: Tag) -> Self {
         Self {
+            tag,
             amplitude: fix(1.0),
             dist: Uniform::new_inclusive(-1.0, 1.0),
         }
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn wrapped(tag: Tag) -> ArcMutex<Self> {
+        arc(Self::new(tag))
     }
 }
 
@@ -387,6 +409,9 @@ impl Signal for WhiteNoise {
         let mut rng = rand::thread_rng();
         let amplitude = In::val(graph, self.amplitude);
         self.dist.sample(&mut rng) * amplitude
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }
 
@@ -426,24 +451,26 @@ impl<'a> Set<'a> for WhiteNoise {
 /// An oscillator used to modulate parameters that take values between 0 and 1,
 /// based on a sinusoid.
 pub struct Osc01 {
+    pub tag: Tag,
     pub hz: In,
     pub phase: In,
 }
 
 impl Osc01 {
-    pub fn new() -> Self {
+    pub fn new(tag: Tag) -> Self {
         Self {
+            tag,
             hz: fix(0.0),
             phase: fix(0.0),
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {hz, phase: fix(0.0)}
+    pub fn with_hz(tag: Tag, hz: In) -> Self {
+        Self { tag, hz, phase: fix(0.0) }
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn wrapped(tag: Tag) -> ArcMutex<Self> {
+        arc(Self::new(tag))
     }
 }
 
@@ -464,6 +491,9 @@ impl Signal for Osc01 {
             In::Cv(_) => {}
         };
         0.5 * ((TAU * phase).sin() + 1.0)
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }
 

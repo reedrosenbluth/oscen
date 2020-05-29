@@ -8,11 +8,9 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
 use std::thread;
-use swell::envelopes::{
-    off, on, set_attack, set_decay, set_release, set_sustain_level, SustainSynth,
-};
+use swell::envelopes::{off, on};
 use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
-use swell::graph::{arc, fix, cv, Graph, Real, Set};
+use swell::graph::{arc, cv, fix, Graph, Real, Set};
 use swell::operators::{set_knob, Lerp, Lerp3, Modulator};
 use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc};
 use swell::reverb::*;
@@ -95,8 +93,8 @@ fn model(app: &App) -> Model {
     };
     let audio_host = audio::Host::new();
 
-    let node_0 = SineOsc::wrapped();
-    let node_1 = Modulator::wrapped("sine_mod", fix(110.), fix(10.), fix(8.));
+    let node_0 = SineOsc::wrapped("sine_mod");
+    let node_1 = Modulator::wrapped("modulator", "sine_mod", fix(110.), fix(10.), fix(8.));
     let node_2 = SquareOsc::with_hz(cv("modulator"));
     let node_3 = SineOsc::with_hz(cv("modulator"));
     let node_4 = SawOsc::with_hz(cv("modulator"));
@@ -237,7 +235,8 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.ratio, 1.0, 24.).skew(2.0)
+    for value in slider(model.ratio, 1.0, 24.)
+        .skew(2.0)
         .down(20.)
         .label(format!("Ratio: {:.0}", model.ratio).as_str())
         .set(model.ids.ratio, ui)
@@ -251,7 +250,8 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.mod_idx, 0.0, 24.).skew(2.0)
+    for value in slider(model.mod_idx, 0.0, 24.)
+        .skew(2.0)
         .down(20.)
         .label(format!("Modulation Index: {:.0}", model.mod_idx).as_str())
         .set(model.ids.mod_idx, ui)
@@ -266,7 +266,8 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.cutoff, 0.0, 2400.0).skew(3.0)
+    for value in slider(model.cutoff, 0.0, 2400.0)
+        .skew(3.0)
         .down(20.)
         .label(format!("Filter Cutoff: {:.0}", model.cutoff).as_str())
         .set(model.ids.cutoff, ui)
@@ -288,7 +289,8 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .unwrap();
     }
 
-    for value in slider(model.q, 0.7071, 10.0).skew(2.0)
+    for value in slider(model.q, 0.7071, 10.0)
+        .skew(2.0)
         .down(20.)
         .label(format!("Filter Q: {:.3}", model.q).as_str())
         .set(model.ids.q, ui)

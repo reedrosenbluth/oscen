@@ -9,18 +9,20 @@ use std::io::{stdin, stdout, Write};
 /// The most recent note received from the midi source.
 #[derive(Clone)]
 pub struct MidiPitch {
+    pub tag: Tag,
     pub hz: Real,
 }
 
 impl MidiPitch {
-    pub fn new() -> Self {
+    pub fn new(tag: Tag) -> Self {
         MidiPitch {
+            tag,
             hz: 0.0,
         }
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn wrapped(tag: Tag) -> ArcMutex<Self> {
+        arc(Self::new(tag))
     }
 
     pub fn set_hz(&mut self, hz: Real) {
@@ -36,24 +38,31 @@ impl Signal for MidiPitch {
     fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
         self.hz
     }
+
+    fn tag(&self) -> Tag {
+        self.tag
+    }
 }
+
 
 #[derive(Clone)]
 pub struct MidiControl {
+    pub tag: Tag,
     pub controller: u8,
     pub value: u8,
 }
 
 impl MidiControl {
-    pub fn new(controller: u8) -> Self {
+    pub fn new(tag: Tag, controller: u8) -> Self {
         Self {
+            tag,
             controller,
             value: 0,
         }
     }
 
-    pub fn wrapped(controller: u8) -> ArcMutex<Self> {
-        arc(Self::new(controller))
+    pub fn wrapped(tag: Tag, controller: u8) -> ArcMutex<Self> {
+        arc(Self::new(tag, controller))
     }
 
     pub fn set_value(&mut self, value: u8) {
@@ -68,6 +77,10 @@ impl Signal for MidiControl {
 
     fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
         (self.value as Real) / 127.0
+    }
+
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }
 

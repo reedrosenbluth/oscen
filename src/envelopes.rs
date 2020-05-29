@@ -6,6 +6,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct Adsr {
+    pub tag: Tag,
     pub attack: In,
     pub decay: In,
     pub sustain: In,
@@ -16,8 +17,9 @@ pub struct Adsr {
 }
 
 impl Adsr {
-    pub fn new(attack: Real, decay: Real, sustain: Real, release: Real) -> Self {
+    pub fn new(tag: Tag, attack: Real, decay: Real, sustain: Real, release: Real) -> Self {
         Self {
+            tag,
             attack: fix(attack),
             decay: fix(decay),
             sustain: fix(sustain),
@@ -28,8 +30,8 @@ impl Adsr {
         }
     }
 
-    pub fn wrapped(attack: Real, decay: Real, sustain: Real, release: Real) -> ArcMutex<Self> {
-        arc(Self::new(attack, decay, sustain, release))
+    pub fn wrapped(tag: Tag, attack: Real, decay: Real, sustain: Real, release: Real) -> ArcMutex<Self> {
+        arc(Self::new(tag, attack, decay, sustain, release))
     }
 
     pub fn calc_level(&self, graph: &Graph) -> Real {
@@ -80,6 +82,9 @@ impl Signal for Adsr {
         self.clock += 1. / sample_rate;
         self.level = self.calc_level(graph);
         amp
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }
 

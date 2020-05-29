@@ -20,6 +20,8 @@ pub trait Signal: Any {
     /// Responsible for updating the `phase` and returning the next signal
     /// value, i.e. `amplitude`.
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real;
+    /// Synth modules must have a tag (name) to serve as their key in the graph.
+    fn tag(&self) -> Tag;
 }
 
 /// Signals typically need to decalare that they are `Send` so that they are
@@ -30,6 +32,22 @@ pub type ArcMutex<T> = Arc<Mutex<T>>;
 /// Convenience function for `Arc<Mutex<...>`.
 pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
     Arc::new(Mutex::new(x))
+}
+
+impl<T> Signal for ArcMutex<T> 
+where T: Signal {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        self.lock().unwrap().signal(graph, sample_rate)
+    }
+
+    fn tag(&self) -> Tag {
+        self.lock().unwrap().tag()
+    }
+    
 }
 
 /// Inputs to synth modules can either be constant (`Fix`) or a control voltage
@@ -89,12 +107,13 @@ pub struct Graph {
 impl Graph {
     /// Create a `Graph` object whose order is set to the order of the `Signal`s
     /// in the input `ws`.
-    pub fn new(ws: Vec<(Tag, ArcMutex<Sig>)>) -> Self {
+    pub fn new(ws: Vec<ArcMutex<Sig>>) -> Self {
         let mut nodes: GraphMap = HashMap::new();
         let mut order: Vec<Tag> = Vec::new();
         for s in ws {
-            nodes.insert(s.0, Node::new(s.1));
-            order.push(&s.0)
+            let t = s.lock().unwrap().tag();
+            nodes.insert(t, Node::new(s));
+            order.push(&t)
         }
         Graph { nodes, order }
     }
@@ -157,16 +176,17 @@ pub trait Set<'a>: IndexMut<&'a str> {
 /// input node from the main graph as a connect node, which will be the first
 /// node in the subgraph.
 pub struct Connect {
-    pub value: Real
+    pub tag: Tag,
+    pub value: Real,
 }
 
 impl Connect {
-    pub fn new() -> Self {
-        Self {value: 0.0}
+    pub fn new(tag: Tag) -> Self {
+        Self {tag, value: 0.0}
     }
     
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn wrapped(tag: Tag) -> ArcMutex<Self> {
+        arc(Self::new(tag))
     }
 }
 
@@ -177,6 +197,10 @@ impl Signal for Connect {
 
     fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
        self.value 
+    }
+
+    fn tag(&self) -> Tag {
+        self.tag
     }
 
 }

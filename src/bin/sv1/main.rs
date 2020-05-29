@@ -3,6 +3,7 @@ mod midi;
 use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
+use midi::{listen_midi, MidiControl, MidiPitch};
 use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
@@ -10,10 +11,9 @@ use pitch_calc::calc::hz_from_step;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
 use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
-use swell::graph::{arc, cv, fix, ArcMutex, Graph, Real, Set};
+use swell::graph::{arc, cv, fix, ArcMutex, Graph, Real, Set, Signal};
 use swell::operators::{set_knob, Lerp, Lerp3, Mixer, Modulator, Vca};
 use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
-use midi::{MidiPitch, MidiControl, listen_midi};
 
 fn main() {
     nannou::app(model).run();
@@ -29,90 +29,101 @@ struct Synth {
     voice: Graph,
 }
 
-
 #[derive(Clone)]
 struct Midi {
     midi_pitch: ArcMutex<MidiPitch>,
-    midi_controls: Vec<ArcMutex<MidiControl>>, 
+    midi_controls: Vec<ArcMutex<MidiControl>>,
 }
 
 fn build_synth(midi_receiver: Receiver<Vec<u8>>) -> Synth {
     //  Midi
-    let midi_pitch = MidiPitch::wrapped();
-    let midi_volume = MidiControl::wrapped(1);
+    let midi_pitch = MidiPitch::wrapped("midi_pitch");
+    let midi_volume = MidiControl::wrapped("midi_volume", 1);
 
     // Envelope Generator
-    let adsr = Adsr::wrapped(0.01, 0.0, 1.0, 0.1);
+    let adsr = Adsr::wrapped("adsr", 0.01, 0.0, 1.0, 0.1);
+
+    let modulator_osc1 = Modulator::wrapped(
+        "modulator_osc1",
+        "sine2",
+        cv(midi_pitch.tag()),
+        fix(0.0),
+        fix(0.0),
+    );
 
     // Oscillator 1
-    let sine1 = SineOsc::with_hz(cv("modulator_osc1"));
-    let saw1 = SawOsc::with_hz(cv("midi_pitch"));
-    let square1 = SquareOsc::with_hz(cv("midi_pitch"));
-    let triangle1 = TriangleOsc::with_hz(cv("midi_pitch"));
+    let sine1 = SineOsc::with_hz("sine1", cv(modulator_osc1.tag()));
+    let saw1 = SawOsc::with_hz("saw1", cv(midi_pitch.tag()));
+    let square1 = SquareOsc::with_hz("square1", cv(midi_pitch.tag()));
+    let triangle1 = TriangleOsc::with_hz("triangle1", cv(midi_pitch.tag()));
 
-    let modulator_osc1 = Modulator::wrapped("sine2", cv("midi_pitch"), fix(0.0), fix(0.0));
 
     // TODO: tune these lower
     // Sub Oscillators for Osc 1
-    let sub1 = SquareOsc::with_hz(cv("midi_pitch"));
-    let sub2 = SquareOsc::with_hz(cv("midi_pitch"));
-
+    let modulator_osc2 = Modulator::wrapped(
+        "modulator_osc2",
+        "tri_lfo",
+        cv(midi_pitch.tag()),
+        fix(0.0),
+        fix(0.0),
+    );
+    let sub1 = SquareOsc::with_hz("sub1", cv(midi_pitch.tag()));
+    let sub2 = SquareOsc::with_hz("sub2", cv(midi_pitch.tag())); 
     // Oscillator 2
-    let sine2 = SineOsc::with_hz(cv("modulator_osc2"));
-    let saw2 = SawOsc::with_hz(cv("midi_pitch"));
-    let square2 = SquareOsc::with_hz(cv("midi_pitch"));
-    let triangle2 = TriangleOsc::with_hz(cv("midi_pitch"));
+    let sine2 = SineOsc::with_hz("sine2", cv(modulator_osc2.tag()));
+    let saw2 = SawOsc::with_hz("saw2", cv(midi_pitch.tag()));
+    let square2 = SquareOsc::with_hz("square2", cv(midi_pitch.tag()));
+    let triangle2 = TriangleOsc::with_hz("triangle2", cv(midi_pitch.tag()));
 
-    let modulator_osc2 = Modulator::wrapped("tri_lfo", cv("midi_pitch"), fix(0.0), fix(0.0));
 
     // Noise
-    let noise = WhiteNoise::wrapped();
+    let noise = WhiteNoise::wrapped("noise");
 
     // LFO
-    let tri_lfo = TriangleOsc::wrapped();
-    let square_lfo = SquareOsc::wrapped();
+    let tri_lfo = TriangleOsc::wrapped("tri_lfo");
+    let square_lfo = SquareOsc::wrapped("square_lfo");
 
     // Mixers
     // sine1 + saw1
-    let mixer1 = Mixer::wrapped(vec!["sine1", "saw1"]);
+    let mixer1 = Mixer::wrapped("mixer1", vec![sine1.tag(), saw1.tag()]);
     // square1 + sub1
-    let mixer2 = Mixer::wrapped(vec!["square1", "sub1"]);
+    let mixer2 = Mixer::wrapped("mixer2", vec![square1.tag(), sub1.tag()]);
     // mixer1 + mixer2
-    let mut mixer3 = Mixer::new(vec!["saw1"]);
-    mixer3.level = cv("adsr");
+    let mut mixer3 = Mixer::new("mixer3", vec![saw1.tag()]);
+    mixer3.level = cv(adsr.tag());
 
-    // let vca = Vca::wrapped("mixer3", fix(0.5));
-    let vca = Vca::wrapped("mixer3", cv("midi_volume"));
+    let vca = Vca::wrapped("vca", mixer3.tag(), fix(0.5));
+    // let vca = Vca::wrapped("vca", mixer3.tag(), cv(midi_volume.tag()));
 
     let graph = Graph::new(vec![
-        ("midi_pitch", midi_pitch.clone()),
-        ("midi_volume", midi_volume.clone()),
-        ("adsr", adsr),
-        ("sine1", arc(sine1)),
-        ("saw1", arc(saw1)),
-        ("square1", arc(square1)),
-        ("triangle1", arc(triangle1)),
-        ("sub1", arc(sub1)),
-        ("sub2", arc(sub2)),
-        ("sine2", arc(sine2)),
-        ("saw2", arc(saw2)),
-        ("square2", arc(square2)),
-        ("triangle2", arc(triangle2)),
-        ("modulator_osc1", modulator_osc1),
-        ("modulator_osc2", modulator_osc2),
-        ("noise", noise),
-        ("tri_lfo", tri_lfo),
-        ("square_lfo", square_lfo),
-        ("mixer1", mixer1),
-        ("mixer2", mixer2),
-        ("mixer3", arc(mixer3)),
-        ("vca", vca),
+        midi_pitch.clone(),
+        midi_volume.clone(),
+        adsr,
+        arc(sine1),
+        arc(saw1),
+        arc(square1),
+        arc(triangle1),
+        arc(sub1),
+        arc(sub2),
+        arc(sine2),
+        arc(saw2),
+        arc(square2),
+        arc(triangle2),
+        modulator_osc1,
+        modulator_osc2,
+        noise,
+        tri_lfo,
+        square_lfo,
+        mixer1,
+        mixer2,
+        arc(mixer3),
+        vca,
     ]);
 
     Synth {
         midi: arc(Midi {
             midi_pitch,
-            midi_controls: vec![midi_volume]
+            midi_controls: vec![midi_volume],
         }),
         midi_receiver,
         voice: graph,
@@ -146,9 +157,7 @@ fn model(app: &App) -> Model {
         .build()
         .unwrap();
 
-    Model {
-        stream,
-    }
+    Model { stream }
 }
 
 // A function that renders the given `Audio` to the given `Buffer`.
@@ -160,11 +169,18 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
             let step = message[1];
             let hz = hz_from_step(step as f32) as Real;
             if message[0] == 144 {
-                &synth.midi.lock().unwrap().midi_pitch.lock().unwrap().set_hz(hz);
+                &synth
+                    .midi
+                    .lock()
+                    .unwrap()
+                    .midi_pitch
+                    .lock()
+                    .unwrap()
+                    .set_hz(hz);
                 on(&synth.voice, "adsr");
             } else if message[0] == 128 {
                 off(&synth.voice, "adsr");
-           } else if message[0] == 176 {
+            } else if message[0] == 176 {
                 for c in &synth.midi.lock().unwrap().midi_controls {
                     let mut control = c.lock().unwrap();
                     if control.controller == message[1] {
