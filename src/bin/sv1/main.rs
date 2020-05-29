@@ -43,9 +43,31 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>) -> Synth {
     // Envelope Generator
     let adsr = Adsr::wrapped("adsr", 0.01, 0.0, 1.0, 0.1);
 
+
+    // LFO
+    let tri_lfo = TriangleOsc::wrapped("tri_lfo");
+    let square_lfo = SquareOsc::wrapped("square_lfo");
+
+
+    // TODO: tune these lower
+    // Sub Oscillators for Osc 1
+    let modulator_osc2 = Modulator::wrapped(
+        "modulator_osc2",
+        tri_lfo.tag(),
+        cv(midi_pitch.tag()),
+        fix(0.0),
+        fix(0.0),
+    );
+
+    // Oscillator 2
+    let sine2 = SineOsc::with_hz("sine2", cv(modulator_osc2.tag()));
+    let saw2 = SawOsc::with_hz("saw2", cv(midi_pitch.tag()));
+    let square2 = SquareOsc::with_hz("square2", cv(midi_pitch.tag()));
+    let triangle2 = TriangleOsc::with_hz("triangle2", cv(midi_pitch.tag()));
+
     let modulator_osc1 = Modulator::wrapped(
         "modulator_osc1",
-        "sine2",
+        sine2.tag(),
         cv(midi_pitch.tag()),
         fix(0.0),
         fix(0.0),
@@ -57,31 +79,12 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>) -> Synth {
     let square1 = SquareOsc::with_hz("square1", cv(midi_pitch.tag()));
     let triangle1 = TriangleOsc::with_hz("triangle1", cv(midi_pitch.tag()));
 
-
-    // TODO: tune these lower
-    // Sub Oscillators for Osc 1
-    let modulator_osc2 = Modulator::wrapped(
-        "modulator_osc2",
-        "tri_lfo",
-        cv(midi_pitch.tag()),
-        fix(0.0),
-        fix(0.0),
-    );
     let sub1 = SquareOsc::with_hz("sub1", cv(midi_pitch.tag()));
     let sub2 = SquareOsc::with_hz("sub2", cv(midi_pitch.tag())); 
-    // Oscillator 2
-    let sine2 = SineOsc::with_hz("sine2", cv(modulator_osc2.tag()));
-    let saw2 = SawOsc::with_hz("saw2", cv(midi_pitch.tag()));
-    let square2 = SquareOsc::with_hz("square2", cv(midi_pitch.tag()));
-    let triangle2 = TriangleOsc::with_hz("triangle2", cv(midi_pitch.tag()));
 
 
     // Noise
     let noise = WhiteNoise::wrapped("noise");
-
-    // LFO
-    let tri_lfo = TriangleOsc::wrapped("tri_lfo");
-    let square_lfo = SquareOsc::wrapped("square_lfo");
 
     // Mixers
     // sine1 + saw1
