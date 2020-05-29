@@ -1,7 +1,75 @@
+use swell::graph::*;
 use crossbeam::crossbeam_channel::Sender;
 use midir::{Ignore, MidiInput};
+use std::any::Any;
+use std::ops::{Index, IndexMut};
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
+
+/// The most recent note received from the midi source.
+#[derive(Clone)]
+pub struct MidiPitch {
+    pub hz: Real,
+}
+
+impl MidiPitch {
+    pub fn new() -> Self {
+        MidiPitch {
+            hz: 0.0,
+        }
+    }
+
+    pub fn wrapped() -> ArcMutex<Self> {
+        arc(Self::new())
+    }
+
+    pub fn set_hz(&mut self, hz: Real) {
+        self.hz = hz;
+    }
+}
+
+impl Signal for MidiPitch {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
+        self.hz
+    }
+}
+
+#[derive(Clone)]
+pub struct MidiControl {
+    pub controller: u8,
+    pub value: u8,
+}
+
+impl MidiControl {
+    pub fn new(controller: u8) -> Self {
+        Self {
+            controller,
+            value: 0,
+        }
+    }
+
+    pub fn wrapped(controller: u8) -> ArcMutex<Self> {
+        arc(Self::new(controller))
+    }
+
+    pub fn set_value(&mut self, value: u8) {
+        self.value = value;
+    }
+}
+
+impl Signal for MidiControl {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
+        (self.value as Real) / 127.0
+    }
+}
 
 pub fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     let mut input = String::new();
@@ -39,7 +107,6 @@ pub fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
         in_port,
         "midir-read-input",
         move |_, message, _| {
-            // println!("{}: {:?} (len = {})", stamp, message, message.len());
             midi_sender.send(message.to_vec()).unwrap();
         },
         (),

@@ -1,152 +1,149 @@
 use super::graph::*;
-use std::any::Any;
+use std::{
+    any::Any,
+    ops::{Index, IndexMut},
+};
 
 #[derive(Clone)]
-pub struct SustainSynth {
-    pub wave: Tag,
-    pub attack: Real,
-    pub decay: Real,
-    pub sustain_level: Real,
-    pub release: Real,
-    pub clock: Real,
+pub struct Adsr {
+    pub attack: In,
+    pub decay: In,
+    pub sustain: In,
+    pub release: In,
+    clock: Real,
     pub triggered: bool,
-    pub level: Real,
+    level: Real,
 }
 
-impl SustainSynth {
-    pub fn new(wave: Tag) -> Self {
+impl Adsr {
+    pub fn new(attack: Real, decay: Real, sustain: Real, release: Real) -> Self {
         Self {
-            wave,
-            attack: 0.2,
-            decay: 0.1,
-            sustain_level: 0.8,
-            release: 0.2,
+            attack: fix(attack),
+            decay: fix(decay),
+            sustain: fix(sustain),
+            release: fix(release),
             clock: 0.0,
             triggered: false,
             level: 0.0,
         }
     }
 
-    pub fn wrapped(wave: Tag) -> ArcMutex<Self> {
-        arc(Self::new(wave))
+    pub fn wrapped(attack: Real, decay: Real, sustain: Real, release: Real) -> ArcMutex<Self> {
+        arc(Self::new(attack, decay, sustain, release))
     }
 
-    pub fn calc_level(&self) -> Real {
-        let a = self.attack;
-        let d = self.decay;
-        let r = self.release;
-        let sl = self.sustain_level;
+    pub fn calc_level(&self, graph: &Graph) -> Real {
+        let a = In::val(graph, self.attack);
+        let d = In::val(graph, self.decay);
+        let s = In::val(graph, self.sustain);
+        let r = In::val(graph, self.release);
+
         if self.triggered {
             match self.clock {
+                // Attack
                 t if t < a => t / a,
-                t if t < a + d => 1.0 + (t - a) * (sl - 1.0) / d,
-                _ => sl,
+                // Decay
+                t if t < a + d => 1.0 + (t - a) * (s - 1.0) / d,
+                // Sustain
+                _ => s,
             }
         } else {
             match self.clock {
-                t if t < r => sl - t / r * sl,
+                // Release
+                t if t < r => s - t / r * s,
+                // Off
                 _ => 0.,
             }
         }
     }
 
-    pub fn on(&mut self) {
-        self.clock = self.level * self.attack;
+    pub fn on(&mut self, graph: &Graph) {
         self.triggered = true;
+        self.clock = self.level * In::val(graph, self.attack);
     }
 
-    pub fn off(&mut self) {
-        self.clock = (self.sustain_level - self.level) * self.release / self.sustain_level;
+    pub fn off(&mut self, graph: &Graph) {
+        let s = In::val(graph, self.sustain);
+        let r = In::val(graph, self.release);
         self.triggered = false;
+        self.clock = (s - self.level) * r / s;
     }
 }
 
-impl Signal for SustainSynth {
+impl Signal for Adsr {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let amp = graph.output(self.wave) * self.calc_level();
+        let amp = self.calc_level(graph);
         self.clock += 1. / sample_rate;
-        self.level = self.calc_level();
+        self.level = self.calc_level(graph);
         amp
     }
 }
-pub fn set_attack(graph: &Graph, n: Tag, a: Real) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<SustainSynth>()
-    {
-        v.attack = a;
+
+impl Index<&str> for Adsr {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "attack" => &self.attack,
+            "decay" => &self.decay,
+            "sustain" => &self.sustain,
+            "release" => &self.release,
+            _ => panic!("Adsr does not have a field named: {}", index),
+        }
     }
 }
 
-pub fn set_decay(graph: &Graph, n: Tag, d: Real) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<SustainSynth>()
-    {
-        v.decay = d;
+impl IndexMut<&str> for Adsr {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "attack" => &mut self.attack,
+            "decay" => &mut self.decay,
+            "sustain" => &mut self.sustain,
+            "release" => &mut self.release,
+            _ => panic!("Adsr does not have a field named: {}", index),
+        }
     }
 }
 
-pub fn set_release(graph: &Graph, n: Tag, r: Real) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<SustainSynth>()
-    {
-        v.release = r;
+impl<'a> Set<'a> for Adsr {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.nodes[&n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
     }
 }
 
-pub fn set_sustain_level(graph: &Graph, n: Tag, s: Real) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<SustainSynth>()
-    {
-        v.sustain_level = s;
-    }
-}
 
 pub fn on(graph: &Graph, n: Tag) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
+    if let Some(v) = graph.nodes[&n]
         .module
         .lock()
         .unwrap()
         .as_any_mut()
-        .downcast_mut::<SustainSynth>()
+        .downcast_mut::<Adsr>()
     {
-        v.on();
+        v.on(graph);
     }
 }
 
 pub fn off(graph: &Graph, n: Tag) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
+    if let Some(v) = graph.nodes[&n]
         .module
         .lock()
         .unwrap()
         .as_any_mut()
-        .downcast_mut::<SustainSynth>()
+        .downcast_mut::<Adsr>()
     {
-        v.off();
+        v.off(graph);
     }
 }

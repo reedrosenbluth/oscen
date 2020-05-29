@@ -21,33 +21,105 @@ impl Signal for Product {
         self
     }
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        self.waves.iter().fold(1.0, |acc, n| acc * graph.output(*n))
+        self.waves.iter().fold(1.0, |acc, n| acc * graph.output(n))
     }
 }
 
-pub struct Sum {
-    pub waves: Vec<Tag>,
-}
+impl Index<usize> for Product {
+    type Output = Tag;
 
-impl Sum {
-    pub fn new(waves: Vec<Tag>) -> Self {
-        Sum { waves }
-    }
-
-    pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
-        arc(Sum::new(waves))
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.waves[index]
     }
 }
 
-impl Signal for Sum {
+impl IndexMut<usize> for Product {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.waves[index]
+    }
+}
+
+pub struct Vca {
+    pub wave: Tag,
+    pub level: In,
+}
+
+impl Vca {
+    pub fn new(wave: Tag, level: In) -> Self {
+        Self { wave, level: level }
+    }
+
+    pub fn wrapped(wave: Tag, level: In) -> ArcMutex<Self> {
+        arc(Self::new(wave, level))
+    }
+}
+
+impl Signal for Vca {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        self.waves.iter().fold(0.0, |acc, n| acc + graph.output(*n))
+        graph.output(self.wave) * In::val(graph, self.level)
     }
 }
 
+impl Index<&str> for Vca {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "level" => &self.level,
+            _ => panic!("Vca does not have a field named: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Vca {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "level" => &mut self.level,
+            _ => panic!("Vca does not have a field named: {}", index),
+        }
+    }
+}
+
+pub struct Mixer {
+    pub waves: Vec<Tag>,
+    pub level: In,
+}
+
+impl Mixer {
+    pub fn new(waves: Vec<Tag>) -> Self {
+        Mixer { waves, level: fix(1.0) }
+    }
+
+    pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
+        arc(Mixer::new(waves))
+    }
+}
+
+impl Signal for Mixer {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
+        self.waves.iter().fold(0.0, |acc, n| acc + graph.output(n)) * In::val(graph, self.level)
+    }
+}
+
+impl Index<usize> for Mixer {
+    type Output = Tag;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.waves[index]
+    }
+}
+
+impl IndexMut<usize> for Mixer {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.waves[index]
+    }
+}
 pub struct Lerp {
     wave1: In,
     wave2: In,
@@ -57,8 +129,8 @@ pub struct Lerp {
 impl Lerp {
     pub fn new(wave1: Tag, wave2: Tag) -> Self {
         Lerp {
-            wave1: var(wave1),
-            wave2: var(wave2),
+            wave1: cv(wave1),
+            wave2: cv(wave2),
             alpha: fix(0.5),
         }
     }
@@ -79,11 +151,48 @@ impl Signal for Lerp {
     }
 }
 
+impl Index<&str> for Lerp {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "wave1" => &self.wave1,
+            "wave2" => &self.wave2,
+            "alpha" => &self.alpha,
+            _ => panic!("Lerp does not have a field named: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Lerp {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "wave1" => &mut self.wave1,
+            "wave2" => &mut self.wave2,
+            "alpha" => &mut self.alpha,
+            _ => panic!("Lerp does not have a field named: {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for Lerp {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.nodes[&n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
+    }
+}
+
 pub fn set_alpha(graph: &Graph, k: In, a: Real) {
     match k {
-        In::Var(n) => {
-            assert!(n < graph.nodes.len());
-            if let Some(v) = graph.nodes[n]
+        In::Cv(n) => {
+            if let Some(v) = graph.nodes[&n]
                 .module
                 .lock()
                 .unwrap()
@@ -93,7 +202,7 @@ pub fn set_alpha(graph: &Graph, k: In, a: Real) {
                 v.alpha = fix(a)
             }
         }
-        In::Fixed(_) => panic!("Lerp wave can only be a In::Var"),
+        In::Fix(_) => panic!("Lerp wave can only be a In::Var"),
     }
 }
 
@@ -106,8 +215,8 @@ pub struct Lerp3 {
 impl Lerp3 {
     pub fn new(lerp1: Tag, lerp2: Tag, knob: In) -> Self {
         Self {
-            lerp1: var(lerp1),
-            lerp2: var(lerp2),
+            lerp1: cv(lerp1),
+            lerp2: cv(lerp2),
             knob,
         }
     }
@@ -143,9 +252,48 @@ impl Signal for Lerp3 {
     }
 }
 
+impl Index<&str> for Lerp3 {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "lerp1" => &self.lerp1,
+            "lerp2" => &self.lerp2,
+            "knob" => &self.knob,
+            _ => panic!("Lerp3 does not have a field named: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Lerp3 {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "lerp1" => &mut self.lerp1,
+            "lerp2" => &mut self.lerp2,
+            "knob" => &mut self.knob,
+            _ => panic!("Lerp does not have a field named: {}", index),
+        }
+    }
+
+}
+
+impl<'a> Set<'a> for Lerp3 {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.nodes[&n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
+    }
+}
+
+
 pub fn set_knob(graph: &Graph, n: Tag, k: Real) {
-    assert!(n < graph.nodes.len());
-    if let Some(v) = graph.nodes[n]
+    if let Some(v) = graph.nodes[&n]
         .module
         .lock()
         .unwrap()
@@ -165,16 +313,16 @@ pub struct Modulator {
 }
 
 impl Modulator {
-    pub fn new(wave: Tag, base_hz: Real, mod_hz: Real, mod_idx: Real) -> Self {
+    pub fn new(wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> Self {
         Modulator {
-            wave: var(wave),
-            base_hz: fix(base_hz),
-            mod_hz: fix(mod_hz),
-            mod_idx: fix(mod_idx),
+            wave: cv(wave),
+            base_hz: base_hz,
+            mod_hz: mod_hz,
+            mod_idx: mod_idx,
         }
     }
 
-    pub fn wrapped(wave: Tag, base_hz: Real, mod_hz: Real, mod_idx: Real) -> ArcMutex<Self> {
+    pub fn wrapped(wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> ArcMutex<Self> {
         arc(Modulator::new(wave, base_hz, mod_hz, mod_idx))
     }
 }
@@ -220,8 +368,7 @@ impl IndexMut<&str> for Modulator {
 
 impl<'a> Set<'a> for Modulator {
     fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        assert!(n < graph.nodes.len());
-        if let Some(v) = graph.nodes[n]
+        if let Some(v) = graph.nodes[&n]
             .module
             .lock()
             .unwrap()

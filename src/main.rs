@@ -12,9 +12,10 @@ use swell::envelopes::{
     off, on, set_attack, set_decay, set_release, set_sustain_level, SustainSynth,
 };
 use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
-use swell::graph::{arc, fix, var, Graph, Real, Set};
+use swell::graph::{arc, fix, cv, Graph, Real, Set};
 use swell::operators::{set_knob, Lerp, Lerp3, Modulator};
 use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc};
+use swell::reverb::*;
 
 use midi::listen_midi;
 
@@ -94,27 +95,29 @@ fn model(app: &App) -> Model {
     };
     let audio_host = audio::Host::new();
 
-    let node_0 = SineOsc::wrapped(fix(110.0));
-    let node_1 = Modulator::wrapped(0, 110., 10., 8.);
-    let node_2 = SquareOsc::wrapped(var(1));
-    let node_3 = SineOsc::wrapped(var(1));
-    let node_4 = SawOsc::wrapped(var(1));
-    let node_5 = Lerp::wrapped(2, 3);
-    let node_6 = Lerp::wrapped(3, 4);
-    let node_7 = Lerp3::wrapped(5, 6, fix(0.5));
-    let node_8 = BiquadFilter::lphpf(7, 44100.0, 440., 0.707, 1.0);
-    let node_9 = SustainSynth::wrapped(8);
+    let node_0 = SineOsc::wrapped();
+    let node_1 = Modulator::wrapped("sine_mod", fix(110.), fix(10.), fix(8.));
+    let node_2 = SquareOsc::with_hz(cv("modulator"));
+    let node_3 = SineOsc::with_hz(cv("modulator"));
+    let node_4 = SawOsc::with_hz(cv("modulator"));
+    let node_5 = Lerp::wrapped("square", "sine");
+    let node_6 = Lerp::wrapped("sine", "saw");
+    let node_7 = Lerp3::wrapped("lerp1", "lerp2", fix(0.5));
+    let node_8 = BiquadFilter::lphpf("lerp3", 44100.0, 440., 0.707, 1.0);
+    let freeverb = Freeverb::wrapped("biquad");
+    let node_9 = SustainSynth::wrapped("freeverb");
     let voice = Graph::new(vec![
-        node_0,
-        node_1,
-        node_2,
-        node_3,
-        node_4,
-        node_5,
-        node_6,
-        node_7,
-        arc(node_8),
-        node_9,
+        ("sine_mod", node_0),
+        ("modulator", node_1),
+        ("square", arc(node_2)),
+        ("sine", arc(node_3)),
+        ("saw", arc(node_4)),
+        ("lerp1", node_5),
+        ("lerp2", node_6),
+        ("lerp3", node_7),
+        ("biquad", arc(node_8)),
+        ("freeverb", freeverb),
+        ("adsr", node_9),
     ]);
 
     let synth = Synth { voice, sender };
@@ -171,16 +174,16 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                 model
                     .stream
                     .send(move |synth| {
-                        set_hz(&synth.voice, 1, hz);
-                        Modulator::set(&synth.voice, 1, "base_hz", hz);
-                        on(&synth.voice, 9);
+                        set_hz(&synth.voice, "modulator", hz);
+                        Modulator::set(&synth.voice, "modulator", "base_hz", hz);
+                        on(&synth.voice, "adsr");
                     })
                     .unwrap();
             } else if message[0] == 128 {
                 model
                     .stream
                     .send(move |synth| {
-                        off(&synth.voice, 9);
+                        off(&synth.voice, "adsr");
                     })
                     .unwrap();
             }
@@ -230,7 +233,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model.knob = value;
         model
             .stream
-            .send(move |synth| set_knob(&synth.voice, 7, value))
+            .send(move |synth| set_knob(&synth.voice, "lerp3", value))
             .unwrap();
     }
 
@@ -244,7 +247,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         let hz = model.hz;
         model
             .stream
-            .send(move |synth| set_hz(&synth.voice, 0, hz / value))
+            .send(move |synth| set_hz(&synth.voice, "sine_mod", hz / value))
             .unwrap();
     }
 
@@ -258,7 +261,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                Modulator::set(&synth.voice, 1, "mod_idx", value);
+                Modulator::set(&synth.voice, "modulator", "mod_idx", value);
             })
             .unwrap();
     }
@@ -276,10 +279,10 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
             .stream
             .send(move |synth| {
                 if value < 1.0 {
-                    biquad_off(&synth.voice, 8)
+                    biquad_off(&synth.voice, "biquad")
                 } else {
-                    biquad_on(&synth.voice, 8);
-                    set_lphpf(&synth.voice, 8, value, q, t);
+                    biquad_on(&synth.voice, "biquad");
+                    set_lphpf(&synth.voice, "biquad", value, q, t);
                 }
             })
             .unwrap();
@@ -296,7 +299,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                set_lphpf(&synth.voice, 8, cutoff, value, t);
+                set_lphpf(&synth.voice, "biquad", cutoff, value, t);
             })
             .unwrap();
     }
@@ -313,7 +316,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                set_lphpf(&synth.voice, 8, cutoff, q, value);
+                set_lphpf(&synth.voice, "biquad", cutoff, q, value);
             })
             .unwrap();
     }
@@ -327,7 +330,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                set_attack(&synth.voice, 9, value);
+                set_attack(&synth.voice, "adsr", value);
             })
             .unwrap();
     }
@@ -341,7 +344,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                set_decay(&synth.voice, 9, value);
+                set_decay(&synth.voice, "adsr", value);
             })
             .unwrap();
     }
@@ -355,7 +358,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                set_sustain_level(&synth.voice, 9, value);
+                set_sustain_level(&synth.voice, "adsr", value);
             })
             .unwrap();
     }
@@ -369,7 +372,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
         model
             .stream
             .send(move |synth| {
-                set_release(&synth.voice, 9, value);
+                set_release(&synth.voice, "adsr", value);
             })
             .unwrap();
     }
