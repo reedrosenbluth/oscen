@@ -185,7 +185,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     }
 }
 
-fn view(app: &App, model: &Model, frame: Frame) {
+fn view(app: &App, _model: &Model, frame: Frame) {
     let draw = app.draw();
     let c = rgb(9. / 255., 9. / 255., 44. / 255.);
     draw.background().color(c);
