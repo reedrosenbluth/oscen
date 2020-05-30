@@ -10,9 +10,9 @@ use uuid::Uuid;
 
 pub const TAU: f64 = 2.0 * PI;
 pub type Real = f64;
-// pub type Tag = &'static str;
 pub type Tag = Uuid;
 
+/// Generate a unique tag for a synth module.
 pub fn mk_tag() -> Tag {
     Uuid::new_v4()
 }
