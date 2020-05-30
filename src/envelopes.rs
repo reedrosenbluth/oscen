@@ -19,7 +19,7 @@ pub struct Adsr {
 impl Adsr {
     pub fn new(attack: Real, decay: Real, sustain: Real, release: Real) -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             attack: fix(attack),
             decay: fix(decay),
             sustain: fix(sustain),

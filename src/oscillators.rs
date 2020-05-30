@@ -17,7 +17,7 @@ pub struct SineOsc {
 impl SineOsc {
     pub fn new() -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
@@ -25,7 +25,7 @@ impl SineOsc {
     }
 
     pub fn with_hz(hz: In) -> Self {
-        Self { tag: mk_id(), hz, amplitude: fix(1.0), phase: fix(0.0) }
+        Self { tag: mk_tag(), hz, amplitude: fix(1.0), phase: fix(0.0) }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
@@ -106,7 +106,7 @@ pub struct SawOsc {
 impl SawOsc {
     pub fn new() -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
@@ -114,7 +114,7 @@ impl SawOsc {
     }
 
     pub fn with_hz(hz: In) -> Self {
-        Self { tag: mk_id(), hz, amplitude: fix(1.0), phase: fix(0.0) }
+        Self { tag: mk_tag(), hz, amplitude: fix(1.0), phase: fix(0.0) }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
@@ -201,7 +201,7 @@ pub struct TriangleOsc {
 impl TriangleOsc {
     pub fn new() -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
@@ -209,7 +209,7 @@ impl TriangleOsc {
     }
 
     pub fn with_hz(hz: In) -> Self {
-        Self { tag: mk_id(), hz, amplitude: fix(1.0), phase: fix(0.0) }
+        Self { tag: mk_tag(), hz, amplitude: fix(1.0), phase: fix(0.0) }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
@@ -294,7 +294,7 @@ pub struct SquareOsc {
 impl SquareOsc {
     pub fn new() -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             hz: fix(0.0),
             amplitude: fix(1.0),
             phase: fix(0.0),
@@ -303,7 +303,7 @@ impl SquareOsc {
     }
 
     pub fn with_hz(hz: In) -> Self {
-        Self { tag: mk_id(), hz, amplitude: fix(1.0), phase: fix(0.0), duty_cycle: fix(0.5) }
+        Self { tag: mk_tag(), hz, amplitude: fix(1.0), phase: fix(0.0), duty_cycle: fix(0.5) }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
@@ -389,7 +389,7 @@ pub struct WhiteNoise {
 impl WhiteNoise {
     pub fn new() -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             amplitude: fix(1.0),
             dist: Uniform::new_inclusive(-1.0, 1.0),
         }
@@ -459,14 +459,14 @@ pub struct Osc01 {
 impl Osc01 {
     pub fn new() -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             hz: fix(0.0),
             phase: fix(0.0),
         }
     }
 
     pub fn with_hz(hz: In) -> Self {
-        Self { tag: mk_id(), hz, phase: fix(0.0) }
+        Self { tag: mk_tag(), hz, phase: fix(0.0) }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {

@@ -9,7 +9,7 @@ pub struct Product {
 
 impl Product {
     pub fn new(waves: Vec<Tag>) -> Self {
-        Product { tag: mk_id(), waves }
+        Product { tag: mk_tag(), waves }
     }
 
     pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
@@ -51,7 +51,7 @@ pub struct Vca {
 
 impl Vca {
     pub fn new(wave: Tag, level: In) -> Self {
-        Self { tag: mk_id(), wave, level: level }
+        Self { tag: mk_tag(), wave, level: level }
     }
 
     pub fn wrapped(wave: Tag, level: In) -> ArcMutex<Self> {
@@ -99,7 +99,7 @@ pub struct Mixer {
 
 impl Mixer {
     pub fn new(waves: Vec<Tag>) -> Self {
-        Mixer { tag: mk_id(), waves, level: fix(1.0) }
+        Mixer { tag: mk_tag(), waves, level: fix(1.0) }
     }
 
     pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
@@ -142,7 +142,7 @@ pub struct Lerp {
 impl Lerp {
     pub fn new(wave1: Tag, wave2: Tag) -> Self {
         Lerp {
-            tag: mk_id(),
+            tag: mk_tag(),
             wave1: cv(wave1),
             wave2: cv(wave2),
             alpha: fix(0.5),
@@ -233,7 +233,7 @@ pub struct Lerp3 {
 impl Lerp3 {
     pub fn new(lerp1: Tag, lerp2: Tag, knob: In) -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             lerp1: cv(lerp1),
             lerp2: cv(lerp2),
             knob,
@@ -338,7 +338,7 @@ pub struct Modulator {
 impl Modulator {
     pub fn new(wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> Self {
         Modulator {
-            tag: mk_id(),
+            tag: mk_tag(),
             wave: cv(wave),
             base_hz: base_hz,
             mod_hz: mod_hz,

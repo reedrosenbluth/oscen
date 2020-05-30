@@ -2,10 +2,9 @@ use swell::graph::*;
 use crossbeam::crossbeam_channel::Sender;
 use midir::{Ignore, MidiInput};
 use std::any::Any;
-use std::ops::{Index, IndexMut};
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
-use swell::graph::mk_id;
+use swell::graph::mk_tag;
 
 /// The most recent note received from the midi source.
 #[derive(Clone)]
@@ -17,7 +16,7 @@ pub struct MidiPitch {
 impl MidiPitch {
     pub fn new() -> Self {
         MidiPitch {
-            tag: mk_id(),
+            tag: mk_tag(),
             hz: 0.0,
         }
     }
@@ -56,7 +55,7 @@ pub struct MidiControl {
 impl MidiControl {
     pub fn new(controller: u8) -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             controller,
             value: 0,
         }

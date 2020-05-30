@@ -8,7 +8,7 @@ pub struct SineFold {
 
 impl SineFold {
     pub fn new(wave: Tag) -> Self {
-        Self { tag: mk_id(), wave }
+        Self { tag: mk_tag(), wave }
     }
 
     pub fn wrapped( wave: Tag) -> ArcMutex<Self> {

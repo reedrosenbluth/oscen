@@ -80,7 +80,7 @@ impl Freeverb {
             all4,
         ]);
         Freeverb {
-            tag: mk_id(),
+            tag: mk_tag(),
             wave,
             graph,
             wet_gain: 0.5,

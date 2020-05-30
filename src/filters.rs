@@ -74,7 +74,7 @@ pub fn notch(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, R
 impl BiquadFilter {
     pub fn new(wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             wave,
             b1: fix(b1),
             b2: fix(b2),
@@ -203,7 +203,7 @@ pub struct Comb {
 impl Comb {
     pub fn new(wave: Tag, length: usize) -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             wave,
             buffer: vec![0.0; length],
             index: 0,
@@ -250,7 +250,7 @@ pub struct AllPass {
 impl AllPass {
     pub fn new(wave: Tag, length: usize) -> Self {
         Self {
-            tag: mk_id(),
+            tag: mk_tag(),
             wave,
             buffer: vec![0.0; length],
             index: 0,

@@ -13,7 +13,7 @@ pub type Real = f64;
 // pub type Tag = &'static str;
 pub type Tag = Uuid;
 
-pub fn mk_id() -> Tag {
+pub fn mk_tag() -> Tag {
     Uuid::new_v4()
 }
 
@@ -190,7 +190,7 @@ pub struct Connect {
 
 impl Connect {
     pub fn new() -> Self {
-        Self { tag: mk_id(), value: 0.0 }
+        Self { tag: mk_tag(), value: 0.0 }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
