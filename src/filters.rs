@@ -3,6 +3,7 @@ use std::any::Any;
 use std::f64::consts::PI;
 
 pub struct BiquadFilter {
+    pub tag: Tag,
     pub wave: Tag,
     pub b1: In,
     pub b2: In,
@@ -73,6 +74,7 @@ pub fn notch(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, R
 impl BiquadFilter {
     pub fn new(wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> Self {
         Self {
+            tag: mk_tag(),
             wave,
             b1: fix(b1),
             b2: fix(b2),
@@ -123,7 +125,7 @@ impl Signal for BiquadFilter {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let x0 = graph.output(&self.wave);
+        let x0 = graph.output(self.wave);
         if self.off {
             return x0;
         };
@@ -138,6 +140,9 @@ impl Signal for BiquadFilter {
         self.y2 = self.y1;
         self.y1 = amp;
         amp
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }
 
@@ -185,6 +190,7 @@ pub fn set_lphpf(graph: &Graph, n: Tag, cutoff: Real, q: Real, t: Real) {
 /// Lowpass-Feedback Comb Filter
 /// https://ccrma.stanford.edu/~jos/pasp/Lowpass_Feedback_Comb_Filter.html
 pub struct Comb {
+    pub tag: Tag,
     pub wave: Tag,
     buffer: Vec<Real>,
     index: usize,
@@ -197,6 +203,7 @@ pub struct Comb {
 impl Comb {
     pub fn new(wave: Tag, length: usize) -> Self {
         Self {
+            tag: mk_tag(),
             wave,
             buffer: vec![0.0; length],
             index: 0,
@@ -218,7 +225,7 @@ impl Signal for Comb {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let input = graph.output(&self.wave);
+        let input = graph.output(self.wave);
         let output = self.buffer[self.index] as Real;
         self.filter_state = output * self.dampening_inverse + self.filter_state * self.dampening;
         self.buffer[self.index] = input + (self.filter_state * self.feedback) as Real;
@@ -228,9 +235,13 @@ impl Signal for Comb {
         }
         output as Real
     }
+    fn tag(&self) -> Tag {
+        self.tag
+    }
 }
 
 pub struct AllPass {
+    pub tag: Tag,
     pub wave: Tag,
     buffer: Vec<Real>,
     index: usize,
@@ -239,6 +250,7 @@ pub struct AllPass {
 impl AllPass {
     pub fn new(wave: Tag, length: usize) -> Self {
         Self {
+            tag: mk_tag(),
             wave,
             buffer: vec![0.0; length],
             index: 0,
@@ -256,7 +268,7 @@ impl Signal for AllPass {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let input = graph.output(&self.wave);
+        let input = graph.output(self.wave);
         let delayed = self.buffer[self.index];
         let output = delayed - input;
         self.buffer[self.index] = input + (0.5 * delayed) as Real;
@@ -265,5 +277,8 @@ impl Signal for AllPass {
             self.index = 0
         }
         output as Real
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }

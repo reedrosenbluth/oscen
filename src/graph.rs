@@ -1,14 +1,21 @@
 use std::{
     any::Any,
+    collections::HashMap,
     f64::consts::PI,
     ops::{Index, IndexMut},
     sync::{Arc, Mutex},
-    collections::HashMap,
 };
+
+use uuid::Uuid;
 
 pub const TAU: f64 = 2.0 * PI;
 pub type Real = f64;
-pub type Tag = &'static str;
+pub type Tag = Uuid;
+
+/// Generate a unique tag for a synth module.
+pub fn mk_tag() -> Tag {
+    Uuid::new_v4()
+}
 
 /// Synth modules must implement the Signal trait. `as_any_mut` is necessary
 /// so that modules can be downcast in order to access their specific fields.
@@ -20,6 +27,8 @@ pub trait Signal: Any {
     /// Responsible for updating the `phase` and returning the next signal
     /// value, i.e. `amplitude`.
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real;
+    /// Synth modules must have a tag (name) to serve as their key in the graph.
+    fn tag(&self) -> Tag;
 }
 
 /// Signals typically need to decalare that they are `Send` so that they are
@@ -30,6 +39,23 @@ pub type ArcMutex<T> = Arc<Mutex<T>>;
 /// Convenience function for `Arc<Mutex<...>`.
 pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
     Arc::new(Mutex::new(x))
+}
+
+impl<T> Signal for ArcMutex<T>
+where
+    T: Signal,
+{
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        self.lock().unwrap().signal(graph, sample_rate)
+    }
+
+    fn tag(&self) -> Tag {
+        self.lock().unwrap().tag()
+    }
 }
 
 /// Inputs to synth modules can either be constant (`Fix`) or a control voltage
@@ -50,12 +76,12 @@ impl In {
     }
 }
 
-/// Create a modulateable input.
+/// Create a `cv` (modulateable) input.
 pub fn cv(n: Tag) -> In {
     In::Cv(n)
 }
 
-/// Create a constant input.
+/// Create a `fix` (constant) input.
 pub fn fix(x: Real) -> In {
     In::Fix(x)
 }
@@ -89,12 +115,13 @@ pub struct Graph {
 impl Graph {
     /// Create a `Graph` object whose order is set to the order of the `Signal`s
     /// in the input `ws`.
-    pub fn new(ws: Vec<(Tag, ArcMutex<Sig>)>) -> Self {
+    pub fn new(ws: Vec<ArcMutex<Sig>>) -> Self {
         let mut nodes: GraphMap = HashMap::new();
         let mut order: Vec<Tag> = Vec::new();
         for s in ws {
-            nodes.insert(s.0, Node::new(s.1));
-            order.push(&s.0)
+            let t = s.lock().unwrap().tag();
+            nodes.insert(t, Node::new(s));
+            order.push(t)
         }
         Graph { nodes, order }
     }
@@ -107,7 +134,7 @@ impl Graph {
 
     /// Get the `output` of a `Node`.
     pub fn output(&self, n: Tag) -> Real {
-        self.nodes[n].output
+        self.nodes[&n].output
     }
 
     /// Insert a sub-graph into the graph before node `loc`.
@@ -134,7 +161,7 @@ impl Graph {
         let mut outs: Vec<Real> = Vec::new();
         for o in self.order.iter() {
             outs.push(
-                self.nodes[*o]
+                self.nodes[o]
                     .module
                     .lock()
                     .unwrap()
@@ -144,7 +171,7 @@ impl Graph {
         for (i, o) in self.order.iter().enumerate() {
             self.nodes.get_mut(o).unwrap().output = outs[i];
         }
-        self.nodes[self.out_tag()].output
+        self.nodes[&self.out_tag()].output
     }
 }
 
@@ -157,14 +184,15 @@ pub trait Set<'a>: IndexMut<&'a str> {
 /// input node from the main graph as a connect node, which will be the first
 /// node in the subgraph.
 pub struct Connect {
-    pub value: Real
+    pub tag: Tag,
+    pub value: Real,
 }
 
 impl Connect {
     pub fn new() -> Self {
-        Self {value: 0.0}
+        Self { tag: mk_tag(), value: 0.0 }
     }
-    
+
     pub fn wrapped() -> ArcMutex<Self> {
         arc(Self::new())
     }
@@ -176,9 +204,12 @@ impl Signal for Connect {
     }
 
     fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
-       self.value 
+        self.value
     }
 
+    fn tag(&self) -> Tag {
+        self.tag
+    }
 }
 
 impl Index<&str> for Connect {

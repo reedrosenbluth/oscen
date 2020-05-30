@@ -23,6 +23,7 @@ const ALLPASS_TUNING_3: usize = 341;
 const ALLPASS_TUNING_4: usize = 225;
 
 pub struct Freeverb {
+    pub tag: Tag,
     pub wave: Tag,
     graph: Graph,
     wet_gain: Real,
@@ -38,38 +39,48 @@ pub struct Freeverb {
 impl Freeverb {
     pub fn new(wave: Tag) -> Self {
         let input = Connect::wrapped();
-        let comb1 = Comb::wrapped("input", COMB_TUNING_1);
-        let comb2 = Comb::wrapped("input", COMB_TUNING_2);
-        let comb3 = Comb::wrapped("input", COMB_TUNING_3);
-        let comb4 = Comb::wrapped("input", COMB_TUNING_4);
-        let comb5 = Comb::wrapped("input", COMB_TUNING_5);
-        let comb6 = Comb::wrapped("input", COMB_TUNING_6);
-        let comb7 = Comb::wrapped("input", COMB_TUNING_7);
-        let comb8 = Comb::wrapped("input", COMB_TUNING_8);
-        let combs = Mixer::wrapped(vec![
-            "comb1", "comb2", "comb3", "comb4", "comb5", "comb6", "comb7", "comb8",
-        ]);
-        let all1 = AllPass::wrapped("combs", ALLPASS_TUNING_1);
-        let all2 = AllPass::wrapped("all1", ALLPASS_TUNING_2);
-        let all3 = AllPass::wrapped("all2", ALLPASS_TUNING_3);
-        let all4 = AllPass::wrapped("all3", ALLPASS_TUNING_4);
+        let comb1 = Comb::wrapped(input.tag(), COMB_TUNING_1);
+        let comb2 = Comb::wrapped(input.tag(), COMB_TUNING_2);
+        let comb3 = Comb::wrapped(input.tag(), COMB_TUNING_3);
+        let comb4 = Comb::wrapped(input.tag(), COMB_TUNING_4);
+        let comb5 = Comb::wrapped(input.tag(), COMB_TUNING_5);
+        let comb6 = Comb::wrapped(input.tag(), COMB_TUNING_6);
+        let comb7 = Comb::wrapped(input.tag(), COMB_TUNING_7);
+        let comb8 = Comb::wrapped(input.tag(), COMB_TUNING_8);
+        let combs = Mixer::wrapped(
+            vec![
+                comb1.tag(),
+                comb2.tag(),
+                comb3.tag(),
+                comb4.tag(),
+                comb5.tag(),
+                comb6.tag(),
+                comb7.tag(),
+                comb8.tag(),
+            ],
+        );
+        let all1 = AllPass::wrapped(combs.tag(), ALLPASS_TUNING_1);
+        let all2 = AllPass::wrapped(all1.tag(), ALLPASS_TUNING_2);
+        let all3 = AllPass::wrapped(all2.tag(), ALLPASS_TUNING_3);
+        let all4 = AllPass::wrapped(all3.tag(), ALLPASS_TUNING_4);
         let graph = Graph::new(vec![
-            ("input", input),
-            ("comb1", comb1),
-            ("comb2", comb2),
-            ("comb3", comb3),
-            ("comb4", comb4),
-            ("comb5", comb5),
-            ("comb6", comb6),
-            ("comb7", comb7),
-            ("comb8", comb8),
-            ("combs", combs),
-            ("all1", all1),
-            ("all2", all2),
-            ("all3", all3),
-            ("all4", all4),
+            input,
+            comb1,
+            comb2,
+            comb3,
+            comb4,
+            comb5,
+            comb6,
+            comb7,
+            comb8,
+            combs,
+            all1,
+            all2,
+            all3,
+            all4,
         ]);
         Freeverb {
+            tag: mk_tag(),
             wave,
             graph,
             wet_gain: 0.5,
@@ -160,8 +171,11 @@ impl Signal for Freeverb {
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let inp = graph.output(self.wave);
-        Connect::set(&self.graph, "input", "value", inp);
+        Connect::set(&self.graph, self.wave, "value", inp);
         let out = self.graph.signal(sample_rate);
         out * self.wet_gain + inp * self.dry
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }

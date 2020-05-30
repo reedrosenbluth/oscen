@@ -6,6 +6,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct Adsr {
+    pub tag: Tag,
     pub attack: In,
     pub decay: In,
     pub sustain: In,
@@ -18,6 +19,7 @@ pub struct Adsr {
 impl Adsr {
     pub fn new(attack: Real, decay: Real, sustain: Real, release: Real) -> Self {
         Self {
+            tag: mk_tag(),
             attack: fix(attack),
             decay: fix(decay),
             sustain: fix(sustain),
@@ -80,6 +82,9 @@ impl Signal for Adsr {
         self.clock += 1. / sample_rate;
         self.level = self.calc_level(graph);
         amp
+    }
+    fn tag(&self) -> Tag {
+        self.tag
     }
 }
 
