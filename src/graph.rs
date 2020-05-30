@@ -76,12 +76,12 @@ impl In {
     }
 }
 
-/// Create a modulateable input.
+/// Create a `cv` (modulateable) input.
 pub fn cv(n: Tag) -> In {
     In::Cv(n)
 }
 
-/// Create a constant input.
+/// Create a `fix` (constant) input.
 pub fn fix(x: Real) -> In {
     In::Fix(x)
 }

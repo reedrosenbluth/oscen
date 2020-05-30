@@ -8,9 +8,9 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
 use std::thread;
-use swell::envelopes::{off, on};
+use swell::envelopes::{off, on, Adsr};
 use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
-use swell::graph::{arc, cv, fix, Graph, Real, Set};
+use swell::graph::{arc, cv, fix, Graph, Real, Set, Signal};
 use swell::operators::{set_knob, Lerp, Lerp3, Modulator};
 use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc};
 use swell::reverb::*;
@@ -93,29 +93,29 @@ fn model(app: &App) -> Model {
     };
     let audio_host = audio::Host::new();
 
-    let node_0 = SineOsc::wrapped("sine_mod");
-    let node_1 = Modulator::wrapped("modulator", "sine_mod", fix(110.), fix(10.), fix(8.));
-    let node_2 = SquareOsc::with_hz(cv("modulator"));
-    let node_3 = SineOsc::with_hz(cv("modulator"));
-    let node_4 = SawOsc::with_hz(cv("modulator"));
-    let node_5 = Lerp::wrapped("square", "sine");
-    let node_6 = Lerp::wrapped("sine", "saw");
-    let node_7 = Lerp3::wrapped("lerp1", "lerp2", fix(0.5));
-    let node_8 = BiquadFilter::lphpf("lerp3", 44100.0, 440., 0.707, 1.0);
-    let freeverb = Freeverb::wrapped("biquad");
-    let node_9 = SustainSynth::wrapped("freeverb");
+    let sine_mod = SineOsc::wrapped();
+    let modulator = Modulator::wrapped(sine_mod.tag(), fix(110.), fix(10.), fix(8.));
+    let square_osc = SquareOsc::with_hz(cv(modulator.tag()));
+    let sine_osc = SineOsc::with_hz(cv(modulator.tag()));
+    let saw_osc = SawOsc::with_hz(cv(modulator.tag()));
+    let lerp1 = Lerp::wrapped(square_osc.tag(), sine_osc.tag());
+    let lerp2 = Lerp::wrapped(sine_osc.tag(), saw_osc.tag());
+    let lerp3 = Lerp3::wrapped(lerp1.tag(), lerp2.tag(), fix(0.5));
+    let biquad = BiquadFilter::lphpf(lerp3.tag(), 44100.0, 440., 0.707, 1.0);
+    let freeverb = Freeverb::wrapped(biquad.tag());
+    let adsr = Adsr::new(0.01, 0.0, 1.0, 0.1);
     let voice = Graph::new(vec![
-        ("sine_mod", node_0),
-        ("modulator", node_1),
-        ("square", arc(node_2)),
-        ("sine", arc(node_3)),
-        ("saw", arc(node_4)),
-        ("lerp1", node_5),
-        ("lerp2", node_6),
-        ("lerp3", node_7),
-        ("biquad", arc(node_8)),
-        ("freeverb", freeverb),
-        ("adsr", node_9),
+        sine_mod,
+        modulator,
+        arc(square_osc),
+        arc(sine_osc),
+        arc(saw_osc),
+        lerp1,
+        lerp2,
+        lerp3,
+        arc(biquad),
+        freeverb,
+        arc(adsr),
     ]);
 
     let synth = Synth { voice, sender };
