@@ -1,19 +1,19 @@
 mod midi;
 
-use core::cmp::Ordering;
+// use core::cmp::Ordering;
 use core::time::Duration;
-use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam::crossbeam_channel::{unbounded, Receiver};
 use midi::{listen_midi, MidiControl, MidiPitch};
-use nannou::{prelude::*, ui::prelude::*};
+use nannou::{prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
-use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
-use swell::graph::{arc, cv, fix, ArcMutex, Graph, Real, Set, Signal, Tag};
-use swell::operators::{set_knob, Lerp, Lerp3, Mixer, Modulator, Vca};
-use swell::oscillators::{set_hz, SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
+// use swell::filters::{biquad_off, biquad_on, set_lphpf, BiquadFilter};
+use swell::graph::{arc, cv, fix, ArcMutex, Graph, Real,  Signal, Tag};
+use swell::operators::{Mixer, Modulator, Vca};
+use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
 
 fn main() {
     nannou::app(model).run();
