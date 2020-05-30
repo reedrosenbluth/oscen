@@ -17,9 +17,9 @@ pub struct Adsr {
 }
 
 impl Adsr {
-    pub fn new(tag: Tag, attack: Real, decay: Real, sustain: Real, release: Real) -> Self {
+    pub fn new(attack: Real, decay: Real, sustain: Real, release: Real) -> Self {
         Self {
-            tag,
+            tag: mk_id(),
             attack: fix(attack),
             decay: fix(decay),
             sustain: fix(sustain),
@@ -30,8 +30,8 @@ impl Adsr {
         }
     }
 
-    pub fn wrapped(tag: Tag, attack: Real, decay: Real, sustain: Real, release: Real) -> ArcMutex<Self> {
-        arc(Self::new(tag, attack, decay, sustain, release))
+    pub fn wrapped(attack: Real, decay: Real, sustain: Real, release: Real) -> ArcMutex<Self> {
+        arc(Self::new(attack, decay, sustain, release))
     }
 
     pub fn calc_level(&self, graph: &Graph) -> Real {

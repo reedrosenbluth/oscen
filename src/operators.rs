@@ -8,12 +8,12 @@ pub struct Product {
 }
 
 impl Product {
-    pub fn new(tag: Tag, waves: Vec<Tag>) -> Self {
-        Product { tag, waves }
+    pub fn new(waves: Vec<Tag>) -> Self {
+        Product { tag: mk_id(), waves }
     }
 
-    pub fn wrapped(tag: Tag, waves: Vec<Tag>) -> ArcMutex<Self> {
-        arc(Product::new(tag, waves))
+    pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
+        arc(Product::new(waves))
     }
 }
 
@@ -22,7 +22,7 @@ impl Signal for Product {
         self
     }
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        self.waves.iter().fold(1.0, |acc, n| acc * graph.output(n))
+        self.waves.iter().fold(1.0, |acc, n| acc * graph.output(*n))
     }
     fn tag(&self) -> Tag {
         self.tag
@@ -50,12 +50,12 @@ pub struct Vca {
 }
 
 impl Vca {
-    pub fn new(tag: Tag, wave: Tag, level: In) -> Self {
-        Self { tag, wave, level: level }
+    pub fn new(wave: Tag, level: In) -> Self {
+        Self { tag: mk_id(), wave, level: level }
     }
 
-    pub fn wrapped(tag: Tag, wave: Tag, level: In) -> ArcMutex<Self> {
-        arc(Self::new(tag, wave, level))
+    pub fn wrapped(wave: Tag, level: In) -> ArcMutex<Self> {
+        arc(Self::new(wave, level))
     }
 }
 
@@ -98,12 +98,12 @@ pub struct Mixer {
 }
 
 impl Mixer {
-    pub fn new(tag: Tag, waves: Vec<Tag>) -> Self {
-        Mixer { tag, waves, level: fix(1.0) }
+    pub fn new(waves: Vec<Tag>) -> Self {
+        Mixer { tag: mk_id(), waves, level: fix(1.0) }
     }
 
-    pub fn wrapped(tag: Tag, waves: Vec<Tag>) -> ArcMutex<Self> {
-        arc(Mixer::new(tag, waves))
+    pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
+        arc(Mixer::new(waves))
     }
 }
 
@@ -112,7 +112,7 @@ impl Signal for Mixer {
         self
     }
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        self.waves.iter().fold(0.0, |acc, n| acc + graph.output(n)) * In::val(graph, self.level)
+        self.waves.iter().fold(0.0, |acc, n| acc + graph.output(*n)) * In::val(graph, self.level)
     }
     fn tag(&self) -> Tag {
         self.tag
@@ -140,17 +140,17 @@ pub struct Lerp {
 }
 
 impl Lerp {
-    pub fn new(tag: Tag, wave1: Tag, wave2: Tag) -> Self {
+    pub fn new(wave1: Tag, wave2: Tag) -> Self {
         Lerp {
-            tag,
+            tag: mk_id(),
             wave1: cv(wave1),
             wave2: cv(wave2),
             alpha: fix(0.5),
         }
     }
 
-    pub fn wrapped(tag: Tag, wave1: Tag, wave2: Tag) -> ArcMutex<Self> {
-        arc(Self::new(tag, wave1, wave2))
+    pub fn wrapped(wave1: Tag, wave2: Tag) -> ArcMutex<Self> {
+        arc(Self::new(wave1, wave2))
     }
 }
 
@@ -231,17 +231,17 @@ pub struct Lerp3 {
 }
 
 impl Lerp3 {
-    pub fn new(tag: Tag, lerp1: Tag, lerp2: Tag, knob: In) -> Self {
+    pub fn new(lerp1: Tag, lerp2: Tag, knob: In) -> Self {
         Self {
-            tag,
+            tag: mk_id(),
             lerp1: cv(lerp1),
             lerp2: cv(lerp2),
             knob,
         }
     }
 
-    pub fn wrapped(tag: Tag, lerp1: Tag, lerp2: Tag, knob: In) -> ArcMutex<Self> {
-        arc(Self::new(tag, lerp1, lerp2, knob))
+    pub fn wrapped(lerp1: Tag, lerp2: Tag, knob: In) -> ArcMutex<Self> {
+        arc(Self::new(lerp1, lerp2, knob))
     }
 
     pub fn set_alphas(&mut self, graph: &Graph) {
@@ -336,9 +336,9 @@ pub struct Modulator {
 }
 
 impl Modulator {
-    pub fn new(tag: Tag, wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> Self {
+    pub fn new(wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> Self {
         Modulator {
-            tag,
+            tag: mk_id(),
             wave: cv(wave),
             base_hz: base_hz,
             mod_hz: mod_hz,
@@ -346,8 +346,8 @@ impl Modulator {
         }
     }
 
-    pub fn wrapped(tag: Tag, wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> ArcMutex<Self> {
-        arc(Modulator::new(tag, wave, base_hz, mod_hz, mod_idx))
+    pub fn wrapped(wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> ArcMutex<Self> {
+        arc(Modulator::new(wave, base_hz, mod_hz, mod_idx))
     }
 }
 

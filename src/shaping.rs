@@ -7,12 +7,12 @@ pub struct SineFold {
 }
 
 impl SineFold {
-    pub fn new(tag: Tag, wave: Tag) -> Self {
-        Self { tag, wave }
+    pub fn new(wave: Tag) -> Self {
+        Self { tag: mk_id(), wave }
     }
 
-    pub fn wrapped(tag: Tag, wave: Tag) -> ArcMutex<Self> {
-        arc(Self::new(tag, wave))
+    pub fn wrapped( wave: Tag) -> ArcMutex<Self> {
+        arc(Self::new(wave))
     }
 }
 
@@ -22,7 +22,7 @@ impl Signal for SineFold {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let a = graph.output(&self.wave);
+        let a = graph.output(self.wave);
         (a * TAU * 1.0 / 2.5).sin()
     }
     fn tag(&self) -> Tag {

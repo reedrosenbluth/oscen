@@ -19,3 +19,4 @@ crossbeam = "0.7.3"
 libmath = "0.2.1"
 rand = "0.7"
 indexmap = "1.3.2"
+uuid = {version = "0.8.1", features = ["v4"]}

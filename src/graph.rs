@@ -1,14 +1,21 @@
 use std::{
     any::Any,
+    collections::HashMap,
     f64::consts::PI,
     ops::{Index, IndexMut},
     sync::{Arc, Mutex},
-    collections::HashMap,
 };
+
+use uuid::Uuid;
 
 pub const TAU: f64 = 2.0 * PI;
 pub type Real = f64;
-pub type Tag = &'static str;
+// pub type Tag = &'static str;
+pub type Tag = Uuid;
+
+pub fn mk_id() -> Tag {
+    Uuid::new_v4()
+}
 
 /// Synth modules must implement the Signal trait. `as_any_mut` is necessary
 /// so that modules can be downcast in order to access their specific fields.
@@ -34,8 +41,10 @@ pub fn arc<T>(x: T) -> Arc<Mutex<T>> {
     Arc::new(Mutex::new(x))
 }
 
-impl<T> Signal for ArcMutex<T> 
-where T: Signal {
+impl<T> Signal for ArcMutex<T>
+where
+    T: Signal,
+{
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -47,7 +56,6 @@ where T: Signal {
     fn tag(&self) -> Tag {
         self.lock().unwrap().tag()
     }
-    
 }
 
 /// Inputs to synth modules can either be constant (`Fix`) or a control voltage
@@ -113,7 +121,7 @@ impl Graph {
         for s in ws {
             let t = s.lock().unwrap().tag();
             nodes.insert(t, Node::new(s));
-            order.push(&t)
+            order.push(t)
         }
         Graph { nodes, order }
     }
@@ -126,7 +134,7 @@ impl Graph {
 
     /// Get the `output` of a `Node`.
     pub fn output(&self, n: Tag) -> Real {
-        self.nodes[n].output
+        self.nodes[&n].output
     }
 
     /// Insert a sub-graph into the graph before node `loc`.
@@ -153,7 +161,7 @@ impl Graph {
         let mut outs: Vec<Real> = Vec::new();
         for o in self.order.iter() {
             outs.push(
-                self.nodes[*o]
+                self.nodes[o]
                     .module
                     .lock()
                     .unwrap()
@@ -163,7 +171,7 @@ impl Graph {
         for (i, o) in self.order.iter().enumerate() {
             self.nodes.get_mut(o).unwrap().output = outs[i];
         }
-        self.nodes[self.out_tag()].output
+        self.nodes[&self.out_tag()].output
     }
 }
 
@@ -181,12 +189,12 @@ pub struct Connect {
 }
 
 impl Connect {
-    pub fn new(tag: Tag) -> Self {
-        Self {tag, value: 0.0}
+    pub fn new() -> Self {
+        Self { tag: mk_id(), value: 0.0 }
     }
-    
-    pub fn wrapped(tag: Tag) -> ArcMutex<Self> {
-        arc(Self::new(tag))
+
+    pub fn wrapped() -> ArcMutex<Self> {
+        arc(Self::new())
     }
 }
 
@@ -196,13 +204,12 @@ impl Signal for Connect {
     }
 
     fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
-       self.value 
+        self.value
     }
 
     fn tag(&self) -> Tag {
         self.tag
     }
-
 }
 
 impl Index<&str> for Connect {

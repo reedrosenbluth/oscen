@@ -5,6 +5,7 @@ use std::any::Any;
 use std::ops::{Index, IndexMut};
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
+use swell::graph::mk_id;
 
 /// The most recent note received from the midi source.
 #[derive(Clone)]
@@ -14,15 +15,15 @@ pub struct MidiPitch {
 }
 
 impl MidiPitch {
-    pub fn new(tag: Tag) -> Self {
+    pub fn new() -> Self {
         MidiPitch {
-            tag,
+            tag: mk_id(),
             hz: 0.0,
         }
     }
 
-    pub fn wrapped(tag: Tag) -> ArcMutex<Self> {
-        arc(Self::new(tag))
+    pub fn wrapped() -> ArcMutex<Self> {
+        arc(Self::new())
     }
 
     pub fn set_hz(&mut self, hz: Real) {
@@ -53,16 +54,16 @@ pub struct MidiControl {
 }
 
 impl MidiControl {
-    pub fn new(tag: Tag, controller: u8) -> Self {
+    pub fn new(controller: u8) -> Self {
         Self {
-            tag,
+            tag: mk_id(),
             controller,
             value: 0,
         }
     }
 
-    pub fn wrapped(tag: Tag, controller: u8) -> ArcMutex<Self> {
-        arc(Self::new(tag, controller))
+    pub fn wrapped(controller: u8) -> ArcMutex<Self> {
+        arc(Self::new(controller))
     }
 
     pub fn set_value(&mut self, value: u8) {

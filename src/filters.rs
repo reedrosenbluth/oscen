@@ -72,9 +72,9 @@ pub fn notch(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, R
 }
 
 impl BiquadFilter {
-    pub fn new(tag: Tag, wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> Self {
+    pub fn new(wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> Self {
         Self {
-            tag,
+            tag: mk_id(),
             wave,
             b1: fix(b1),
             b2: fix(b2),
@@ -89,33 +89,33 @@ impl BiquadFilter {
         }
     }
 
-    pub fn wrapped(tag: Tag, wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> ArcMutex<Self> {
-        arc(Self::new(tag, wave, b1, b2, a0, a1, a2))
+    pub fn wrapped(wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> ArcMutex<Self> {
+        arc(Self::new(wave, b1, b2, a0, a1, a2))
     }
 
-    pub fn lpf(tag: Tag, wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
+    pub fn lpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = lpf(sample_rate, fc, q);
-        Self::new(tag, wave, b1, b2, a0, a1, a2)
+        Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn hpf(tag: Tag, wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
+    pub fn hpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = hpf(sample_rate, fc, q);
-        Self::new(tag, wave, b1, b2, a0, a1, a2)
+        Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn lphpf(tag: Tag, wave: Tag, sample_rate: Real, fc: Real, q: Real, t: Real) -> Self {
+    pub fn lphpf(wave: Tag, sample_rate: Real, fc: Real, q: Real, t: Real) -> Self {
         let (b1, b2, a0, a1, a2) = lphpf(sample_rate, fc, q, t);
-        Self::new(tag, wave, b1, b2, a0, a1, a2)
+        Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn bpf(tag: Tag, wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
+    pub fn bpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = bpf(sample_rate, fc, q);
-        Self::new(tag, wave, b1, b2, a0, a1, a2)
+        Self::new(wave, b1, b2, a0, a1, a2)
     }
 
-    pub fn notch(tag: Tag, wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
+    pub fn notch(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
         let (b1, b2, a0, a1, a2) = notch(sample_rate, fc, q);
-        Self::new(tag, wave, b1, b2, a0, a1, a2)
+        Self::new(wave, b1, b2, a0, a1, a2)
     }
 }
 
@@ -125,7 +125,7 @@ impl Signal for BiquadFilter {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let x0 = graph.output(&self.wave);
+        let x0 = graph.output(self.wave);
         if self.off {
             return x0;
         };
@@ -201,9 +201,9 @@ pub struct Comb {
 }
 
 impl Comb {
-    pub fn new(tag: Tag, wave: Tag, length: usize) -> Self {
+    pub fn new(wave: Tag, length: usize) -> Self {
         Self {
-            tag,
+            tag: mk_id(),
             wave,
             buffer: vec![0.0; length],
             index: 0,
@@ -214,8 +214,8 @@ impl Comb {
         }
     }
 
-    pub fn wrapped(tag: Tag, wave: Tag, length: usize) -> ArcMutex<Self> {
-        arc(Self::new(tag, wave, length))
+    pub fn wrapped(wave: Tag, length: usize) -> ArcMutex<Self> {
+        arc(Self::new(wave, length))
     }
 }
 
@@ -225,7 +225,7 @@ impl Signal for Comb {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let input = graph.output(&self.wave);
+        let input = graph.output(self.wave);
         let output = self.buffer[self.index] as Real;
         self.filter_state = output * self.dampening_inverse + self.filter_state * self.dampening;
         self.buffer[self.index] = input + (self.filter_state * self.feedback) as Real;
@@ -248,17 +248,17 @@ pub struct AllPass {
 }
 
 impl AllPass {
-    pub fn new(tag: Tag, wave: Tag, length: usize) -> Self {
+    pub fn new(wave: Tag, length: usize) -> Self {
         Self {
-            tag,
+            tag: mk_id(),
             wave,
             buffer: vec![0.0; length],
             index: 0,
         }
     }
 
-    pub fn wrapped(tag: Tag, wave: Tag, length: usize) -> ArcMutex<Self> {
-        arc(Self::new(tag, wave, length))
+    pub fn wrapped(wave: Tag, length: usize) -> ArcMutex<Self> {
+        arc(Self::new(wave, length))
     }
 }
 
@@ -268,7 +268,7 @@ impl Signal for AllPass {
     }
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let input = graph.output(&self.wave);
+        let input = graph.output(self.wave);
         let delayed = self.buffer[self.index];
         let output = delayed - input;
         self.buffer[self.index] = input + (0.5 * delayed) as Real;
