@@ -5,3 +5,4 @@ pub mod graph;
 pub mod operators;
 pub mod oscillators;
 pub mod shaping;
+pub mod midi;
