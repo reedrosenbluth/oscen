@@ -2,6 +2,50 @@ use super::graph::*;
 use std::any::Any;
 use std::ops::{Index, IndexMut};
 
+#[derive(Clone)]
+pub struct Union {
+    pub tag: Tag,
+    pub waves: Vec<Tag>,
+    pub active: Tag,
+    pub level: In,
+}
+
+impl Union {
+    pub fn new(waves: Vec<Tag>) -> Self {
+        let active = waves[0];
+        Union { tag: mk_tag(), waves, active, level: fix(1.0) }
+    }
+
+    pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
+        arc(Union::new(waves))
+    }
+}
+
+impl Signal for Union {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
+        In::val(graph, self.level) * graph.output(self.active)
+    }
+    fn tag(&self) -> Tag {
+        self.tag
+    }
+}
+
+impl Index<usize> for Union {
+    type Output = Tag;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.waves[index]
+    }
+}
+
+impl IndexMut<usize> for Union {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.waves[index]
+    }
+}
 pub struct Product {
     pub tag: Tag,
     pub waves: Vec<Tag>,

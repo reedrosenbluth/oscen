@@ -96,6 +96,7 @@ impl<'a> Set<'a> for SineOsc {
 }
 
 /// Saw wave oscillator.
+#[derive(Copy, Clone)]
 pub struct SawOsc {
     pub tag: Tag,
     pub hz: In,
@@ -191,6 +192,7 @@ impl<'a> Set<'a> for SawOsc {
 }
 
 /// Triangle wave oscillator.
+#[derive(Copy, Clone)]
 pub struct TriangleOsc {
     pub tag: Tag,
     pub hz: In,
@@ -282,7 +284,7 @@ impl<'a> Set<'a> for TriangleOsc {
 }
 
 /// Square wave oscillator with a `duty_cycle` that takes values in (0, 1).
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct SquareOsc {
     pub tag: Tag,
     pub hz: In,
@@ -380,6 +382,8 @@ impl<'a> Set<'a> for SquareOsc {
         }
     }
 }
+
+#[derive(Clone)]
 pub struct WhiteNoise {
     pub tag: Tag,
     pub amplitude: In,
@@ -450,6 +454,7 @@ impl<'a> Set<'a> for WhiteNoise {
 }
 /// An oscillator used to modulate parameters that take values between 0 and 1,
 /// based on a sinusoid.
+#[derive(Copy, Clone)]
 pub struct Osc01 {
     pub tag: Tag,
     pub hz: In,
