@@ -7,10 +7,11 @@ use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
-use swell::graph::{arc, cv, fix, ArcMutex, Graph, Real, Set, Signal, Tag};
+use swell::graph::{arc, cv, fix, ArcMutex, Graph, Real, Signal, Tag};
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
-use swell::operators::{Union, Vca};
-use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc};
+use swell::operators::{Union, Vca, Lerp};
+use swell::oscillators::{SineOsc, TriangleOsc};
+use swell::shaping::{SineFold, Tanh};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -49,23 +50,25 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let adsr_tag = adsr.tag();
 
     let sine = SineOsc::with_hz(cv(midi_pitch.tag()));
-    let square = SquareOsc::with_hz(cv(midi_pitch.tag()));
-    let saw = SawOsc::with_hz(cv(midi_pitch.tag()));
+    let sinefold = SineFold::new(sine.tag());
     let tri = TriangleOsc::with_hz(cv(midi_pitch.tag()));
-    let mut union = Union::new(vec![sine.tag(), square.tag(), saw.tag(), tri.tag()]);
+    let mut lerp = Lerp::new(sine.tag(), tri.tag());
+    lerp.alpha = fix(0.2);
+    let tanh = Tanh::new(sine.tag());
+    let mut union = Union::new(vec![sine.tag(), sinefold.tag(), lerp.tag(), tanh.tag()]);
     union.level = cv(adsr.tag());
     let union_tag = union.tag();
-    let union = arc(union);
     let vca = Vca::wrapped(union_tag, fix(0.5));
     let graph = Graph::new(vec![
         midi_pitch.clone(),
         midi_volume.clone(),
         arc(adsr),
         arc(sine),
-        arc(square),
-        arc(saw),
+        arc(sinefold),
         arc(tri),
-        union,
+        arc(lerp),
+        arc(tanh),
+        arc(union),
         vca,
     ]);
 

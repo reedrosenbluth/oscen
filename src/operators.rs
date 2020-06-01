@@ -178,9 +178,9 @@ impl IndexMut<usize> for Mixer {
 }
 pub struct Lerp {
     pub tag: Tag,
-    wave1: In,
-    wave2: In,
-    alpha: In,
+    pub wave1: In,
+    pub wave2: In,
+    pub alpha: In,
 }
 
 impl Lerp {
@@ -384,9 +384,9 @@ impl Modulator {
         Modulator {
             tag: mk_tag(),
             wave: cv(wave),
-            base_hz: base_hz,
-            mod_hz: mod_hz,
-            mod_idx: mod_idx,
+            base_hz,
+            mod_hz,
+            mod_idx,
         }
     }
 
