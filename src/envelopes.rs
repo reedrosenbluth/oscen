@@ -35,10 +35,14 @@ impl Adsr {
     }
 
     pub fn calc_level(&self, graph: &Graph) -> Real {
-        let a = In::val(graph, self.attack);
-        let d = In::val(graph, self.decay);
+        fn max01(a: f64) -> f64 {
+            if a > 0.01 { a } else { 0.01 }
+        }
+
+        let a = max01(In::val(graph, self.attack));
+        let d = max01(In::val(graph, self.decay));
         let s = In::val(graph, self.sustain);
-        let r = In::val(graph, self.release);
+        let r = max01(In::val(graph, self.release));
 
         if self.triggered {
             match self.clock {

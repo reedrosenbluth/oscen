@@ -49,6 +49,7 @@ pub struct MidiControl {
     pub tag: Tag,
     pub controller: u8,
     pub value: u8,
+    pub scale: f64,
 }
 
 impl MidiControl {
@@ -57,6 +58,7 @@ impl MidiControl {
             tag: mk_tag(),
             controller,
             value: 0,
+            scale: 1.,
         }
     }
 
@@ -75,7 +77,7 @@ impl Signal for MidiControl {
     }
 
     fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
-        (self.value as Real) / 127.0
+        ((self.value as Real) / 127.0) * self.scale
     }
 
     fn tag(&self) -> Tag {
