@@ -58,6 +58,21 @@ where
     }
 }
 
+impl Signal for ArcMutex<dyn Signal + Send> {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        self.lock().unwrap().signal(graph, sample_rate)
+    }
+
+    fn tag(&self) -> Tag {
+        self.lock().unwrap().tag()
+    }
+
+}
+
 /// Inputs to synth modules can either be constant (`Fix`) or a control voltage
 /// from another synth module (`Cv`).
 #[derive(Copy, Clone)]
@@ -135,6 +150,13 @@ impl Graph {
     /// Get the `output` of a `Node`.
     pub fn output(&self, n: Tag) -> Real {
         self.nodes[&n].output
+    }
+
+    pub fn append(&mut self, sig: ArcMutex<Sig>) {
+        let tag = sig.tag();
+        let node = Node::new(sig);
+        self.nodes.insert(tag, node);
+        self.order.push(tag);
     }
 
     /// Insert a sub-graph into the graph before node `loc`.

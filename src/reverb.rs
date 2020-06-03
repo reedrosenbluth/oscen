@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::{filters::*, graph::*, operators::*};
 use std::any::Any;
 
