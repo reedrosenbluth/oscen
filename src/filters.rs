@@ -274,7 +274,7 @@ impl Signal for Bpf {
         let a0 = 0.5 * (1.0 - b2);
         let a1 = 0.0;
         let a2 = -a0;
-        a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2
+        a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2
     }
 
     fn tag(&self) -> Tag {

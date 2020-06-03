@@ -118,6 +118,21 @@ impl Node {
     }
 }
 
+impl Signal for Node {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        self.module.signal(graph, sample_rate)
+    }
+
+    fn tag(&self) -> Tag {
+        self.module.tag()
+    }
+    
+}
+
 type GraphMap = HashMap<Tag, Node>;
 
 /// A `Graph` is basically a `HashMap` of nodes to be visited in the specified order.
