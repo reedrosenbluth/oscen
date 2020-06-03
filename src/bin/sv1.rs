@@ -1,6 +1,6 @@
 // use core::cmp::Ordering;
 use core::time::Duration;
-use crossbeam::crossbeam_channel::{unbounded, Receiver};
+use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::{prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
@@ -13,16 +13,20 @@ use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
 
 fn main() {
-    nannou::app(model).run();
+    nannou::app(model).update(update).run();
 }
 
 struct Model {
     stream: audio::Stream<Synth>,
+    scope_receiver: Receiver<f32>,
+    scope_data: Vec<f32>,
 }
 
 struct Synth {
     midi: ArcMutex<Midi>,
-    midi_receiver: Receiver<Vec<u8>>,
+    midi_receiver1: Receiver<Vec<u8>>,
+    midi_receiver2: Receiver<Vec<u8>>,
+    scope_sender: Sender<f32>,
     voice: Graph,
     adsr_tag: Tag,
 }
@@ -33,20 +37,27 @@ struct Midi {
     midi_controls: Vec<ArcMutex<MidiControl>>,
 }
 
-fn build_synth(midi_receiver: Receiver<Vec<u8>>) -> Synth {
+fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u8>>, scope_sender: Sender<f32>) -> Synth {
     //  Midi
     let midi_pitch = MidiPitch::wrapped();
-    let midi_volume = MidiControl::wrapped(1);
+    let midi_control1 = MidiControl::wrapped(32);
+    let midi_control2 = MidiControl::wrapped(33);
+    let midi_control3 = MidiControl::wrapped(34);
+    let midi_control4 = MidiControl::wrapped(35);
+    let midi_control5 = MidiControl::wrapped(36);
+
+    let mut midi_control6 = MidiControl::new(37);
+    midi_control6.scale = 10.;
+    let midi_control6 = arc(midi_control6);
 
     // Envelope Generator
-    let adsr = Adsr::new(0.01, 0.0, 1.0, 0.1);
+    let mut adsr = Adsr::new(0.01, 0.0, 1.0, 0.1);
+    adsr.release = cv(midi_control6.tag());
     let adsr_tag = adsr.tag();
-
 
     // LFO
     let tri_lfo = TriangleOsc::wrapped();
     let square_lfo = SquareOsc::wrapped();
-
 
     // TODO: tune these lower
     // Sub Oscillators for Osc 1
@@ -84,20 +95,33 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>) -> Synth {
     let noise = WhiteNoise::wrapped();
 
     // Mixers
-    // sine1 + saw1
-    let mixer1 = Mixer::wrapped(vec![sine1.tag(), saw1.tag()]);
-    // square1 + sub1
-    let mixer2 = Mixer::wrapped(vec![square1.tag(), sub1.tag()]);
-    // mixer1 + mixer2
-    let mut mixer3 = Mixer::new(vec![saw1.tag()]);
-    mixer3.level = cv(adsr.tag());
+    let mut mixer = Mixer::new(vec![
+        sine1.tag(),
+        square1.tag(),
+        saw1.tag(),
+        triangle1.tag(),
+        noise.tag(),
+        ]);
 
-    let vca = Vca::wrapped(mixer3.tag(), fix(0.5));
-    // let vca = Vca::wrapped("vca", mixer3.tag(), cv(midi_volume.tag()));
+    mixer.levels = vec![
+        cv(midi_control1.tag()),
+        cv(midi_control2.tag()),
+        cv(midi_control3.tag()),
+        cv(midi_control4.tag()),
+        cv(midi_control5.tag()),
+        ];
+    mixer.level = cv(adsr.tag());
+
+    let vca = Vca::wrapped(mixer.tag(), fix(0.5));
 
     let graph = Graph::new(vec![
         midi_pitch.clone(),
-        midi_volume.clone(),
+        midi_control1.clone(),
+        midi_control2.clone(),
+        midi_control3.clone(),
+        midi_control4.clone(),
+        midi_control5.clone(),
+        midi_control6.clone(),
         arc(adsr),
         arc(sine1),
         arc(saw1),
@@ -114,27 +138,41 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>) -> Synth {
         noise,
         tri_lfo,
         square_lfo,
-        mixer1,
-        mixer2,
-        arc(mixer3),
+        arc(mixer),
         vca,
     ]);
 
     Synth {
         midi: arc(Midi {
             midi_pitch,
-            midi_controls: vec![midi_volume],
+            midi_controls: vec![
+                midi_control1,
+                midi_control2,
+                midi_control3,
+                midi_control4,
+                midi_control5,
+                midi_control6,
+                ],
         }),
-        midi_receiver,
+        midi_receiver1,
+        midi_receiver2,
+        scope_sender,
         voice: graph,
         adsr_tag,
     }
 }
 
 fn model(app: &App) -> Model {
-    let (midi_sender, midi_receiver) = unbounded();
+    let (midi_sender1, midi_receiver1) = unbounded();
+    let (midi_sender2, midi_receiver2) = unbounded();
+    let (scope_sender, scope_receiver) = unbounded();
 
-    thread::spawn(|| match listen_midi(midi_sender) {
+    thread::spawn(|| match listen_midi(midi_sender1) {
+        Ok(_) => (),
+        Err(err) => println!("Error: {}", err),
+    });
+
+    thread::spawn(|| match listen_midi(midi_sender2) {
         Ok(_) => (),
         Err(err) => println!("Error: {}", err),
     });
@@ -150,7 +188,7 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
 
     // Build synth
-    let synth = build_synth(midi_receiver);
+    let synth = build_synth(midi_receiver1, midi_receiver2, scope_sender);
 
     let stream = audio_host
         .new_output_stream(synth)
@@ -158,13 +196,15 @@ fn model(app: &App) -> Model {
         .build()
         .unwrap();
 
-    Model { stream }
+    Model { stream, scope_receiver, scope_data: vec![] }
 }
 
 // A function that renders the given `Audio` to the given `Buffer`.
 // In this case we play a simple sine wave at the audio's current frequency in `hz`.
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
-    let midi_messages: Vec<Vec<u8>> = synth.midi_receiver.try_iter().collect();
+    let mut midi_messages: Vec<Vec<u8>> = synth.midi_receiver1.try_iter().collect();
+    midi_messages.extend(synth.midi_receiver2.try_iter());
+
     let adsr_tag = synth.adsr_tag;
     for message in midi_messages {
         if message.len() == 3 {
@@ -200,14 +240,46 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
         for channel in frame {
             *channel = amp as f32;
         }
+        synth.scope_sender.send(amp as f32).unwrap();
     }
 }
 
-fn view(app: &App, _model: &Model, frame: Frame) {
+fn update(_app: &App, model: &mut Model, _update: Update) {
+    let scope_data: Vec<f32> = model.scope_receiver.try_iter().collect();
+    model.scope_data = scope_data;
+}
+
+fn view(app: &App, model: &Model, frame: Frame) {
+    // Draw BG
     let draw = app.draw();
-    let c = rgb(9. / 255., 9. / 255., 44. / 255.);
-    draw.background().color(c);
+    let bg_color = rgb(9. / 255., 9. / 255., 44. / 255.);
+    draw.background().color(bg_color);
     if frame.nth() == 0 {
         draw.to_frame(app, &frame).unwrap()
+    }
+
+    // Draw Oscilloscope
+    let mut scope_data = model.scope_data.iter().peekable();
+    let mut shifted_scope_data: Vec<f32> = vec![];
+
+    for (i, amp) in scope_data.clone().enumerate() {
+        if amp.abs() < 0.01 && scope_data.peek().unwrap_or(&amp) > &amp {
+            shifted_scope_data = model.scope_data[i..].to_vec();
+            break;
+        }
+    }
+
+    if shifted_scope_data.len() >= 600  {
+        let shifted_scope_data = shifted_scope_data[0..600].iter();
+        let scope_points = shifted_scope_data.zip((0..600).into_iter()).map(|(y, x)| pt2(x as f32, y * 120.));
+        
+        draw.path()
+            .stroke()
+            .weight(2.)
+            .points(scope_points)
+            .color(CORNFLOWERBLUE)
+            .x_y(-200., 0.);
+
+        draw.to_frame(app, &frame).unwrap();
     }
 }

@@ -1,15 +1,12 @@
 use super::graph::*;
 use std::any::Any;
-use std::f64::consts::PI;
+use std::{f64::consts::SQRT_2, f64::consts::PI, ops::{Index, IndexMut}};
 
-pub struct BiquadFilter {
+pub struct Lpf {
     pub tag: Tag,
     pub wave: Tag,
-    pub b1: In,
-    pub b2: In,
-    pub a0: In,
-    pub a1: In,
-    pub a2: In,
+    pub cutoff_freq: In,
+    pub q: In,
     x1: Real,
     x2: Real,
     y1: Real,
@@ -17,173 +14,445 @@ pub struct BiquadFilter {
     pub off: bool,
 }
 
-// See "Audio Processes, Musical Analysis, Modification, Synthesis, and Control"
-// by David Creasy, 2017. pages 164-183.
-pub fn lpf(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, Real) {
-    let phi = TAU * fc / sample_rate;
-    let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
-    let b1 = -(1.0 + b2) * phi.cos();
-    let a0 = 0.25 * (1.0 + b1 + b2);
-    let a1 = 2.0 * a0;
-    let a2 = a0;
-    (b1, b2, a0, a1, a2)
-}
-
-pub fn hpf(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, Real) {
-    let phi = TAU * fc / sample_rate;
-    let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
-    let b1 = -(1.0 + b2) * phi.cos();
-    let a0 = 0.25 * (1.0 - b1 + b2);
-    let a1 = -2.0 * a0;
-    let a2 = a0;
-    (b1, b2, a0, a1, a2)
-}
-
-pub fn lphpf(sample_rate: Real, fc: Real, q: Real, t: Real) -> (Real, Real, Real, Real, Real) {
-    let (b1, b2, a0l, a1l, a2l) = lpf(sample_rate, fc, q);
-    let (_, _, a0h, a1h, a2h) = hpf(sample_rate, fc, q);
-    (
-        b1,
-        b2,
-        t * a0l + (1. - t) * a0h,
-        t * a1l + (1. - t) * a1h,
-        t * a2l + (1. - t) * a2h,
-    )
-}
-
-pub fn bpf(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, Real) {
-    let phi = TAU * fc / sample_rate;
-    let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
-    let b1 = -(1.0 + b2) * phi.cos();
-    let a0 = 0.5 * (1.0 - b2);
-    let a1 = 0.0;
-    let a2 = -a0;
-    (b1, b2, a0, a1, a2)
-}
-
-pub fn notch(sample_rate: Real, fc: Real, q: Real) -> (Real, Real, Real, Real, Real) {
-    let phi = TAU * fc / sample_rate;
-    let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
-    let b1 = -(1.0 + b2) * phi.cos();
-    let a0 = 0.5 * (1.0 + b2);
-    let a1 = b1;
-    let a2 = a0;
-    (b1, b2, a0, a1, a2)
-}
-
-impl BiquadFilter {
-    pub fn new(wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> Self {
+impl Lpf {
+    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
         Self {
-            tag: mk_tag(),
+            tag,
             wave,
-            b1: fix(b1),
-            b2: fix(b2),
-            a0: fix(a0),
-            a1: fix(a1),
-            a2: fix(a2),
+            cutoff_freq,
+            q: fix(1.0 / SQRT_2),
             x1: 0.0,
             x2: 0.0,
             y1: 0.0,
             y2: 0.0,
-            off: true,
+            off: false,
         }
-    }
-
-    pub fn wrapped(wave: Tag, b1: Real, b2: Real, a0: Real, a1: Real, a2: Real) -> ArcMutex<Self> {
-        arc(Self::new(wave, b1, b2, a0, a1, a2))
-    }
-
-    pub fn lpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
-        let (b1, b2, a0, a1, a2) = lpf(sample_rate, fc, q);
-        Self::new(wave, b1, b2, a0, a1, a2)
-    }
-
-    pub fn hpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
-        let (b1, b2, a0, a1, a2) = hpf(sample_rate, fc, q);
-        Self::new(wave, b1, b2, a0, a1, a2)
-    }
-
-    pub fn lphpf(wave: Tag, sample_rate: Real, fc: Real, q: Real, t: Real) -> Self {
-        let (b1, b2, a0, a1, a2) = lphpf(sample_rate, fc, q, t);
-        Self::new(wave, b1, b2, a0, a1, a2)
-    }
-
-    pub fn bpf(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
-        let (b1, b2, a0, a1, a2) = bpf(sample_rate, fc, q);
-        Self::new(wave, b1, b2, a0, a1, a2)
-    }
-
-    pub fn notch(wave: Tag, sample_rate: Real, fc: Real, q: Real) -> Self {
-        let (b1, b2, a0, a1, a2) = notch(sample_rate, fc, q);
-        Self::new(wave, b1, b2, a0, a1, a2)
     }
 }
 
-impl Signal for BiquadFilter {
+impl Signal for Lpf {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 
-    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let x0 = graph.output(self.wave);
         if self.off {
             return x0;
-        };
-        let a0 = In::val(graph, self.a0);
-        let a1 = In::val(graph, self.a1);
-        let a2 = In::val(graph, self.a2);
-        let b1 = In::val(graph, self.b1);
-        let b2 = In::val(graph, self.b2);
-        let amp = a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2;
-        self.x2 = self.x1;
-        self.x1 = x0;
-        self.y2 = self.y1;
-        self.y1 = amp;
-        amp
+        }
+        let cutoff_freq = In::val(graph, self.cutoff_freq);
+        let q = In::val(graph, self.q);
+        let phi = TAU * cutoff_freq / sample_rate;
+        let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
+        let b1 = -(1.0 + b2) * phi.cos();
+        let a0 = 0.25 * (1.0 + b1 + b2);
+        let a1 = 2.0 * a0;
+        a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2
     }
+
     fn tag(&self) -> Tag {
         self.tag
     }
 }
 
-pub fn biquad_on(graph: &Graph, n: Tag) {
+impl Index<&str> for Lpf {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "cutoff_freq" => &self.cutoff_freq,
+            "q" => &self.q,
+            _ => panic!("Lpf does not have a field named: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Lpf {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "cutoff_freq" => &mut self.cutoff_freq,
+            "q" => &mut self.q,
+            _ => panic!("Lpf does not have a field named: {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for Lpf {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.nodes[&n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
+    }
+}
+
+pub fn lpf_on(graph: &Graph, n: Tag) {
     if let Some(v) = graph.nodes[&n]
         .module
         .lock()
         .unwrap()
         .as_any_mut()
-        .downcast_mut::<BiquadFilter>()
+        .downcast_mut::<Lpf>()
     {
         v.off = false;
     }
 }
 
-pub fn biquad_off(graph: &Graph, n: Tag) {
+pub fn lpf_off(graph: &Graph, n: Tag) {
     if let Some(v) = graph.nodes[&n]
         .module
         .lock()
         .unwrap()
         .as_any_mut()
-        .downcast_mut::<BiquadFilter>()
+        .downcast_mut::<Lpf>()
     {
         v.off = true;
     }
 }
 
-pub fn set_lphpf(graph: &Graph, n: Tag, cutoff: Real, q: Real, t: Real) {
+pub struct Hpf {
+    pub tag: Tag,
+    pub wave: Tag,
+    pub cutoff_freq: In,
+    pub q: In,
+    x1: Real,
+    x2: Real,
+    y1: Real,
+    y2: Real,
+    pub off: bool,
+}
+
+impl Hpf {
+    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
+        Self {
+            tag,
+            wave,
+            cutoff_freq,
+            q: fix(1.0 / SQRT_2),
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+            off: false,
+        }
+    }
+}
+
+impl Signal for Hpf {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        let x0 = graph.output(self.wave);
+        if self.off {
+            return x0;
+        }
+        let cutoff_freq = In::val(graph, self.cutoff_freq);
+        let q = In::val(graph, self.q);
+        let phi = TAU * cutoff_freq / sample_rate;
+        let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
+        let b1 = -(1.0 + b2) * phi.cos();
+        let a0 = 0.25 * (1.0 - b1 + b2);
+        let a1 = -2.0 * a0;
+        a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2
+    }
+
+    fn tag(&self) -> Tag {
+        self.tag
+    }
+}
+
+impl Index<&str> for Hpf {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "cutoff_freq" => &self.cutoff_freq,
+            "q" => &self.q,
+            _ => panic!("Hpf does not have a field named: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Hpf {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "cutoff_freq" => &mut self.cutoff_freq,
+            "q" => &mut self.q,
+            _ => panic!("Hpf does not have a field named: {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for Hpf {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.nodes[&n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
+    }
+}
+
+pub fn hpf_on(graph: &Graph, n: Tag) {
     if let Some(v) = graph.nodes[&n]
         .module
         .lock()
         .unwrap()
         .as_any_mut()
-        .downcast_mut::<BiquadFilter>()
+        .downcast_mut::<Hpf>()
     {
-        let (b1, b2, a0, a1, a2) = lphpf(44_100., cutoff, q, t);
-        v.a0 = fix(a0);
-        v.a1 = fix(a1);
-        v.a2 = fix(a2);
-        v.b1 = fix(b1);
-        v.b2 = fix(b2);
+        v.off = false;
+    }
+}
+
+pub fn hpf_off(graph: &Graph, n: Tag) {
+    if let Some(v) = graph.nodes[&n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<Hpf>()
+    {
+        v.off = true;
+    }
+}
+
+pub struct Bpf {
+    pub tag: Tag,
+    pub wave: Tag,
+    pub cutoff_freq: In,
+    pub q: In,
+    x1: Real,
+    x2: Real,
+    y1: Real,
+    y2: Real,
+    pub off: bool,
+}
+
+impl Bpf {
+    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
+        Self {
+            tag,
+            wave,
+            cutoff_freq,
+            q: fix(1.0 / SQRT_2),
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+            off: false,
+        }
+    }
+}
+
+impl Signal for Bpf {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        let x0 = graph.output(self.wave);
+        if self.off {
+            return x0;
+        }
+        let cutoff_freq = In::val(graph, self.cutoff_freq);
+        let q = In::val(graph, self.q);
+        let phi = TAU * cutoff_freq / sample_rate;
+        let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
+        let b1 = -(1.0 + b2) * phi.cos();
+        let a0 = 0.5 * (1.0 - b2);
+        let a1 = 0.0;
+        let a2 = -a0;
+        a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2
+    }
+
+    fn tag(&self) -> Tag {
+        self.tag
+    }
+}
+
+impl Index<&str> for Bpf {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "cutoff_freq" => &self.cutoff_freq,
+            "q" => &self.q,
+            _ => panic!("Bpf does not have a field named: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Bpf {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "cutoff_freq" => &mut self.cutoff_freq,
+            "q" => &mut self.q,
+            _ => panic!("Bpf does not have a field named: {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for Bpf {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.nodes[&n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
+    }
+}
+
+pub fn bpf_on(graph: &Graph, n: Tag) {
+    if let Some(v) = graph.nodes[&n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<Bpf>()
+    {
+        v.off = false;
+    }
+}
+
+pub fn bpf_off(graph: &Graph, n: Tag) {
+    if let Some(v) = graph.nodes[&n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<Bpf>()
+    {
+        v.off = true;
+    }
+}
+
+pub struct Notch {
+    pub tag: Tag,
+    pub wave: Tag,
+    pub cutoff_freq: In,
+    pub q: In,
+    x1: Real,
+    x2: Real,
+    y1: Real,
+    y2: Real,
+    pub off: bool,
+}
+
+impl Notch {
+    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
+        Self {
+            tag,
+            wave,
+            cutoff_freq,
+            q: fix(1.0 / SQRT_2),
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+            off: false,
+        }
+    }
+}
+
+impl Signal for Notch {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        let x0 = graph.output(self.wave);
+        if self.off {
+            return x0;
+        }
+        let cutoff_freq = In::val(graph, self.cutoff_freq);
+        let q = In::val(graph, self.q);
+        let phi = TAU * cutoff_freq / sample_rate;
+        let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
+        let b1 = -(1.0 + b2) * phi.cos();
+        let a0 = 0.5 * (1.0 + b2);
+        let a1 = b1;
+        let a2 = a0;
+        a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2
+    }
+
+    fn tag(&self) -> Tag {
+        self.tag
+    }
+}
+
+impl Index<&str> for Notch {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "cutoff_freq" => &self.cutoff_freq,
+            "q" => &self.q,
+            _ => panic!("Notch does not have a field named: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Notch {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "cutoff_freq" => &mut self.cutoff_freq,
+            "q" => &mut self.q,
+            _ => panic!("Notch does not have a field named: {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for Notch {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.nodes[&n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
+    }
+}
+
+pub fn notch_on(graph: &Graph, n: Tag) {
+    if let Some(v) = graph.nodes[&n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<Notch>()
+    {
+        v.off = false;
+    }
+}
+
+pub fn notch_off(graph: &Graph, n: Tag) {
+    if let Some(v) = graph.nodes[&n]
+        .module
+        .lock()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<Notch>()
+    {
+        v.off = true;
     }
 }
 

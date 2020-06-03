@@ -3,7 +3,10 @@ use math::round::floor;
 use rand::distributions::Uniform;
 use rand::prelude::*;
 use std::any::Any;
-use std::ops::{Index, IndexMut};
+use std::{
+    f64::consts::PI,
+    ops::{Index, IndexMut},
+};
 
 /// A basic sine oscillator.
 #[derive(Copy, Clone)]
@@ -25,7 +28,12 @@ impl SineOsc {
     }
 
     pub fn with_hz(hz: In) -> Self {
-        Self { tag: mk_tag(), hz, amplitude: fix(1.0), phase: fix(0.0) }
+        Self {
+            tag: mk_tag(),
+            hz,
+            amplitude: fix(1.0),
+            phase: fix(0.0),
+        }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
@@ -115,7 +123,12 @@ impl SawOsc {
     }
 
     pub fn with_hz(hz: In) -> Self {
-        Self { tag: mk_tag(), hz, amplitude: fix(1.0), phase: fix(0.0) }
+        Self {
+            tag: mk_tag(),
+            hz,
+            amplitude: fix(1.0),
+            phase: fix(0.0),
+        }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
@@ -211,7 +224,12 @@ impl TriangleOsc {
     }
 
     pub fn with_hz(hz: In) -> Self {
-        Self { tag: mk_tag(), hz, amplitude: fix(1.0), phase: fix(0.0) }
+        Self {
+            tag: mk_tag(),
+            hz,
+            amplitude: fix(1.0),
+            phase: fix(0.0),
+        }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
@@ -305,7 +323,13 @@ impl SquareOsc {
     }
 
     pub fn with_hz(hz: In) -> Self {
-        Self { tag: mk_tag(), hz, amplitude: fix(1.0), phase: fix(0.0), duty_cycle: fix(0.5) }
+        Self {
+            tag: mk_tag(),
+            hz,
+            amplitude: fix(1.0),
+            phase: fix(0.0),
+            duty_cycle: fix(0.5),
+        }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
@@ -471,7 +495,11 @@ impl Osc01 {
     }
 
     pub fn with_hz(hz: In) -> Self {
-        Self { tag: mk_tag(), hz, phase: fix(0.0) }
+        Self {
+            tag: mk_tag(),
+            hz,
+            phase: fix(0.0),
+        }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {
@@ -538,6 +566,132 @@ impl<'a> Set<'a> for Osc01 {
     }
 }
 
+fn sinc(x: Real) -> Real {
+    if x == 0.0 {
+        return 1.0;
+    }
+    (PI * x).sin() / (PI * x)
+}
+
+/// Fourier series approximation for an oscillator. Optionally applies Lanczos Sigma
+/// factor to eliminate ringing due to Gibbs phenomenon.
+pub struct FourierOsc {
+    pub tag: Tag,
+    pub hz: In,
+    pub amplitude: In,
+    sines: Graph,
+    pub lanczos: bool,
+}
+
+impl FourierOsc {
+    pub fn new(coefficients: &[Real], lanczos: bool) -> Self {
+        let sigma = if lanczos { 1.0 } else { 0.0 };
+        let mut wwaves: Vec<ArcMutex<Sig>> = Vec::new();
+        for (n, c) in coefficients.iter().enumerate() {
+            let mut s = SineOsc::new();
+            s.amplitude = fix(*c * sinc(sigma * n as Real / coefficients.len() as Real));
+            wwaves.push(arc(s));
+        }
+        FourierOsc {
+            tag: mk_tag(),
+            hz: fix(0.0),
+            amplitude: fix(1.0),
+            sines: Graph::new(wwaves),
+            lanczos,
+        }
+    }
+}
+
+impl Signal for FourierOsc {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
+        let hz = In::val(graph, self.hz);
+        let amp = In::val(graph, self.amplitude);
+        for (n, o) in self.sines.order.iter().enumerate() {
+            if let Some(v) =
+                self.sines.nodes.get_mut(o).unwrap().module
+                    .lock()
+                    .unwrap()
+                    .as_any_mut()
+                    .downcast_mut::<SineOsc>()
+            {
+                v.hz = fix(hz * n as Real);
+            }
+        }
+        self.sines.signal(sample_rate);
+        let out = self.sines.nodes.iter().fold(0., |acc, x| acc + x.1.output);
+        amp * out
+    }
+
+    fn tag(&self) -> Tag {
+        self.tag
+    }
+}
+
+impl Index<&str> for FourierOsc {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "hz" => &self.hz,
+            "amp" => &self.amplitude,
+            _ => panic!("FourierOsc does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for FourierOsc {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "hz" => &mut self.hz,
+            "amp" => &mut self.amplitude,
+            _ => panic!("FourierOsc does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl<'a> Set<'a> for FourierOsc {
+    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.nodes[&n]
+            .module
+            .lock()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<Self>()
+        {
+            v[field] = fix(value);
+        }
+    }
+}
+
+pub fn square_wave(n: u32, lanczos: bool) -> FourierOsc {
+    let mut coefficients: Vec<Real> = Vec::new();
+    for i in 0..=n {
+        if i % 2 == 1 {
+            coefficients.push(1. / i as Real);
+        } else {
+            coefficients.push(0.);
+        }
+    }
+    FourierOsc::new(coefficients.as_ref(), lanczos)
+}
+
+pub fn triangle_wave(n: u32, lanczos: bool) -> FourierOsc {
+    let mut coefficients: Vec<Real> = Vec::new();
+    for i in 0..=n {
+        if i % 2 == 1 {
+            let sgn = if i % 4 == 1 { -1.0 } else { 1.0 };
+            coefficients.push(sgn / (i * i) as Real);
+        } else {
+            coefficients.push(0.);
+        }
+    }
+    FourierOsc::new(coefficients.as_ref(), lanczos)
+}
+
 /// "pattern match" node on each oscillator type and set hz
 pub fn set_hz(graph: &Graph, n: Tag, hz: Real) {
     SineOsc::set(graph, n, "hz", hz);
@@ -545,4 +699,5 @@ pub fn set_hz(graph: &Graph, n: Tag, hz: Real) {
     TriangleOsc::set(graph, n, "hz", hz);
     SquareOsc::set(graph, n, "hz", hz);
     Osc01::set(graph, n, "hz", hz);
+    FourierOsc::set(graph, n, "hz", hz);
 }

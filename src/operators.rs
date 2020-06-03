@@ -138,12 +138,14 @@ impl IndexMut<&str> for Vca {
 pub struct Mixer {
     pub tag: Tag,
     pub waves: Vec<Tag>,
+    pub levels: Vec<In>, 
     pub level: In,
 }
 
 impl Mixer {
     pub fn new(waves: Vec<Tag>) -> Self {
-        Mixer { tag: mk_tag(), waves, level: fix(1.0) }
+        let levels = waves.iter().map(|_| fix(1.0)).collect();
+        Mixer { tag: mk_tag(), waves, levels, level: fix(1.0) }
     }
 
     pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
@@ -156,7 +158,7 @@ impl Signal for Mixer {
         self
     }
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        self.waves.iter().fold(0.0, |acc, n| acc + graph.output(*n)) * In::val(graph, self.level)
+        self.waves.iter().enumerate().fold(0.0, |acc, (i, n)| acc + graph.output(*n) * In::val(graph, self.levels[i])) * In::val(graph, self.level)
     }
     fn tag(&self) -> Tag {
         self.tag

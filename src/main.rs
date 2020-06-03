@@ -10,7 +10,7 @@ use swell::envelopes::{off, on, Adsr};
 use swell::graph::{arc, cv, fix, ArcMutex, Graph, Real, Signal, Tag};
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
 use swell::operators::{Union, Vca, Lerp};
-use swell::oscillators::{SineOsc, TriangleOsc};
+use swell::oscillators::{SineOsc, TriangleOsc, square_wave};
 use swell::shaping::{SineFold, Tanh};
 
 fn main() {
@@ -55,7 +55,9 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let mut lerp = Lerp::new(sine.tag(), tri.tag());
     lerp.alpha = fix(0.2);
     let tanh = Tanh::new(sine.tag());
-    let mut union = Union::new(vec![sine.tag(), sinefold.tag(), lerp.tag(), tanh.tag()]);
+    let mut sq = square_wave(16, true);
+    sq.hz = cv(midi_pitch.tag());
+    let mut union = Union::new(vec![sine.tag(), sinefold.tag(), sq.tag(), tanh.tag()]);
     union.level = cv(adsr.tag());
     let union_tag = union.tag();
     let vca = Vca::wrapped(union_tag, fix(0.5));
@@ -66,7 +68,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
         arc(sine),
         arc(sinefold),
         arc(tri),
-        arc(lerp),
+        arc(sq),
         arc(tanh),
         arc(union),
         vca,
