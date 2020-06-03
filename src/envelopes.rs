@@ -119,12 +119,8 @@ impl IndexMut<&str> for Adsr {
 }
 
 impl<'a> Set<'a> for Adsr {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n)
             .downcast_mut::<Self>()
         {
             v[field] = value.into();

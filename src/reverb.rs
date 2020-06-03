@@ -173,7 +173,7 @@ impl Signal for Freeverb {
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let inp = graph.output(self.wave);
-        Connect::set(&self.graph, self.wave, "value", inp);
+        Connect::set(&mut self.graph, self.wave, "value", inp);
         let out = self.graph.signal(sample_rate);
         out * self.wet_gain + inp * self.dry
     }

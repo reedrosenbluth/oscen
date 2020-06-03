@@ -92,7 +92,7 @@ impl In {
 
 impl From<Real> for In {
     fn from(x: Real) -> Self {
-       In::Fix(x) 
+        In::Fix(x)
     }
 }
 
@@ -156,6 +156,12 @@ impl Graph {
         Graph { nodes, order }
     }
 
+    pub fn get_node(&mut self, n: Tag) -> &mut dyn Any {
+        self.nodes
+            .get_mut(&n)
+            .expect("Tried to get a node that is not in the graph.")
+    }
+
     /// Convenience function get the `Tag` of the final node in the `Graph`.
     pub fn out_tag(&self) -> Tag {
         let n = self.nodes.len() - 1;
@@ -214,12 +220,13 @@ impl Graph {
 
 //TODO: return Result struct indicating success or failure
 pub trait Set<'a>: IndexMut<&'a str> {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real);
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real);
 }
 
 /// Use to connect subgraphs to the main graph. Simply store the value of the
 /// input node from the main graph as a connect node, which will be the first
 /// node in the subgraph.
+#[derive(Clone)]
 pub struct Connect {
     pub tag: Tag,
     pub value: Real,
@@ -273,14 +280,8 @@ impl IndexMut<&str> for Connect {
 }
 
 impl<'a> Set<'a> for Connect {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value;
         }
     }

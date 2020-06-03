@@ -90,14 +90,8 @@ impl IndexMut<&str> for SineOsc {
 }
 
 impl<'a> Set<'a> for SineOsc {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
@@ -191,14 +185,8 @@ impl IndexMut<&str> for SawOsc {
 }
 
 impl<'a> Set<'a> for SawOsc {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
@@ -288,14 +276,8 @@ impl IndexMut<&str> for TriangleOsc {
 }
 
 impl<'a> Set<'a> for TriangleOsc {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
@@ -394,14 +376,8 @@ impl IndexMut<&str> for SquareOsc {
 }
 
 impl<'a> Set<'a> for SquareOsc {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
@@ -464,14 +440,8 @@ impl IndexMut<&str> for WhiteNoise {
 }
 
 impl<'a> Set<'a> for WhiteNoise {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
@@ -553,14 +523,8 @@ impl IndexMut<&str> for Osc01 {
 }
 
 impl<'a> Set<'a> for Osc01 {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
@@ -611,12 +575,16 @@ impl Signal for FourierOsc {
         let hz = In::val(graph, self.hz);
         let amp = In::val(graph, self.amplitude);
         for (n, o) in self.sines.order.iter().enumerate() {
-            if let Some(v) =
-                self.sines.nodes.get_mut(o).unwrap().module
-                    .lock()
-                    .unwrap()
-                    .as_any_mut()
-                    .downcast_mut::<SineOsc>()
+            if let Some(v) = self
+                .sines
+                .nodes
+                .get_mut(o)
+                .unwrap()
+                .module
+                .lock()
+                .unwrap()
+                .as_any_mut()
+                .downcast_mut::<SineOsc>()
             {
                 v.hz = (hz * n as Real).into();
             }
@@ -654,14 +622,8 @@ impl IndexMut<&str> for FourierOsc {
 }
 
 impl<'a> Set<'a> for FourierOsc {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
@@ -693,7 +655,7 @@ pub fn triangle_wave(n: u32, lanczos: bool) -> FourierOsc {
 }
 
 /// "pattern match" node on each oscillator type and set hz
-pub fn set_hz(graph: &Graph, n: Tag, hz: Real) {
+pub fn set_hz(graph: &mut Graph, n: Tag, hz: Real) {
     SineOsc::set(graph, n, "hz", hz);
     SawOsc::set(graph, n, "hz", hz);
     TriangleOsc::set(graph, n, "hz", hz);

@@ -1,6 +1,10 @@
 use super::graph::*;
 use std::any::Any;
-use std::{f64::consts::SQRT_2, f64::consts::PI, ops::{Index, IndexMut}};
+use std::{
+    f64::consts::PI,
+    f64::consts::SQRT_2,
+    ops::{Index, IndexMut},
+};
 
 pub struct Lpf {
     pub tag: Tag,
@@ -78,39 +82,21 @@ impl IndexMut<&str> for Lpf {
 }
 
 impl<'a> Set<'a> for Lpf {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
 }
 
-pub fn lpf_on(graph: &Graph, n: Tag) {
-    if let Some(v) = graph.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<Lpf>()
-    {
+pub fn lpf_on(graph: &mut Graph, n: Tag) {
+    if let Some(v) = graph.get_node(n).downcast_mut::<Lpf>() {
         v.off = false;
     }
 }
 
-pub fn lpf_off(graph: &Graph, n: Tag) {
-    if let Some(v) = graph.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<Lpf>()
-    {
+pub fn lpf_off(graph: &mut Graph, n: Tag) {
+    if let Some(v) = graph.get_node(n).downcast_mut::<Lpf>() {
         v.off = true;
     }
 }
@@ -191,39 +177,21 @@ impl IndexMut<&str> for Hpf {
 }
 
 impl<'a> Set<'a> for Hpf {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
 }
 
-pub fn hpf_on(graph: &Graph, n: Tag) {
-    if let Some(v) = graph.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<Hpf>()
-    {
+pub fn hpf_on(graph: &mut Graph, n: Tag) {
+    if let Some(v) = graph.get_node(n).downcast_mut::<Hpf>() {
         v.off = false;
     }
 }
 
-pub fn hpf_off(graph: &Graph, n: Tag) {
-    if let Some(v) = graph.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<Hpf>()
-    {
+pub fn hpf_off(graph: &mut Graph, n: Tag) {
+    if let Some(v) = graph.get_node(n).downcast_mut::<Hpf>() {
         v.off = true;
     }
 }
@@ -305,37 +273,23 @@ impl IndexMut<&str> for Bpf {
 }
 
 impl<'a> Set<'a> for Bpf {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
 }
 
-pub fn bpf_on(graph: &Graph, n: Tag) {
-    if let Some(v) = graph.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
+pub fn bpf_on(graph: &mut Graph, n: Tag) {
+    if let Some(v) = graph.get_node(n)
         .downcast_mut::<Bpf>()
     {
         v.off = false;
     }
 }
 
-pub fn bpf_off(graph: &Graph, n: Tag) {
-    if let Some(v) = graph.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
+pub fn bpf_off(graph: &mut Graph, n: Tag) {
+    if let Some(v) = graph.get_node(n)
         .downcast_mut::<Bpf>()
     {
         v.off = true;
@@ -418,37 +372,23 @@ impl IndexMut<&str> for Notch {
 }
 
 impl<'a> Set<'a> for Notch {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<Self>()
-        {
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
 }
 
-pub fn notch_on(graph: &Graph, n: Tag) {
-    if let Some(v) = graph.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
+pub fn notch_on(graph: &mut Graph, n: Tag) {
+    if let Some(v) = graph.get_node(n)
         .downcast_mut::<Notch>()
     {
         v.off = false;
     }
 }
 
-pub fn notch_off(graph: &Graph, n: Tag) {
-    if let Some(v) = graph.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
+pub fn notch_off(graph: &mut Graph, n: Tag) {
+    if let Some(v) = graph.get_node(n)
         .downcast_mut::<Notch>()
     {
         v.off = true;

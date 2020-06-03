@@ -262,12 +262,8 @@ impl IndexMut<&str> for Lerp {
 }
 
 impl<'a> Set<'a> for Lerp {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n)
             .downcast_mut::<Self>()
         {
             v[field] = value.into();
@@ -368,12 +364,8 @@ impl IndexMut<&str> for Lerp3 {
 }
 
 impl<'a> Set<'a> for Lerp3 {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n)
             .downcast_mut::<Self>()
         {
             v[field] = value.into();
@@ -461,12 +453,8 @@ impl IndexMut<&str> for Modulator {
 }
 
 impl<'a> Set<'a> for Modulator {
-    fn set(graph: &Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.nodes[&n]
-            .module
-            .lock()
-            .unwrap()
-            .as_any_mut()
+    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+        if let Some(v) = graph.get_node(n)
             .downcast_mut::<Self>()
         {
             v[field] = value.into();
