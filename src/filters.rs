@@ -1,6 +1,6 @@
 use super::graph::*;
 use std::any::Any;
-use std::{f64::consts::PI, ops::{Index, IndexMut}};
+use std::{f64::consts::SQRT_2, f64::consts::PI, ops::{Index, IndexMut}};
 
 pub struct Lpf {
     pub tag: Tag,
@@ -15,12 +15,12 @@ pub struct Lpf {
 }
 
 impl Lpf {
-    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In, q: In) -> Self {
+    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
         Self {
             tag,
             wave,
             cutoff_freq,
-            q,
+            q: fix(1.0 / SQRT_2),
             x1: 0.0,
             x2: 0.0,
             y1: 0.0,
@@ -128,12 +128,12 @@ pub struct Hpf {
 }
 
 impl Hpf {
-    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In, q: In) -> Self {
+    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
         Self {
             tag,
             wave,
             cutoff_freq,
-            q,
+            q: fix(1.0 / SQRT_2),
             x1: 0.0,
             x2: 0.0,
             y1: 0.0,
@@ -241,12 +241,12 @@ pub struct Bpf {
 }
 
 impl Bpf {
-    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In, q: In) -> Self {
+    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
         Self {
             tag,
             wave,
             cutoff_freq,
-            q,
+            q: fix(1.0 / SQRT_2),
             x1: 0.0,
             x2: 0.0,
             y1: 0.0,
@@ -355,12 +355,12 @@ pub struct Notch {
 }
 
 impl Notch {
-    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In, q: In) -> Self {
+    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
         Self {
             tag,
             wave,
             cutoff_freq,
-            q,
+            q: fix(1.0 / SQRT_2),
             x1: 0.0,
             x2: 0.0,
             y1: 0.0,
