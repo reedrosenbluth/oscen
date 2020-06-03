@@ -9,7 +9,7 @@ pub struct SineFold {
 
 impl SineFold {
     pub fn new(wave: Tag) -> Self {
-        Self { tag: mk_tag(), wave, fold_param: fix(TAU) }
+        Self { tag: mk_tag(), wave, fold_param: TAU.into() }
     }
 
     pub fn wrapped(wave: Tag) -> ArcMutex<Self> {

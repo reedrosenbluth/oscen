@@ -13,7 +13,12 @@ pub struct Union {
 impl Union {
     pub fn new(waves: Vec<Tag>) -> Self {
         let active = waves[0];
-        Union { tag: mk_tag(), waves, active, level: fix(1.0) }
+        Union {
+            tag: mk_tag(),
+            waves,
+            active,
+            level: (1.0).into(),
+        }
     }
 
     pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
@@ -46,6 +51,7 @@ impl IndexMut<usize> for Union {
         &mut self.waves[index]
     }
 }
+#[derive(Clone)]
 pub struct Product {
     pub tag: Tag,
     pub waves: Vec<Tag>,
@@ -53,7 +59,10 @@ pub struct Product {
 
 impl Product {
     pub fn new(waves: Vec<Tag>) -> Self {
-        Product { tag: mk_tag(), waves }
+        Product {
+            tag: mk_tag(),
+            waves,
+        }
     }
 
     pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
@@ -87,6 +96,7 @@ impl IndexMut<usize> for Product {
     }
 }
 
+#[derive(Clone)]
 pub struct Vca {
     pub tag: Tag,
     pub wave: Tag,
@@ -95,7 +105,11 @@ pub struct Vca {
 
 impl Vca {
     pub fn new(wave: Tag, level: In) -> Self {
-        Self { tag: mk_tag(), wave, level: level }
+        Self {
+            tag: mk_tag(),
+            wave,
+            level: level,
+        }
     }
 
     pub fn wrapped(wave: Tag, level: In) -> ArcMutex<Self> {
@@ -135,17 +149,23 @@ impl IndexMut<&str> for Vca {
     }
 }
 
+#[derive(Clone)]
 pub struct Mixer {
     pub tag: Tag,
     pub waves: Vec<Tag>,
-    pub levels: Vec<In>, 
+    pub levels: Vec<In>,
     pub level: In,
 }
 
 impl Mixer {
     pub fn new(waves: Vec<Tag>) -> Self {
-        let levels = waves.iter().map(|_| fix(1.0)).collect();
-        Mixer { tag: mk_tag(), waves, levels, level: fix(1.0) }
+        let levels = waves.iter().map(|_| (1.0).into()).collect();
+        Mixer {
+            tag: mk_tag(),
+            waves,
+            levels,
+            level: (1.0).into(),
+        }
     }
 
     pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
@@ -158,7 +178,9 @@ impl Signal for Mixer {
         self
     }
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        self.waves.iter().enumerate().fold(0.0, |acc, (i, n)| acc + graph.output(*n) * In::val(graph, self.levels[i])) * In::val(graph, self.level)
+        self.waves.iter().enumerate().fold(0.0, |acc, (i, n)| {
+            acc + graph.output(*n) * In::val(graph, self.levels[i])
+        }) * In::val(graph, self.level)
     }
     fn tag(&self) -> Tag {
         self.tag
@@ -178,6 +200,7 @@ impl IndexMut<usize> for Mixer {
         &mut self.waves[index]
     }
 }
+#[derive(Clone)]
 pub struct Lerp {
     pub tag: Tag,
     pub wave1: In,
@@ -189,9 +212,9 @@ impl Lerp {
     pub fn new(wave1: Tag, wave2: Tag) -> Self {
         Lerp {
             tag: mk_tag(),
-            wave1: cv(wave1),
-            wave2: cv(wave2),
-            alpha: fix(0.5),
+            wave1: wave1.into(),
+            wave2: wave2.into(),
+            alpha: (0.5).into(),
         }
     }
 
@@ -247,7 +270,7 @@ impl<'a> Set<'a> for Lerp {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }
@@ -262,7 +285,7 @@ pub fn set_alpha(graph: &Graph, k: In, a: Real) {
                 .as_any_mut()
                 .downcast_mut::<Lerp>()
             {
-                v.alpha = fix(a)
+                v.alpha = a.into()
             }
         }
         In::Fix(_) => panic!("Lerp wave can only be a In::Var"),
@@ -280,8 +303,8 @@ impl Lerp3 {
     pub fn new(lerp1: Tag, lerp2: Tag, knob: In) -> Self {
         Self {
             tag: mk_tag(),
-            lerp1: cv(lerp1),
-            lerp2: cv(lerp2),
+            lerp1: lerp1.into(),
+            lerp2: lerp2.into(),
             knob,
         }
     }
@@ -342,7 +365,6 @@ impl IndexMut<&str> for Lerp3 {
             _ => panic!("Lerp does not have a field named: {}", index),
         }
     }
-
 }
 
 impl<'a> Set<'a> for Lerp3 {
@@ -354,11 +376,10 @@ impl<'a> Set<'a> for Lerp3 {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }
-
 
 pub fn set_knob(graph: &Graph, n: Tag, k: Real) {
     if let Some(v) = graph.nodes[&n]
@@ -368,7 +389,7 @@ pub fn set_knob(graph: &Graph, n: Tag, k: Real) {
         .as_any_mut()
         .downcast_mut::<Lerp3>()
     {
-        v.knob = fix(k);
+        v.knob = k.into();
         v.set_alphas(graph);
     }
 }
@@ -385,7 +406,7 @@ impl Modulator {
     pub fn new(wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> Self {
         Modulator {
             tag: mk_tag(),
-            wave: cv(wave),
+            wave: wave.into(),
             base_hz,
             mod_hz,
             mod_idx,
@@ -448,7 +469,7 @@ impl<'a> Set<'a> for Modulator {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }

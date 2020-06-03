@@ -20,7 +20,7 @@ impl Lpf {
             tag,
             wave,
             cutoff_freq,
-            q: fix(1.0 / SQRT_2),
+            q: (1.0 / SQRT_2).into(),
             x1: 0.0,
             x2: 0.0,
             y1: 0.0,
@@ -86,7 +86,7 @@ impl<'a> Set<'a> for Lpf {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }
@@ -133,7 +133,7 @@ impl Hpf {
             tag,
             wave,
             cutoff_freq,
-            q: fix(1.0 / SQRT_2),
+            q: (1.0 / SQRT_2).into(),
             x1: 0.0,
             x2: 0.0,
             y1: 0.0,
@@ -199,7 +199,7 @@ impl<'a> Set<'a> for Hpf {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }
@@ -246,7 +246,7 @@ impl Bpf {
             tag,
             wave,
             cutoff_freq,
-            q: fix(1.0 / SQRT_2),
+            q: (1.0 / SQRT_2).into(),
             x1: 0.0,
             x2: 0.0,
             y1: 0.0,
@@ -313,7 +313,7 @@ impl<'a> Set<'a> for Bpf {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }
@@ -360,7 +360,7 @@ impl Notch {
             tag,
             wave,
             cutoff_freq,
-            q: fix(1.0 / SQRT_2),
+            q: (1.0 / SQRT_2).into(),
             x1: 0.0,
             x2: 0.0,
             y1: 0.0,
@@ -426,7 +426,7 @@ impl<'a> Set<'a> for Notch {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }

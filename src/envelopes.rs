@@ -20,10 +20,10 @@ impl Adsr {
     pub fn new(attack: Real, decay: Real, sustain: Real, release: Real) -> Self {
         Self {
             tag: mk_tag(),
-            attack: fix(attack),
-            decay: fix(decay),
-            sustain: fix(sustain),
-            release: fix(release),
+            attack: attack.into(),
+            decay: decay.into(),
+            sustain: sustain.into(),
+            release: release.into(),
             clock: 0.0,
             triggered: false,
             level: 0.0,
@@ -127,7 +127,7 @@ impl<'a> Set<'a> for Adsr {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }

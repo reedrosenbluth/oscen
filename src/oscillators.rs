@@ -21,9 +21,9 @@ impl SineOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: fix(0.0),
-            amplitude: fix(1.0),
-            phase: fix(0.0),
+            hz: (0.0).into(),
+            amplitude: (1.0).into(),
+            phase: (0.0).into(),
         }
     }
 
@@ -31,8 +31,8 @@ impl SineOsc {
         Self {
             tag: mk_tag(),
             hz,
-            amplitude: fix(1.0),
-            phase: fix(0.0),
+            amplitude: (1.0).into(),
+            phase: (0.0).into(),
         }
     }
 
@@ -98,7 +98,7 @@ impl<'a> Set<'a> for SineOsc {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }
@@ -116,9 +116,9 @@ impl SawOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: fix(0.0),
-            amplitude: fix(1.0),
-            phase: fix(0.0),
+            hz: (0.0).into(),
+            amplitude: (1.0).into(),
+            phase: (0.0).into(),
         }
     }
 
@@ -126,8 +126,8 @@ impl SawOsc {
         Self {
             tag: mk_tag(),
             hz,
-            amplitude: fix(1.0),
-            phase: fix(0.0),
+            amplitude: (1.0).into(),
+            phase: (0.0).into(),
         }
     }
 
@@ -199,7 +199,7 @@ impl<'a> Set<'a> for SawOsc {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }
@@ -217,9 +217,9 @@ impl TriangleOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: fix(0.0),
-            amplitude: fix(1.0),
-            phase: fix(0.0),
+            hz: (0.0).into(),
+            amplitude: (1.0).into(),
+            phase: (0.0).into(),
         }
     }
 
@@ -227,8 +227,8 @@ impl TriangleOsc {
         Self {
             tag: mk_tag(),
             hz,
-            amplitude: fix(1.0),
-            phase: fix(0.0),
+            amplitude: (1.0).into(),
+            phase: (0.0).into(),
         }
     }
 
@@ -296,7 +296,7 @@ impl<'a> Set<'a> for TriangleOsc {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }
@@ -315,10 +315,10 @@ impl SquareOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: fix(0.0),
-            amplitude: fix(1.0),
-            phase: fix(0.0),
-            duty_cycle: fix(0.5),
+            hz: (0.0).into(),
+            amplitude: (1.0).into(),
+            phase: (0.0).into(),
+            duty_cycle: (0.5).into(),
         }
     }
 
@@ -326,9 +326,9 @@ impl SquareOsc {
         Self {
             tag: mk_tag(),
             hz,
-            amplitude: fix(1.0),
-            phase: fix(0.0),
-            duty_cycle: fix(0.5),
+            amplitude: (1.0).into(),
+            phase: (0.0).into(),
+            duty_cycle: (0.5).into(),
         }
     }
 
@@ -402,7 +402,7 @@ impl<'a> Set<'a> for SquareOsc {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }
@@ -418,7 +418,7 @@ impl WhiteNoise {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            amplitude: fix(1.0),
+            amplitude: (1.0).into(),
             dist: Uniform::new_inclusive(-1.0, 1.0),
         }
     }
@@ -472,7 +472,7 @@ impl<'a> Set<'a> for WhiteNoise {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }
@@ -489,8 +489,8 @@ impl Osc01 {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: fix(0.0),
-            phase: fix(0.0),
+            hz: (0.0).into(),
+            phase: (0.0).into(),
         }
     }
 
@@ -498,7 +498,7 @@ impl Osc01 {
         Self {
             tag: mk_tag(),
             hz,
-            phase: fix(0.0),
+            phase: (0.0).into(),
         }
     }
 
@@ -561,7 +561,7 @@ impl<'a> Set<'a> for Osc01 {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }
@@ -589,13 +589,13 @@ impl FourierOsc {
         let mut wwaves: Vec<ArcMutex<Sig>> = Vec::new();
         for (n, c) in coefficients.iter().enumerate() {
             let mut s = SineOsc::new();
-            s.amplitude = fix(*c * sinc(sigma * n as Real / coefficients.len() as Real));
+            s.amplitude = (*c * sinc(sigma * n as Real / coefficients.len() as Real)).into();
             wwaves.push(arc(s));
         }
         FourierOsc {
             tag: mk_tag(),
-            hz: fix(0.0),
-            amplitude: fix(1.0),
+            hz: (0.0).into(),
+            amplitude: (1.0).into(),
             sines: Graph::new(wwaves),
             lanczos,
         }
@@ -618,7 +618,7 @@ impl Signal for FourierOsc {
                     .as_any_mut()
                     .downcast_mut::<SineOsc>()
             {
-                v.hz = fix(hz * n as Real);
+                v.hz = (hz * n as Real).into();
             }
         }
         self.sines.signal(sample_rate);
@@ -662,7 +662,7 @@ impl<'a> Set<'a> for FourierOsc {
             .as_any_mut()
             .downcast_mut::<Self>()
         {
-            v[field] = fix(value);
+            v[field] = value.into();
         }
     }
 }

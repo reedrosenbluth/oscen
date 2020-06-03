@@ -70,7 +70,6 @@ impl Signal for ArcMutex<dyn Signal + Send> {
     fn tag(&self) -> Tag {
         self.lock().unwrap().tag()
     }
-
 }
 
 /// Inputs to synth modules can either be constant (`Fix`) or a control voltage
@@ -91,14 +90,16 @@ impl In {
     }
 }
 
-/// Create a `cv` (modulateable) input.
-pub fn cv(n: Tag) -> In {
-    In::Cv(n)
+impl From<Real> for In {
+    fn from(x: Real) -> Self {
+       In::Fix(x) 
+    }
 }
 
-/// Create a `fix` (constant) input.
-pub fn fix(x: Real) -> In {
-    In::Fix(x)
+impl From<Tag> for In {
+    fn from(t: Tag) -> Self {
+        In::Cv(t)
+    }
 }
 
 /// Nodes for the graph will have both a synth module (i.e an implentor of
@@ -122,7 +123,7 @@ impl Signal for Node {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
-    
+
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         self.module.signal(graph, sample_rate)
     }
@@ -130,7 +131,6 @@ impl Signal for Node {
     fn tag(&self) -> Tag {
         self.module.tag()
     }
-    
 }
 
 type GraphMap = HashMap<Tag, Node>;
@@ -227,7 +227,10 @@ pub struct Connect {
 
 impl Connect {
     pub fn new() -> Self {
-        Self { tag: mk_tag(), value: 0.0 }
+        Self {
+            tag: mk_tag(),
+            value: 0.0,
+        }
     }
 
     pub fn wrapped() -> ArcMutex<Self> {

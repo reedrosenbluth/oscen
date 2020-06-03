@@ -7,7 +7,7 @@ use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
-use swell::graph::{arc, cv, fix, ArcMutex, Graph, Real,  Signal, Tag};
+use swell::graph::{arc, ArcMutex, Graph, Real,  Signal, Tag};
 use swell::operators::{Mixer, Modulator, Vca};
 use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
@@ -52,7 +52,7 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
 
     // Envelope Generator
     let mut adsr = Adsr::new(0.01, 0.0, 1.0, 0.1);
-    adsr.release = cv(midi_control6.tag());
+    adsr.release = midi_control6.tag().into();
     let adsr_tag = adsr.tag();
 
     // LFO
@@ -63,32 +63,32 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
     // Sub Oscillators for Osc 1
     let modulator_osc2 = Modulator::wrapped(
         tri_lfo.tag(),
-        cv(midi_pitch.tag()),
-        fix(0.0),
-        fix(0.0),
+        midi_pitch.tag().into(),
+        (0.0).into(),
+        (0.0).into(),
     );
 
     // Oscillator 2
-    let sine2 = SineOsc::with_hz(cv(modulator_osc2.tag()));
-    let saw2 = SawOsc::with_hz(cv(midi_pitch.tag()));
-    let square2 = SquareOsc::with_hz(cv(midi_pitch.tag()));
-    let triangle2 = TriangleOsc::with_hz(cv(midi_pitch.tag()));
+    let sine2 = SineOsc::with_hz(modulator_osc2.tag().into());
+    let saw2 = SawOsc::with_hz(midi_pitch.tag().into());
+    let square2 = SquareOsc::with_hz(midi_pitch.tag().into());
+    let triangle2 = TriangleOsc::with_hz(midi_pitch.tag().into());
 
     let modulator_osc1 = Modulator::wrapped(
         sine2.tag(),
-        cv(midi_pitch.tag()),
-        fix(0.0),
-        fix(0.0),
+        midi_pitch.tag().into(),
+        (0.0).into(),
+        (0.0).into(),
     );
 
     // Oscillator 1
-    let sine1 = SineOsc::with_hz(cv(modulator_osc1.tag()));
-    let saw1 = SawOsc::with_hz(cv(midi_pitch.tag()));
-    let square1 = SquareOsc::with_hz(cv(midi_pitch.tag()));
-    let triangle1 = TriangleOsc::with_hz(cv(midi_pitch.tag()));
+    let sine1 = SineOsc::with_hz(modulator_osc1.tag().into());
+    let saw1 = SawOsc::with_hz(midi_pitch.tag().into());
+    let square1 = SquareOsc::with_hz(midi_pitch.tag().into());
+    let triangle1 = TriangleOsc::with_hz(midi_pitch.tag().into());
 
-    let sub1 = SquareOsc::with_hz(cv(midi_pitch.tag()));
-    let sub2 = SquareOsc::with_hz(cv(midi_pitch.tag())); 
+    let sub1 = SquareOsc::with_hz(midi_pitch.tag().into());
+    let sub2 = SquareOsc::with_hz(midi_pitch.tag().into()); 
 
 
     // Noise
@@ -104,15 +104,15 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
         ]);
 
     mixer.levels = vec![
-        cv(midi_control1.tag()),
-        cv(midi_control2.tag()),
-        cv(midi_control3.tag()),
-        cv(midi_control4.tag()),
-        cv(midi_control5.tag()),
+        midi_control1.tag().into(),
+        midi_control2.tag().into(),
+        midi_control3.tag().into(),
+        midi_control4.tag().into(),
+        midi_control5.tag().into(),
         ];
-    mixer.level = cv(adsr.tag());
+    mixer.level = adsr.tag().into();
 
-    let vca = Vca::wrapped(mixer.tag(), fix(0.5));
+    let vca = Vca::wrapped(mixer.tag(), (0.5).into());
 
     let graph = Graph::new(vec![
         midi_pitch.clone(),

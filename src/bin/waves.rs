@@ -7,7 +7,7 @@ use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
-use swell::graph::{arc, cv, fix, ArcMutex, Graph, Real, Signal, Tag};
+use swell::graph::{arc, ArcMutex, Graph, Real, Signal, Tag};
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
 use swell::operators::{Union, Vca, Lerp};
 use swell::oscillators::{SineOsc, TriangleOsc, square_wave};
@@ -49,18 +49,18 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let adsr = Adsr::new(0.05, 0.05, 1.0, 0.2);
     let adsr_tag = adsr.tag();
 
-    let sine = SineOsc::with_hz(cv(midi_pitch.tag()));
+    let sine = SineOsc::with_hz(midi_pitch.tag().into());
     let sinefold = SineFold::new(sine.tag());
-    let tri = TriangleOsc::with_hz(cv(midi_pitch.tag()));
+    let tri = TriangleOsc::with_hz(midi_pitch.tag().into());
     let mut lerp = Lerp::new(sine.tag(), tri.tag());
-    lerp.alpha = fix(0.2);
+    lerp.alpha = (0.2).into();
     let tanh = Tanh::new(sine.tag());
     let mut sq = square_wave(16, true);
-    sq.hz = cv(midi_pitch.tag());
+    sq.hz = midi_pitch.tag().into();
     let mut union = Union::new(vec![sine.tag(), sinefold.tag(), sq.tag(), tanh.tag()]);
-    union.level = cv(adsr.tag());
+    union.level = adsr.tag().into();
     let union_tag = union.tag();
-    let vca = Vca::wrapped(union_tag, fix(0.5));
+    let vca = Vca::wrapped(union_tag, (0.5).into());
     let graph = Graph::new(vec![
         midi_pitch.clone(),
         midi_volume.clone(),
