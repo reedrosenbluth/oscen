@@ -1,5 +1,5 @@
 use super::graph::*;
-use crate::{as_any_mut, tag};
+use crate::{std_signal, as_any_mut, tag, impl_set};
 use std::{
     any::Any,
     ops::{Index, IndexMut},
@@ -78,9 +78,7 @@ impl Adsr {
 }
 
 impl Signal for Adsr {
-    as_any_mut!();
-    tag!();
-    
+    std_signal!();
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let amp = self.calc_level(graph);
         self.clock += 1. / sample_rate;
@@ -115,16 +113,7 @@ impl IndexMut<&str> for Adsr {
     }
 }
 
-impl<'a> Set<'a> for Adsr {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n)
-            .downcast_mut::<Self>()
-        {
-            v[field] = value.into();
-        }
-    }
-}
-
+impl_set!(Adsr);
 
 pub fn on(graph: &Graph, n: Tag) {
     if let Some(v) = graph.nodes[&n]

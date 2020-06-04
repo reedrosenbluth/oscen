@@ -1,5 +1,5 @@
 use super::graph::*;
-use crate::{as_any_mut, tag};
+use crate::{std_signal, as_any_mut, tag, impl_set};
 use std::any::Any;
 use std::{
     f64::consts::PI,
@@ -36,9 +36,7 @@ impl Lpf {
 }
 
 impl Signal for Lpf {
-    as_any_mut!();
-    tag!();
-    
+    std_signal!();
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let x0 = graph.output(self.wave);
         if self.off {
@@ -77,13 +75,7 @@ impl IndexMut<&str> for Lpf {
     }
 }
 
-impl<'a> Set<'a> for Lpf {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value.into();
-        }
-    }
-}
+impl_set!(Lpf);
 
 pub fn lpf_on(graph: &mut Graph, n: Tag) {
     if let Some(v) = graph.get_node(n).downcast_mut::<Lpf>() {
@@ -126,9 +118,7 @@ impl Hpf {
 }
 
 impl Signal for Hpf {
-    as_any_mut!();
-    tag!();
-    
+    std_signal!();
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let x0 = graph.output(self.wave);
         if self.off {
@@ -167,13 +157,7 @@ impl IndexMut<&str> for Hpf {
     }
 }
 
-impl<'a> Set<'a> for Hpf {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value.into();
-        }
-    }
-}
+impl_set!(Hpf);
 
 pub fn hpf_on(graph: &mut Graph, n: Tag) {
     if let Some(v) = graph.get_node(n).downcast_mut::<Hpf>() {
@@ -216,9 +200,7 @@ impl Bpf {
 }
 
 impl Signal for Bpf {
-    as_any_mut!();
-    tag!();
-    
+    std_signal!();
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let x0 = graph.output(self.wave);
         if self.off {
@@ -258,13 +240,7 @@ impl IndexMut<&str> for Bpf {
     }
 }
 
-impl<'a> Set<'a> for Bpf {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value.into();
-        }
-    }
-}
+impl_set!(Bpf);
 
 pub fn bpf_on(graph: &mut Graph, n: Tag) {
     if let Some(v) = graph.get_node(n)
@@ -311,9 +287,7 @@ impl Notch {
 }
 
 impl Signal for Notch {
-    as_any_mut!();
-    tag!();
-    
+    std_signal!();
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let x0 = graph.output(self.wave);
         if self.off {
@@ -352,13 +326,7 @@ impl IndexMut<&str> for Notch {
     }
 }
 
-impl<'a> Set<'a> for Notch {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value.into();
-        }
-    }
-}
+impl_set!(Notch);
 
 pub fn notch_on(graph: &mut Graph, n: Tag) {
     if let Some(v) = graph.get_node(n)
@@ -409,9 +377,7 @@ impl Comb {
 }
 
 impl Signal for Comb {
-    as_any_mut!();
-    tag!();
-    
+    std_signal!();
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let input = graph.output(self.wave);
         let output = self.buffer[self.index] as Real;
@@ -448,9 +414,7 @@ impl AllPass {
 }
 
 impl Signal for AllPass {
-    as_any_mut!();
-    tag!();
-    
+    std_signal!();
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let input = graph.output(self.wave);
         let delayed = self.buffer[self.index];

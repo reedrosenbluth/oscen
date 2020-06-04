@@ -102,6 +102,12 @@ impl From<Tag> for In {
     }
 }
 
+impl Default for In {
+    fn default() -> Self {
+        Self::Fix(0.0)
+    }
+}
+
 /// Nodes for the graph will have both a synth module (i.e an implentor of
 /// `Signal`) and will store their current signal value as `output`
 #[derive(Clone)]
@@ -303,4 +309,25 @@ macro_rules! tag {
             self.tag
         }
     };
+}
+
+#[macro_export]
+macro_rules! std_signal {
+    () => {
+        as_any_mut!();
+        tag!();
+    };
+}
+
+#[macro_export]
+macro_rules! impl_set {
+    ($t: ty) => {
+        impl<'a> Set<'a> for $t {
+            fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+                if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
+                    v[field] = value.into();
+                }
+            }
+        }
+    }
 }

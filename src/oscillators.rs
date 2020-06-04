@@ -1,5 +1,5 @@
 use super::graph::*;
-use crate::{as_any_mut, tag};
+use crate::{as_any_mut, impl_set, std_signal, tag};
 use math::round::floor;
 use rand::distributions::Uniform;
 use rand::prelude::*;
@@ -43,9 +43,7 @@ impl SineOsc {
 }
 
 impl Signal for SineOsc {
-    as_any_mut!();
-    tag!();
-
+    std_signal!();
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
         let amplitude = In::val(graph, self.amplitude);
@@ -86,13 +84,7 @@ impl IndexMut<&str> for SineOsc {
     }
 }
 
-impl<'a> Set<'a> for SineOsc {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value.into();
-        }
-    }
-}
+impl_set!(SineOsc);
 
 /// Saw wave oscillator.
 #[derive(Copy, Clone)]
@@ -128,9 +120,7 @@ impl SawOsc {
 }
 
 impl Signal for SawOsc {
-    as_any_mut!();
-    tag!();
-
+    std_signal!();
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
         let amplitude = In::val(graph, self.amplitude);
@@ -177,13 +167,7 @@ impl IndexMut<&str> for SawOsc {
     }
 }
 
-impl<'a> Set<'a> for SawOsc {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value.into();
-        }
-    }
-}
+impl_set!(SawOsc);
 
 /// Triangle wave oscillator.
 #[derive(Copy, Clone)]
@@ -219,9 +203,7 @@ impl TriangleOsc {
 }
 
 impl Signal for TriangleOsc {
-    as_any_mut!();
-    tag!();
-
+    std_signal!();
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
         let amplitude = In::val(graph, self.amplitude);
@@ -264,13 +246,7 @@ impl IndexMut<&str> for TriangleOsc {
     }
 }
 
-impl<'a> Set<'a> for TriangleOsc {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value.into();
-        }
-    }
-}
+impl_set!(TriangleOsc);
 
 /// Square wave oscillator with a `duty_cycle` that takes values in (0, 1).
 #[derive(Copy, Clone)]
@@ -309,9 +285,7 @@ impl SquareOsc {
 }
 
 impl Signal for SquareOsc {
-    as_any_mut!();
-    tag!();
-
+    std_signal!();
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
         let amplitude = In::val(graph, self.amplitude);
@@ -360,13 +334,7 @@ impl IndexMut<&str> for SquareOsc {
     }
 }
 
-impl<'a> Set<'a> for SquareOsc {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value.into();
-        }
-    }
-}
+impl_set!(SquareOsc);
 
 #[derive(Clone)]
 pub struct WhiteNoise {
@@ -390,9 +358,7 @@ impl WhiteNoise {
 }
 
 impl Signal for WhiteNoise {
-    as_any_mut!();
-    tag!();
-
+    std_signal!();
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let mut rng = rand::thread_rng();
         let amplitude = In::val(graph, self.amplitude);
@@ -420,13 +386,8 @@ impl IndexMut<&str> for WhiteNoise {
     }
 }
 
-impl<'a> Set<'a> for WhiteNoise {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value.into();
-        }
-    }
-}
+impl_set!(WhiteNoise);
+
 /// An oscillator used to modulate parameters that take values between 0 and 1,
 /// based on a sinusoid.
 #[derive(Copy, Clone)]
@@ -459,9 +420,7 @@ impl Osc01 {
 }
 
 impl Signal for Osc01 {
-    as_any_mut!();
-    tag!();
-
+    std_signal!();
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
         let phase = In::val(graph, self.phase);
@@ -499,13 +458,7 @@ impl IndexMut<&str> for Osc01 {
     }
 }
 
-impl<'a> Set<'a> for Osc01 {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value.into();
-        }
-    }
-}
+impl_set!(Osc01);
 
 fn sinc(x: Real) -> Real {
     if x == 0.0 {
@@ -526,11 +479,13 @@ pub struct FourierOsc {
 
 impl FourierOsc {
     pub fn new(coefficients: &[Real], lanczos: bool) -> Self {
-        let sigma = if lanczos { 1.0 } else { 0.0 };
+        // let sigma = if lanczos { 1.0 } else { 0.0 };
+        let sigma = lanczos as i32;
         let mut wwaves: Vec<ArcMutex<Sig>> = Vec::new();
         for (n, c) in coefficients.iter().enumerate() {
             let mut s = SineOsc::new();
-            s.amplitude = (*c * sinc(sigma * n as Real / coefficients.len() as Real)).into();
+            s.amplitude =
+                (*c * sinc(sigma as Real * n as Real / coefficients.len() as Real)).into();
             wwaves.push(arc(s));
         }
         FourierOsc {
@@ -544,9 +499,7 @@ impl FourierOsc {
 }
 
 impl Signal for FourierOsc {
-    as_any_mut!();
-    tag!();
-
+    std_signal!();
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
         let amp = In::val(graph, self.amplitude);
@@ -593,13 +546,7 @@ impl IndexMut<&str> for FourierOsc {
     }
 }
 
-impl<'a> Set<'a> for FourierOsc {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value.into();
-        }
-    }
-}
+impl_set!(FourierOsc);
 
 pub fn square_wave(n: u32, lanczos: bool) -> FourierOsc {
     let mut coefficients: Vec<Real> = Vec::new();
