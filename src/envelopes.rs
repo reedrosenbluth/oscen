@@ -1,4 +1,5 @@
 use super::graph::*;
+use crate::{as_any_mut, tag};
 use std::{
     any::Any,
     ops::{Index, IndexMut},
@@ -77,18 +78,14 @@ impl Adsr {
 }
 
 impl Signal for Adsr {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let amp = self.calc_level(graph);
         self.clock += 1. / sample_rate;
         self.level = self.calc_level(graph);
         amp
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 

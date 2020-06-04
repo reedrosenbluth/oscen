@@ -1,4 +1,5 @@
 use super::graph::*;
+use crate::{as_any_mut, tag};
 use std::any::Any;
 use std::ops::{Index, IndexMut};
 
@@ -27,14 +28,11 @@ impl Union {
 }
 
 impl Signal for Union {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
+
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         In::val(graph, self.level) * graph.output(self.active)
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -71,14 +69,11 @@ impl Product {
 }
 
 impl Signal for Product {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         self.waves.iter().fold(1.0, |acc, n| acc * graph.output(*n))
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -118,14 +113,11 @@ impl Vca {
 }
 
 impl Signal for Vca {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         graph.output(self.wave) * In::val(graph, self.level)
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -174,16 +166,13 @@ impl Mixer {
 }
 
 impl Signal for Mixer {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         self.waves.iter().enumerate().fold(0.0, |acc, (i, n)| {
             acc + graph.output(*n) * In::val(graph, self.levels[i])
         }) * In::val(graph, self.level)
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -224,16 +213,12 @@ impl Lerp {
 }
 
 impl Signal for Lerp {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let alpha = In::val(graph, self.alpha);
         alpha * In::val(graph, self.wave2) + (1.0 - alpha) * In::val(graph, self.wave1)
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -263,9 +248,7 @@ impl IndexMut<&str> for Lerp {
 
 impl<'a> Set<'a> for Lerp {
     fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n)
-            .downcast_mut::<Self>()
-        {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
@@ -322,10 +305,9 @@ impl Lerp3 {
 }
 
 impl Signal for Lerp3 {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         self.set_alphas(graph);
         if In::val(graph, self.knob) <= 0.5 {
@@ -333,9 +315,6 @@ impl Signal for Lerp3 {
         } else {
             In::val(graph, self.lerp2)
         }
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -365,9 +344,7 @@ impl IndexMut<&str> for Lerp3 {
 
 impl<'a> Set<'a> for Lerp3 {
     fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n)
-            .downcast_mut::<Self>()
-        {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }
@@ -411,18 +388,14 @@ impl Modulator {
 }
 
 impl Signal for Modulator {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let mod_hz = In::val(graph, self.mod_hz);
         let mod_idx = In::val(graph, self.mod_idx);
         let base_hz = In::val(graph, self.base_hz);
         base_hz + mod_idx * mod_hz * In::val(graph, self.wave)
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -454,9 +427,7 @@ impl IndexMut<&str> for Modulator {
 
 impl<'a> Set<'a> for Modulator {
     fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n)
-            .downcast_mut::<Self>()
-        {
+        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
             v[field] = value.into();
         }
     }

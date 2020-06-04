@@ -1,4 +1,5 @@
 use super::graph::*;
+use crate::{as_any_mut, tag};
 use std::any::Any;
 
 pub struct SineFold {
@@ -18,17 +19,13 @@ impl SineFold {
 }
 
 impl Signal for SineFold {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let a = graph.output(self.wave);
         let fold_param = In::val(graph, self.fold_param);
         (a * TAU / fold_param).sin()
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -48,15 +45,11 @@ impl Tanh {
 }
 
 impl Signal for Tanh {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let a = graph.output(self.wave);
         (a * TAU).tanh()
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }

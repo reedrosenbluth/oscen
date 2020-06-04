@@ -1,4 +1,5 @@
 use super::graph::*;
+use crate::{as_any_mut, tag};
 use math::round::floor;
 use rand::distributions::Uniform;
 use rand::prelude::*;
@@ -42,9 +43,8 @@ impl SineOsc {
 }
 
 impl Signal for SineOsc {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
@@ -59,9 +59,6 @@ impl Signal for SineOsc {
             In::Cv(_) => {}
         };
         amplitude * (TAU * phase).sin()
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -131,9 +128,8 @@ impl SawOsc {
 }
 
 impl Signal for SawOsc {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
@@ -154,9 +150,6 @@ impl Signal for SawOsc {
         } else {
             amplitude * 2.0 * s
         }
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -226,9 +219,8 @@ impl TriangleOsc {
 }
 
 impl Signal for TriangleOsc {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
@@ -245,9 +237,6 @@ impl Signal for TriangleOsc {
         let t = phase - 0.75;
         let saw_amp = 2. * (-t - floor(0.5 - t, 0));
         (2. * saw_amp.abs() - amplitude) * amplitude
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -320,9 +309,8 @@ impl SquareOsc {
 }
 
 impl Signal for SquareOsc {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
@@ -345,9 +333,6 @@ impl Signal for SquareOsc {
         } else {
             -amplitude
         }
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -405,17 +390,13 @@ impl WhiteNoise {
 }
 
 impl Signal for WhiteNoise {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
 
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let mut rng = rand::thread_rng();
         let amplitude = In::val(graph, self.amplitude);
         self.dist.sample(&mut rng) * amplitude
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -478,9 +459,8 @@ impl Osc01 {
 }
 
 impl Signal for Osc01 {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
@@ -494,9 +474,6 @@ impl Signal for Osc01 {
             In::Cv(_) => {}
         };
         0.5 * ((TAU * phase).sin() + 1.0)
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -567,9 +544,8 @@ impl FourierOsc {
 }
 
 impl Signal for FourierOsc {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let hz = In::val(graph, self.hz);
@@ -592,10 +568,6 @@ impl Signal for FourierOsc {
         self.sines.signal(sample_rate);
         let out = self.sines.nodes.iter().fold(0., |acc, x| acc + x.1.output);
         amp * out
-    }
-
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 

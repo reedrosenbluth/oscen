@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use super::{filters::*, graph::*, operators::*};
+use crate::{as_any_mut, tag};
 use std::any::Any;
 
 // const FIXED_GAIN: Real = 0.015;
@@ -167,17 +168,13 @@ impl Freeverb {
 }
 
 impl Signal for Freeverb {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut!();
+    tag!();
 
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let inp = graph.output(self.wave);
         Connect::set(&mut self.graph, self.wave, "value", inp);
         let out = self.graph.signal(sample_rate);
         out * self.wet_gain + inp * self.dry
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }

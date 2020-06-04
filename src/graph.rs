@@ -286,3 +286,21 @@ impl<'a> Set<'a> for Connect {
         }
     }
 }
+
+#[macro_export]
+macro_rules! as_any_mut {
+   () => {
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! tag {
+    () => {
+        fn tag(&self) -> Tag {
+            self.tag
+        }
+    };
+}

@@ -1,4 +1,5 @@
 use super::graph::*;
+use crate::{as_any_mut, tag};
 use std::any::Any;
 use std::{
     f64::consts::PI,
@@ -35,10 +36,9 @@ impl Lpf {
 }
 
 impl Signal for Lpf {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let x0 = graph.output(self.wave);
         if self.off {
@@ -52,10 +52,6 @@ impl Signal for Lpf {
         let a0 = 0.25 * (1.0 + b1 + b2);
         let a1 = 2.0 * a0;
         a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2
-    }
-
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -130,10 +126,9 @@ impl Hpf {
 }
 
 impl Signal for Hpf {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let x0 = graph.output(self.wave);
         if self.off {
@@ -147,10 +142,6 @@ impl Signal for Hpf {
         let a0 = 0.25 * (1.0 - b1 + b2);
         let a1 = -2.0 * a0;
         a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2
-    }
-
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -225,10 +216,9 @@ impl Bpf {
 }
 
 impl Signal for Bpf {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let x0 = graph.output(self.wave);
         if self.off {
@@ -243,10 +233,6 @@ impl Signal for Bpf {
         let a1 = 0.0;
         let a2 = -a0;
         a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2
-    }
-
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -325,10 +311,9 @@ impl Notch {
 }
 
 impl Signal for Notch {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
         let x0 = graph.output(self.wave);
         if self.off {
@@ -342,10 +327,6 @@ impl Signal for Notch {
         let a0 = 0.5 * (1.0 + b2);
         let a1 = b1;
         a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2
-    }
-
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -428,10 +409,9 @@ impl Comb {
 }
 
 impl Signal for Comb {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let input = graph.output(self.wave);
         let output = self.buffer[self.index] as Real;
@@ -442,9 +422,6 @@ impl Signal for Comb {
             self.index = 0
         }
         output as Real
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
 
@@ -471,10 +448,9 @@ impl AllPass {
 }
 
 impl Signal for AllPass {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
+    tag!();
+    
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
         let input = graph.output(self.wave);
         let delayed = self.buffer[self.index];
@@ -485,8 +461,5 @@ impl Signal for AllPass {
             self.index = 0
         }
         output as Real
-    }
-    fn tag(&self) -> Tag {
-        self.tag
     }
 }
