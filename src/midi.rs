@@ -1,5 +1,5 @@
 use super::graph::*;
-use crate::{std_signal, as_any_mut, tag};
+use crate::{std_signal, as_any_mut};
 use crossbeam::crossbeam_channel::Sender;
 use midir::{Ignore, MidiInput};
 use std::any::Any;

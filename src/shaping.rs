@@ -1,5 +1,5 @@
 use super::graph::*;
-use crate::{std_signal, as_any_mut, tag};
+use crate::{std_signal, as_any_mut};
 use std::any::Any;
 
 pub struct SineFold {

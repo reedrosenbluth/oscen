@@ -1,5 +1,5 @@
 use super::graph::*;
-use crate::{std_signal, as_any_mut, tag, impl_set};
+use crate::{std_signal, as_any_mut, impl_set};
 use std::any::Any;
 use std::ops::{Index, IndexMut};
 

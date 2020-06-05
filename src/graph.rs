@@ -303,19 +303,12 @@ macro_rules! as_any_mut {
 }
 
 #[macro_export]
-macro_rules! tag {
-    () => {
-        fn tag(&self) -> Tag {
-            self.tag
-        }
-    };
-}
-
-#[macro_export]
 macro_rules! std_signal {
     () => {
         as_any_mut!();
-        tag!();
+        fn tag(&self) -> Tag {
+            self.tag
+        }
     };
 }
 
