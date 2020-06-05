@@ -1,4 +1,4 @@
-use super::graph::*;
+use super::signal::*;
 use crate::{std_signal, as_any_mut, impl_set};
 use std::{
     any::Any,
@@ -35,15 +35,15 @@ impl Adsr {
         arc(Self::new(attack, decay, sustain, release))
     }
 
-    pub fn calc_level(&self, graph: &Graph) -> Real {
+    pub fn calc_level(&self, rack: &Rack) -> Real {
         fn max01(a: f64) -> f64 {
             if a > 0.01 { a } else { 0.01 }
         }
 
-        let a = max01(In::val(graph, self.attack));
-        let d = max01(In::val(graph, self.decay));
-        let s = In::val(graph, self.sustain);
-        let r = max01(In::val(graph, self.release));
+        let a = max01(In::val(rack, self.attack));
+        let d = max01(In::val(rack, self.decay));
+        let s = In::val(rack, self.sustain);
+        let r = max01(In::val(rack, self.release));
 
         if self.triggered {
             match self.clock {
@@ -64,14 +64,14 @@ impl Adsr {
         }
     }
 
-    pub fn on(&mut self, graph: &Graph) {
+    pub fn on(&mut self, rack: &Rack) {
         self.triggered = true;
-        self.clock = self.level * In::val(graph, self.attack);
+        self.clock = self.level * In::val(rack, self.attack);
     }
 
-    pub fn off(&mut self, graph: &Graph) {
-        let s = In::val(graph, self.sustain);
-        let r = In::val(graph, self.release);
+    pub fn off(&mut self, rack: &Rack) {
+        let s = In::val(rack, self.sustain);
+        let r = In::val(rack, self.release);
         self.triggered = false;
         self.clock = (s - self.level) * r / s;
     }
@@ -79,10 +79,10 @@ impl Adsr {
 
 impl Signal for Adsr {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let amp = self.calc_level(graph);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let amp = self.calc_level(rack);
         self.clock += 1. / sample_rate;
-        self.level = self.calc_level(graph);
+        self.level = self.calc_level(rack);
         amp
     }
 }
@@ -115,26 +115,26 @@ impl IndexMut<&str> for Adsr {
 
 impl_set!(Adsr);
 
-pub fn on(graph: &Graph, n: Tag) {
-    if let Some(v) = graph.nodes[&n]
+pub fn on(rack: &Rack, n: Tag) {
+    if let Some(v) = rack.nodes[&n]
         .module
         .lock()
         .unwrap()
         .as_any_mut()
         .downcast_mut::<Adsr>()
     {
-        v.on(graph);
+        v.on(rack);
     }
 }
 
-pub fn off(graph: &Graph, n: Tag) {
-    if let Some(v) = graph.nodes[&n]
+pub fn off(rack: &Rack, n: Tag) {
+    if let Some(v) = rack.nodes[&n]
         .module
         .lock()
         .unwrap()
         .as_any_mut()
         .downcast_mut::<Adsr>()
     {
-        v.off(graph);
+        v.off(rack);
     }
 }

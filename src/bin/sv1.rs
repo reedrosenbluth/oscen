@@ -7,7 +7,7 @@ use nannou_audio::Buffer;
 use pitch_calc::calc::hz_from_step;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
-use swell::graph::{arc, ArcMutex, Graph, Real,  Signal, Tag};
+use swell::signal::{arc, ArcMutex, Rack, Real,  Signal, Tag};
 use swell::operators::{Mixer, Modulator, Vca};
 use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
@@ -27,7 +27,7 @@ struct Synth {
     midi_receiver1: Receiver<Vec<u8>>,
     midi_receiver2: Receiver<Vec<u8>>,
     scope_sender: Sender<f32>,
-    voice: Graph,
+    voice: Rack,
     adsr_tag: Tag,
 }
 
@@ -114,7 +114,7 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
 
     let vca = Vca::wrapped(mixer.tag(), (0.5).into());
 
-    let graph = Graph::new(vec![
+    let graph = Rack::new(vec![
         midi_pitch.clone(),
         midi_control1.clone(),
         midi_control2.clone(),

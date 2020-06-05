@@ -26,8 +26,8 @@ pub trait Signal: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
     /// Responsible for updating the `phase` and returning the next signal
     /// value, i.e. `amplitude`.
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real;
-    /// Synth modules must have a tag (name) to serve as their key in the graph.
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real;
+    /// Synth modules must have a tag (name) to serve as their key in the rack.
     fn tag(&self) -> Tag;
 }
 
@@ -49,8 +49,8 @@ where
         self
     }
 
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        self.lock().unwrap().signal(graph, sample_rate)
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        self.lock().unwrap().signal(rack, sample_rate)
     }
 
     fn tag(&self) -> Tag {
@@ -63,8 +63,8 @@ impl Signal for ArcMutex<dyn Signal + Send> {
         self
     }
 
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        self.lock().unwrap().signal(graph, sample_rate)
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        self.lock().unwrap().signal(rack, sample_rate)
     }
 
     fn tag(&self) -> Tag {
@@ -81,11 +81,11 @@ pub enum In {
 }
 
 impl In {
-    /// Get the signal value. Look it up in the graph if it is `Cv`.
-    pub fn val(graph: &Graph, inp: In) -> Real {
+    /// Get the signal value. Look it up in the rack if it is `Cv`.
+    pub fn val(rack: &Rack, inp: In) -> Real {
         match inp {
             In::Fix(x) => x,
-            In::Cv(n) => graph.output(n),
+            In::Cv(n) => rack.output(n),
         }
     }
 
@@ -118,7 +118,7 @@ impl Default for In {
     }
 }
 
-/// Nodes for the graph will have both a synth module (i.e an implentor of
+/// Nodes for the rack will have both a synth module (i.e an implentor of
 /// `Signal`) and will store their current signal value as `output`
 #[derive(Clone)]
 pub struct Node {
@@ -140,8 +140,8 @@ impl Signal for Node {
         self
     }
 
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        self.module.signal(graph, sample_rate)
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        self.module.signal(rack, sample_rate)
     }
 
     fn tag(&self) -> Tag {
@@ -149,37 +149,37 @@ impl Signal for Node {
     }
 }
 
-type GraphMap = HashMap<Tag, Node>;
+type RackMap = HashMap<Tag, Node>;
 
-/// A `Graph` is basically a `HashMap` of nodes to be visited in the specified order.
+/// A `Rack` is basically a `HashMap` of nodes to be visited in the specified order.
 #[derive(Clone)]
-pub struct Graph {
-    pub nodes: GraphMap,
+pub struct Rack {
+    pub nodes: RackMap,
     pub order: Vec<Tag>,
 }
 
-impl Graph {
-    /// Create a `Graph` object whose order is set to the order of the `Signal`s
+impl Rack {
+    /// Create a `Rack` object whose order is set to the order of the `Signal`s
     /// in the input `ws`.
     pub fn new(ws: Vec<ArcMutex<Sig>>) -> Self {
-        let mut nodes: GraphMap = HashMap::new();
+        let mut nodes: RackMap = HashMap::new();
         let mut order: Vec<Tag> = Vec::new();
         for s in ws {
             let t = s.lock().unwrap().tag();
             nodes.insert(t, Node::new(s));
             order.push(t)
         }
-        Graph { nodes, order }
+        Rack { nodes, order }
     }
 
-    /// Retrieve a node from the graph and convert to an `Any` for downcasting.
+    /// Retrieve a node from the rack and convert to an `Any` for downcasting.
     pub fn get_node(&mut self, n: Tag) -> &mut dyn Any {
         self.nodes
             .get_mut(&n)
-            .expect("Tried to get a node that is not in the graph.")
+            .expect("Tried to get a node that is not in the rack.")
     }
 
-    /// Convenience function get the `Tag` of the final node in the `Graph`.
+    /// Convenience function get the `Tag` of the final node in the `Rack`.
     pub fn out_tag(&self) -> Tag {
         let n = self.nodes.len() - 1;
         self.order[n]
@@ -197,24 +197,24 @@ impl Graph {
         self.order.push(tag);
     }
 
-    /// Insert a sub-graph into the graph before node `loc`.
-    pub fn insert(&mut self, graph: Graph, loc: usize) {
-        let n = graph.nodes.len() + self.nodes.len();
+    /// Insert a sub-rack into the rack before node `loc`.
+    pub fn insert(&mut self, rack: Rack, loc: usize) {
+        let n = rack.nodes.len() + self.nodes.len();
         let mut new_order: Vec<Tag> = Vec::with_capacity(n);
         for i in 0..loc {
             new_order.push(self.order[i])
         }
-        for i in 0..graph.order.len() {
-            new_order.push(graph.order[i])
+        for i in 0..rack.order.len() {
+            new_order.push(rack.order[i])
         }
         for i in loc..self.nodes.len() {
             new_order.push(self.order[i])
         }
         self.order = new_order;
-        self.nodes.extend(graph.nodes);
+        self.nodes.extend(rack.nodes);
     }
 
-    /// A `Graph` generates a signal by travesing the list of modules and
+    /// A `Rack` generates a signal by travesing the list of modules and
     /// updating each one's output in turn. The output of the last `Node` is
     /// returned.
     pub fn signal(&mut self, sample_rate: Real) -> Real {
@@ -237,7 +237,7 @@ impl Graph {
 
 //TODO: return Result struct indicating success or failure
 pub trait Set<'a>: IndexMut<&'a str> {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real);
+    fn set(rack: &mut Rack, n: Tag, field: &str, value: Real);
 }
 
 // It would be nice to have a default implementation for `Set` but since the
@@ -246,8 +246,8 @@ pub trait Set<'a>: IndexMut<&'a str> {
 macro_rules! impl_set {
     ($t: ty) => {
         impl<'a> Set<'a> for $t {
-            fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-                if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
+            fn set(rack: &mut Rack, n: Tag, field: &str, value: Real) {
+                if let Some(v) = rack.get_node(n).downcast_mut::<Self>() {
                     v[field] = value.into();
                 }
             }
@@ -255,9 +255,9 @@ macro_rules! impl_set {
     }
 }
 
-/// Use to connect subgraphs to the main graph. Simply store the value of the
-/// input node from the main graph as a connect node, which will be the first
-/// node in the subgraph.
+/// Use to connect subracks to the main rack. Simply store the value of the
+/// input node from the main rack as a connect node, which will be the first
+/// node in the subrack.
 #[derive(Clone)]
 pub struct Connect {
     pub tag: Tag,
@@ -282,7 +282,7 @@ impl Signal for Connect {
         self
     }
 
-    fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
+    fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
         self.value
     }
 
@@ -311,6 +311,8 @@ impl IndexMut<&str> for Connect {
     }
 }
 
+impl_set!(Connect);
+
 #[macro_export]
 macro_rules! as_any_mut {
    () => {
@@ -329,5 +331,3 @@ macro_rules! std_signal {
         }
     };
 }
-
-impl_set!(Connect);

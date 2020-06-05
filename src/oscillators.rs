@@ -1,4 +1,4 @@
-use super::graph::*;
+use super::signal::*;
 use crate::{as_any_mut, impl_set, std_signal};
 use math::round::floor;
 use rand::distributions::Uniform;
@@ -44,10 +44,10 @@ impl SineOsc {
 
 impl Signal for SineOsc {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let amplitude = In::val(graph, self.amplitude);
-        let phase = In::val(graph, self.phase);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let hz = In::val(rack, self.hz);
+        let amplitude = In::val(rack, self.amplitude);
+        let phase = In::val(rack, self.phase);
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
@@ -121,10 +121,10 @@ impl SawOsc {
 
 impl Signal for SawOsc {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let amplitude = In::val(graph, self.amplitude);
-        let phase = In::val(graph, self.phase);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let hz = In::val(rack, self.hz);
+        let amplitude = In::val(rack, self.amplitude);
+        let phase = In::val(rack, self.phase);
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
@@ -204,10 +204,10 @@ impl TriangleOsc {
 
 impl Signal for TriangleOsc {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let amplitude = In::val(graph, self.amplitude);
-        let phase = In::val(graph, self.phase);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let hz = In::val(rack, self.hz);
+        let amplitude = In::val(rack, self.amplitude);
+        let phase = In::val(rack, self.phase);
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
@@ -286,10 +286,10 @@ impl SquareOsc {
 
 impl Signal for SquareOsc {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let amplitude = In::val(graph, self.amplitude);
-        let phase = In::val(graph, self.phase);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let hz = In::val(rack, self.hz);
+        let amplitude = In::val(rack, self.amplitude);
+        let phase = In::val(rack, self.phase);
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
@@ -298,7 +298,7 @@ impl Signal for SquareOsc {
             }
             In::Cv(_) => {}
         };
-        let duty_cycle = In::val(graph, self.duty_cycle);
+        let duty_cycle = In::val(rack, self.duty_cycle);
         let t = phase - floor(phase, 0);
         if t < 0.001 {
             0.0
@@ -359,9 +359,9 @@ impl WhiteNoise {
 
 impl Signal for WhiteNoise {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
         let mut rng = rand::thread_rng();
-        let amplitude = In::val(graph, self.amplitude);
+        let amplitude = In::val(rack, self.amplitude);
         self.dist.sample(&mut rng) * amplitude
     }
 }
@@ -421,9 +421,9 @@ impl Osc01 {
 
 impl Signal for Osc01 {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let phase = In::val(graph, self.phase);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let hz = In::val(rack, self.hz);
+        let phase = In::val(rack, self.phase);
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
@@ -473,7 +473,7 @@ pub struct FourierOsc {
     pub tag: Tag,
     pub hz: In,
     pub amplitude: In,
-    sines: Graph,
+    sines: Rack,
     pub lanczos: bool,
 }
 
@@ -492,7 +492,7 @@ impl FourierOsc {
             tag: mk_tag(),
             hz: In::zero(),
             amplitude: In::one(),
-            sines: Graph::new(wwaves),
+            sines: Rack::new(wwaves),
             lanczos,
         }
     }
@@ -500,9 +500,9 @@ impl FourierOsc {
 
 impl Signal for FourierOsc {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let hz = In::val(graph, self.hz);
-        let amp = In::val(graph, self.amplitude);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let hz = In::val(rack, self.hz);
+        let amp = In::val(rack, self.amplitude);
         for (n, o) in self.sines.order.iter().enumerate() {
             if let Some(v) = self
                 .sines
@@ -574,11 +574,11 @@ pub fn triangle_wave(n: u32, lanczos: bool) -> FourierOsc {
 }
 
 /// "pattern match" node on each oscillator type and set hz
-pub fn set_hz(graph: &mut Graph, n: Tag, hz: Real) {
-    SineOsc::set(graph, n, "hz", hz);
-    SawOsc::set(graph, n, "hz", hz);
-    TriangleOsc::set(graph, n, "hz", hz);
-    SquareOsc::set(graph, n, "hz", hz);
-    Osc01::set(graph, n, "hz", hz);
-    FourierOsc::set(graph, n, "hz", hz);
+pub fn set_hz(rack: &mut Rack, n: Tag, hz: Real) {
+    SineOsc::set(rack, n, "hz", hz);
+    SawOsc::set(rack, n, "hz", hz);
+    TriangleOsc::set(rack, n, "hz", hz);
+    SquareOsc::set(rack, n, "hz", hz);
+    Osc01::set(rack, n, "hz", hz);
+    FourierOsc::set(rack, n, "hz", hz);
 }

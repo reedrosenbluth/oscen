@@ -1,4 +1,4 @@
-use super::graph::*;
+use super::signal::*;
 use crate::{std_signal, as_any_mut};
 use crossbeam::crossbeam_channel::Sender;
 use midir::{Ignore, MidiInput};
@@ -32,7 +32,7 @@ impl MidiPitch {
 
 impl Signal for MidiPitch {
     std_signal!();
-    fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
+    fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
         self.hz
     }
 }
@@ -67,7 +67,7 @@ impl MidiControl {
 
 impl Signal for MidiControl {
     std_signal!();
-    fn signal(&mut self, _graph: &Graph, _sample_rate: Real) -> Real {
+    fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
         ((self.value as Real) / 127.0) * self.scale
     }
 }

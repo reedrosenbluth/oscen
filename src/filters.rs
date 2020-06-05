@@ -1,4 +1,4 @@
-use super::graph::*;
+use super::signal::*;
 use crate::{std_signal, as_any_mut, impl_set};
 use std::any::Any;
 use std::{
@@ -37,13 +37,13 @@ impl Lpf {
 
 impl Signal for Lpf {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let x0 = graph.output(self.wave);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let x0 = rack.output(self.wave);
         if self.off {
             return x0;
         }
-        let cutoff_freq = In::val(graph, self.cutoff_freq);
-        let q = In::val(graph, self.q);
+        let cutoff_freq = In::val(rack, self.cutoff_freq);
+        let q = In::val(rack, self.q);
         let phi = TAU * cutoff_freq / sample_rate;
         let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
         let b1 = -(1.0 + b2) * phi.cos();
@@ -77,14 +77,14 @@ impl IndexMut<&str> for Lpf {
 
 impl_set!(Lpf);
 
-pub fn lpf_on(graph: &mut Graph, n: Tag) {
-    if let Some(v) = graph.get_node(n).downcast_mut::<Lpf>() {
+pub fn lpf_on(rack: &mut Rack, n: Tag) {
+    if let Some(v) = rack.get_node(n).downcast_mut::<Lpf>() {
         v.off = false;
     }
 }
 
-pub fn lpf_off(graph: &mut Graph, n: Tag) {
-    if let Some(v) = graph.get_node(n).downcast_mut::<Lpf>() {
+pub fn lpf_off(rack: &mut Rack, n: Tag) {
+    if let Some(v) = rack.get_node(n).downcast_mut::<Lpf>() {
         v.off = true;
     }
 }
@@ -119,13 +119,13 @@ impl Hpf {
 
 impl Signal for Hpf {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let x0 = graph.output(self.wave);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let x0 = rack.output(self.wave);
         if self.off {
             return x0;
         }
-        let cutoff_freq = In::val(graph, self.cutoff_freq);
-        let q = In::val(graph, self.q);
+        let cutoff_freq = In::val(rack, self.cutoff_freq);
+        let q = In::val(rack, self.q);
         let phi = TAU * cutoff_freq / sample_rate;
         let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
         let b1 = -(1.0 + b2) * phi.cos();
@@ -159,14 +159,14 @@ impl IndexMut<&str> for Hpf {
 
 impl_set!(Hpf);
 
-pub fn hpf_on(graph: &mut Graph, n: Tag) {
-    if let Some(v) = graph.get_node(n).downcast_mut::<Hpf>() {
+pub fn hpf_on(rack: &mut Rack, n: Tag) {
+    if let Some(v) = rack.get_node(n).downcast_mut::<Hpf>() {
         v.off = false;
     }
 }
 
-pub fn hpf_off(graph: &mut Graph, n: Tag) {
-    if let Some(v) = graph.get_node(n).downcast_mut::<Hpf>() {
+pub fn hpf_off(rack: &mut Rack, n: Tag) {
+    if let Some(v) = rack.get_node(n).downcast_mut::<Hpf>() {
         v.off = true;
     }
 }
@@ -201,13 +201,13 @@ impl Bpf {
 
 impl Signal for Bpf {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let x0 = graph.output(self.wave);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let x0 = rack.output(self.wave);
         if self.off {
             return x0;
         }
-        let cutoff_freq = In::val(graph, self.cutoff_freq);
-        let q = In::val(graph, self.q);
+        let cutoff_freq = In::val(rack, self.cutoff_freq);
+        let q = In::val(rack, self.q);
         let phi = TAU * cutoff_freq / sample_rate;
         let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
         let b1 = -(1.0 + b2) * phi.cos();
@@ -242,16 +242,16 @@ impl IndexMut<&str> for Bpf {
 
 impl_set!(Bpf);
 
-pub fn bpf_on(graph: &mut Graph, n: Tag) {
-    if let Some(v) = graph.get_node(n)
+pub fn bpf_on(rack: &mut Rack, n: Tag) {
+    if let Some(v) = rack.get_node(n)
         .downcast_mut::<Bpf>()
     {
         v.off = false;
     }
 }
 
-pub fn bpf_off(graph: &mut Graph, n: Tag) {
-    if let Some(v) = graph.get_node(n)
+pub fn bpf_off(rack: &mut Rack, n: Tag) {
+    if let Some(v) = rack.get_node(n)
         .downcast_mut::<Bpf>()
     {
         v.off = true;
@@ -288,13 +288,13 @@ impl Notch {
 
 impl Signal for Notch {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let x0 = graph.output(self.wave);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let x0 = rack.output(self.wave);
         if self.off {
             return x0;
         }
-        let cutoff_freq = In::val(graph, self.cutoff_freq);
-        let q = In::val(graph, self.q);
+        let cutoff_freq = In::val(rack, self.cutoff_freq);
+        let q = In::val(rack, self.q);
         let phi = TAU * cutoff_freq / sample_rate;
         let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
         let b1 = -(1.0 + b2) * phi.cos();
@@ -328,16 +328,16 @@ impl IndexMut<&str> for Notch {
 
 impl_set!(Notch);
 
-pub fn notch_on(graph: &mut Graph, n: Tag) {
-    if let Some(v) = graph.get_node(n)
+pub fn notch_on(rack: &mut Rack, n: Tag) {
+    if let Some(v) = rack.get_node(n)
         .downcast_mut::<Notch>()
     {
         v.off = false;
     }
 }
 
-pub fn notch_off(graph: &mut Graph, n: Tag) {
-    if let Some(v) = graph.get_node(n)
+pub fn notch_off(rack: &mut Rack, n: Tag) {
+    if let Some(v) = rack.get_node(n)
         .downcast_mut::<Notch>()
     {
         v.off = true;
@@ -378,11 +378,11 @@ impl Comb {
 
 impl Signal for Comb {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let feedback = In::val(graph, self.feedback);
-        let dampening = In::val(graph, self.dampening);
-        let dampening_inverse = In::val(graph, self.dampening_inverse);
-        let input = graph.output(self.wave);
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+        let feedback = In::val(rack, self.feedback);
+        let dampening = In::val(rack, self.dampening);
+        let dampening_inverse = In::val(rack, self.dampening_inverse);
+        let input = rack.output(self.wave);
         let output = self.buffer[self.index];
         self.filter_state = output * dampening_inverse + self.filter_state * dampening;
         self.buffer[self.index] = input + (self.filter_state * feedback);
@@ -444,8 +444,8 @@ impl AllPass {
 
 impl Signal for AllPass {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let input = graph.output(self.wave);
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+        let input = rack.output(self.wave);
         let delayed = self.buffer[self.index];
         let output = delayed - input;
         self.buffer[self.index] = input + (0.5 * delayed) as Real;

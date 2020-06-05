@@ -1,4 +1,4 @@
-use super::graph::*;
+use super::signal::*;
 use crate::{std_signal, as_any_mut, impl_set};
 use std::any::Any;
 use std::ops::{Index, IndexMut};
@@ -29,8 +29,8 @@ impl Union {
 
 impl Signal for Union {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        In::val(graph, self.level) * graph.output(self.active)
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+        In::val(rack, self.level) * rack.output(self.active)
     }
 }
 
@@ -68,8 +68,8 @@ impl Product {
 
 impl Signal for Product {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        self.waves.iter().fold(1.0, |acc, n| acc * graph.output(*n))
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+        self.waves.iter().fold(1.0, |acc, n| acc * rack.output(*n))
     }
 }
 
@@ -110,8 +110,8 @@ impl Vca {
 
 impl Signal for Vca {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        graph.output(self.wave) * In::val(graph, self.level)
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+        rack.output(self.wave) * In::val(rack, self.level)
     }
 }
 
@@ -161,10 +161,10 @@ impl Mixer {
 
 impl Signal for Mixer {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
         self.waves.iter().enumerate().fold(0.0, |acc, (i, n)| {
-            acc + graph.output(*n) * In::val(graph, self.levels[i])
-        }) * In::val(graph, self.level)
+            acc + rack.output(*n) * In::val(rack, self.levels[i])
+        }) * In::val(rack, self.level)
     }
 }
 
@@ -206,9 +206,9 @@ impl Lerp {
 
 impl Signal for Lerp {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let alpha = In::val(graph, self.alpha);
-        alpha * In::val(graph, self.wave2) + (1.0 - alpha) * In::val(graph, self.wave1)
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+        let alpha = In::val(rack, self.alpha);
+        alpha * In::val(rack, self.wave2) + (1.0 - alpha) * In::val(rack, self.wave1)
     }
 }
 
@@ -238,10 +238,10 @@ impl IndexMut<&str> for Lerp {
 
 impl_set!(Lerp);
 
-pub fn set_alpha(graph: &Graph, k: In, a: Real) {
+pub fn set_alpha(rack: &Rack, k: In, a: Real) {
     match k {
         In::Cv(n) => {
-            if let Some(v) = graph.nodes[&n]
+            if let Some(v) = rack.nodes[&n]
                 .module
                 .lock()
                 .unwrap()
@@ -276,26 +276,26 @@ impl Lerp3 {
         arc(Self::new(lerp1, lerp2, knob))
     }
 
-    pub fn set_alphas(&mut self, graph: &Graph) {
-        let knob = In::val(graph, self.knob);
-        if In::val(graph, self.knob) <= 0.5 {
-            set_alpha(&graph, self.lerp1, 2.0 * knob);
-            set_alpha(&graph, self.lerp2, 0.0);
+    pub fn set_alphas(&mut self, rack: &Rack) {
+        let knob = In::val(rack, self.knob);
+        if In::val(rack, self.knob) <= 0.5 {
+            set_alpha(&rack, self.lerp1, 2.0 * knob);
+            set_alpha(&rack, self.lerp2, 0.0);
         } else {
-            set_alpha(&graph, self.lerp1, 0.0);
-            set_alpha(&graph, self.lerp2, 2.0 * (knob - 0.5));
+            set_alpha(&rack, self.lerp1, 0.0);
+            set_alpha(&rack, self.lerp2, 2.0 * (knob - 0.5));
         }
     }
 }
 
 impl Signal for Lerp3 {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        self.set_alphas(graph);
-        if In::val(graph, self.knob) <= 0.5 {
-            In::val(graph, self.lerp1)
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+        self.set_alphas(rack);
+        if In::val(rack, self.knob) <= 0.5 {
+            In::val(rack, self.lerp1)
         } else {
-            In::val(graph, self.lerp2)
+            In::val(rack, self.lerp2)
         }
     }
 }
@@ -326,8 +326,8 @@ impl IndexMut<&str> for Lerp3 {
 
 impl_set!(Lerp3);
 
-pub fn set_knob(graph: &Graph, n: Tag, k: Real) {
-    if let Some(v) = graph.nodes[&n]
+pub fn set_knob(rack: &Rack, n: Tag, k: Real) {
+    if let Some(v) = rack.nodes[&n]
         .module
         .lock()
         .unwrap()
@@ -335,7 +335,7 @@ pub fn set_knob(graph: &Graph, n: Tag, k: Real) {
         .downcast_mut::<Lerp3>()
     {
         v.knob = k.into();
-        v.set_alphas(graph);
+        v.set_alphas(rack);
     }
 }
 
@@ -365,11 +365,11 @@ impl Modulator {
 
 impl Signal for Modulator {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
-        let mod_hz = In::val(graph, self.mod_hz);
-        let mod_idx = In::val(graph, self.mod_idx);
-        let base_hz = In::val(graph, self.base_hz);
-        base_hz + mod_idx * mod_hz * In::val(graph, self.wave)
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+        let mod_hz = In::val(rack, self.mod_hz);
+        let mod_idx = In::val(rack, self.mod_idx);
+        let base_hz = In::val(rack, self.base_hz);
+        base_hz + mod_idx * mod_hz * In::val(rack, self.wave)
     }
 }
 

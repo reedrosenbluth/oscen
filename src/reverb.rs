@@ -1,4 +1,4 @@
-use super::{filters::*, graph::*, operators::*};
+use super::{filters::*, signal::*, operators::*};
 use crate::{std_signal, as_any_mut};
 use std::any::Any;
 
@@ -26,7 +26,7 @@ const ALLPASS_TUNING_4: usize = 225;
 pub struct Freeverb {
     pub tag: Tag,
     pub wave: Tag,
-    graph: Graph,
+    rack: Rack,
     wet_gain: Real,
     wet: Real,
     width: Real,
@@ -64,7 +64,7 @@ impl Freeverb {
         let all2 = AllPass::wrapped(all1.tag(), ALLPASS_TUNING_2);
         let all3 = AllPass::wrapped(all2.tag(), ALLPASS_TUNING_3);
         let all4 = AllPass::wrapped(all3.tag(), ALLPASS_TUNING_4);
-        let graph = Graph::new(vec![
+        let rack = Rack::new(vec![
             input,
             comb1,
             comb2,
@@ -83,7 +83,7 @@ impl Freeverb {
         Freeverb {
             tag: mk_tag(),
             wave,
-            graph,
+            rack,
             wet_gain: 0.5,
             wet: 1.0,
             dry: 0.0,
@@ -141,9 +141,9 @@ impl Freeverb {
             (self.room_size, self.dampening)
         };
 
-        for o in self.graph.order.clone().iter_mut() {
-            Comb::set(&mut self.graph, *o, "feedback", feedback);
-            Comb::set(&mut self.graph, *o, "damping", dampening);
+        for o in self.rack.order.clone().iter_mut() {
+            Comb::set(&mut self.rack, *o, "feedback", feedback);
+            Comb::set(&mut self.rack, *o, "damping", dampening);
         }
     }
 
@@ -154,10 +154,10 @@ impl Freeverb {
 
 impl Signal for Freeverb {
     std_signal!();
-    fn signal(&mut self, graph: &Graph, sample_rate: Real) -> Real {
-        let inp = graph.output(self.wave);
-        Connect::set(&mut self.graph, self.wave, "value", inp);
-        let out = self.graph.signal(sample_rate);
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let inp = rack.output(self.wave);
+        Connect::set(&mut self.rack, self.wave, "value", inp);
+        let out = self.rack.signal(sample_rate);
         out * self.wet_gain + inp * self.dry
     }
 }
