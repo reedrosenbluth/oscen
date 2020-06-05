@@ -22,9 +22,9 @@ impl SineOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: (0.0).into(),
-            amplitude: (1.0).into(),
-            phase: (0.0).into(),
+            hz: In::zero(),
+            amplitude: In::one(),
+            phase: In::zero(),
         }
     }
 
@@ -32,8 +32,8 @@ impl SineOsc {
         Self {
             tag: mk_tag(),
             hz,
-            amplitude: (1.0).into(),
-            phase: (0.0).into(),
+            amplitude: In::one(),
+            phase: In::zero(),
         }
     }
 
@@ -99,9 +99,9 @@ impl SawOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: (0.0).into(),
-            amplitude: (1.0).into(),
-            phase: (0.0).into(),
+            hz: In::zero(),
+            amplitude: In::one(),
+            phase: In::zero(),
         }
     }
 
@@ -109,8 +109,8 @@ impl SawOsc {
         Self {
             tag: mk_tag(),
             hz,
-            amplitude: (1.0).into(),
-            phase: (0.0).into(),
+            amplitude: In::one(),
+            phase: In::zero(),
         }
     }
 
@@ -182,9 +182,9 @@ impl TriangleOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: (0.0).into(),
-            amplitude: (1.0).into(),
-            phase: (0.0).into(),
+            hz: In::zero(),
+            amplitude: In::one(),
+            phase: In::zero(),
         }
     }
 
@@ -192,8 +192,8 @@ impl TriangleOsc {
         Self {
             tag: mk_tag(),
             hz,
-            amplitude: (1.0).into(),
-            phase: (0.0).into(),
+            amplitude: In::one(),
+            phase: In::zero(),
         }
     }
 
@@ -262,9 +262,9 @@ impl SquareOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: (0.0).into(),
-            amplitude: (1.0).into(),
-            phase: (0.0).into(),
+            hz: In::zero(),
+            amplitude: In::one(),
+            phase: In::zero(),
             duty_cycle: (0.5).into(),
         }
     }
@@ -273,8 +273,8 @@ impl SquareOsc {
         Self {
             tag: mk_tag(),
             hz,
-            amplitude: (1.0).into(),
-            phase: (0.0).into(),
+            amplitude: In::one(),
+            phase: In::zero(),
             duty_cycle: (0.5).into(),
         }
     }
@@ -347,7 +347,7 @@ impl WhiteNoise {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            amplitude: (1.0).into(),
+            amplitude: In::one(),
             dist: Uniform::new_inclusive(-1.0, 1.0),
         }
     }
@@ -401,8 +401,8 @@ impl Osc01 {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: (0.0).into(),
-            phase: (0.0).into(),
+            hz: In::zero(),
+            phase: In::zero(),
         }
     }
 
@@ -410,7 +410,7 @@ impl Osc01 {
         Self {
             tag: mk_tag(),
             hz,
-            phase: (0.0).into(),
+            phase: In::zero(),
         }
     }
 
@@ -490,8 +490,8 @@ impl FourierOsc {
         }
         FourierOsc {
             tag: mk_tag(),
-            hz: (0.0).into(),
-            amplitude: (1.0).into(),
+            hz: In::zero(),
+            amplitude: In::one(),
             sines: Graph::new(wwaves),
             lanczos,
         }

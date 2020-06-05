@@ -18,7 +18,7 @@ impl Union {
             tag: mk_tag(),
             waves,
             active,
-            level: (1.0).into(),
+            level: In::one(),
         }
     }
 
@@ -145,12 +145,12 @@ pub struct Mixer {
 
 impl Mixer {
     pub fn new(waves: Vec<Tag>) -> Self {
-        let levels = waves.iter().map(|_| (1.0).into()).collect();
+        let levels = waves.iter().map(|_| In::one()).collect();
         Mixer {
             tag: mk_tag(),
             waves,
             levels,
-            level: (1.0).into(),
+            level: In::one(),
         }
     }
 

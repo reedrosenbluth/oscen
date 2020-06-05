@@ -88,6 +88,16 @@ impl In {
             In::Cv(n) => graph.output(n),
         }
     }
+
+    /// Convenient way to create a constant `In` of zero.
+    pub fn zero() -> In {
+        Self::Fix(0.0)
+    }
+
+    /// Convenient way to create a constant `In` of one.
+    pub fn one() -> In {
+        Self::Fix(1.0)
+    }
 }
 
 impl From<Real> for In {
@@ -162,6 +172,7 @@ impl Graph {
         Graph { nodes, order }
     }
 
+    /// Retrieve a node from the graph and convert to an `Any` for downcasting.
     pub fn get_node(&mut self, n: Tag) -> &mut dyn Any {
         self.nodes
             .get_mut(&n)
@@ -229,6 +240,8 @@ pub trait Set<'a>: IndexMut<&'a str> {
     fn set(graph: &mut Graph, n: Tag, field: &str, value: Real);
 }
 
+// It would be nice to have a default implementation for `Set` but since the
+// size of `Self` is not known at compile time, this macro is the best we can do.
 #[macro_export]
 macro_rules! impl_set {
     ($t: ty) => {
