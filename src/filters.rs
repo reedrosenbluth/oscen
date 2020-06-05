@@ -351,10 +351,10 @@ pub struct Comb {
     pub wave: Tag,
     buffer: Vec<Real>,
     index: usize,
-    pub feedback: Real,
+    pub feedback: In,
     pub filter_state: Real,
-    pub dampening: Real,
-    pub dampening_inverse: Real,
+    pub dampening: In,
+    pub dampening_inverse: In,
 }
 
 impl Comb {
@@ -364,10 +364,10 @@ impl Comb {
             wave,
             buffer: vec![0.0; length],
             index: 0,
-            feedback: 0.5,
+            feedback: (0.5).into(),
             filter_state: 0.0,
-            dampening: 0.5,
-            dampening_inverse: 0.5,
+            dampening: (0.5).into(),
+            dampening_inverse: (0.5).into(),
         }
     }
 
@@ -379,17 +379,46 @@ impl Comb {
 impl Signal for Comb {
     std_signal!();
     fn signal(&mut self, graph: &Graph, _sample_rate: Real) -> Real {
+        let feedback = In::val(graph, self.feedback);
+        let dampening = In::val(graph, self.dampening);
+        let dampening_inverse = In::val(graph, self.dampening_inverse);
         let input = graph.output(self.wave);
-        let output = self.buffer[self.index] as Real;
-        self.filter_state = output * self.dampening_inverse + self.filter_state * self.dampening;
-        self.buffer[self.index] = input + (self.filter_state * self.feedback) as Real;
+        let output = self.buffer[self.index];
+        self.filter_state = output * dampening_inverse + self.filter_state * dampening;
+        self.buffer[self.index] = input + (self.filter_state * feedback);
         self.index += 1;
         if self.index == self.buffer.len() {
             self.index = 0
         }
-        output as Real
+        output
     }
 }
+
+impl Index<&str> for Comb {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "feedback" => &self.feedback,
+            "damping" => &self.dampening,
+            "damping_inverse" => &self.dampening_inverse,
+            _ => panic!("Comb does not have a field named: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Comb {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "feedback" => &mut self.feedback,
+            "damping" => &mut self.dampening,
+            "damping_inverse" => &mut self.dampening_inverse,
+            _ => panic!("Comb does not have a field named: {}", index),
+        }
+    }
+}
+
+impl_set!(Comb);
 
 pub struct AllPass {
     pub tag: Tag,

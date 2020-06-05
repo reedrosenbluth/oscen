@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use super::{filters::*, graph::*, operators::*};
 use crate::{std_signal, as_any_mut};
 use std::any::Any;
@@ -101,15 +99,15 @@ impl Freeverb {
         arc(Freeverb::new(wave))
     }
 
-    // pub fn set_dampening(&mut self, value: Real) {
-    //     self.dampening = value * SCALE_DAMPENING;
-    //     self.update_combs();
-    // }
+    pub fn set_dampening(&mut self, value: Real) {
+        self.dampening = value * SCALE_DAMPENING;
+        self.update_combs();
+    }
 
-    // pub fn set_freeze(&mut self, frozen: bool) {
-    //     self.frozen = frozen;
-    //     self.update_combs();
-    // }
+    pub fn set_freeze(&mut self, frozen: bool) {
+        self.frozen = frozen;
+        self.update_combs();
+    }
 
     pub fn set_wet(&mut self, value: Real) {
         self.wet = value * SCALE_WET;
@@ -125,42 +123,29 @@ impl Freeverb {
         self.wet_gain = self.wet * (self.width / 2.0 + 0.5);
     }
 
-    // pub fn set_frozen(&mut self, frozen: bool) {
-    //     self.frozen = frozen;
-    //     self.input_gain = if frozen { 0.0 } else { 1.0 };
-    //     self.update_combs();
-    // }
+    pub fn set_frozen(&mut self, frozen: bool) {
+        self.frozen = frozen;
+        self.input_gain = if frozen { 0.0 } else { 1.0 };
+        self.update_combs();
+    }
 
-    // pub fn set_room_size(&mut self, value: Real) {
-    //     self.room_size = value * SCALE_ROOM + OFFSET_ROOM;
-    //     self.update_combs();
-    // }
+    pub fn set_room_size(&mut self, value: Real) {
+        self.room_size = value * SCALE_ROOM + OFFSET_ROOM;
+        self.update_combs();
+    }
 
-    // fn update_combs(&mut self) {
-    //     let (feedback, dampening) = if self.frozen {
-    //         (1.0, 0.0)
-    //     } else {
-    //         (self.room_size, self.dampening)
-    //     };
+    fn update_combs(&mut self) {
+        let (feedback, dampening) = if self.frozen {
+            (1.0, 0.0)
+        } else {
+            (self.room_size, self.dampening)
+        };
 
-    //     for comb in self
-    //         .allpasses
-    //         .mtx()
-    //         .wave
-    //         .mtx()
-    //         .wave
-    //         .mtx()
-    //         .wave
-    //         .mtx()
-    //         .wave
-    //         .mtx()
-    //         .waves
-    //         .iter_mut()
-    //     {
-    //         comb.mtx().feedback = feedback;
-    //         comb.mtx().dampening = dampening;
-    //     }
-    // }
+        for o in self.graph.order.clone().iter_mut() {
+            Comb::set(&mut self.graph, *o, "feedback", feedback);
+            Comb::set(&mut self.graph, *o, "damping", dampening);
+        }
+    }
 
     pub fn set_dry(&mut self, value: Real) {
         self.dry = value;

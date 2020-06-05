@@ -229,6 +229,19 @@ pub trait Set<'a>: IndexMut<&'a str> {
     fn set(graph: &mut Graph, n: Tag, field: &str, value: Real);
 }
 
+#[macro_export]
+macro_rules! impl_set {
+    ($t: ty) => {
+        impl<'a> Set<'a> for $t {
+            fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
+                if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
+                    v[field] = value.into();
+                }
+            }
+        }
+    }
+}
+
 /// Use to connect subgraphs to the main graph. Simply store the value of the
 /// input node from the main graph as a connect node, which will be the first
 /// node in the subgraph.
@@ -285,14 +298,6 @@ impl IndexMut<&str> for Connect {
     }
 }
 
-impl<'a> Set<'a> for Connect {
-    fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-        if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-            v[field] = value;
-        }
-    }
-}
-
 #[macro_export]
 macro_rules! as_any_mut {
    () => {
@@ -312,15 +317,4 @@ macro_rules! std_signal {
     };
 }
 
-#[macro_export]
-macro_rules! impl_set {
-    ($t: ty) => {
-        impl<'a> Set<'a> for $t {
-            fn set(graph: &mut Graph, n: Tag, field: &str, value: Real) {
-                if let Some(v) = graph.get_node(n).downcast_mut::<Self>() {
-                    v[field] = value.into();
-                }
-            }
-        }
-    }
-}
+impl_set!(Connect);
