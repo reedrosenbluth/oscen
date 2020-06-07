@@ -479,7 +479,6 @@ pub struct FourierOsc {
 
 impl FourierOsc {
     pub fn new(coefficients: &[Real], lanczos: bool) -> Self {
-        // let sigma = if lanczos { 1.0 } else { 0.0 };
         let sigma = lanczos as i32;
         let mut wwaves: Vec<ArcMutex<Sig>> = Vec::new();
         for (n, c) in coefficients.iter().enumerate() {
