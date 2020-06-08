@@ -50,13 +50,12 @@ impl Signal for Lpf {
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.25 * (1.0 + b1 + b2);
         let a1 = 2.0 * a0;
-        let out = a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2;
+        let amp = a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x0;
         self.y2 = self.y1;
-        let y = if out.is_nan() {0.0} else {out};
-        self.y1 = y;
-        y
+        self.y1 = if amp.is_nan() {0.0} else {amp};
+        amp
     }
 }
 

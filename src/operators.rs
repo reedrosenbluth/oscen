@@ -88,42 +88,6 @@ impl IndexMut<usize> for Product {
 }
 
 #[derive(Clone)]
-pub struct MapRange {
-    pub tag: Tag,
-    pub wave: Tag,
-    pub a: Real,
-    pub b: Real,
-    pub c: Real,
-    pub d: Real,
-}
-
-impl MapRange {
-    pub fn new(wave: Tag, a: Real, b: Real, c: Real, d: Real) -> Self {
-        Self {
-            tag: mk_tag(),
-            wave,
-            a,
-            b,
-            c,
-            d,
-        }
-    }
-
-    fn map_range(&self, input: Real) -> Real {
-        let m = (self.d - self.c) / (self.b - self.a);
-        self.c + m * (input - self.a)
-    }
-}
-
-impl Signal for MapRange {
-    std_signal!();
-
-    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        self.map_range(rack.output(self.wave))
-    }
-}
-
-#[derive(Clone)]
 pub struct Vca {
     pub tag: Tag,
     pub wave: Tag,

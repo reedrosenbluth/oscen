@@ -48,11 +48,11 @@ pub struct MidiControl {
 }
 
 impl MidiControl {
-    pub fn new(controller: u8) -> Self {
+    pub fn new(controller: u8, value: u8) -> Self {
         Self {
             tag: mk_tag(),
             controller,
-            value: 0,
+            value, 
             range: (0.0, 1.0),
         }
     }
@@ -62,8 +62,8 @@ impl MidiControl {
         self.range.0 + m * input
     }
 
-    pub fn wrapped(controller: u8) -> ArcMutex<Self> {
-        arc(Self::new(controller))
+    pub fn wrapped(controller: u8, value: u8) -> ArcMutex<Self> {
+        arc(Self::new(controller, value))
     }
 
     pub fn set_value(&mut self, value: u8) {

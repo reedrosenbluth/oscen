@@ -7,7 +7,7 @@ use nannou_audio::Buffer;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
 use swell::signal::{arc, ArcMutex, Rack, Real,  Signal, Tag};
-use swell::operators::{Mixer, Modulator, Vca, MapRange};
+use swell::operators::{Mixer, Modulator, Vca};
 use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
 use swell::filters::{Lpf};
@@ -41,13 +41,15 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
     let midi_pitch = MidiPitch::wrapped();
 
     // Envelope Generator
-    let mut midi_control_release = MidiControl::new(37);
+    let mut midi_control_release = MidiControl::new(37, 1);
     midi_control_release.range = (0., 10.);
     let midi_control_release = arc(midi_control_release);
 
     let mut adsr = Adsr::new(0.01, 0.0, 1.0, 0.1);
     adsr.release = midi_control_release.tag().into();
     let adsr_tag = adsr.tag();
+
+    let adsr_level = Vca::new(adsr_tag, (880.).into());
 
     // LFO
     let tri_lfo = TriangleOsc::wrapped();
@@ -96,11 +98,11 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
         noise.tag(),
         ]);
 
-    let midi_control_mix1 = MidiControl::wrapped(32);
-    let midi_control_mix2 = MidiControl::wrapped(33);
-    let midi_control_mix3 = MidiControl::wrapped(34);
-    let midi_control_mix4 = MidiControl::wrapped(35);
-    let midi_control_mix5 = MidiControl::wrapped(36);
+    let midi_control_mix1 = MidiControl::wrapped(32, 127);
+    let midi_control_mix2 = MidiControl::wrapped(33, 0);
+    let midi_control_mix3 = MidiControl::wrapped(34, 0);
+    let midi_control_mix4 = MidiControl::wrapped(35, 0);
+    let midi_control_mix5 = MidiControl::wrapped(36, 0);
 
     mixer.levels = vec![
         midi_control_mix1.tag().into(),
@@ -112,20 +114,21 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
     mixer.level = adsr.tag().into();
 
     // Filter
-    let mut midi_control_cutoff = MidiControl::new(40);
-    midi_control_cutoff.range = (0.0, 10000.0);
+    let mut midi_control_cutoff = MidiControl::new(40, 127);
+    midi_control_cutoff.range = (10.0, 10000.0);
     let midi_control_cutoff = arc(midi_control_cutoff);
 
-    let mut midi_control_resonance = MidiControl::new(41);
+    let mut midi_control_resonance = MidiControl::new(41, 0);
     midi_control_resonance.range = (0.707, 10.0);
     let midi_control_resonance = arc(midi_control_resonance);
 
-    let mut low_pass_filter = Lpf::new(mixer.tag(), midi_control_cutoff.tag().into());
+    let mut low_pass_filter = Lpf::new(mixer.tag(), adsr_level.tag().into());
     // let mut low_pass_filter = Lpf::new(mixer.tag(), (400.).into());
     low_pass_filter.q = midi_control_resonance.tag().into();
 
     // VCA
-    let midi_control_volume = MidiControl::wrapped(47);
+    let midi_control_volume = MidiControl::new(47, 64);
+    let midi_control_volume = arc(midi_control_volume);
     let vca = Vca::wrapped(low_pass_filter.tag(), midi_control_volume.tag().into());
 
     let graph = Rack::new(vec![
@@ -140,6 +143,7 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
         midi_control_resonance.clone(),
         midi_control_volume.clone(),
         arc(adsr),
+        arc(adsr_level),
         arc(sine1),
         arc(saw1),
         arc(square1),

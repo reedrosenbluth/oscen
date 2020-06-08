@@ -135,8 +135,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let adsr_tag = synth.adsr_tag;
     for message in midi_messages {
         if message.len() == 3 {
-            let step = message[1];
-            let hz = hz_from_step(step as f32) as Real;
+            let step = message[1] as f32;
             if message[0] == 144 {
                 &synth
                     .midi
@@ -145,7 +144,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
                     .midi_pitch
                     .lock()
                     .unwrap()
-                    .set_hz(hz);
+                    .set_step(step);
                 on(&synth.voice, adsr_tag);
             } else if message[0] == 128 {
                 off(&synth.voice, adsr_tag);
