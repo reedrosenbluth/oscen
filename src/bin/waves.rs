@@ -43,7 +43,7 @@ struct Synth {
 fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     //  Midi
     let midi_pitch = MidiPitch::wrapped();
-    let midi_volume = MidiControl::wrapped(1);
+    let midi_volume = MidiControl::wrapped(1, 64);
 
     // Envelope Generator
     let adsr = Adsr::new(0.05, 0.05, 1.0, 0.2);
