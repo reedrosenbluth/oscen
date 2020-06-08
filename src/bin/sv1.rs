@@ -49,8 +49,6 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
     adsr.release = midi_control_release.tag().into();
     let adsr_tag = adsr.tag();
 
-    let adsr_level = Vca::new(adsr_tag, (880.).into());
-
     // LFO
     let tri_lfo = TriangleOsc::wrapped();
     let square_lfo = SquareOsc::wrapped();
@@ -115,15 +113,14 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
 
     // Filter
     let mut midi_control_cutoff = MidiControl::new(40, 127);
-    midi_control_cutoff.range = (10.0, 10000.0);
+    midi_control_cutoff.range = (0.0, 10000.0);
     let midi_control_cutoff = arc(midi_control_cutoff);
 
     let mut midi_control_resonance = MidiControl::new(41, 0);
     midi_control_resonance.range = (0.707, 10.0);
     let midi_control_resonance = arc(midi_control_resonance);
 
-    let mut low_pass_filter = Lpf::new(mixer.tag(), adsr_level.tag().into());
-    // let mut low_pass_filter = Lpf::new(mixer.tag(), (400.).into());
+    let mut low_pass_filter = Lpf::new(mixer.tag(), midi_control_cutoff.tag().into());
     low_pass_filter.q = midi_control_resonance.tag().into();
 
     // VCA
@@ -143,7 +140,6 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
         midi_control_resonance.clone(),
         midi_control_volume.clone(),
         arc(adsr),
-        arc(adsr_level),
         arc(sine1),
         arc(saw1),
         arc(square1),
