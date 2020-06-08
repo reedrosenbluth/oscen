@@ -574,7 +574,7 @@ pub fn triangle_wave(n: u32, lanczos: bool) -> FourierOsc {
 }
 
 /// "pattern match" node on each oscillator type and set hz
-pub fn set_hz(rack: &mut Rack, n: Tag, hz: Real) {
+pub fn set_hz(rack: &mut Rack, n: Tag, hz: In) {
     SineOsc::set(rack, n, "hz", hz);
     SawOsc::set(rack, n, "hz", hz);
     TriangleOsc::set(rack, n, "hz", hz);

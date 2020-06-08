@@ -4,7 +4,6 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use pitch_calc::calc::hz_from_step;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
 use swell::signal::{arc, ArcMutex, Rack, Real, Signal, Tag};

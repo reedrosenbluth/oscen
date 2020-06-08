@@ -142,8 +142,8 @@ impl Freeverb {
         };
 
         for o in self.rack.order.clone().iter_mut() {
-            Comb::set(&mut self.rack, *o, "feedback", feedback);
-            Comb::set(&mut self.rack, *o, "damping", dampening);
+            Comb::set(&mut self.rack, *o, "feedback", feedback.into());
+            Comb::set(&mut self.rack, *o, "damping", dampening.into());
         }
     }
 
@@ -156,7 +156,7 @@ impl Signal for Freeverb {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let inp = rack.output(self.wave);
-        Connect::set(&mut self.rack, self.wave, "value", inp);
+        Connect::set(&mut self.rack, self.wave, "value", inp.into());
         let out = self.rack.signal(sample_rate);
         out * self.wet_gain + inp * self.dry
     }

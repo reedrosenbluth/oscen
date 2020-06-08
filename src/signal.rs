@@ -149,12 +149,10 @@ impl Signal for Node {
     }
 }
 
-type RackMap = HashMap<Tag, Node>;
-
 /// A `Rack` is basically a `HashMap` of nodes to be visited in the specified order.
 #[derive(Clone)]
 pub struct Rack {
-    pub nodes: RackMap,
+    pub nodes: HashMap<Tag, Node>,
     pub order: Vec<Tag>,
 }
 
@@ -162,7 +160,7 @@ impl Rack {
     /// Create a `Rack` object whose order is set to the order of the `Signal`s
     /// in the input `ws`.
     pub fn new(ws: Vec<ArcMutex<Sig>>) -> Self {
-        let mut nodes: RackMap = HashMap::new();
+        let mut nodes: HashMap<Tag, Node> = HashMap::new();
         let mut order: Vec<Tag> = Vec::new();
         for s in ws {
             let t = s.lock().unwrap().tag();
@@ -237,7 +235,7 @@ impl Rack {
 
 //TODO: return Result struct indicating success or failure
 pub trait Set<'a>: IndexMut<&'a str> {
-    fn set(rack: &mut Rack, n: Tag, field: &str, value: Real);
+    fn set(rack: &mut Rack, n: Tag, field: &str, value: In);
 }
 
 // It would be nice to have a default implementation for `Set` but since the
@@ -246,72 +244,14 @@ pub trait Set<'a>: IndexMut<&'a str> {
 macro_rules! impl_set {
     ($t: ty) => {
         impl<'a> Set<'a> for $t {
-            fn set(rack: &mut Rack, n: Tag, field: &str, value: Real) {
+            fn set(rack: &mut Rack, n: Tag, field: &str, value: In) {
                 if let Some(v) = rack.get_node(n).downcast_mut::<Self>() {
-                    v[field] = value.into();
+                    v[field] = value;
                 }
             }
         }
     }
 }
-
-/// Use to connect subracks to the main rack. Simply store the value of the
-/// input node from the main rack as a connect node, which will be the first
-/// node in the subrack.
-#[derive(Clone)]
-pub struct Connect {
-    pub tag: Tag,
-    pub value: Real,
-}
-
-impl Connect {
-    pub fn new() -> Self {
-        Self {
-            tag: mk_tag(),
-            value: 0.0,
-        }
-    }
-
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
-    }
-}
-
-impl Signal for Connect {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
-        self.value
-    }
-
-    fn tag(&self) -> Tag {
-        self.tag
-    }
-}
-
-impl Index<&str> for Connect {
-    type Output = Real;
-
-    fn index(&self, index: &str) -> &Self::Output {
-        match index {
-            "value" => &self.value,
-            _ => panic!("Connect does not have a field named:  {}", index),
-        }
-    }
-}
-
-impl IndexMut<&str> for Connect {
-    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
-        match index {
-            "value" => &mut self.value,
-            _ => panic!("MidiPitch does not have a field named:  {}", index),
-        }
-    }
-}
-
-impl_set!(Connect);
 
 #[macro_export]
 macro_rules! as_any_mut {
@@ -331,3 +271,53 @@ macro_rules! std_signal {
         }
     };
 }
+/// Use to connect subracks to the main rack. Simply store the value of the
+/// input node from the main rack as a connect node, which will be the first
+/// node in the subrack.
+#[derive(Clone)]
+pub struct Link {
+    pub tag: Tag,
+    pub value: In,
+}
+
+impl Link {
+    pub fn new() -> Self {
+        Self {
+            tag: mk_tag(),
+            value: In::zero(),
+        }
+    }
+
+    pub fn wrapped() -> ArcMutex<Self> {
+        arc(Self::new())
+    }
+}
+
+impl Signal for Link {
+    std_signal!();
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+        In::val(rack, self.value)
+    }
+}
+
+impl Index<&str> for Link {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "value" => &self.value,
+            _ => panic!("Link does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for Link {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "value" => &mut self.value,
+            _ => panic!("Link does not have a field named:  {}", index),
+        }
+    }
+}
+
+impl_set!(Link);
