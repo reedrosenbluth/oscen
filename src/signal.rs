@@ -74,7 +74,7 @@ impl Signal for ArcMutex<dyn Signal + Send> {
 
 /// Inputs to synth modules can either be constant (`Fix`) or a control voltage
 /// from another synth module (`Cv`).
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum In {
     Cv(Tag),
     Fix(Real),

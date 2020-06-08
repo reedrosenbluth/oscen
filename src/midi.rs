@@ -2,6 +2,7 @@ use super::signal::*;
 use crate::{std_signal, as_any_mut};
 use crossbeam::crossbeam_channel::Sender;
 use midir::{Ignore, MidiInput};
+use pitch_calc::calc::hz_from_step;
 use std::any::Any;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
@@ -10,14 +11,14 @@ use std::io::{stdin, stdout, Write};
 #[derive(Clone)]
 pub struct MidiPitch {
     pub tag: Tag,
-    pub hz: Real,
+    pub step: f32,
 }
 
 impl MidiPitch {
     pub fn new() -> Self {
         MidiPitch {
             tag: mk_tag(),
-            hz: 0.0,
+            step: 0.0,
         }
     }
 
@@ -25,15 +26,15 @@ impl MidiPitch {
         arc(Self::new())
     }
 
-    pub fn set_hz(&mut self, hz: Real) {
-        self.hz = hz;
+    pub fn set_step(&mut self, step: f32) {
+        self.step = step;
     }
 }
 
 impl Signal for MidiPitch {
     std_signal!();
     fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
-        self.hz
+        hz_from_step(self.step) as Real
     }
 }
 
@@ -43,7 +44,7 @@ pub struct MidiControl {
     pub tag: Tag,
     pub controller: u8,
     pub value: u8,
-    pub scale: f64,
+    pub range: (Real, Real),
 }
 
 impl MidiControl {
@@ -52,8 +53,13 @@ impl MidiControl {
             tag: mk_tag(),
             controller,
             value: 0,
-            scale: 1.,
+            range: (0.0, 1.0),
         }
+    }
+
+    fn map_range(&self, input: Real) -> Real {
+        let m = (self.range.1 - self.range.0) / 127.;
+        self.range.0 + m * input
     }
 
     pub fn wrapped(controller: u8) -> ArcMutex<Self> {
@@ -67,8 +73,9 @@ impl MidiControl {
 
 impl Signal for MidiControl {
     std_signal!();
+
     fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
-        ((self.value as Real) / 127.0) * self.scale
+        self.map_range(self.value as Real)
     }
 }
 
