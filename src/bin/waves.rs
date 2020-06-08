@@ -6,7 +6,7 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
-use swell::signal::{arc, ArcMutex, Rack, Real, Signal, Tag};
+use swell::signal::{arc, ArcMutex, Rack, Real, Signal, Tag, connect};
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
 use swell::operators::{Union, Vca, Lerp};
 use swell::oscillators::{SineOsc, TriangleOsc, square_wave};
@@ -48,7 +48,14 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let adsr = Adsr::new(0.05, 0.05, 1.0, 0.2);
     let adsr_tag = adsr.tag();
 
-    let sine = SineOsc::with_hz(midi_pitch.tag().into());
+    // To demonstrate how to use the `connect` function, typically one would write
+    // the following:
+    // let sine = SineOsc::with_hz(midi_pitch.tag().into());
+    // OR
+    // let mut sine = SineOsc::new();
+    // sine["hz"] = midi_pitch.tag().into();
+    let mut sine = SineOsc::new();
+    connect(&midi_pitch, &mut sine, "hz");
     let sinefold = SineFold::new(sine.tag());
     let tri = TriangleOsc::with_hz(midi_pitch.tag().into());
     let mut lerp = Lerp::new(sine.tag(), tri.tag());

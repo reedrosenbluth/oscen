@@ -118,6 +118,15 @@ impl Default for In {
     }
 }
 
+/// Connect the `source` node to the `field` input of the `dest` node.
+pub fn connect<T, U>(source: &T, dest: &mut U, field: &'static str)
+where
+    T: Signal,
+    U: Index<&'static str, Output=In> + IndexMut<&'static str>,
+{
+    dest[field] = source.tag().into();
+}
+
 /// Nodes for the rack will have both a synth module (i.e an implentor of
 /// `Signal`) and will store their current signal value as `output`
 #[derive(Clone)]
@@ -250,7 +259,7 @@ macro_rules! impl_set {
                 }
             }
         }
-    }
+    };
 }
 
 #[macro_export]

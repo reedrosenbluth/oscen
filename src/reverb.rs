@@ -39,7 +39,7 @@ pub struct Freeverb {
 
 impl Freeverb {
     pub fn new(wave: Tag) -> Self {
-        let input = Connect::wrapped();
+        let input = Link::wrapped();
         let comb1 = Comb::wrapped(input.tag(), COMB_TUNING_1);
         let comb2 = Comb::wrapped(input.tag(), COMB_TUNING_2);
         let comb3 = Comb::wrapped(input.tag(), COMB_TUNING_3);
@@ -156,7 +156,7 @@ impl Signal for Freeverb {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let inp = rack.output(self.wave);
-        Connect::set(&mut self.rack, self.wave, "value", inp.into());
+        Link::set(&mut self.rack, self.wave, "value", inp.into());
         let out = self.rack.signal(sample_rate);
         out * self.wet_gain + inp * self.dry
     }
