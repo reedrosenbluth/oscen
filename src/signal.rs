@@ -5,7 +5,7 @@ use std::{
     ops::{Index, IndexMut},
     sync::{Arc, Mutex},
 };
-use num;
+use approx::relative_eq;
 
 use uuid::Uuid;
 
@@ -334,7 +334,7 @@ impl_set!(Link);
 
 pub fn exp_interp(low: Real, mid: Real, high: Real, x: Real) -> Real
 {
-    if 2.0 * mid == high + low {
+    if relative_eq!(2.0 * mid, high + low) {
         return low + (high - low) * x
     }
     let b = (mid - low) * (mid - low) / (high - 2.0 * mid + low);
