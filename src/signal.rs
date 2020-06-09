@@ -332,6 +332,9 @@ impl IndexMut<&str> for Link {
 
 impl_set!(Link);
 
+/// Given f(0) = low, f(1/2) = mid, and f(1) = high, let f(x) = a + b*exp(cs).
+/// Fit a, b, and c so to match the above. If mid < 1/2(high + low) then f is
+/// convex, if equal f is linear, if great then f is concave.
 pub fn exp_interp(low: Real, mid: Real, high: Real, x: Real) -> Real
 {
     if relative_eq!(2.0 * mid, high + low) {
