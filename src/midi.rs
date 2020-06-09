@@ -1,5 +1,5 @@
 use super::signal::*;
-use crate::{std_signal, as_any_mut};
+use crate::{as_any_mut, std_signal};
 use crossbeam::crossbeam_channel::Sender;
 use midir::{Ignore, MidiInput};
 use pitch_calc::calc::hz_from_step;
@@ -38,32 +38,35 @@ impl Signal for MidiPitch {
     }
 }
 
-
 #[derive(Clone)]
 pub struct MidiControl {
     pub tag: Tag,
     pub controller: u8,
     pub value: u8,
-    pub range: (Real, Real),
+    pub low: Real,
+    pub mid: Real,
+    pub high: Real,
 }
 
 impl MidiControl {
-    pub fn new(controller: u8, value: u8) -> Self {
+    pub fn new(controller: u8, value: u8, low: Real, mid: Real, high: Real) -> Self {
         Self {
             tag: mk_tag(),
             controller,
-            value, 
-            range: (0.0, 1.0),
+            value,
+            low,
+            mid,
+            high,
         }
     }
 
     fn map_range(&self, input: Real) -> Real {
-        let m = (self.range.1 - self.range.0) / 127.;
-        self.range.0 + m * input
+        let x = input / 127.0;
+        exp_interp(self.low, self.mid, self.high, x)
     }
 
-    pub fn wrapped(controller: u8, value: u8) -> ArcMutex<Self> {
-        arc(Self::new(controller, value))
+    pub fn wrapped(controller: u8, value: u8, low: Real, mid: Real, high: Real) -> ArcMutex<Self> {
+        arc(Self::new(controller, value, low, mid, high))
     }
 
     pub fn set_value(&mut self, value: u8) {
