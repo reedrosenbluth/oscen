@@ -7,6 +7,7 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+#[derive(Debug)]
 pub struct Lpf {
     pub tag: Tag,
     pub wave: Tag,
@@ -20,9 +21,9 @@ pub struct Lpf {
 }
 
 impl Lpf {
-    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
+    pub fn new(wave: Tag, cutoff_freq: In) -> Self {
         Self {
-            tag,
+            tag: mk_tag(),
             wave,
             cutoff_freq,
             q: (1.0 / SQRT_2).into(),
@@ -49,7 +50,12 @@ impl Signal for Lpf {
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.25 * (1.0 + b1 + b2);
         let a1 = 2.0 * a0;
-        a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2
+        let amp = a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2;
+        self.x2 = self.x1;
+        self.x1 = x0;
+        self.y2 = self.y1;
+        self.y1 = if amp.is_nan() {0.0} else {amp};
+        amp
     }
 }
 
@@ -131,7 +137,12 @@ impl Signal for Hpf {
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.25 * (1.0 - b1 + b2);
         let a1 = -2.0 * a0;
-        a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2
+        let amp = a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2;
+        self.x2 = self.x1;
+        self.x1 = x0;
+        self.y2 = self.y1;
+        self.y1 = if amp.is_nan() {0.0} else {amp};
+        amp
     }
 }
 
@@ -214,7 +225,12 @@ impl Signal for Bpf {
         let a0 = 0.5 * (1.0 - b2);
         let a1 = 0.0;
         let a2 = -a0;
-        a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2
+        let amp = a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2;
+        self.x2 = self.x1;
+        self.x1 = x0;
+        self.y2 = self.y1;
+        self.y1 = if amp.is_nan() {0.0} else {amp};
+        amp
     }
 }
 
@@ -300,7 +316,12 @@ impl Signal for Notch {
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.5 * (1.0 + b2);
         let a1 = b1;
-        a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2
+        let amp = a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2;
+        self.x2 = self.x1;
+        self.x1 = x0;
+        self.y2 = self.y1;
+        self.y1 = if amp.is_nan() {0.0} else {amp};
+        amp
     }
 }
 

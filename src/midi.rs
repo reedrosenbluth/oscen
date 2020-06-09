@@ -1,7 +1,8 @@
 use super::signal::*;
-use crate::{std_signal, as_any_mut};
+use crate::{as_any_mut, std_signal};
 use crossbeam::crossbeam_channel::Sender;
 use midir::{Ignore, MidiInput};
+use pitch_calc::calc::hz_from_step;
 use std::any::Any;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
@@ -10,14 +11,14 @@ use std::io::{stdin, stdout, Write};
 #[derive(Clone)]
 pub struct MidiPitch {
     pub tag: Tag,
-    pub hz: Real,
+    pub step: f32,
 }
 
 impl MidiPitch {
     pub fn new() -> Self {
         MidiPitch {
             tag: mk_tag(),
-            hz: 0.0,
+            step: 0.0,
         }
     }
 
@@ -25,39 +26,47 @@ impl MidiPitch {
         arc(Self::new())
     }
 
-    pub fn set_hz(&mut self, hz: Real) {
-        self.hz = hz;
+    pub fn set_step(&mut self, step: f32) {
+        self.step = step;
     }
 }
 
 impl Signal for MidiPitch {
     std_signal!();
     fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
-        self.hz
+        hz_from_step(self.step) as Real
     }
 }
-
 
 #[derive(Clone)]
 pub struct MidiControl {
     pub tag: Tag,
     pub controller: u8,
     pub value: u8,
-    pub scale: f64,
+    pub low: Real,
+    pub mid: Real,
+    pub high: Real,
 }
 
 impl MidiControl {
-    pub fn new(controller: u8) -> Self {
+    pub fn new(controller: u8, value: u8, low: Real, mid: Real, high: Real) -> Self {
         Self {
             tag: mk_tag(),
             controller,
-            value: 0,
-            scale: 1.,
+            value,
+            low,
+            mid,
+            high,
         }
     }
 
-    pub fn wrapped(controller: u8) -> ArcMutex<Self> {
-        arc(Self::new(controller))
+    fn map_range(&self, input: Real) -> Real {
+        let x = input / 127.0;
+        exp_interp(self.low, self.mid, self.high, x)
+    }
+
+    pub fn wrapped(controller: u8, value: u8, low: Real, mid: Real, high: Real) -> ArcMutex<Self> {
+        arc(Self::new(controller, value, low, mid, high))
     }
 
     pub fn set_value(&mut self, value: u8) {
@@ -67,8 +76,9 @@ impl MidiControl {
 
 impl Signal for MidiControl {
     std_signal!();
+
     fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
-        ((self.value as Real) / 127.0) * self.scale
+        self.map_range(self.value as Real)
     }
 }
 
