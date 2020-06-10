@@ -104,7 +104,7 @@ pub struct Vca {
 }
 
 impl Vca {
-    pub fn new(wave: Tag, level: In) -> Self {
+    pub fn new(wave: Tag) -> Self {
         Self {
             tag: mk_tag(),
             wave,

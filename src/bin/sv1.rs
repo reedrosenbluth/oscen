@@ -48,8 +48,8 @@ fn build_synth(
     let midi_control_release = MidiControl::new(37, 1, 0.05, 1.0, 10.0);
     let midi_control_release = arc(midi_control_release);
 
-    let mut adsr = Adsr::new(0.01, 0.0, 1.0, 0.1);
-    adsr.release = midi_control_release.tag().into();
+    // let mut adsr = Adsr::new(0.01, 0.0, 1.0, 0.1);
+    let adsr = Adsr::new().release(midi_control_release.tag().into()).wrap();
     let adsr_tag = adsr.tag();
 
     // LFO
@@ -122,10 +122,7 @@ fn build_synth(
     // VCA
     let midi_control_volume = MidiControl::new(47, 64, 0.0, 0.5, 1.0);
     let midi_control_volume = arc(midi_control_volume);
-    let vca = arc(Vca::new(
-        low_pass_filter.tag(),
-        midi_control_volume.tag().into(),
-    ));
+    let vca = Vca::new(low_pass_filter.tag()).level(midi_control_volume.tag().into()).wrap();
 
     let graph = Rack::new(vec![
         midi_pitch.clone(),
@@ -138,7 +135,7 @@ fn build_synth(
         midi_control_cutoff.clone(),
         midi_control_resonance.clone(),
         midi_control_volume.clone(),
-        arc(adsr),
+        adsr,
         sine1,
         saw1,
         square1,

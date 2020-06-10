@@ -5,7 +5,7 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Adsr {
     pub tag: Tag,
     pub attack: In,
@@ -18,19 +18,46 @@ pub struct Adsr {
 }
 
 impl Adsr {
-    pub fn new(attack: Real, decay: Real, sustain: Real, release: Real) -> Self {
+    pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            attack: attack.into(),
-            decay: decay.into(),
-            sustain: sustain.into(),
-            release: release.into(),
+            attack: (0.01).into(),
+            decay: In::zero(),
+            sustain: In::one(),
+            release: (0.1).into(),
             clock: 0.0,
             triggered: false,
             level: 0.0,
         }
     }
 
+    pub fn attack(&mut self, arg: In) -> &mut Self {
+        self.attack = arg;
+        self
+    }
+
+    pub fn decay(&mut self, arg: In) -> &mut Self {
+        self.decay = arg;
+        self
+    }
+    
+    pub fn sustain(&mut self, arg: In) -> &mut Self {
+        self.sustain = arg;
+        self
+    }
+
+    pub fn release(&mut self, arg: In) -> &mut Self {
+        self.release = arg;
+        self
+    }
+
+    pub fn build(&mut self) -> Self {
+        *self
+    }
+
+    pub fn wrap(&mut self) -> ArcMutex<Self> {
+        arc(*self)
+    }
     pub fn calc_level(&self, rack: &Rack) -> Real {
         fn max01(a: f64) -> f64 {
             if a > 0.01 { a } else { 0.01 }

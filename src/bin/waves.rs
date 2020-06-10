@@ -45,7 +45,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let midi_volume = arc(MidiControl::new(1, 64, 0.0, 0.5, 1.0));
 
     // Envelope Generator
-    let adsr = Adsr::new(0.05, 0.05, 1.0, 0.2);
+    let adsr = Adsr::new();
     let adsr_tag = adsr.tag();
 
     // To demonstrate how to use the `connect` function, typically one would write
@@ -66,7 +66,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let mut union = Union::new(vec![sine.tag(), sinefold.tag(), sq.tag(), tanh.tag()]);
     union.level = adsr.tag().into();
     let union_tag = union.tag();
-    let vca = arc(Vca::new(union_tag, (0.5).into()));
+    let vca = Vca::new(union_tag).level((0.5).into()).wrap();
     let graph = Rack::new(vec![
         midi_pitch.clone(),
         midi_volume.clone(),
