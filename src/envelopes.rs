@@ -51,13 +51,6 @@ impl Adsr {
         self
     }
 
-    pub fn build(&mut self) -> Self {
-        *self
-    }
-
-    pub fn wrap(&mut self) -> ArcMutex<Self> {
-        arc(*self)
-    }
     pub fn calc_level(&self, rack: &Rack) -> Real {
         fn max01(a: f64) -> f64 {
             if a > 0.01 { a } else { 0.01 }
@@ -99,6 +92,8 @@ impl Adsr {
         self.clock = (s - self.level) * r / s;
     }
 }
+
+impl Builder for Adsr {}
 
 impl Signal for Adsr {
     std_signal!();

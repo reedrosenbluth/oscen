@@ -42,15 +42,9 @@ impl SineOsc {
         self.phase = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        *self
-    }
-
-    pub fn wrap(&mut self) -> ArcMutex<Self> {
-        arc(*self)
-    }
 }
+
+impl Builder for SineOsc {}
 
 impl Signal for SineOsc {
     std_signal!();
@@ -129,15 +123,9 @@ impl SawOsc {
         self.phase = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        *self
-    }
-
-    pub fn wrap(&mut self) -> ArcMutex<Self> {
-        arc(*self)
-    }
 }
+
+impl Builder for SawOsc {}
 
 impl Signal for SawOsc {
     std_signal!();
@@ -222,15 +210,9 @@ impl TriangleOsc {
         self.phase = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        *self
-    }
-
-    pub fn wrap<'a>(&'a mut self) -> ArcMutex<Self> {
-        arc(*self)
-    }
 }
+
+impl Builder for TriangleOsc {}
 
 impl Signal for TriangleOsc {
     std_signal!();
@@ -313,15 +295,9 @@ impl SquareOsc {
         self.phase = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        *self
-    }
-
-    pub fn wrap<'a>(&'a mut self) -> ArcMutex<Self> {
-        arc(*self)
-    }
 }
+
+impl Builder for SquareOsc {}
 
 impl Signal for SquareOsc {
     std_signal!();
@@ -395,15 +371,9 @@ impl WhiteNoise {
         self.amplitude = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        *self
-    }
-
-    pub fn wrap<'a>(&'a mut self) -> ArcMutex<Self> {
-        arc(*self)
-    }
 }
+
+impl Builder for WhiteNoise {}
 
 impl Signal for WhiteNoise {
     std_signal!();
@@ -463,15 +433,9 @@ impl Osc01 {
         self.phase = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        *self
-    }
-
-    pub fn wrap<'a>(&'a mut self) -> ArcMutex<Self> {
-        arc(*self)
-    }
 }
+
+impl Builder for Osc01 {}
 
 impl Signal for Osc01 {
     std_signal!();
@@ -566,15 +530,9 @@ impl FourierOsc {
         self.lanczos = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        self.clone()
-    }
-
-    pub fn wrap(&mut self) -> ArcMutex<Self> {
-        arc(self.clone())
-    }
 }
+
+impl Builder for FourierOsc {}
 
 impl Signal for FourierOsc {
     std_signal!();

@@ -6,7 +6,7 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
-use swell::signal::{arc, ArcMutex, Rack, Real, Signal, Tag, connect};
+use swell::signal::{arc, ArcMutex, Rack, Real, Signal, Tag, connect, Builder};
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
 use swell::operators::{Union, Vca, Lerp};
 use swell::oscillators::{SineOsc, TriangleOsc, square_wave};

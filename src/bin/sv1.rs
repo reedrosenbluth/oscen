@@ -10,7 +10,7 @@ use swell::filters::Lpf;
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
 use swell::operators::{Mixer, Modulator, Vca};
 use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
-use swell::signal::{arc, ArcMutex, Rack, Real, Signal, Tag};
+use swell::signal::{arc, ArcMutex, Rack, Real, Signal, Tag, Builder};
 
 fn main() {
     nannou::app(model).update(update).run();

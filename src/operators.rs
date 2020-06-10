@@ -26,15 +26,9 @@ impl Union {
         self.level = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        self.clone()
-    }
-
-    pub fn wrap(&mut self) -> ArcMutex<Self> {
-        arc(self.clone())
-    }
 }
+
+impl Builder for Union {}
 
 impl Signal for Union {
     std_signal!();
@@ -69,11 +63,9 @@ impl Product {
             waves,
         }
     }
-
-    pub fn wrap(&mut self) -> ArcMutex<Self> {
-        arc(self.clone())
-    }
 }
+
+impl Builder for Product {}
 
 impl Signal for Product {
     std_signal!();
@@ -116,15 +108,9 @@ impl Vca {
         self.level = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        *self
-    }
-
-    pub fn wrap(&mut self) -> ArcMutex<Self> {
-        arc(*self)
-    }
 }
+
+impl Builder for Vca {}
 
 impl Signal for Vca {
     std_signal!();
@@ -181,15 +167,9 @@ impl Mixer {
         self.level = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        self.clone()
-    }
-
-    pub fn wrap(&mut self) -> ArcMutex<Self> {
-        arc(self.clone())
-    }
 }
+
+impl Builder for Mixer {}
 
 impl Signal for Mixer {
     std_signal!();
@@ -235,15 +215,9 @@ impl Lerp {
         self.alpha = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        *self
-    }
-
-    pub fn wrap(&mut self) -> ArcMutex<Self> {
-        arc(*self)
-    }
 }
+
+impl Builder for Lerp {}
 
 impl Signal for Lerp {
     std_signal!();
@@ -319,14 +293,6 @@ impl Lerp3 {
         self
     }
 
-    pub fn build(&mut self) -> Self {
-        *self
-    }
-
-    pub fn wrap(&mut self) -> ArcMutex<Self> {
-        arc(*self)
-    }
-
     pub fn set_alphas(&mut self, rack: &Rack) {
         let knob = In::val(rack, self.knob);
         if In::val(rack, self.knob) <= 0.5 {
@@ -338,6 +304,8 @@ impl Lerp3 {
         }
     }
 }
+
+impl Builder for Lerp3 {}
 
 impl Signal for Lerp3 {
     std_signal!();
@@ -424,15 +392,9 @@ impl Modulator {
         self.mod_idx = arg;
         self
     }
-
-    pub fn build(&mut self) -> Self {
-        *self
-    }
-
-    pub fn wrap(&mut self) -> ArcMutex<Self> {
-        arc(*self)
-    }
 }
+
+impl Builder for Modulator {}
 
 impl Signal for Modulator {
     std_signal!();

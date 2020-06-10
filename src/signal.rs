@@ -1,3 +1,4 @@
+use approx::relative_eq;
 use std::{
     any::Any,
     collections::HashMap,
@@ -5,7 +6,6 @@ use std::{
     ops::{Index, IndexMut},
     sync::{Arc, Mutex},
 };
-use approx::relative_eq;
 
 use uuid::Uuid;
 
@@ -73,6 +73,21 @@ impl Signal for ArcMutex<dyn Signal + Send> {
     }
 }
 
+pub trait Builder {
+    fn build(&mut self) -> Self
+    where
+        Self: Sized + Clone,
+    {
+        self.clone()
+    }
+
+    fn wrap(&mut self) -> ArcMutex<Self>
+    where
+        Self: Sized + Clone,
+    {
+        arc(self.clone())
+    }
+}
 /// Inputs to synth modules can either be constant (`Fix`) or a control voltage
 /// from another synth module (`Cv`).
 #[derive(Copy, Clone, Debug)]
@@ -123,7 +138,7 @@ impl Default for In {
 pub fn connect<T, U>(source: &T, dest: &mut U, field: &'static str)
 where
     T: Signal,
-    U: Index<&'static str, Output=In> + IndexMut<&'static str>,
+    U: Index<&'static str, Output = In> + IndexMut<&'static str>,
 {
     dest[field] = source.tag().into();
 }
@@ -331,10 +346,9 @@ impl_set!(Link);
 /// Given f(0) = low, f(1/2) = mid, and f(1) = high, let f(x) = a + b*exp(cs).
 /// Fit a, b, and c so to match the above. If mid < 1/2(high + low) then f is
 /// convex, if equal f is linear, if great then f is concave.
-pub fn exp_interp(low: Real, mid: Real, high: Real, x: Real) -> Real
-{
+pub fn exp_interp(low: Real, mid: Real, high: Real, x: Real) -> Real {
     if relative_eq!(2.0 * mid, high + low) {
-        return low + (high - low) * x
+        return low + (high - low) * x;
     }
     let b = (mid - low) * (mid - low) / (high - 2.0 * mid + low);
     let a = low - b;
