@@ -58,12 +58,9 @@ fn build_synth(
 
     // TODO: tune these lower
     // Sub Oscillators for Osc
-    let modulator_osc2 = arc(Modulator::new(
-        tri_lfo.tag(),
-        midi_pitch.tag().into(),
-        (0.0).into(),
-        (0.0).into(),
-    ));
+    let modulator_osc2 = Modulator::new(tri_lfo.tag().into())
+        .base_hz(midi_pitch.tag().into())
+        .wrap();
 
     // Oscillator 2
     // let sine2 = SineOsc::with_hz(modulator_osc2.tag().into());
@@ -72,12 +69,9 @@ fn build_synth(
     let square2 = SquareOsc::new().hz(midi_pitch.tag().into()).wrap();
     let triangle2 = TriangleOsc::new().hz(midi_pitch.tag().into()).wrap();
 
-    let modulator_osc1 = arc(Modulator::new(
-        sine2.tag(),
-        midi_pitch.tag().into(),
-        (0.0).into(),
-        (0.0).into(),
-    ));
+    let modulator_osc1 = Modulator::new(sine2.tag())
+        .base_hz(midi_pitch.tag().into())
+        .wrap();
 
     // Oscillator 1
     let sine1 = SineOsc::new().hz(modulator_osc1.tag().into()).wrap();
