@@ -21,10 +21,6 @@ impl Union {
             level: In::one(),
         }
     }
-
-    pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
-        arc(Union::new(waves))
-    }
 }
 
 impl Signal for Union {
@@ -60,10 +56,6 @@ impl Product {
             waves,
         }
     }
-
-    pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
-        arc(Product::new(waves))
-    }
 }
 
 impl Signal for Product {
@@ -87,7 +79,7 @@ impl IndexMut<usize> for Product {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Vca {
     pub tag: Tag,
     pub wave: Tag,
@@ -101,10 +93,6 @@ impl Vca {
             wave,
             level: level,
         }
-    }
-
-    pub fn wrapped(wave: Tag, level: In) -> ArcMutex<Self> {
-        arc(Self::new(wave, level))
     }
 }
 
@@ -153,10 +141,6 @@ impl Mixer {
             level: In::one(),
         }
     }
-
-    pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
-        arc(Mixer::new(waves))
-    }
 }
 
 impl Signal for Mixer {
@@ -197,10 +181,6 @@ impl Lerp {
             wave2: wave2.into(),
             alpha: (0.5).into(),
         }
-    }
-
-    pub fn wrapped(wave1: Tag, wave2: Tag) -> ArcMutex<Self> {
-        arc(Self::new(wave1, wave2))
     }
 }
 
@@ -270,10 +250,6 @@ impl Lerp3 {
             lerp2: lerp2.into(),
             knob,
         }
-    }
-
-    pub fn wrapped(lerp1: Tag, lerp2: Tag, knob: In) -> ArcMutex<Self> {
-        arc(Self::new(lerp1, lerp2, knob))
     }
 
     pub fn set_alphas(&mut self, rack: &Rack) {
@@ -356,10 +332,6 @@ impl Modulator {
             mod_hz,
             mod_idx,
         }
-    }
-
-    pub fn wrapped(wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> ArcMutex<Self> {
-        arc(Modulator::new(wave, base_hz, mod_hz, mod_idx))
     }
 }
 

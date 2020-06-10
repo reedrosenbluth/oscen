@@ -28,17 +28,27 @@ impl SineOsc {
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {
-            tag: mk_tag(),
-            hz,
-            amplitude: In::one(),
-            phase: In::zero(),
-        }
+    pub fn hz(&mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
+    }
+
+    pub fn phase(&mut self, arg: In) -> &mut Self {
+        self.phase = arg;
+        self
+    }
+
+    pub fn build(&mut self) -> Self {
+        *self
+    }
+
+    pub fn wrap(&mut self) -> ArcMutex<Self> {
+        arc(*self)
     }
 }
 
@@ -105,17 +115,27 @@ impl SawOsc {
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {
-            tag: mk_tag(),
-            hz,
-            amplitude: In::one(),
-            phase: In::zero(),
-        }
+    pub fn hz(&mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
+    }
+
+    pub fn phase(&mut self, arg: In) -> &mut Self {
+        self.phase = arg;
+        self
+    }
+
+    pub fn build(&mut self) -> Self {
+        *self
+    }
+
+    pub fn wrap(&mut self) -> ArcMutex<Self> {
+        arc(*self)
     }
 }
 
@@ -188,17 +208,27 @@ impl TriangleOsc {
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {
-            tag: mk_tag(),
-            hz,
-            amplitude: In::one(),
-            phase: In::zero(),
-        }
+    pub fn hz(& mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
+    }
+
+    pub fn phase(&mut self, arg: In) -> &mut Self {
+        self.phase = arg;
+        self
+    }
+
+    pub fn build(&mut self) -> Self {
+        *self
+    }
+
+    pub fn wrap<'a>(&'a mut self) -> ArcMutex<Self> {
+        arc(*self)
     }
 }
 
@@ -269,18 +299,27 @@ impl SquareOsc {
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {
-            tag: mk_tag(),
-            hz,
-            amplitude: In::one(),
-            phase: In::zero(),
-            duty_cycle: (0.5).into(),
-        }
+    pub fn hz(& mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
+    }
+
+    pub fn phase(&mut self, arg: In) -> &mut Self {
+        self.phase = arg;
+        self
+    }
+
+    pub fn build(&mut self) -> Self {
+        *self
+    }
+
+    pub fn wrap<'a>(&'a mut self) -> ArcMutex<Self> {
+        arc(*self)
     }
 }
 
@@ -336,7 +375,7 @@ impl IndexMut<&str> for SquareOsc {
 
 impl_set!(SquareOsc);
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct WhiteNoise {
     pub tag: Tag,
     pub amplitude: In,
@@ -352,8 +391,17 @@ impl WhiteNoise {
         }
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
+    }
+
+    pub fn build(&mut self) -> Self {
+        *self
+    }
+
+    pub fn wrap<'a>(&'a mut self) -> ArcMutex<Self> {
+        arc(*self)
     }
 }
 
@@ -406,16 +454,22 @@ impl Osc01 {
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {
-            tag: mk_tag(),
-            hz,
-            phase: In::zero(),
-        }
+    pub fn hz(& mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn phase(&mut self, arg: In) -> &mut Self {
+        self.phase = arg;
+        self
+    }
+
+    pub fn build(&mut self) -> Self {
+        *self
+    }
+
+    pub fn wrap<'a>(&'a mut self) -> ArcMutex<Self> {
+        arc(*self)
     }
 }
 
@@ -469,6 +523,8 @@ fn sinc(x: Real) -> Real {
 
 /// Fourier series approximation for an oscillator. Optionally applies Lanczos Sigma
 /// factor to eliminate ringing due to Gibbs phenomenon.
+
+#[derive(Clone)]
 pub struct FourierOsc {
     pub tag: Tag,
     pub hz: In,
@@ -494,6 +550,29 @@ impl FourierOsc {
             sines: Rack::new(wwaves),
             lanczos,
         }
+    }
+
+    pub fn hz(&mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
+    }
+
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
+    }
+
+    pub fn lanczos(&mut self, arg: bool) -> &mut Self {
+        self.lanczos = arg;
+        self
+    }
+
+    pub fn build(&mut self) -> Self {
+        self.clone()
+    }
+
+    pub fn wrap(&mut self) -> ArcMutex<Self> {
+        arc(self.clone())
     }
 }
 

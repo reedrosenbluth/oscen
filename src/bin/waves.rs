@@ -41,8 +41,8 @@ struct Synth {
 
 fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     //  Midi
-    let midi_pitch = MidiPitch::wrapped();
-    let midi_volume = MidiControl::wrapped(1, 64, 0.0, 0.5, 1.0);
+    let midi_pitch = arc(MidiPitch::new());
+    let midi_volume = arc(MidiControl::new(1, 64, 0.0, 0.5, 1.0));
 
     // Envelope Generator
     let adsr = Adsr::new(0.05, 0.05, 1.0, 0.2);
@@ -57,7 +57,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let mut sine = SineOsc::new();
     connect(&midi_pitch, &mut sine, "hz");
     let sinefold = SineFold::new(sine.tag());
-    let tri = TriangleOsc::with_hz(midi_pitch.tag().into());
+    let tri = TriangleOsc::new().hz(midi_pitch.tag().into()).wrap();
     let mut lerp = Lerp::new(sine.tag(), tri.tag());
     lerp.alpha = (0.2).into();
     let tanh = Tanh::new(sine.tag());
@@ -66,14 +66,14 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let mut union = Union::new(vec![sine.tag(), sinefold.tag(), sq.tag(), tanh.tag()]);
     union.level = adsr.tag().into();
     let union_tag = union.tag();
-    let vca = Vca::wrapped(union_tag, (0.5).into());
+    let vca = arc(Vca::new(union_tag, (0.5).into()));
     let graph = Rack::new(vec![
         midi_pitch.clone(),
         midi_volume.clone(),
         arc(adsr),
         arc(sine),
         arc(sinefold),
-        arc(tri),
+        tri,
         arc(sq),
         arc(tanh),
         arc(union),

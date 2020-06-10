@@ -391,10 +391,6 @@ impl Comb {
             dampening_inverse: (0.5).into(),
         }
     }
-
-    pub fn wrapped(wave: Tag, length: usize) -> ArcMutex<Self> {
-        arc(Self::new(wave, length))
-    }
 }
 
 impl Signal for Comb {
@@ -456,10 +452,6 @@ impl AllPass {
             buffer: vec![0.0; length],
             index: 0,
         }
-    }
-
-    pub fn wrapped(wave: Tag, length: usize) -> ArcMutex<Self> {
-        arc(Self::new(wave, length))
     }
 }
 

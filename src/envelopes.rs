@@ -31,10 +31,6 @@ impl Adsr {
         }
     }
 
-    pub fn wrapped(attack: Real, decay: Real, sustain: Real, release: Real) -> ArcMutex<Self> {
-        arc(Self::new(attack, decay, sustain, release))
-    }
-
     pub fn calc_level(&self, rack: &Rack) -> Real {
         fn max01(a: f64) -> f64 {
             if a > 0.01 { a } else { 0.01 }

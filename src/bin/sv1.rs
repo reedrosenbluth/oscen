@@ -1,16 +1,16 @@
 // use core::cmp::Ordering;
 use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
-use nannou::{prelude::*};
+use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
-use swell::signal::{arc, ArcMutex, Rack, Real,  Signal, Tag};
+use swell::filters::Lpf;
+use swell::midi::{listen_midi, MidiControl, MidiPitch};
 use swell::operators::{Mixer, Modulator, Vca};
 use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
-use swell::midi::{listen_midi, MidiControl, MidiPitch};
-use swell::filters::{Lpf};
+use swell::signal::{arc, ArcMutex, Rack, Real, Signal, Tag};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -37,8 +37,12 @@ struct Midi {
     midi_controls: Vec<ArcMutex<MidiControl>>,
 }
 
-fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u8>>, scope_sender: Sender<f32>) -> Synth {
-    let midi_pitch = MidiPitch::wrapped();
+fn build_synth(
+    midi_receiver1: Receiver<Vec<u8>>,
+    midi_receiver2: Receiver<Vec<u8>>,
+    scope_sender: Sender<f32>,
+) -> Synth {
+    let midi_pitch = arc(MidiPitch::new());
 
     // Envelope Generator
     let midi_control_release = MidiControl::new(37, 1, 0.05, 1.0, 10.0);
@@ -49,42 +53,43 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
     let adsr_tag = adsr.tag();
 
     // LFO
-    let tri_lfo = TriangleOsc::wrapped();
-    let square_lfo = SquareOsc::wrapped();
+    let tri_lfo = TriangleOsc::new().wrap();
+    let square_lfo = SquareOsc::new().wrap();
 
     // TODO: tune these lower
-    // Sub Oscillators for Osc 1
-    let modulator_osc2 = Modulator::wrapped(
+    // Sub Oscillators for Osc
+    let modulator_osc2 = arc(Modulator::new(
         tri_lfo.tag(),
         midi_pitch.tag().into(),
         (0.0).into(),
         (0.0).into(),
-    );
+    ));
 
     // Oscillator 2
-    let sine2 = SineOsc::with_hz(modulator_osc2.tag().into());
-    let saw2 = SawOsc::with_hz(midi_pitch.tag().into());
-    let square2 = SquareOsc::with_hz(midi_pitch.tag().into());
-    let triangle2 = TriangleOsc::with_hz(midi_pitch.tag().into());
+    // let sine2 = SineOsc::with_hz(modulator_osc2.tag().into());
+    let sine2 = SineOsc::new().hz(modulator_osc2.tag().into()).wrap();
+    let saw2 = SawOsc::new().hz(midi_pitch.tag().into()).wrap();
+    let square2 = SquareOsc::new().hz(midi_pitch.tag().into()).wrap();
+    let triangle2 = TriangleOsc::new().hz(midi_pitch.tag().into()).wrap();
 
-    let modulator_osc1 = Modulator::wrapped(
+    let modulator_osc1 = arc(Modulator::new(
         sine2.tag(),
         midi_pitch.tag().into(),
         (0.0).into(),
         (0.0).into(),
-    );
+    ));
 
     // Oscillator 1
-    let sine1 = SineOsc::with_hz(modulator_osc1.tag().into());
-    let saw1 = SawOsc::with_hz(midi_pitch.tag().into());
-    let square1 = SquareOsc::with_hz(midi_pitch.tag().into());
-    let triangle1 = TriangleOsc::with_hz(midi_pitch.tag().into());
+    let sine1 = SineOsc::new().hz(modulator_osc1.tag().into()).wrap();
+    let saw1 = SawOsc::new().hz(midi_pitch.tag().into()).wrap();
+    let square1 = SquareOsc::new().hz(midi_pitch.tag().into()).wrap();
+    let triangle1 = TriangleOsc::new().hz(midi_pitch.tag().into()).wrap();
 
-    let sub1 = SquareOsc::with_hz(midi_pitch.tag().into());
-    let sub2 = SquareOsc::with_hz(midi_pitch.tag().into()); 
+    let sub1 = SquareOsc::new().hz(midi_pitch.tag().into()).wrap();
+    let sub2 = SquareOsc::new().hz(midi_pitch.tag().into()).wrap();
 
     // Noise
-    let noise = WhiteNoise::wrapped();
+    let noise = WhiteNoise::new().wrap();
 
     // Mixers
     let mut mixer = Mixer::new(vec![
@@ -93,13 +98,13 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
         saw1.tag(),
         triangle1.tag(),
         noise.tag(),
-        ]);
+    ]);
 
-    let midi_control_mix1 = MidiControl::wrapped(32, 127, 0.0, 0.5, 1.0);
-    let midi_control_mix2 = MidiControl::wrapped(33, 0, 0.0, 0.5, 1.0);
-    let midi_control_mix3 = MidiControl::wrapped(34, 0, 0.0, 0.5, 1.0);
-    let midi_control_mix4 = MidiControl::wrapped(35, 0, 0.0, 0.5, 1.0);
-    let midi_control_mix5 = MidiControl::wrapped(36, 0, 0.0, 0.5, 1.0);
+    let midi_control_mix1 = arc(MidiControl::new(32, 127, 0.0, 0.5, 1.0));
+    let midi_control_mix2 = arc(MidiControl::new(33, 0, 0.0, 0.5, 1.0));
+    let midi_control_mix3 = arc(MidiControl::new(34, 0, 0.0, 0.5, 1.0));
+    let midi_control_mix4 = arc(MidiControl::new(35, 0, 0.0, 0.5, 1.0));
+    let midi_control_mix5 = arc(MidiControl::new(36, 0, 0.0, 0.5, 1.0));
 
     mixer.levels = vec![
         midi_control_mix1.tag().into(),
@@ -107,7 +112,7 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
         midi_control_mix3.tag().into(),
         midi_control_mix4.tag().into(),
         midi_control_mix5.tag().into(),
-        ];
+    ];
     mixer.level = adsr.tag().into();
 
     // Filter
@@ -123,7 +128,10 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
     // VCA
     let midi_control_volume = MidiControl::new(47, 64, 0.0, 0.5, 1.0);
     let midi_control_volume = arc(midi_control_volume);
-    let vca = Vca::wrapped(low_pass_filter.tag(), midi_control_volume.tag().into());
+    let vca = arc(Vca::new(
+        low_pass_filter.tag(),
+        midi_control_volume.tag().into(),
+    ));
 
     let graph = Rack::new(vec![
         midi_pitch.clone(),
@@ -137,16 +145,16 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
         midi_control_resonance.clone(),
         midi_control_volume.clone(),
         arc(adsr),
-        arc(sine1),
-        arc(saw1),
-        arc(square1),
-        arc(triangle1),
-        arc(sub1),
-        arc(sub2),
-        arc(sine2),
-        arc(saw2),
-        arc(square2),
-        arc(triangle2),
+        sine1,
+        saw1,
+        square1,
+        triangle1,
+        sub1,
+        sub2,
+        sine2,
+        saw2,
+        square2,
+        triangle2,
         modulator_osc1,
         modulator_osc2,
         noise,
@@ -170,7 +178,7 @@ fn build_synth(midi_receiver1: Receiver<Vec<u8>>, midi_receiver2: Receiver<Vec<u
                 midi_control_cutoff,
                 midi_control_resonance,
                 midi_control_volume,
-                ],
+            ],
         }),
         midi_receiver1,
         midi_receiver2,
@@ -214,7 +222,11 @@ fn model(app: &App) -> Model {
         .build()
         .unwrap();
 
-    Model { stream, scope_receiver, scope_data: vec![] }
+    Model {
+        stream,
+        scope_receiver,
+        scope_data: vec![],
+    }
 }
 
 // A function that renders the given `Audio` to the given `Buffer`.
@@ -286,10 +298,12 @@ fn view(app: &App, model: &Model, frame: Frame) {
         }
     }
 
-    if shifted_scope_data.len() >= 600  {
+    if shifted_scope_data.len() >= 600 {
         let shifted_scope_data = shifted_scope_data[0..600].iter();
-        let scope_points = shifted_scope_data.zip((0..600).into_iter()).map(|(y, x)| pt2(x as f32, y * 120.));
-        
+        let scope_points = shifted_scope_data
+            .zip((0..600).into_iter())
+            .map(|(y, x)| pt2(x as f32, y * 120.));
+
         draw.path()
             .stroke()
             .weight(2.)

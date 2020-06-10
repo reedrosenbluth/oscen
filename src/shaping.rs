@@ -12,10 +12,6 @@ impl SineFold {
     pub fn new(wave: Tag) -> Self {
         Self { tag: mk_tag(), wave, fold_param: TAU.into() }
     }
-
-    pub fn wrapped(wave: Tag) -> ArcMutex<Self> {
-        arc(Self::new(wave))
-    }
 }
 
 impl Signal for SineFold {
@@ -36,10 +32,6 @@ impl Tanh {
     pub fn new(wave: Tag) -> Self {
         Self { tag: mk_tag(), wave}
     }    
-
-    pub fn wrapped(wave: Tag) ->ArcMutex<Self> {
-        arc(Self::new(wave))
-    }
 }
 
 impl Signal for Tanh {

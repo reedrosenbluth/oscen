@@ -297,10 +297,6 @@ impl Link {
             value: In::zero(),
         }
     }
-
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
-    }
 }
 
 impl Signal for Link {

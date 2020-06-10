@@ -1,5 +1,5 @@
-use super::{filters::*, signal::*, operators::*};
-use crate::{std_signal, as_any_mut};
+use super::{filters::*, operators::*, signal::*};
+use crate::{as_any_mut, std_signal};
 use std::any::Any;
 
 // const FIXED_GAIN: Real = 0.015;
@@ -39,45 +39,31 @@ pub struct Freeverb {
 
 impl Freeverb {
     pub fn new(wave: Tag) -> Self {
-        let input = Link::wrapped();
-        let comb1 = Comb::wrapped(input.tag(), COMB_TUNING_1);
-        let comb2 = Comb::wrapped(input.tag(), COMB_TUNING_2);
-        let comb3 = Comb::wrapped(input.tag(), COMB_TUNING_3);
-        let comb4 = Comb::wrapped(input.tag(), COMB_TUNING_4);
-        let comb5 = Comb::wrapped(input.tag(), COMB_TUNING_5);
-        let comb6 = Comb::wrapped(input.tag(), COMB_TUNING_6);
-        let comb7 = Comb::wrapped(input.tag(), COMB_TUNING_7);
-        let comb8 = Comb::wrapped(input.tag(), COMB_TUNING_8);
-        let combs = Mixer::wrapped(
-            vec![
-                comb1.tag(),
-                comb2.tag(),
-                comb3.tag(),
-                comb4.tag(),
-                comb5.tag(),
-                comb6.tag(),
-                comb7.tag(),
-                comb8.tag(),
-            ],
-        );
-        let all1 = AllPass::wrapped(combs.tag(), ALLPASS_TUNING_1);
-        let all2 = AllPass::wrapped(all1.tag(), ALLPASS_TUNING_2);
-        let all3 = AllPass::wrapped(all2.tag(), ALLPASS_TUNING_3);
-        let all4 = AllPass::wrapped(all3.tag(), ALLPASS_TUNING_4);
+        let input = arc(Link::new());
+        let comb1 = arc(Comb::new(input.tag(), COMB_TUNING_1));
+        let comb2 = arc(Comb::new(input.tag(), COMB_TUNING_2));
+        let comb3 = arc(Comb::new(input.tag(), COMB_TUNING_3));
+        let comb4 = arc(Comb::new(input.tag(), COMB_TUNING_4));
+        let comb5 = arc(Comb::new(input.tag(), COMB_TUNING_5));
+        let comb6 = arc(Comb::new(input.tag(), COMB_TUNING_6));
+        let comb7 = arc(Comb::new(input.tag(), COMB_TUNING_7));
+        let comb8 = arc(Comb::new(input.tag(), COMB_TUNING_8));
+        let combs = arc(Mixer::new(vec![
+            comb1.tag(),
+            comb2.tag(),
+            comb3.tag(),
+            comb4.tag(),
+            comb5.tag(),
+            comb6.tag(),
+            comb7.tag(),
+            comb8.tag(),
+        ]));
+        let all1 = arc(AllPass::new(combs.tag(), ALLPASS_TUNING_1));
+        let all2 = arc(AllPass::new(all1.tag(), ALLPASS_TUNING_2));
+        let all3 = arc(AllPass::new(all2.tag(), ALLPASS_TUNING_3));
+        let all4 = arc(AllPass::new(all3.tag(), ALLPASS_TUNING_4));
         let rack = Rack::new(vec![
-            input,
-            comb1,
-            comb2,
-            comb3,
-            comb4,
-            comb5,
-            comb6,
-            comb7,
-            comb8,
-            combs,
-            all1,
-            all2,
-            all3,
+            input, comb1, comb2, comb3, comb4, comb5, comb6, comb7, comb8, combs, all1, all2, all3,
             all4,
         ]);
         Freeverb {
@@ -93,10 +79,6 @@ impl Freeverb {
             room_size: 0.5,
             frozen: false,
         }
-    }
-
-    pub fn wrapped(wave: Tag) -> ArcMutex<Self> {
-        arc(Freeverb::new(wave))
     }
 
     pub fn set_dampening(&mut self, value: Real) {
