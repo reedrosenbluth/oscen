@@ -31,7 +31,7 @@ struct Midi {
 }
 
 struct Synth {
-    midi: ArcMutex<Midi>,
+    midi: Midi,
     midi_receiver: Receiver<Vec<u8>>,
     voice: Rack,
     adsr_tag: Tag,
@@ -81,10 +81,10 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     ]);
 
     Synth {
-        midi: arc(Midi {
+        midi: Midi {
             midi_pitch,
             midi_controls: vec![midi_volume],
-        }),
+        },
         midi_receiver,
         voice: graph,
         adsr_tag,
@@ -145,8 +145,6 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
             if message[0] == 144 {
                 &synth
                     .midi
-                    .lock()
-                    .unwrap()
                     .midi_pitch
                     .lock()
                     .unwrap()
@@ -155,7 +153,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
             } else if message[0] == 128 {
                 off(&synth.voice, adsr_tag);
             } else if message[0] == 176 {
-                for c in &synth.midi.lock().unwrap().midi_controls {
+                for c in &synth.midi.midi_controls {
                     let mut control = c.lock().unwrap();
                     if control.controller == message[1] {
                         control.set_value(message[2]);
