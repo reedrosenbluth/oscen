@@ -21,10 +21,10 @@ impl MidiPitch {
             step: 0.0,
         }
     }
+}
 
-    pub fn set_step(&mut self, step: f32) {
-        self.step = step;
-    }
+pub fn set_step(m: ArcMutex<MidiPitch>, step: f32) {
+    m.lock().unwrap().step = step;
 }
 
 impl Signal for MidiPitch {

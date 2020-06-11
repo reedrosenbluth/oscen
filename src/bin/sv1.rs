@@ -7,7 +7,7 @@ use nannou_audio::Buffer;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
 use swell::filters::Lpf;
-use swell::midi::{listen_midi, MidiControl, MidiPitch};
+use swell::midi::{listen_midi, MidiControl, MidiPitch, set_step};
 use swell::operators::{Mixer, Modulator, Vca};
 use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
 use swell::signal::{arc, ArcMutex, Rack, Real, Signal, Tag, Builder};
@@ -231,12 +231,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
         if message.len() == 3 {
             let midi_step = message[1] as f32;
             if message[0] == 144 {
-                &synth
-                    .midi
-                    .midi_pitch
-                    .lock()
-                    .unwrap()
-                    .set_step(midi_step);
+                set_step(synth.midi.midi_pitch.clone(), midi_step);
                 on(&synth.voice, adsr_tag);
             } else if message[0] == 128 {
                 off(&synth.voice, adsr_tag);

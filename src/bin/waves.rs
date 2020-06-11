@@ -6,11 +6,11 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
-use swell::signal::{arc, ArcMutex, Rack, Real, Signal, Tag, connect, Builder};
-use swell::midi::{listen_midi, MidiControl, MidiPitch};
-use swell::operators::{Union, Vca, Lerp};
-use swell::oscillators::{SineOsc, TriangleOsc, square_wave};
+use swell::midi::{listen_midi, set_step, MidiControl, MidiPitch};
+use swell::operators::{Lerp, Union, Vca};
+use swell::oscillators::{square_wave, SineOsc, TriangleOsc};
 use swell::shaping::{SineFold, Tanh};
+use swell::signal::{arc, connect, ArcMutex, Builder, Rack, Real, Signal, Tag};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -143,12 +143,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
         if message.len() == 3 {
             let step = message[1] as f32;
             if message[0] == 144 {
-                &synth
-                    .midi
-                    .midi_pitch
-                    .lock()
-                    .unwrap()
-                    .set_step(step);
+                set_step(synth.midi.midi_pitch.clone(), step);
                 on(&synth.voice, adsr_tag);
             } else if message[0] == 128 {
                 off(&synth.voice, adsr_tag);
