@@ -1,5 +1,5 @@
 use super::signal::*;
-use crate::{std_signal, as_any_mut, impl_set};
+use crate::{std_signal, as_any_mut};
 use std::{
     any::Any,
     ops::{Index, IndexMut},
@@ -130,8 +130,6 @@ impl IndexMut<&str> for Adsr {
         }
     }
 }
-
-impl_set!(Adsr);
 
 pub fn on(rack: &Rack, n: Tag) {
     if let Some(v) = rack.nodes[&n]

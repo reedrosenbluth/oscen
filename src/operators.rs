@@ -1,5 +1,5 @@
 use super::signal::*;
-use crate::{as_any_mut, impl_set, std_signal};
+use crate::{as_any_mut, std_signal};
 use std::any::Any;
 use std::ops::{Index, IndexMut};
 
@@ -251,8 +251,6 @@ impl IndexMut<&str> for Lerp {
     }
 }
 
-impl_set!(Lerp);
-
 pub fn set_alpha(rack: &Rack, k: In, a: Real) {
     match k {
         In::Cv(n) => {
@@ -343,8 +341,6 @@ impl IndexMut<&str> for Lerp3 {
     }
 }
 
-impl_set!(Lerp3);
-
 pub fn set_knob(rack: &Rack, n: Tag, k: Real) {
     if let Some(v) = rack.nodes[&n]
         .module
@@ -431,5 +427,3 @@ impl IndexMut<&str> for Modulator {
         }
     }
 }
-
-impl_set!(Modulator);

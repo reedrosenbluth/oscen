@@ -196,11 +196,11 @@ impl Rack {
     }
 
     /// Retrieve a node from the rack and convert to an `Any` for downcasting.
-    pub fn get_node(&mut self, n: Tag) -> &mut dyn Any {
-        self.nodes
-            .get_mut(&n)
-            .expect("Tried to get a node that is not in the rack.")
-    }
+    // pub fn get_node(&mut self, n: Tag) -> &mut dyn Any {
+    //     self.nodes
+    //         .get_mut(&n)
+    //         .expect("Tried to get a node that is not in the rack.")
+    // }
 
     /// Convenience function get the `Tag` of the final node in the `Rack`.
     pub fn out_tag(&self) -> Tag {
@@ -256,26 +256,6 @@ impl Rack {
         }
         self.nodes[&self.out_tag()].output
     }
-}
-
-//TODO: return Result struct indicating success or failure
-pub trait Set<'a>: IndexMut<&'a str> {
-    fn set(rack: &mut Rack, n: Tag, field: &str, value: In);
-}
-
-// It would be nice to have a default implementation for `Set` but since the
-// size of `Self` is not known at compile time, this macro is the best we can do.
-#[macro_export]
-macro_rules! impl_set {
-    ($t: ty) => {
-        impl<'a> Set<'a> for $t {
-            fn set(rack: &mut Rack, n: Tag, field: &str, value: In) {
-                if let Some(v) = rack.get_node(n).downcast_mut::<Self>() {
-                    v[field] = value;
-                }
-            }
-        }
-    };
 }
 
 #[macro_export]
@@ -341,7 +321,6 @@ impl IndexMut<&str> for Link {
     }
 }
 
-impl_set!(Link);
 
 /// Given f(0) = low, f(1/2) = mid, and f(1) = high, let f(x) = a + b*exp(cs).
 /// Fit a, b, and c so to match the above. If mid < 1/2(high + low) then f is

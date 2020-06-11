@@ -26,6 +26,7 @@ const ALLPASS_TUNING_4: usize = 225;
 pub struct Freeverb {
     pub tag: Tag,
     pub wave: Tag,
+    input: ArcMutex<Link>,
     rack: Rack,
     wet_gain: Real,
     wet: Real,
@@ -63,12 +64,25 @@ impl Freeverb {
         let all3 = arc(AllPass::new(all2.tag(), ALLPASS_TUNING_3));
         let all4 = arc(AllPass::new(all3.tag(), ALLPASS_TUNING_4));
         let rack = Rack::new(vec![
-            input, comb1, comb2, comb3, comb4, comb5, comb6, comb7, comb8, combs, all1, all2, all3,
+            input.clone(),
+            comb1,
+            comb2,
+            comb3,
+            comb4,
+            comb5,
+            comb6,
+            comb7,
+            comb8,
+            combs,
+            all1,
+            all2,
+            all3,
             all4,
         ]);
         Freeverb {
             tag: mk_tag(),
             wave,
+            input,
             rack,
             wet_gain: 0.5,
             wet: 1.0,
@@ -124,8 +138,18 @@ impl Freeverb {
         };
 
         for o in self.rack.order.clone().iter_mut() {
-            Comb::set(&mut self.rack, *o, "feedback", feedback.into());
-            Comb::set(&mut self.rack, *o, "damping", dampening.into());
+            if let Some(v) = self
+                .rack
+                .nodes
+                .get_mut(o)
+                .unwrap()
+                .module
+                .as_any_mut()
+                .downcast_mut::<Comb>()
+            {
+                v.feedback = feedback.into();
+                v.dampening = dampening.into();
+            }
         }
     }
 
@@ -138,7 +162,7 @@ impl Signal for Freeverb {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let inp = rack.output(self.wave);
-        Link::set(&mut self.rack, self.wave, "value", inp.into());
+        self.input.lock().unwrap().value = inp.into();
         let out = self.rack.signal(sample_rate);
         out * self.wet_gain + inp * self.dry
     }

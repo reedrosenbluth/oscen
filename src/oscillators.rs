@@ -1,5 +1,5 @@
 use super::signal::*;
-use crate::{as_any_mut, impl_set, std_signal};
+use crate::{as_any_mut, std_signal};
 use math::round::floor;
 use rand::distributions::Uniform;
 use rand::prelude::*;
@@ -88,8 +88,6 @@ impl IndexMut<&str> for SineOsc {
     }
 }
 
-impl_set!(SineOsc);
-
 /// Saw wave oscillator.
 #[derive(Copy, Clone)]
 pub struct SawOsc {
@@ -175,8 +173,6 @@ impl IndexMut<&str> for SawOsc {
     }
 }
 
-impl_set!(SawOsc);
-
 /// Triangle wave oscillator.
 #[derive(Copy, Clone)]
 pub struct TriangleOsc {
@@ -257,8 +253,6 @@ impl IndexMut<&str> for TriangleOsc {
         }
     }
 }
-
-impl_set!(TriangleOsc);
 
 /// Square wave oscillator with a `duty_cycle` that takes values in (0, 1).
 #[derive(Copy, Clone)]
@@ -349,8 +343,6 @@ impl IndexMut<&str> for SquareOsc {
     }
 }
 
-impl_set!(SquareOsc);
-
 #[derive(Copy, Clone)]
 pub struct WhiteNoise {
     pub tag: Tag,
@@ -403,8 +395,6 @@ impl IndexMut<&str> for WhiteNoise {
         }
     }
 }
-
-impl_set!(WhiteNoise);
 
 /// An oscillator used to modulate parameters that take values between 0 and 1,
 /// based on a sinusoid.
@@ -475,8 +465,6 @@ impl IndexMut<&str> for Osc01 {
         }
     }
 }
-
-impl_set!(Osc01);
 
 fn sinc(x: Real) -> Real {
     if x == 0.0 {
@@ -582,8 +570,6 @@ impl IndexMut<&str> for FourierOsc {
     }
 }
 
-impl_set!(FourierOsc);
-
 pub fn square_wave(n: u32, lanczos: bool) -> FourierOsc {
     let mut coefficients: Vec<Real> = Vec::new();
     for i in 0..=n {
@@ -607,14 +593,4 @@ pub fn triangle_wave(n: u32, lanczos: bool) -> FourierOsc {
         }
     }
     FourierOsc::new(coefficients.as_ref(), lanczos)
-}
-
-/// "pattern match" node on each oscillator type and set hz
-pub fn set_hz(rack: &mut Rack, n: Tag, hz: In) {
-    SineOsc::set(rack, n, "hz", hz);
-    SawOsc::set(rack, n, "hz", hz);
-    TriangleOsc::set(rack, n, "hz", hz);
-    SquareOsc::set(rack, n, "hz", hz);
-    Osc01::set(rack, n, "hz", hz);
-    FourierOsc::set(rack, n, "hz", hz);
 }
