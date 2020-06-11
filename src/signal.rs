@@ -32,6 +32,25 @@ pub trait Signal: Any {
     fn tag(&self) -> Tag;
 }
 
+#[macro_export]
+macro_rules! as_any_mut {
+   () => {
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! std_signal {
+    () => {
+        as_any_mut!();
+        fn tag(&self) -> Tag {
+            self.tag
+        }
+    };
+}
+
 /// Signals typically need to decalare that they are `Send` so that they are
 /// thread safe.
 pub type Sig = dyn Signal + Send;
@@ -46,10 +65,7 @@ impl<T> Signal for ArcMutex<T>
 where
     T: Signal,
 {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         self.lock().unwrap().signal(rack, sample_rate)
     }
@@ -60,10 +76,7 @@ where
 }
 
 impl Signal for ArcMutex<dyn Signal + Send> {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         self.lock().unwrap().signal(rack, sample_rate)
     }
@@ -161,10 +174,7 @@ impl Node {
 }
 
 impl Signal for Node {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         self.module.signal(rack, sample_rate)
     }
@@ -194,13 +204,6 @@ impl Rack {
         }
         Rack { nodes, order }
     }
-
-    /// Retrieve a node from the rack and convert to an `Any` for downcasting.
-    // pub fn get_node(&mut self, n: Tag) -> &mut dyn Any {
-    //     self.nodes
-    //         .get_mut(&n)
-    //         .expect("Tried to get a node that is not in the rack.")
-    // }
 
     /// Convenience function get the `Tag` of the final node in the `Rack`.
     pub fn out_tag(&self) -> Tag {
@@ -256,25 +259,6 @@ impl Rack {
         }
         self.nodes[&self.out_tag()].output
     }
-}
-
-#[macro_export]
-macro_rules! as_any_mut {
-   () => {
-        fn as_any_mut(&mut self) -> &mut dyn Any {
-            self
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! std_signal {
-    () => {
-        as_any_mut!();
-        fn tag(&self) -> Tag {
-            self.tag
-        }
-    };
 }
 /// Use to connect subracks to the main rack. Simply store the value of the
 /// input node from the main rack as a connect node, which will be the first

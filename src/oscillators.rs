@@ -475,7 +475,6 @@ fn sinc(x: Real) -> Real {
 
 /// Fourier series approximation for an oscillator. Optionally applies Lanczos Sigma
 /// factor to eliminate ringing due to Gibbs phenomenon.
-
 #[derive(Clone)]
 pub struct FourierOsc {
     pub tag: Tag,
