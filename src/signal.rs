@@ -205,6 +205,13 @@ impl Rack {
         Rack { nodes, order }
     }
 
+    pub fn iter<'a>(&'a self) -> Iter<'a> {
+        Iter {
+            rack: self,
+            index: 0,
+        }
+    }
+
     /// Convenience function get the `Tag` of the final node in the `Rack`.
     pub fn out_tag(&self) -> Tag {
         let n = self.nodes.len() - 1;
@@ -245,14 +252,8 @@ impl Rack {
     /// returned.
     pub fn signal(&mut self, sample_rate: Real) -> Real {
         let mut outs: Vec<Real> = Vec::new();
-        for o in self.order.iter() {
-            outs.push(
-                self.nodes[o]
-                    .module
-                    .lock()
-                    .unwrap()
-                    .signal(&self, sample_rate),
-            );
+        for node in self.iter() {
+            outs.push(node.module.lock().unwrap().signal(&self, sample_rate))
         }
         for (i, o) in self.order.iter().enumerate() {
             self.nodes.get_mut(o).unwrap().output = outs[i];
@@ -260,6 +261,32 @@ impl Rack {
         self.nodes[&self.out_tag()].output
     }
 }
+
+pub struct Iter<'a> {
+    rack: &'a Rack,
+    index: usize,
+}
+
+impl<'a> IntoIterator for &'a Rack {
+    type Item = &'a Node;
+    type IntoIter = Iter<'a>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = &'a Node;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.rack.order.len() {
+            return None;
+        }
+        let tag = self.rack.order[self.index];
+        self.index += 1;
+        self.rack.nodes.get(&tag)
+    }
+}
+
 /// Use to connect subracks to the main rack. Simply store the value of the
 /// input node from the main rack as a connect node, which will be the first
 /// node in the subrack.
@@ -304,7 +331,6 @@ impl IndexMut<&str> for Link {
         }
     }
 }
-
 
 /// Given f(0) = low, f(1/2) = mid, and f(1) = high, let f(x) = a + b*exp(cs).
 /// Fit a, b, and c so to match the above. If mid < 1/2(high + low) then f is
