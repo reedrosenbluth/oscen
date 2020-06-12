@@ -1,3 +1,4 @@
+use approx::relative_eq;
 use std::{
     any::Any,
     collections::HashMap,
@@ -5,7 +6,6 @@ use std::{
     ops::{Index, IndexMut},
     sync::{Arc, Mutex},
 };
-use approx::relative_eq;
 
 use uuid::Uuid;
 
@@ -32,6 +32,25 @@ pub trait Signal: Any {
     fn tag(&self) -> Tag;
 }
 
+#[macro_export]
+macro_rules! as_any_mut {
+   () => {
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! std_signal {
+    () => {
+        as_any_mut!();
+        fn tag(&self) -> Tag {
+            self.tag
+        }
+    };
+}
+
 /// Signals typically need to decalare that they are `Send` so that they are
 /// thread safe.
 pub type Sig = dyn Signal + Send;
@@ -46,10 +65,7 @@ impl<T> Signal for ArcMutex<T>
 where
     T: Signal,
 {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         self.lock().unwrap().signal(rack, sample_rate)
     }
@@ -60,10 +76,7 @@ where
 }
 
 impl Signal for ArcMutex<dyn Signal + Send> {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         self.lock().unwrap().signal(rack, sample_rate)
     }
@@ -73,6 +86,21 @@ impl Signal for ArcMutex<dyn Signal + Send> {
     }
 }
 
+pub trait Builder {
+    fn build(&mut self) -> Self
+    where
+        Self: Sized + Clone,
+    {
+        self.clone()
+    }
+
+    fn wrap(&mut self) -> ArcMutex<Self>
+    where
+        Self: Sized + Clone,
+    {
+        arc(self.clone())
+    }
+}
 /// Inputs to synth modules can either be constant (`Fix`) or a control voltage
 /// from another synth module (`Cv`).
 #[derive(Copy, Clone, Debug)]
@@ -123,7 +151,7 @@ impl Default for In {
 pub fn connect<T, U>(source: &T, dest: &mut U, field: &'static str)
 where
     T: Signal,
-    U: Index<&'static str, Output=In> + IndexMut<&'static str>,
+    U: Index<&'static str, Output = In> + IndexMut<&'static str>,
 {
     dest[field] = source.tag().into();
 }
@@ -146,10 +174,7 @@ impl Node {
 }
 
 impl Signal for Node {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
+    as_any_mut!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         self.module.signal(rack, sample_rate)
     }
@@ -180,11 +205,11 @@ impl Rack {
         Rack { nodes, order }
     }
 
-    /// Retrieve a node from the rack and convert to an `Any` for downcasting.
-    pub fn get_node(&mut self, n: Tag) -> &mut dyn Any {
-        self.nodes
-            .get_mut(&n)
-            .expect("Tried to get a node that is not in the rack.")
+    pub fn iter<'a>(&'a self) -> Iter<'a> {
+        Iter {
+            rack: self,
+            index: 0,
+        }
     }
 
     /// Convenience function get the `Tag` of the final node in the `Rack`.
@@ -227,14 +252,8 @@ impl Rack {
     /// returned.
     pub fn signal(&mut self, sample_rate: Real) -> Real {
         let mut outs: Vec<Real> = Vec::new();
-        for o in self.order.iter() {
-            outs.push(
-                self.nodes[o]
-                    .module
-                    .lock()
-                    .unwrap()
-                    .signal(&self, sample_rate),
-            );
+        for node in self.iter() {
+            outs.push(node.module.lock().unwrap().signal(&self, sample_rate))
         }
         for (i, o) in self.order.iter().enumerate() {
             self.nodes.get_mut(o).unwrap().output = outs[i];
@@ -243,44 +262,31 @@ impl Rack {
     }
 }
 
-//TODO: return Result struct indicating success or failure
-pub trait Set<'a>: IndexMut<&'a str> {
-    fn set(rack: &mut Rack, n: Tag, field: &str, value: In);
+pub struct Iter<'a> {
+    rack: &'a Rack,
+    index: usize,
 }
 
-// It would be nice to have a default implementation for `Set` but since the
-// size of `Self` is not known at compile time, this macro is the best we can do.
-#[macro_export]
-macro_rules! impl_set {
-    ($t: ty) => {
-        impl<'a> Set<'a> for $t {
-            fn set(rack: &mut Rack, n: Tag, field: &str, value: In) {
-                if let Some(v) = rack.get_node(n).downcast_mut::<Self>() {
-                    v[field] = value;
-                }
-            }
-        }
-    };
+impl<'a> IntoIterator for &'a Rack {
+    type Item = &'a Node;
+    type IntoIter = Iter<'a>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
-#[macro_export]
-macro_rules! as_any_mut {
-   () => {
-        fn as_any_mut(&mut self) -> &mut dyn Any {
-            self
+impl<'a> Iterator for Iter<'a> {
+    type Item = &'a Node;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.rack.order.len() {
+            return None;
         }
-    };
+        let tag = self.rack.order[self.index];
+        self.index += 1;
+        self.rack.nodes.get(&tag)
+    }
 }
 
-#[macro_export]
-macro_rules! std_signal {
-    () => {
-        as_any_mut!();
-        fn tag(&self) -> Tag {
-            self.tag
-        }
-    };
-}
 /// Use to connect subracks to the main rack. Simply store the value of the
 /// input node from the main rack as a connect node, which will be the first
 /// node in the subrack.
@@ -296,10 +302,6 @@ impl Link {
             tag: mk_tag(),
             value: In::zero(),
         }
-    }
-
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
     }
 }
 
@@ -330,15 +332,12 @@ impl IndexMut<&str> for Link {
     }
 }
 
-impl_set!(Link);
-
 /// Given f(0) = low, f(1/2) = mid, and f(1) = high, let f(x) = a + b*exp(cs).
 /// Fit a, b, and c so to match the above. If mid < 1/2(high + low) then f is
 /// convex, if equal f is linear, if great then f is concave.
-pub fn exp_interp(low: Real, mid: Real, high: Real, x: Real) -> Real
-{
+pub fn exp_interp(low: Real, mid: Real, high: Real, x: Real) -> Real {
     if relative_eq!(2.0 * mid, high + low) {
-        return low + (high - low) * x
+        return low + (high - low) * x;
     }
     let b = (mid - low) * (mid - low) / (high - 2.0 * mid + low);
     let a = low - b;

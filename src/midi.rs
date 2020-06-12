@@ -21,14 +21,10 @@ impl MidiPitch {
             step: 0.0,
         }
     }
+}
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
-    }
-
-    pub fn set_step(&mut self, step: f32) {
-        self.step = step;
-    }
+pub fn set_step(m: ArcMutex<MidiPitch>, step: f32) {
+    m.lock().unwrap().step = step;
 }
 
 impl Signal for MidiPitch {
@@ -63,10 +59,6 @@ impl MidiControl {
     fn map_range(&self, input: Real) -> Real {
         let x = input / 127.0;
         exp_interp(self.low, self.mid, self.high, x)
-    }
-
-    pub fn wrapped(controller: u8, value: u8, low: Real, mid: Real, high: Real) -> ArcMutex<Self> {
-        arc(Self::new(controller, value, low, mid, high))
     }
 
     pub fn set_value(&mut self, value: u8) {

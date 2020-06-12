@@ -1,5 +1,5 @@
 use super::signal::*;
-use crate::{std_signal, as_any_mut, impl_set};
+use crate::{as_any_mut, std_signal};
 use std::any::Any;
 use std::ops::{Index, IndexMut};
 
@@ -22,10 +22,13 @@ impl Union {
         }
     }
 
-    pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
-        arc(Union::new(waves))
+    pub fn level(&mut self, arg: In) -> &mut Self {
+        self.level = arg;
+        self
     }
 }
+
+impl Builder for Union {}
 
 impl Signal for Union {
     std_signal!();
@@ -60,11 +63,9 @@ impl Product {
             waves,
         }
     }
-
-    pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
-        arc(Product::new(waves))
-    }
 }
+
+impl Builder for Product {}
 
 impl Signal for Product {
     std_signal!();
@@ -87,7 +88,7 @@ impl IndexMut<usize> for Product {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Vca {
     pub tag: Tag,
     pub wave: Tag,
@@ -95,18 +96,21 @@ pub struct Vca {
 }
 
 impl Vca {
-    pub fn new(wave: Tag, level: In) -> Self {
+    pub fn new(wave: Tag) -> Self {
         Self {
             tag: mk_tag(),
             wave,
-            level: level,
+            level: In::one(),
         }
     }
 
-    pub fn wrapped(wave: Tag, level: In) -> ArcMutex<Self> {
-        arc(Self::new(wave, level))
+    pub fn level(&mut self, arg: In) -> &mut Self {
+        self.level = arg;
+        self
     }
 }
+
+impl Builder for Vca {}
 
 impl Signal for Vca {
     std_signal!();
@@ -153,11 +157,19 @@ impl Mixer {
             level: In::one(),
         }
     }
+    
+    pub fn levels(&mut self, arg: Vec<In>) -> &mut Self {
+        self.levels = arg;
+        self
+    }
 
-    pub fn wrapped(waves: Vec<Tag>) -> ArcMutex<Self> {
-        arc(Mixer::new(waves))
+    pub fn level(&mut self, arg: In) -> &mut Self {
+        self.level = arg;
+        self
     }
 }
+
+impl Builder for Mixer {}
 
 impl Signal for Mixer {
     std_signal!();
@@ -181,7 +193,7 @@ impl IndexMut<usize> for Mixer {
         &mut self.waves[index]
     }
 }
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Lerp {
     pub tag: Tag,
     pub wave1: In,
@@ -199,10 +211,13 @@ impl Lerp {
         }
     }
 
-    pub fn wrapped(wave1: Tag, wave2: Tag) -> ArcMutex<Self> {
-        arc(Self::new(wave1, wave2))
+    pub fn alpha(&mut self, arg: In) -> &mut Self {
+        self.alpha = arg;
+        self
     }
 }
+
+impl Builder for Lerp {}
 
 impl Signal for Lerp {
     std_signal!();
@@ -236,8 +251,6 @@ impl IndexMut<&str> for Lerp {
     }
 }
 
-impl_set!(Lerp);
-
 pub fn set_alpha(rack: &Rack, k: In, a: Real) {
     match k {
         In::Cv(n) => {
@@ -255,6 +268,7 @@ pub fn set_alpha(rack: &Rack, k: In, a: Real) {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct Lerp3 {
     pub tag: Tag,
     pub lerp1: In,
@@ -272,8 +286,9 @@ impl Lerp3 {
         }
     }
 
-    pub fn wrapped(lerp1: Tag, lerp2: Tag, knob: In) -> ArcMutex<Self> {
-        arc(Self::new(lerp1, lerp2, knob))
+    pub fn knob(&mut self, arg: In) -> &mut Self {
+        self.knob = arg;
+        self
     }
 
     pub fn set_alphas(&mut self, rack: &Rack) {
@@ -287,6 +302,8 @@ impl Lerp3 {
         }
     }
 }
+
+impl Builder for Lerp3 {}
 
 impl Signal for Lerp3 {
     std_signal!();
@@ -324,8 +341,6 @@ impl IndexMut<&str> for Lerp3 {
     }
 }
 
-impl_set!(Lerp3);
-
 pub fn set_knob(rack: &Rack, n: Tag, k: Real) {
     if let Some(v) = rack.nodes[&n]
         .module
@@ -339,6 +354,7 @@ pub fn set_knob(rack: &Rack, n: Tag, k: Real) {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct Modulator {
     pub tag: Tag,
     pub wave: In,
@@ -348,20 +364,33 @@ pub struct Modulator {
 }
 
 impl Modulator {
-    pub fn new(wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> Self {
+    pub fn new(wave: Tag) -> Self {
         Modulator {
             tag: mk_tag(),
             wave: wave.into(),
-            base_hz,
-            mod_hz,
-            mod_idx,
+            base_hz: In::zero(),
+            mod_hz: In::zero(),
+            mod_idx: In::zero(),
         }
     }
 
-    pub fn wrapped(wave: Tag, base_hz: In, mod_hz: In, mod_idx: In) -> ArcMutex<Self> {
-        arc(Modulator::new(wave, base_hz, mod_hz, mod_idx))
+    pub fn base_hz(&mut self, arg: In) -> &mut Self {
+        self.base_hz = arg;
+        self
+    }
+
+    pub fn mod_hz(&mut self, arg: In) -> &mut Self {
+        self.mod_hz = arg;
+        self
+    }
+
+    pub fn mod_idx(&mut self, arg: In) -> &mut Self {
+        self.mod_idx = arg;
+        self
     }
 }
+
+impl Builder for Modulator {}
 
 impl Signal for Modulator {
     std_signal!();
@@ -398,5 +427,3 @@ impl IndexMut<&str> for Modulator {
         }
     }
 }
-
-impl_set!(Modulator);

@@ -1,11 +1,11 @@
 use super::signal::*;
-use crate::{std_signal, as_any_mut, impl_set};
+use crate::{std_signal, as_any_mut};
 use std::{
     any::Any,
     ops::{Index, IndexMut},
 };
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Adsr {
     pub tag: Tag,
     pub attack: In,
@@ -18,21 +18,37 @@ pub struct Adsr {
 }
 
 impl Adsr {
-    pub fn new(attack: Real, decay: Real, sustain: Real, release: Real) -> Self {
+    pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            attack: attack.into(),
-            decay: decay.into(),
-            sustain: sustain.into(),
-            release: release.into(),
+            attack: (0.01).into(),
+            decay: In::zero(),
+            sustain: In::one(),
+            release: (0.1).into(),
             clock: 0.0,
             triggered: false,
             level: 0.0,
         }
     }
 
-    pub fn wrapped(attack: Real, decay: Real, sustain: Real, release: Real) -> ArcMutex<Self> {
-        arc(Self::new(attack, decay, sustain, release))
+    pub fn attack(&mut self, arg: In) -> &mut Self {
+        self.attack = arg;
+        self
+    }
+
+    pub fn decay(&mut self, arg: In) -> &mut Self {
+        self.decay = arg;
+        self
+    }
+    
+    pub fn sustain(&mut self, arg: In) -> &mut Self {
+        self.sustain = arg;
+        self
+    }
+
+    pub fn release(&mut self, arg: In) -> &mut Self {
+        self.release = arg;
+        self
     }
 
     pub fn calc_level(&self, rack: &Rack) -> Real {
@@ -77,6 +93,8 @@ impl Adsr {
     }
 }
 
+impl Builder for Adsr {}
+
 impl Signal for Adsr {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
@@ -112,8 +130,6 @@ impl IndexMut<&str> for Adsr {
         }
     }
 }
-
-impl_set!(Adsr);
 
 pub fn on(rack: &Rack, n: Tag) {
     if let Some(v) = rack.nodes[&n]

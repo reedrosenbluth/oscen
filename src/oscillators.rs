@@ -1,5 +1,5 @@
 use super::signal::*;
-use crate::{as_any_mut, impl_set, std_signal};
+use crate::{as_any_mut, std_signal};
 use math::round::floor;
 use rand::distributions::Uniform;
 use rand::prelude::*;
@@ -28,19 +28,23 @@ impl SineOsc {
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {
-            tag: mk_tag(),
-            hz,
-            amplitude: In::one(),
-            phase: In::zero(),
-        }
+    pub fn hz(&mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
+    }
+
+    pub fn phase(&mut self, arg: In) -> &mut Self {
+        self.phase = arg;
+        self
     }
 }
+
+impl Builder for SineOsc {}
 
 impl Signal for SineOsc {
     std_signal!();
@@ -84,8 +88,6 @@ impl IndexMut<&str> for SineOsc {
     }
 }
 
-impl_set!(SineOsc);
-
 /// Saw wave oscillator.
 #[derive(Copy, Clone)]
 pub struct SawOsc {
@@ -105,19 +107,23 @@ impl SawOsc {
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {
-            tag: mk_tag(),
-            hz,
-            amplitude: In::one(),
-            phase: In::zero(),
-        }
+    pub fn hz(&mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
+    }
+
+    pub fn phase(&mut self, arg: In) -> &mut Self {
+        self.phase = arg;
+        self
     }
 }
+
+impl Builder for SawOsc {}
 
 impl Signal for SawOsc {
     std_signal!();
@@ -167,8 +173,6 @@ impl IndexMut<&str> for SawOsc {
     }
 }
 
-impl_set!(SawOsc);
-
 /// Triangle wave oscillator.
 #[derive(Copy, Clone)]
 pub struct TriangleOsc {
@@ -188,19 +192,23 @@ impl TriangleOsc {
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {
-            tag: mk_tag(),
-            hz,
-            amplitude: In::one(),
-            phase: In::zero(),
-        }
+    pub fn hz(&mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
+    }
+
+    pub fn phase(&mut self, arg: In) -> &mut Self {
+        self.phase = arg;
+        self
     }
 }
+
+impl Builder for TriangleOsc {}
 
 impl Signal for TriangleOsc {
     std_signal!();
@@ -246,8 +254,6 @@ impl IndexMut<&str> for TriangleOsc {
     }
 }
 
-impl_set!(TriangleOsc);
-
 /// Square wave oscillator with a `duty_cycle` that takes values in (0, 1).
 #[derive(Copy, Clone)]
 pub struct SquareOsc {
@@ -269,20 +275,23 @@ impl SquareOsc {
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {
-            tag: mk_tag(),
-            hz,
-            amplitude: In::one(),
-            phase: In::zero(),
-            duty_cycle: (0.5).into(),
-        }
+    pub fn hz(&mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
+    }
+
+    pub fn phase(&mut self, arg: In) -> &mut Self {
+        self.phase = arg;
+        self
     }
 }
+
+impl Builder for SquareOsc {}
 
 impl Signal for SquareOsc {
     std_signal!();
@@ -334,9 +343,7 @@ impl IndexMut<&str> for SquareOsc {
     }
 }
 
-impl_set!(SquareOsc);
-
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct WhiteNoise {
     pub tag: Tag,
     pub amplitude: In,
@@ -352,10 +359,13 @@ impl WhiteNoise {
         }
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
     }
 }
+
+impl Builder for WhiteNoise {}
 
 impl Signal for WhiteNoise {
     std_signal!();
@@ -386,8 +396,6 @@ impl IndexMut<&str> for WhiteNoise {
     }
 }
 
-impl_set!(WhiteNoise);
-
 /// An oscillator used to modulate parameters that take values between 0 and 1,
 /// based on a sinusoid.
 #[derive(Copy, Clone)]
@@ -406,18 +414,18 @@ impl Osc01 {
         }
     }
 
-    pub fn with_hz(hz: In) -> Self {
-        Self {
-            tag: mk_tag(),
-            hz,
-            phase: In::zero(),
-        }
+    pub fn hz(&mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
     }
 
-    pub fn wrapped() -> ArcMutex<Self> {
-        arc(Self::new())
+    pub fn phase(&mut self, arg: In) -> &mut Self {
+        self.phase = arg;
+        self
     }
 }
+
+impl Builder for Osc01 {}
 
 impl Signal for Osc01 {
     std_signal!();
@@ -458,8 +466,6 @@ impl IndexMut<&str> for Osc01 {
     }
 }
 
-impl_set!(Osc01);
-
 fn sinc(x: Real) -> Real {
     if x == 0.0 {
         return 1.0;
@@ -469,6 +475,7 @@ fn sinc(x: Real) -> Real {
 
 /// Fourier series approximation for an oscillator. Optionally applies Lanczos Sigma
 /// factor to eliminate ringing due to Gibbs phenomenon.
+#[derive(Clone)]
 pub struct FourierOsc {
     pub tag: Tag,
     pub hz: In,
@@ -495,19 +502,32 @@ impl FourierOsc {
             lanczos,
         }
     }
+
+    pub fn hz(&mut self, arg: In) -> &mut Self {
+        self.hz = arg;
+        self
+    }
+
+    pub fn amplitude(&mut self, arg: In) -> &mut Self {
+        self.amplitude = arg;
+        self
+    }
+
+    pub fn lanczos(&mut self, arg: bool) -> &mut Self {
+        self.lanczos = arg;
+        self
+    }
 }
+
+impl Builder for FourierOsc {}
 
 impl Signal for FourierOsc {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let hz = In::val(rack, self.hz);
         let amp = In::val(rack, self.amplitude);
-        for (n, o) in self.sines.order.iter().enumerate() {
-            if let Some(v) = self
-                .sines
-                .nodes
-                .get_mut(o)
-                .unwrap()
+        for (n, node) in self.sines.iter().enumerate() {
+            if let Some(v) = node
                 .module
                 .lock()
                 .unwrap()
@@ -545,8 +565,6 @@ impl IndexMut<&str> for FourierOsc {
     }
 }
 
-impl_set!(FourierOsc);
-
 pub fn square_wave(n: u32, lanczos: bool) -> FourierOsc {
     let mut coefficients: Vec<Real> = Vec::new();
     for i in 0..=n {
@@ -570,14 +588,4 @@ pub fn triangle_wave(n: u32, lanczos: bool) -> FourierOsc {
         }
     }
     FourierOsc::new(coefficients.as_ref(), lanczos)
-}
-
-/// "pattern match" node on each oscillator type and set hz
-pub fn set_hz(rack: &mut Rack, n: Tag, hz: In) {
-    SineOsc::set(rack, n, "hz", hz);
-    SawOsc::set(rack, n, "hz", hz);
-    TriangleOsc::set(rack, n, "hz", hz);
-    SquareOsc::set(rack, n, "hz", hz);
-    Osc01::set(rack, n, "hz", hz);
-    FourierOsc::set(rack, n, "hz", hz);
 }

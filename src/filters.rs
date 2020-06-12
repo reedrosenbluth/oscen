@@ -1,5 +1,5 @@
 use super::signal::*;
-use crate::{std_signal, as_any_mut, impl_set};
+use crate::{as_any_mut, std_signal};
 use std::any::Any;
 use std::{
     f64::consts::PI,
@@ -54,7 +54,7 @@ impl Signal for Lpf {
         self.x2 = self.x1;
         self.x1 = x0;
         self.y2 = self.y1;
-        self.y1 = if amp.is_nan() {0.0} else {amp};
+        self.y1 = if amp.is_nan() { 0.0 } else { amp };
         amp
     }
 }
@@ -81,16 +81,28 @@ impl IndexMut<&str> for Lpf {
     }
 }
 
-impl_set!(Lpf);
-
 pub fn lpf_on(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack.get_node(n).downcast_mut::<Lpf>() {
+    if let Some(v) = rack
+        .nodes
+        .get_mut(&n)
+        .unwrap()
+        .module
+        .as_any_mut()
+        .downcast_mut::<Lpf>()
+    {
         v.off = false;
     }
 }
 
 pub fn lpf_off(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack.get_node(n).downcast_mut::<Lpf>() {
+    if let Some(v) = rack
+        .nodes
+        .get_mut(&n)
+        .unwrap()
+        .module
+        .as_any_mut()
+        .downcast_mut::<Lpf>()
+    {
         v.off = true;
     }
 }
@@ -141,7 +153,7 @@ impl Signal for Hpf {
         self.x2 = self.x1;
         self.x1 = x0;
         self.y2 = self.y1;
-        self.y1 = if amp.is_nan() {0.0} else {amp};
+        self.y1 = if amp.is_nan() { 0.0 } else { amp };
         amp
     }
 }
@@ -168,16 +180,28 @@ impl IndexMut<&str> for Hpf {
     }
 }
 
-impl_set!(Hpf);
-
 pub fn hpf_on(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack.get_node(n).downcast_mut::<Hpf>() {
+    if let Some(v) = rack
+        .nodes
+        .get_mut(&n)
+        .unwrap()
+        .module
+        .as_any_mut()
+        .downcast_mut::<Hpf>()
+    {
         v.off = false;
     }
 }
 
 pub fn hpf_off(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack.get_node(n).downcast_mut::<Hpf>() {
+    if let Some(v) = rack
+        .nodes
+        .get_mut(&n)
+        .unwrap()
+        .module
+        .as_any_mut()
+        .downcast_mut::<Hpf>()
+    {
         v.off = true;
     }
 }
@@ -229,7 +253,7 @@ impl Signal for Bpf {
         self.x2 = self.x1;
         self.x1 = x0;
         self.y2 = self.y1;
-        self.y1 = if amp.is_nan() {0.0} else {amp};
+        self.y1 = if amp.is_nan() { 0.0 } else { amp };
         amp
     }
 }
@@ -256,10 +280,13 @@ impl IndexMut<&str> for Bpf {
     }
 }
 
-impl_set!(Bpf);
-
 pub fn bpf_on(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack.get_node(n)
+    if let Some(v) = rack
+        .nodes
+        .get_mut(&n)
+        .unwrap()
+        .module
+        .as_any_mut()
         .downcast_mut::<Bpf>()
     {
         v.off = false;
@@ -267,7 +294,12 @@ pub fn bpf_on(rack: &mut Rack, n: Tag) {
 }
 
 pub fn bpf_off(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack.get_node(n)
+    if let Some(v) = rack
+        .nodes
+        .get_mut(&n)
+        .unwrap()
+        .module
+        .as_any_mut()
         .downcast_mut::<Bpf>()
     {
         v.off = true;
@@ -320,7 +352,7 @@ impl Signal for Notch {
         self.x2 = self.x1;
         self.x1 = x0;
         self.y2 = self.y1;
-        self.y1 = if amp.is_nan() {0.0} else {amp};
+        self.y1 = if amp.is_nan() { 0.0 } else { amp };
         amp
     }
 }
@@ -347,10 +379,13 @@ impl IndexMut<&str> for Notch {
     }
 }
 
-impl_set!(Notch);
-
 pub fn notch_on(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack.get_node(n)
+    if let Some(v) = rack
+        .nodes
+        .get_mut(&n)
+        .unwrap()
+        .module
+        .as_any_mut()
         .downcast_mut::<Notch>()
     {
         v.off = false;
@@ -358,7 +393,12 @@ pub fn notch_on(rack: &mut Rack, n: Tag) {
 }
 
 pub fn notch_off(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack.get_node(n)
+    if let Some(v) = rack
+        .nodes
+        .get_mut(&n)
+        .unwrap()
+        .module
+        .as_any_mut()
         .downcast_mut::<Notch>()
     {
         v.off = true;
@@ -390,10 +430,6 @@ impl Comb {
             dampening: (0.5).into(),
             dampening_inverse: (0.5).into(),
         }
-    }
-
-    pub fn wrapped(wave: Tag, length: usize) -> ArcMutex<Self> {
-        arc(Self::new(wave, length))
     }
 }
 
@@ -439,8 +475,6 @@ impl IndexMut<&str> for Comb {
     }
 }
 
-impl_set!(Comb);
-
 pub struct AllPass {
     pub tag: Tag,
     pub wave: Tag,
@@ -456,10 +490,6 @@ impl AllPass {
             buffer: vec![0.0; length],
             index: 0,
         }
-    }
-
-    pub fn wrapped(wave: Tag, length: usize) -> ArcMutex<Self> {
-        arc(Self::new(wave, length))
     }
 }
 

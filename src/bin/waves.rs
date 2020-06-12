@@ -6,11 +6,11 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
-use swell::signal::{arc, ArcMutex, Rack, Real, Signal, Tag, connect};
-use swell::midi::{listen_midi, MidiControl, MidiPitch};
-use swell::operators::{Union, Vca, Lerp};
-use swell::oscillators::{SineOsc, TriangleOsc, square_wave};
+use swell::midi::{listen_midi, set_step, MidiControl, MidiPitch};
+use swell::operators::{Lerp, Union, Vca};
+use swell::oscillators::{square_wave, SineOsc, TriangleOsc};
 use swell::shaping::{SineFold, Tanh};
+use swell::signal::{arc, connect, ArcMutex, Builder, Rack, Real, Signal, Tag};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -31,7 +31,7 @@ struct Midi {
 }
 
 struct Synth {
-    midi: ArcMutex<Midi>,
+    midi: Midi,
     midi_receiver: Receiver<Vec<u8>>,
     voice: Rack,
     adsr_tag: Tag,
@@ -41,11 +41,11 @@ struct Synth {
 
 fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     //  Midi
-    let midi_pitch = MidiPitch::wrapped();
-    let midi_volume = MidiControl::wrapped(1, 64, 0.0, 0.5, 1.0);
+    let midi_pitch = arc(MidiPitch::new());
+    let midi_volume = arc(MidiControl::new(1, 64, 0.0, 0.5, 1.0));
 
     // Envelope Generator
-    let adsr = Adsr::new(0.05, 0.05, 1.0, 0.2);
+    let adsr = Adsr::new();
     let adsr_tag = adsr.tag();
 
     // To demonstrate how to use the `connect` function, typically one would write
@@ -57,7 +57,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let mut sine = SineOsc::new();
     connect(&midi_pitch, &mut sine, "hz");
     let sinefold = SineFold::new(sine.tag());
-    let tri = TriangleOsc::with_hz(midi_pitch.tag().into());
+    let tri = TriangleOsc::new().hz(midi_pitch.tag().into()).wrap();
     let mut lerp = Lerp::new(sine.tag(), tri.tag());
     lerp.alpha = (0.2).into();
     let tanh = Tanh::new(sine.tag());
@@ -66,14 +66,14 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let mut union = Union::new(vec![sine.tag(), sinefold.tag(), sq.tag(), tanh.tag()]);
     union.level = adsr.tag().into();
     let union_tag = union.tag();
-    let vca = Vca::wrapped(union_tag, (0.5).into());
+    let vca = Vca::new(union_tag).level((0.5).into()).wrap();
     let graph = Rack::new(vec![
         midi_pitch.clone(),
         midi_volume.clone(),
         arc(adsr),
         arc(sine),
         arc(sinefold),
-        arc(tri),
+        tri,
         arc(sq),
         arc(tanh),
         arc(union),
@@ -81,10 +81,10 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     ]);
 
     Synth {
-        midi: arc(Midi {
+        midi: Midi {
             midi_pitch,
             midi_controls: vec![midi_volume],
-        }),
+        },
         midi_receiver,
         voice: graph,
         adsr_tag,
@@ -143,19 +143,12 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
         if message.len() == 3 {
             let step = message[1] as f32;
             if message[0] == 144 {
-                &synth
-                    .midi
-                    .lock()
-                    .unwrap()
-                    .midi_pitch
-                    .lock()
-                    .unwrap()
-                    .set_step(step);
+                set_step(synth.midi.midi_pitch.clone(), step);
                 on(&synth.voice, adsr_tag);
             } else if message[0] == 128 {
                 off(&synth.voice, adsr_tag);
             } else if message[0] == 176 {
-                for c in &synth.midi.lock().unwrap().midi_controls {
+                for c in &synth.midi.midi_controls {
                     let mut control = c.lock().unwrap();
                     if control.controller == message[1] {
                         control.set_value(message[2]);
