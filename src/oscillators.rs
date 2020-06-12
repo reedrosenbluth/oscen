@@ -192,7 +192,7 @@ impl TriangleOsc {
         }
     }
 
-    pub fn hz(& mut self, arg: In) -> &mut Self {
+    pub fn hz(&mut self, arg: In) -> &mut Self {
         self.hz = arg;
         self
     }
@@ -275,7 +275,7 @@ impl SquareOsc {
         }
     }
 
-    pub fn hz(& mut self, arg: In) -> &mut Self {
+    pub fn hz(&mut self, arg: In) -> &mut Self {
         self.hz = arg;
         self
     }
@@ -414,7 +414,7 @@ impl Osc01 {
         }
     }
 
-    pub fn hz(& mut self, arg: In) -> &mut Self {
+    pub fn hz(&mut self, arg: In) -> &mut Self {
         self.hz = arg;
         self
     }
@@ -526,12 +526,8 @@ impl Signal for FourierOsc {
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let hz = In::val(rack, self.hz);
         let amp = In::val(rack, self.amplitude);
-        for (n, o) in self.sines.order.iter().enumerate() {
-            if let Some(v) = self
-                .sines
-                .nodes
-                .get_mut(o)
-                .unwrap()
+        for (n, node) in self.sines.iter().enumerate() {
+            if let Some(v) = node
                 .module
                 .lock()
                 .unwrap()
