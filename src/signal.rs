@@ -316,7 +316,14 @@ impl Link {
             value: In::zero(),
         }
     }
+
+    pub fn value(&mut self, arg: In) -> &mut Self {
+        self.value = arg;
+        self
+    }
 }
+
+impl Builder for Link {}
 
 impl Signal for Link {
     std_signal!();

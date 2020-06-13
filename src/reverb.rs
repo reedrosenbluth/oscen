@@ -40,16 +40,17 @@ pub struct Freeverb {
 
 impl Freeverb {
     pub fn new(wave: Tag) -> Self {
-        let input = arc(Link::new());
-        let comb1 = arc(Comb::new(input.tag(), COMB_TUNING_1));
-        let comb2 = arc(Comb::new(input.tag(), COMB_TUNING_2));
-        let comb3 = arc(Comb::new(input.tag(), COMB_TUNING_3));
-        let comb4 = arc(Comb::new(input.tag(), COMB_TUNING_4));
-        let comb5 = arc(Comb::new(input.tag(), COMB_TUNING_5));
-        let comb6 = arc(Comb::new(input.tag(), COMB_TUNING_6));
-        let comb7 = arc(Comb::new(input.tag(), COMB_TUNING_7));
-        let comb8 = arc(Comb::new(input.tag(), COMB_TUNING_8));
-        let combs = arc(Mixer::new(vec![
+        let input = Link::new().wrap();
+        let comb1 = Comb::new(input.tag(), COMB_TUNING_1).wrap();
+        let comb2 = Comb::new(input.tag(), COMB_TUNING_2).wrap();
+        let comb3 = Comb::new(input.tag(), COMB_TUNING_3).wrap();
+        let comb4 = Comb::new(input.tag(), COMB_TUNING_4).wrap();
+        let comb5 = Comb::new(input.tag(), COMB_TUNING_5).wrap();
+        let comb6 = Comb::new(input.tag(), COMB_TUNING_6).wrap();
+        let comb7 = Comb::new(input.tag(), COMB_TUNING_7).wrap();
+        let comb8 = Comb::new(input.tag(), COMB_TUNING_8).wrap();
+
+        let combs = Mixer::new(vec![
             comb1.tag(),
             comb2.tag(),
             comb3.tag(),
@@ -58,11 +59,12 @@ impl Freeverb {
             comb6.tag(),
             comb7.tag(),
             comb8.tag(),
-        ]));
-        let all1 = arc(AllPass::new(combs.tag(), ALLPASS_TUNING_1));
-        let all2 = arc(AllPass::new(all1.tag(), ALLPASS_TUNING_2));
-        let all3 = arc(AllPass::new(all2.tag(), ALLPASS_TUNING_3));
-        let all4 = arc(AllPass::new(all3.tag(), ALLPASS_TUNING_4));
+        ]).wrap();
+
+        let all1 = AllPass::new(combs.tag(), ALLPASS_TUNING_1).wrap();
+        let all2 = AllPass::new(all1.tag(), ALLPASS_TUNING_2).wrap();
+        let all3 = AllPass::new(all2.tag(), ALLPASS_TUNING_3).wrap();
+        let all4 = AllPass::new(all3.tag(), ALLPASS_TUNING_4).wrap();
         let rack = Rack::new(vec![
             input.clone(),
             comb1,

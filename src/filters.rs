@@ -563,6 +563,8 @@ impl AllPass {
     }
 }
 
+impl Builder for AllPass {}
+
 impl Signal for AllPass {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
