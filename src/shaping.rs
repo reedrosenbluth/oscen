@@ -12,7 +12,14 @@ impl SineFold {
     pub fn new(wave: Tag) -> Self {
         Self { tag: mk_tag(), wave, fold_param: TAU.into() }
     }
+
+    pub fn fold_param(&mut self, arg: In) -> &mut Self {
+        self.fold_param = arg;
+        self
+    }
 }
+
+impl Builder for SineFold {}
 
 impl Signal for SineFold {
     std_signal!();
@@ -33,6 +40,8 @@ impl Tanh {
         Self { tag: mk_tag(), wave}
     }    
 }
+
+impl Builder for Tanh {}
 
 impl Signal for Tanh {
     std_signal!();
