@@ -354,6 +354,9 @@ pub fn set_knob(rack: &Rack, n: Tag, k: Real) {
     }
 }
 
+/// A `Modulator` is designed to be the input to the `hz` field of a carrier
+/// wave. It takes control of the carriers frequency and modulates it's base
+// hz by adding mod_idx * mod_hz * output of modulator wave.
 #[derive(Copy, Clone)]
 pub struct Modulator {
     pub tag: Tag,

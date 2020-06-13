@@ -16,6 +16,7 @@ fn main() {
     nannou::app(model).update(update).run();
 }
 
+#[allow(dead_code)]
 struct Model {
     stream: audio::Stream<Synth>,
     scope_receiver: Receiver<f32>,
@@ -47,7 +48,6 @@ fn build_synth(
     // Envelope Generator
     let midi_control_release = MidiControl::new(37, 1, 0.05, 1.0, 10.0).wrap();
 
-    // let mut adsr = Adsr::new(0.01, 0.0, 1.0, 0.1);
     let adsr = Adsr::new()
         .release(midi_control_release.tag().into())
         .wrap();
@@ -64,14 +64,18 @@ fn build_synth(
         .wrap();
 
     // Oscillator 2
-    // let sine2 = SineOsc::with_hz(modulator_osc2.tag().into());
     let sine2 = SineOsc::new().hz(modulator_osc2.tag().into()).wrap();
     let saw2 = SawOsc::new().hz(midi_pitch.tag().into()).wrap();
     let square2 = SquareOsc::new().hz(midi_pitch.tag().into()).wrap();
     let triangle2 = TriangleOsc::new().hz(midi_pitch.tag().into()).wrap();
+    
+    let midi_control_mod_hz1 = MidiControl::new(42, 0, 0.0, 440.0, 1760.0).wrap();
+    let midi_control_mod_idx1 = MidiControl::new(43, 0, 0.0, 4.0, 16.0).wrap();
 
     let modulator_osc1 = Modulator::new(sine2.tag())
         .base_hz(midi_pitch.tag().into())
+        .mod_hz(midi_control_mod_hz1.tag().into())
+        .mod_idx(midi_control_mod_idx1.tag().into())
         .wrap();
 
     // Oscillator 1
@@ -136,6 +140,8 @@ fn build_synth(
         midi_control_release.clone(),
         midi_control_cutoff.clone(),
         midi_control_resonance.clone(),
+        midi_control_mod_hz1.clone(),
+        midi_control_mod_idx1.clone(),
         midi_control_volume.clone(),
         adsr,
         sine1,
@@ -169,6 +175,8 @@ fn build_synth(
                 midi_control_mix5,
                 midi_control_release,
                 midi_control_cutoff,
+                midi_control_mod_hz1,
+                midi_control_mod_idx1,
                 midi_control_resonance,
                 midi_control_volume,
             ],
