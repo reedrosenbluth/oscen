@@ -27,6 +27,8 @@ pub fn set_step(m: ArcMutex<MidiPitch>, step: f32) {
     m.lock().unwrap().step = step;
 }
 
+impl Builder for MidiPitch {}
+
 impl Signal for MidiPitch {
     std_signal!();
     fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
@@ -65,6 +67,8 @@ impl MidiControl {
         self.value = value;
     }
 }
+
+impl Builder for MidiControl {}
 
 impl Signal for MidiControl {
     std_signal!();

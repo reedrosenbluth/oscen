@@ -32,6 +32,8 @@ pub trait Signal: Any {
     fn tag(&self) -> Tag;
 }
 
+/// Since `as_any_mut()` usually has the same implementation for any `Signal`
+/// we provide this macro for coneniene.
 #[macro_export]
 macro_rules! as_any_mut {
    () => {
@@ -41,6 +43,7 @@ macro_rules! as_any_mut {
     };
 }
 
+/// For `Signal`s that have a `tag` field implement `as_any_mut()` and `tag()`.
 #[macro_export]
 macro_rules! std_signal {
     () => {
@@ -101,6 +104,7 @@ pub trait Builder {
         arc(self.clone())
     }
 }
+
 /// Inputs to synth modules can either be constant (`Fix`) or a control voltage
 /// from another synth module (`Cv`).
 #[derive(Copy, Clone, Debug)]
@@ -138,6 +142,12 @@ impl From<Real> for In {
 impl From<Tag> for In {
     fn from(t: Tag) -> Self {
         In::Cv(t)
+    }
+}
+
+impl From<i32> for In {
+    fn from(i: i32) -> Self {
+        In::Fix(i as Real)
     }
 }
 
@@ -205,6 +215,8 @@ impl Rack {
         Rack { nodes, order }
     }
 
+    /// Convert a rack into an `Iter` - note: we don't need an `iter_mut` since
+    /// we will mostly mutating a `Node` via it's `Mutex`.
     pub fn iter<'a>(&'a self) -> Iter<'a> {
         Iter {
             rack: self,
@@ -223,6 +235,7 @@ impl Rack {
         self.nodes[&n].output
     }
 
+    /// Add a `Node` (synth module) to the `Rack` and set it's order to be last.
     pub fn append(&mut self, sig: ArcMutex<Sig>) {
         let tag = sig.tag();
         let node = Node::new(sig);
@@ -334,7 +347,7 @@ impl IndexMut<&str> for Link {
 
 /// Given f(0) = low, f(1/2) = mid, and f(1) = high, let f(x) = a + b*exp(cs).
 /// Fit a, b, and c so to match the above. If mid < 1/2(high + low) then f is
-/// convex, if equal f is linear, if great then f is concave.
+/// convex, if equal f is linear, if greater then f is concave.
 pub fn exp_interp(low: Real, mid: Real, high: Real, x: Real) -> Real {
     if relative_eq!(2.0 * mid, high + low) {
         return low + (high - low) * x;

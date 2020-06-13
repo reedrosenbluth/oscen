@@ -7,7 +7,7 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct Lpf {
     pub tag: Tag,
     pub wave: Tag,
@@ -21,11 +21,11 @@ pub struct Lpf {
 }
 
 impl Lpf {
-    pub fn new(wave: Tag, cutoff_freq: In) -> Self {
+    pub fn new(wave: Tag) -> Self {
         Self {
             tag: mk_tag(),
             wave,
-            cutoff_freq,
+            cutoff_freq: 22050.into(),
             q: (1.0 / SQRT_2).into(),
             x1: 0.0,
             x2: 0.0,
@@ -34,7 +34,19 @@ impl Lpf {
             off: false,
         }
     }
+
+    pub fn cutoff_freq(&mut self, arg: In) -> &mut Self {
+        self.cutoff_freq = arg;
+        self
+    }
+
+    pub fn q(&mut self, arg: In) -> &mut Self {
+        self.q = arg;
+        self
+    }
 }
+
+impl Builder for Lpf {}
 
 impl Signal for Lpf {
     std_signal!();
@@ -107,6 +119,7 @@ pub fn lpf_off(rack: &mut Rack, n: Tag) {
     }
 }
 
+#[derive(Clone)]
 pub struct Hpf {
     pub tag: Tag,
     pub wave: Tag,
@@ -120,11 +133,11 @@ pub struct Hpf {
 }
 
 impl Hpf {
-    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
+    pub fn new(tag: Tag, wave: Tag) -> Self {
         Self {
             tag,
             wave,
-            cutoff_freq,
+            cutoff_freq: 22050.into(),
             q: (1.0 / SQRT_2).into(),
             x1: 0.0,
             x2: 0.0,
@@ -133,7 +146,19 @@ impl Hpf {
             off: false,
         }
     }
+
+    pub fn cutoff_freq(&mut self, arg: In) -> &mut Self {
+        self.cutoff_freq = arg;
+        self
+    }
+
+    pub fn q(&mut self, arg: In) -> &mut Self {
+        self.q = arg;
+        self
+    }
 }
+
+impl Builder for Hpf {}
 
 impl Signal for Hpf {
     std_signal!();
@@ -206,6 +231,7 @@ pub fn hpf_off(rack: &mut Rack, n: Tag) {
     }
 }
 
+#[derive(Clone)]
 pub struct Bpf {
     pub tag: Tag,
     pub wave: Tag,
@@ -219,11 +245,11 @@ pub struct Bpf {
 }
 
 impl Bpf {
-    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
+    pub fn new(tag: Tag, wave: Tag) -> Self {
         Self {
             tag,
             wave,
-            cutoff_freq,
+            cutoff_freq: 22050.into(),
             q: (1.0 / SQRT_2).into(),
             x1: 0.0,
             x2: 0.0,
@@ -232,7 +258,19 @@ impl Bpf {
             off: false,
         }
     }
+
+    pub fn cutoff_freq(&mut self, arg: In) -> &mut Self {
+        self.cutoff_freq = arg;
+        self
+    }
+
+    pub fn q(&mut self, arg: In) -> &mut Self {
+        self.q = arg;
+        self
+    }
 }
+
+impl Builder for Bpf {}
 
 impl Signal for Bpf {
     std_signal!();
@@ -306,6 +344,7 @@ pub fn bpf_off(rack: &mut Rack, n: Tag) {
     }
 }
 
+#[derive(Clone)]
 pub struct Notch {
     pub tag: Tag,
     pub wave: Tag,
@@ -319,11 +358,11 @@ pub struct Notch {
 }
 
 impl Notch {
-    pub fn new(tag: Tag, wave: Tag, cutoff_freq: In) -> Self {
+    pub fn new(tag: Tag, wave: Tag) -> Self {
         Self {
             tag,
             wave,
-            cutoff_freq,
+            cutoff_freq: 22050.into(),
             q: (1.0 / SQRT_2).into(),
             x1: 0.0,
             x2: 0.0,
@@ -332,7 +371,19 @@ impl Notch {
             off: false,
         }
     }
+
+    pub fn cutoff_freq(&mut self, arg: In) -> &mut Self {
+        self.cutoff_freq = arg;
+        self
+    }
+
+    pub fn q(&mut self, arg: In) -> &mut Self {
+        self.q = arg;
+        self
+    }
 }
+
+impl Builder for Notch {}
 
 impl Signal for Notch {
     std_signal!();
@@ -407,6 +458,7 @@ pub fn notch_off(rack: &mut Rack, n: Tag) {
 
 /// Lowpass-Feedback Comb Filter
 /// https://ccrma.stanford.edu/~jos/pasp/Lowpass_Feedback_Comb_Filter.html
+#[derive(Clone)]
 pub struct Comb {
     pub tag: Tag,
     pub wave: Tag,
@@ -431,7 +483,24 @@ impl Comb {
             dampening_inverse: (0.5).into(),
         }
     }
+
+    pub fn feedback(&mut self, arg: In) -> &mut Self {
+        self.feedback = arg;
+        self
+    }
+
+    pub fn dampening(&mut self, arg: In) -> &mut Self {
+        self.dampening = arg;
+        self
+    }
+
+    pub fn dampening_inverse(&mut self, arg: In) -> &mut Self {
+        self.dampening_inverse = arg;
+        self
+    }
 }
+
+impl Builder for Comb {}
 
 impl Signal for Comb {
     std_signal!();
@@ -475,6 +544,7 @@ impl IndexMut<&str> for Comb {
     }
 }
 
+#[derive(Clone)]
 pub struct AllPass {
     pub tag: Tag,
     pub wave: Tag,
