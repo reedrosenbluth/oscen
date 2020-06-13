@@ -52,15 +52,22 @@ fn build_synth(
         .release(midi_control_release.tag().into())
         .wrap();
     let adsr_tag = adsr.tag();
+    
+    let midi_control_tri_lfo_hz = MidiControl::new(46, 0, 0.0, 100.0, 500.0).wrap();
 
     // LFO
-    let tri_lfo = TriangleOsc::new().wrap();
+    let tri_lfo = TriangleOsc::new().hz(midi_control_tri_lfo_hz.tag().into()).wrap();
     let square_lfo = SquareOsc::new().wrap();
+
+    let midi_control_mod_hz2 = MidiControl::new(44, 0, 0.0, 440.0, 1760.0).wrap();
+    let midi_control_mod_idx2 = MidiControl::new(45, 0, 0.0, 4.0, 16.0).wrap();
 
     // TODO: tune these lower
     // Sub Oscillators for Osc
     let modulator_osc2 = Modulator::new(tri_lfo.tag().into())
         .base_hz(midi_pitch.tag().into())
+        .mod_hz(midi_control_mod_hz2.tag().into())
+        .mod_idx(midi_control_mod_idx2.tag().into())
         .wrap();
 
     // Oscillator 2
@@ -141,7 +148,10 @@ fn build_synth(
         midi_control_cutoff.clone(),
         midi_control_resonance.clone(),
         midi_control_mod_hz1.clone(),
+        midi_control_mod_hz2.clone(),
         midi_control_mod_idx1.clone(),
+        midi_control_mod_idx2.clone(),
+        midi_control_tri_lfo_hz.clone(),
         midi_control_volume.clone(),
         adsr,
         sine1,
@@ -176,8 +186,11 @@ fn build_synth(
                 midi_control_release,
                 midi_control_cutoff,
                 midi_control_mod_hz1,
+                midi_control_mod_hz2,
                 midi_control_mod_idx1,
+                midi_control_mod_idx2,
                 midi_control_resonance,
+                midi_control_tri_lfo_hz,
                 midi_control_volume,
             ],
         },
