@@ -1,8 +1,8 @@
 use super::signal::*;
 use crate::{as_any_mut, std_signal};
 use math::round::floor;
-use rand::distributions::Uniform;
 use rand::prelude::*;
+use rand_distr::{StandardNormal, Uniform};
 use std::any::Any;
 use std::{
     f64::consts::PI,
@@ -344,23 +344,33 @@ impl IndexMut<&str> for SquareOsc {
 }
 
 #[derive(Copy, Clone)]
+pub enum NoiseDistribution {
+    StdNormal,
+    Uni,
+}
+#[derive(Copy, Clone)]
 pub struct WhiteNoise {
     pub tag: Tag,
     pub amplitude: In,
-    dist: Uniform<Real>,
+    pub dist: NoiseDistribution,
 }
 
 impl WhiteNoise {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            amplitude: In::one(),
-            dist: Uniform::new_inclusive(-1.0, 1.0),
+            amplitude: 1.into(),
+            dist: NoiseDistribution::StdNormal, 
         }
     }
 
     pub fn amplitude(&mut self, arg: In) -> &mut Self {
         self.amplitude = arg;
+        self
+    }
+
+    pub fn dist(&mut self, arg: NoiseDistribution) -> &mut Self {
+        self.dist = arg;
         self
     }
 }
@@ -370,9 +380,14 @@ impl Builder for WhiteNoise {}
 impl Signal for WhiteNoise {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        let mut rng = rand::thread_rng();
         let amplitude = In::val(rack, self.amplitude);
-        self.dist.sample(&mut rng) * amplitude
+        let mut rng = thread_rng();
+        match self.dist {
+            NoiseDistribution::Uni => {
+                amplitude * Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng)
+            }
+            NoiseDistribution::StdNormal => amplitude * rng.sample::<f64, _>(StandardNormal),
+        }
     }
 }
 

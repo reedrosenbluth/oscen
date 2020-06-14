@@ -131,8 +131,7 @@ fn build_synth(
         .wrap();
 
     // VCA
-    let midi_control_volume = MidiControl::new(47, 64, 0.0, 0.5, 1.0);
-    let midi_control_volume = arc(midi_control_volume);
+    let midi_control_volume = MidiControl::new(47, 64, 0.0, 0.5, 1.0).wrap();
     let vca = Vca::new(low_pass_filter.tag())
         .level(midi_control_volume.tag().into())
         .wrap();
