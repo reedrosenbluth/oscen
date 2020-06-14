@@ -22,9 +22,9 @@ impl SineOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: In::zero(),
-            amplitude: In::one(),
-            phase: In::zero(),
+            hz: 0.into(),
+            amplitude: 1.into(),
+            phase: 0.into(),
         }
     }
 
@@ -101,9 +101,9 @@ impl SawOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: In::zero(),
-            amplitude: In::one(),
-            phase: In::zero(),
+            hz: 0.into(),
+            amplitude: 1.into(),
+            phase: 0.into(),
         }
     }
 
@@ -186,9 +186,9 @@ impl TriangleOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: In::zero(),
-            amplitude: In::one(),
-            phase: In::zero(),
+            hz: 0.into(),
+            amplitude: 1.into(),
+            phase: 0.into(),
         }
     }
 
@@ -268,9 +268,9 @@ impl SquareOsc {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: In::zero(),
-            amplitude: In::one(),
-            phase: In::zero(),
+            hz: 0.into(),
+            amplitude: 1.into(),
+            phase: 0.into(),
             duty_cycle: (0.5).into(),
         }
     }
@@ -424,8 +424,8 @@ impl Osc01 {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            hz: In::zero(),
-            phase: In::zero(),
+            hz: 0.into(),
+            phase: 0.into(),
         }
     }
 
@@ -511,8 +511,8 @@ impl FourierOsc {
         }
         FourierOsc {
             tag: mk_tag(),
-            hz: In::zero(),
-            amplitude: In::one(),
+            hz: 0.into(),
+            amplitude: 1.into(),
             sines: Rack::new(wwaves),
             lanczos,
         }

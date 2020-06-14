@@ -18,7 +18,7 @@ impl Union {
             tag: mk_tag(),
             waves,
             active,
-            level: In::one(),
+            level: 1.into(),
         }
     }
 
@@ -100,7 +100,7 @@ impl Vca {
         Self {
             tag: mk_tag(),
             wave,
-            level: In::one(),
+            level: 1.into(),
         }
     }
 
@@ -149,12 +149,12 @@ pub struct Mixer {
 
 impl Mixer {
     pub fn new(waves: Vec<Tag>) -> Self {
-        let levels = waves.iter().map(|_| In::one()).collect();
+        let levels = waves.iter().map(|_| 1.into()).collect();
         Mixer {
             tag: mk_tag(),
             waves,
             levels,
-            level: In::one(),
+            level: 1.into(),
         }
     }
     
@@ -371,9 +371,9 @@ impl Modulator {
         Modulator {
             tag: mk_tag(),
             wave: wave.into(),
-            base_hz: In::zero(),
-            mod_hz: In::zero(),
-            mod_idx: In::zero(),
+            base_hz: 0.into(),
+            mod_hz: 0.into(),
+            mod_idx: 0.into(),
         }
     }
 

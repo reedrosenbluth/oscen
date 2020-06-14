@@ -121,16 +121,6 @@ impl In {
             In::Cv(n) => rack.output(n),
         }
     }
-
-    /// Convenient way to create a constant `In` of zero.
-    pub fn zero() -> In {
-        Self::Fix(0.0)
-    }
-
-    /// Convenient way to create a constant `In` of one.
-    pub fn one() -> In {
-        Self::Fix(1.0)
-    }
 }
 
 impl From<Real> for In {
@@ -313,7 +303,7 @@ impl Link {
     pub fn new() -> Self {
         Self {
             tag: mk_tag(),
-            value: In::zero(),
+            value: 0.into(),
         }
     }
 

@@ -22,8 +22,8 @@ impl Adsr {
         Self {
             tag: mk_tag(),
             attack: (0.01).into(),
-            decay: In::zero(),
-            sustain: In::one(),
+            decay: 0.into(),
+            sustain: 1.into(),
             release: (0.1).into(),
             clock: 0.0,
             triggered: false,
