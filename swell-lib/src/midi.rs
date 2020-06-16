@@ -1,4 +1,5 @@
 use super::signal::*;
+use super::utils::ExpInterp;
 use crate::{as_any_mut, std_signal};
 use crossbeam::crossbeam_channel::Sender;
 use midir::{Ignore, MidiInput};
@@ -41,9 +42,7 @@ pub struct MidiControl {
     pub tag: Tag,
     pub controller: u8,
     pub value: u8,
-    pub low: Real,
-    pub mid: Real,
-    pub high: Real,
+    pub exp_interp: ExpInterp,
 }
 
 impl MidiControl {
@@ -52,15 +51,13 @@ impl MidiControl {
             tag: mk_tag(),
             controller,
             value,
-            low,
-            mid,
-            high,
+            exp_interp: ExpInterp::new(low, mid, high),
         }
     }
 
     fn map_range(&self, input: Real) -> Real {
         let x = input / 127.0;
-        exp_interp(self.low, self.mid, self.high, x)
+        self.exp_interp.interp(x)
     }
 
     pub fn set_value(&mut self, value: u8) {

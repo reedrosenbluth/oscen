@@ -40,3 +40,5 @@ pub mod oscillators;
 pub mod shaping;
 /// Midi interface nodes.
 pub mod midi;
+/// Utilites.
+pub mod utils;

@@ -270,11 +270,11 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 
     let sample_rate = buffer.sample_rate() as Real;
     for frame in buffer.frames_mut() {
-        let amp = synth.voice.signal(sample_rate);
+        let amp = synth.voice.signal(sample_rate) as f32;
         for channel in frame {
-            *channel = amp as f32;
+            *channel = amp;
         }
-        synth.scope_sender.send(amp as f32).unwrap();
+        synth.scope_sender.send(amp).unwrap();
     }
 }
 
