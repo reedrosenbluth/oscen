@@ -1,6 +1,22 @@
 use plotters::prelude::*;
+use swell::envelopes;
+use swell::signal::*;
+use swell::utils::signals;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // let root = BitMapBackend::new("plotters-doc-data/0.png", (640, 480)).into_drawing_area();
+    let rack = Rack::new(vec![]);
+    let mut adsr = envelopes::Adsr::new()
+        .attack(1.into())
+        .decay(1.into())
+        .release(1.into())
+        .sustain(0.8.into())
+        .build();
+
+    adsr.on(&rack);
+    let mut ad = signals(&mut adsr, 0, 4000, 1000.0);
+    adsr.off(&rack);
+    let released = signals(&mut adsr, 4001, 5000, 1000.0);
+    ad.extend(released);
     let root = SVGBackend::new("adsr.svg", (800, 600)).into_drawing_area();
     root.fill(&WHITE)?;
     let mut chart = ChartBuilder::on(&root)
@@ -8,17 +24,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)
-        .build_ranged(-6f32..6f32, -1.1f32..1.1f32)?;
+        .build_ranged(0f32..5f32, 0f32..1.1f32)?;
 
     chart.configure_mesh().draw()?;
 
     chart
-        .draw_series(LineSeries::new(
-            (-600..=600).map(|x| x as f32 / 100.0).map(|x| (x, x.sin())),
-            &BLUE,
-        ))?
-        .label("y = sin x")
-        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+        .draw_series(LineSeries::new(ad, &BLUE))?
+        .label("Level")
+        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
 
     chart
         .configure_series_labels()

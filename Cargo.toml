@@ -3,4 +3,5 @@
 members = [
     "swell-lib",
     "nannou-apps",
+    "plot-apps",
 ]

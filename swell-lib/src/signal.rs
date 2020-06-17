@@ -1,4 +1,3 @@
-use approx::relative_eq;
 use std::{
     any::Any,
     collections::HashMap,
@@ -6,7 +5,6 @@ use std::{
     ops::{Index, IndexMut},
     sync::{Arc, Mutex},
 };
-
 use uuid::Uuid;
 
 pub const TAU: f64 = 2.0 * PI;
@@ -340,17 +338,4 @@ impl IndexMut<&str> for Link {
             _ => panic!("Link does not have a field named:  {}", index),
         }
     }
-}
-
-/// Given f(0) = low, f(1/2) = mid, and f(1) = high, let f(x) = a + b*exp(cs).
-/// Fit a, b, and c so to match the above. If mid < 1/2(high + low) then f is
-/// convex, if equal f is linear, if greater then f is concave.
-pub fn exp_interp(low: Real, mid: Real, high: Real, x: Real) -> Real {
-    if relative_eq!(2.0 * mid, high + low) {
-        return low + (high - low) * x;
-    }
-    let b = (mid - low) * (mid - low) / (high - 2.0 * mid + low);
-    let a = low - b;
-    let c = 2.0 * ((high - mid) / (mid - low)).ln();
-    a + b * (c * x).exp()
 }

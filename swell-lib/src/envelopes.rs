@@ -1,5 +1,5 @@
 use super::signal::*;
-use crate::{std_signal, as_any_mut};
+use crate::{as_any_mut, std_signal};
 use std::{
     any::Any,
     ops::{Index, IndexMut},
@@ -40,7 +40,7 @@ impl Adsr {
         self.decay = arg;
         self
     }
-    
+
     pub fn sustain(&mut self, arg: In) -> &mut Self {
         self.sustain = arg;
         self
@@ -53,7 +53,11 @@ impl Adsr {
 
     pub fn calc_level(&self, rack: &Rack) -> Real {
         fn max01(a: f64) -> f64 {
-            if a > 0.01 { a } else { 0.01 }
+            if a > 0.01 {
+                a
+            } else {
+                0.01
+            }
         }
 
         let a = max01(In::val(rack, self.attack));

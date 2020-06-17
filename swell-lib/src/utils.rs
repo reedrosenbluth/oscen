@@ -1,4 +1,4 @@
-use super::signal::Real;
+use super::signal::{Rack, Real, Signal};
 use approx::relative_eq;
 
 /// Given f(0) = low, f(1/2) = mid, and f(1) = high, let f(x) = a + b*exp(cs).
@@ -64,6 +64,18 @@ impl ExpInterp {
     }
 }
 
+pub fn signals<T>(module: &mut T, start: u32, end: u32, sample_rate: Real) -> Vec<(f32, f32)>
+where
+    T: Signal,
+{
+    let rack = Rack::new(vec![]);
+    let mut result = vec![];
+    for i in start..=end {
+        result.push((i as f32 / sample_rate as f32, module.signal(&rack, sample_rate) as f32));
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,30 +96,14 @@ mod tests {
     fn exp_interp() {
         let ie = ExpInterp::new(0.0, 0.4, 1.0);
         let result = trunc4(ie.interp(0.0));
-        assert_eq!(
-            result, 
-            0,
-            "interp returned {}, epxected 0",
-            result
-        );
+        assert_eq!(result, 0, "interp returned {}, epxected 0", result);
         let result = trunc4(ie.interp(0.5));
-        assert_eq!(
-            result, 
-            4_000,
-            "interp returned {}, epxected 4,000",
-            result
-        );
+        assert_eq!(result, 4_000, "interp returned {}, epxected 4,000", result);
         let result = trunc4(ie.interp(0.75));
-        assert_eq!(
-            result, 
-            6_697,
-            "interp returned {}, epxected 6,697",
-            result
-        );
+        assert_eq!(result, 6_697, "interp returned {}, epxected 6,697", result);
         let result = trunc4(ie.interp(1.0));
         assert_eq!(
-            result, 
-            10_000,
+            result, 10_000,
             "interp returned {}, epxected 10,1000",
             result
         );
@@ -124,30 +120,14 @@ mod tests {
     fn exp_interp_inv() {
         let ie = ExpInterp::new(0.0, 0.4, 1.0);
         let result = trunc4(ie.interp_inv(0.0));
-        assert_eq!(
-            result, 
-            0,
-            "interp returned {}, epxected 0",
-            result
-        );
+        assert_eq!(result, 0, "interp returned {}, epxected 0", result);
         let result = trunc4(ie.interp_inv(0.4));
-        assert_eq!(
-            result, 
-            5_000,
-            "interp returned {}, epxected 4,000",
-            result
-        );
+        assert_eq!(result, 5_000, "interp returned {}, epxected 4,000", result);
         let result = trunc4(ie.interp_inv(0.6697));
-        assert_eq!(
-            result, 
-            7_500,
-            "interp returned {}, epxected 7,500",
-            result
-        );
+        assert_eq!(result, 7_500, "interp returned {}, epxected 7,500", result);
         let result = trunc4(ie.interp_inv(1.0));
         assert_eq!(
-            result, 
-            10_000,
+            result, 10_000,
             "interp returned {}, epxected 10,1000",
             result
         );
