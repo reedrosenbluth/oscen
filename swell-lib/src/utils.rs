@@ -36,6 +36,9 @@ impl ExpInterp {
 
     pub fn update(&mut self, low: Real, mid: Real, high: Real) {
         if relative_eq!(high - mid, mid - low) {
+            self.low = low;
+            self.mid = mid;
+            self.high = high;
             self.linear = true;
         } else {
             self.b = (mid - low) * (mid - low) / (high - 2.0 * mid + low);

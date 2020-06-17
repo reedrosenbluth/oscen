@@ -4,17 +4,16 @@ use swell::signal::*;
 use swell::utils::signals;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let rack = Rack::new(vec![]);
-    let mut adsr = envelopes::Adsr::new()
+    let mut adsr = envelopes::Adsr::linear()
         .attack(1.into())
         .decay(1.into())
         .release(1.into())
         .sustain(0.8.into())
         .build();
 
-    adsr.on(&rack);
+    adsr.on();
     let mut ad = signals(&mut adsr, 0, 4000, 1000.0);
-    adsr.off(&rack);
+    adsr.off();
     let released = signals(&mut adsr, 4001, 5000, 1000.0);
     ad.extend(released);
     let root = SVGBackend::new("adsr.svg", (800, 600)).into_drawing_area();

@@ -48,8 +48,11 @@ fn build_synth(
     // Envelope Generator
     let midi_control_release = MidiControl::new(37, 1, 0.05, 1.0, 10.0).wrap();
 
-    let adsr = Adsr::new()
+    let adsr = Adsr::linear()
         .release(midi_control_release.tag().into())
+        .attack(1.into())
+        .decay(1.into())
+        .sustain(0.8.into())
         .wrap();
     let adsr_tag = adsr.tag();
     
