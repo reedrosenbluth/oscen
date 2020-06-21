@@ -45,7 +45,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let midi_volume = arc(MidiControl::new(1, 64, 0.0, 0.5, 1.0));
 
     // Envelope Generator
-    let adsr = Adsr::new();
+    let adsr = Adsr::new(0.2, 0.2, 0.2);
     let adsr_tag = adsr.tag();
 
     // To demonstrate how to use the `connect` function, typically one would write

@@ -157,7 +157,7 @@ impl Mixer {
             level: 1.into(),
         }
     }
-    
+
     pub fn levels(&mut self, arg: Vec<In>) -> &mut Self {
         self.levels = arg;
         self
@@ -342,5 +342,56 @@ impl IndexMut<&str> for Modulator {
             "mod_idx" => &mut self.mod_idx,
             _ => panic!("Modulator only does not have a field named:  {}", index),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct Delay {
+    pub tag: Tag,
+    pub wave: Tag,
+    pub delay_time: In,
+    pub sample_rate: Real,
+    buffer: Vec<Real>,
+    read_pos: usize,
+    write_pos: usize,
+}
+
+impl Delay {
+    pub fn new(wave: Tag, delay_time: In) -> Self {
+        let buffer = vec![0.0; 44_100];
+        Self {
+            tag: mk_tag(),
+            wave,
+            delay_time,
+            sample_rate: 44_100.0,
+            buffer,
+            read_pos: 0,
+            write_pos: 0,
+        }
+    }
+
+    pub fn delay_time(&mut self, arg: In) -> &mut Self {
+        self.delay_time = arg;
+        self
+    }
+}
+
+impl Builder for Delay {}
+
+impl Signal for Delay {
+    std_signal!();
+    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
+        let delay = (In::val(rack, self.delay_time) * sample_rate).round() as usize;
+        self.sample_rate = sample_rate;
+        if delay > self.buffer.len() {
+            self.buffer.resize_with(delay, || 0.0)
+        }
+        let buf_len = self.buffer.len();
+        let wp = self.write_pos;
+        self.write_pos = if wp == buf_len - 1 { 0 } else { wp + 1 };
+        let rp = self.write_pos + buf_len - delay;
+        self.read_pos = if rp < buf_len { rp } else { rp - buf_len };
+        self.buffer[self.write_pos] = rack.output(self.wave);
+        self.buffer[self.read_pos]
     }
 }

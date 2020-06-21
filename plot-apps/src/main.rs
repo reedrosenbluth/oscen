@@ -4,7 +4,7 @@ use swell::signal::*;
 use swell::utils::signals;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut adsr = envelopes::Adsr::linear()
+    let mut adsr = envelopes::Adsr::new(0.2, 0.2, 0.2)
         .attack(1.into())
         .decay(1.into())
         .release(1.into())
@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let released = signals(&mut adsr, 4001, 5000, 1000.0);
     ad.extend(released);
     let root = SVGBackend::new("adsr.svg", (800, 600)).into_drawing_area();
-    root.fill(&WHITE)?;
+    root.fill(&BLACK)?;
     let mut chart = ChartBuilder::on(&root)
         .caption("ADSR", ("sans-serif", 50).into_font())
         .margin(5)
@@ -28,13 +28,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     chart.configure_mesh().draw()?;
 
     chart
-        .draw_series(LineSeries::new(ad, &BLUE))?
+        .draw_series(LineSeries::new(ad, &YELLOW))?
         .label("Level")
-        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
+        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &YELLOW));
 
     chart
         .configure_series_labels()
-        .background_style(&WHITE.mix(0.8))
+        .background_style(&BLACK.mix(0.8))
         .border_style(&BLACK)
         .draw()?;
 
