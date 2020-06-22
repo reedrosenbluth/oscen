@@ -1,11 +1,12 @@
 use super::signal::*;
+use super::utils::RingBuffer;
 use crate::{as_any_mut, std_signal};
 use std::any::Any;
 use std::ops::{Index, IndexMut};
 
 #[derive(Clone)]
 pub struct Union {
-    pub tag: Tag,
+    tag: Tag,
     pub waves: Vec<Tag>,
     pub active: Tag,
     pub level: In,
@@ -350,23 +351,17 @@ pub struct Delay {
     pub tag: Tag,
     pub wave: Tag,
     pub delay_time: In,
-    pub sample_rate: Real,
-    buffer: Vec<Real>,
-    read_pos: usize,
-    write_pos: usize,
+    ring_buffer: RingBuffer<Real>,
 }
 
 impl Delay {
-    pub fn new(wave: Tag, delay_time: In) -> Self {
-        let buffer = vec![0.0; 44_100];
+    pub fn new(wave:Tag, delay_time: In) -> Self {
+        let ring = RingBuffer::<Real>::new(0.0, 0);
         Self {
             tag: mk_tag(),
             wave,
             delay_time,
-            sample_rate: 44_100.0,
-            buffer,
-            read_pos: 0,
-            write_pos: 0,
+            ring_buffer: ring,
         }
     }
 
@@ -381,17 +376,15 @@ impl Builder for Delay {}
 impl Signal for Delay {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
-        let delay = (In::val(rack, self.delay_time) * sample_rate).round() as usize;
-        self.sample_rate = sample_rate;
-        if delay > self.buffer.len() {
-            self.buffer.resize_with(delay, || 0.0)
+        let delay = In::val(rack, self.delay_time) * sample_rate;
+        if delay > self.ring_buffer.len() as Real - 3.0 {
+            self.ring_buffer.resize(delay as usize + 3);
+            let wp = delay.ceil();
+            self.ring_buffer.write_pos = wp as usize;
+            self.ring_buffer.read_pos = delay - wp;
         }
-        let buf_len = self.buffer.len();
-        let wp = self.write_pos;
-        self.write_pos = if wp == buf_len - 1 { 0 } else { wp + 1 };
-        let rp = self.write_pos + buf_len - delay;
-        self.read_pos = if rp < buf_len { rp } else { rp - buf_len };
-        self.buffer[self.write_pos] = rack.output(self.wave);
-        self.buffer[self.read_pos]
+        let val = rack.output(self.wave);
+        self.ring_buffer.push(val);
+        self.ring_buffer.get_linear()
     }
 }

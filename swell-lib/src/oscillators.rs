@@ -12,7 +12,7 @@ use std::{
 /// A basic sine oscillator.
 #[derive(Copy, Clone)]
 pub struct SineOsc {
-    pub tag: Tag,
+    tag: Tag,
     pub hz: In,
     pub amplitude: In,
     pub phase: In,
@@ -91,7 +91,7 @@ impl IndexMut<&str> for SineOsc {
 /// Saw wave oscillator.
 #[derive(Copy, Clone)]
 pub struct SawOsc {
-    pub tag: Tag,
+    tag: Tag,
     pub hz: In,
     pub amplitude: In,
     pub phase: In,
@@ -176,7 +176,7 @@ impl IndexMut<&str> for SawOsc {
 /// Triangle wave oscillator.
 #[derive(Copy, Clone)]
 pub struct TriangleOsc {
-    pub tag: Tag,
+    tag: Tag,
     pub hz: In,
     pub amplitude: In,
     pub phase: In,
@@ -257,7 +257,7 @@ impl IndexMut<&str> for TriangleOsc {
 /// Square wave oscillator with a `duty_cycle` that takes values in (0, 1).
 #[derive(Copy, Clone)]
 pub struct SquareOsc {
-    pub tag: Tag,
+    tag: Tag,
     pub hz: In,
     pub amplitude: In,
     pub phase: In,
@@ -350,7 +350,7 @@ pub enum NoiseDistribution {
 }
 #[derive(Copy, Clone)]
 pub struct WhiteNoise {
-    pub tag: Tag,
+    tag: Tag,
     pub amplitude: In,
     pub dist: NoiseDistribution,
 }
@@ -415,7 +415,7 @@ impl IndexMut<&str> for WhiteNoise {
 /// based on a sinusoid.
 #[derive(Copy, Clone)]
 pub struct Osc01 {
-    pub tag: Tag,
+    tag: Tag,
     pub hz: In,
     pub phase: In,
 }
@@ -492,7 +492,7 @@ fn sinc(x: Real) -> Real {
 /// factor to eliminate ringing due to Gibbs phenomenon.
 #[derive(Clone)]
 pub struct FourierOsc {
-    pub tag: Tag,
+    tag: Tag,
     pub hz: In,
     pub amplitude: In,
     sines: Rack,

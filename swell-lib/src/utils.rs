@@ -74,9 +74,91 @@ where
     let rack = Rack::new(vec![]);
     let mut result = vec![];
     for i in start..=end {
-        result.push((i as f32 / sample_rate as f32, module.signal(&rack, sample_rate) as f32));
+        result.push((
+            i as f32 / sample_rate as f32,
+            module.signal(&rack, sample_rate) as f32,
+        ));
     }
     result
+}
+
+#[derive(Clone)]
+pub struct RingBuffer<T> {
+    buffer: Vec<T>,
+    pub read_pos: Real,
+    pub write_pos: usize,
+}
+
+impl<T> RingBuffer<T>
+where
+    T: Clone + Default,
+{
+    pub fn new(read_pos: Real, write_pos: usize) -> Self {
+        assert!(
+            read_pos.trunc() as usize <= write_pos,
+            "Read position must be <= write postion"
+        );
+        RingBuffer {
+            // +3 is to give room for cubic interpolation
+            buffer: vec![Default::default(); write_pos + 3],
+            read_pos,
+            write_pos,
+        }
+    }
+
+    pub fn push(&mut self, v: T) {
+        let n = self.buffer.len();
+        self.write_pos = (self.write_pos + 1) % n;
+        self.read_pos = (self.read_pos + 1.0) % n as Real;
+        self.buffer[self.write_pos] = v;
+    }
+
+    pub fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
+    pub fn resize(&mut self, size: usize) {
+        self.buffer.resize_with(size, Default::default);
+    }
+}
+
+impl<T> RingBuffer<T>
+where
+    T: Copy + Default,
+{
+    pub fn get(&self) -> T {
+        self.buffer[self.read_pos.trunc() as usize]
+    }
+
+    pub fn get_offset(&self, offset: i32) -> T {
+        let n = self.buffer.len() as i32;
+        let mut offset = offset;
+        while offset < 0 {
+            offset += n;
+        }
+        let i = (self.read_pos.trunc() as usize + offset as usize) % n as usize;
+        self.buffer[i]
+    }
+}
+
+impl RingBuffer<Real> {
+    pub fn get_linear(&self) -> Real {
+        let f = self.read_pos - self.read_pos.trunc();
+        (1.0 - f) * self.get() + f * self.get_offset(1)
+    }
+
+    /// Hermite cubic polynomial interpolation.
+    pub fn get_cubic(&self) -> Real {
+        let v0 = self.get_offset(-1);
+        let v1 = self.get();
+        let v2 = self.get_offset(1);
+        let v3 = self.get_offset(2);
+        let f = self.read_pos - self.read_pos.trunc();
+        let a1 = 0.5 * (v2 - v0);
+        let a2 = v0 - 2.5 * v1 + 2.0 * v2 - 0.5 * v3;
+        let a3 = 0.5 * (v3 - v0) + 1.5 * (v1 - v2);
+        a3 * f * f * f + a2 * f * f + a1 * f + v1
+    }
 }
 
 #[cfg(test)]
@@ -134,5 +216,34 @@ mod tests {
             "interp returned {}, epxected 10,1000",
             result
         );
+    }
+
+    #[test]
+    fn ring_buffer() {
+        let mut rb = RingBuffer::<Real>::new(0.5, 5);
+        let result = rb.get();
+        assert_eq!(result, 0.0, "get returned {}, expected 0.0", result);
+        for i in 0..=6 {
+            rb.push(i as Real);
+        }
+        let result = rb.get();
+        assert_eq!(result, 1.0, "get returned {}, expected 0.0", result);
+        let result = rb.get_linear();
+        assert_eq!(result, 1.5, "get_linear returned {}, expected 0.0", result);
+        let result = rb.get_cubic();
+        assert_eq!(result, 1.5, "get_cubic returned {}, expected 0.0", result);
+    }
+
+    #[test]
+    fn ring_buffer_resize() {
+        let mut rb = RingBuffer::<Real>::new(0.5, 5);
+        rb.resize(10);
+        for i in 0..=6 {
+            rb.push(i as Real);
+        }
+        let result = rb.get_linear();
+        assert_eq!(result, 1.5, "get_linear returned {}, expected 0.0", result);
+        let result = rb.get_cubic();
+        assert_eq!(result, 1.5, "get_cubic returned {}, expected 0.0", result);
     }
 }
