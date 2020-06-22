@@ -8,7 +8,7 @@ use std::{
 
 #[derive(Copy, Clone)]
 pub struct Adsr {
-    pub tag: Tag,
+    tag: Tag,
     pub attack: In,
     pub decay: In,
     pub sustain: In,

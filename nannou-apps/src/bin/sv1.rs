@@ -115,13 +115,13 @@ fn build_synth(
     let midi_control_mix4 = MidiControl::new(35, 0, 0.0, 0.5, 1.0).wrap();
     let midi_control_mix5 = MidiControl::new(36, 0, 0.0, 0.5, 1.0).wrap();
 
-    mixer.levels = vec![
+    mixer.levels(vec![
         midi_control_mix1.tag().into(),
         midi_control_mix2.tag().into(),
         midi_control_mix3.tag().into(),
         midi_control_mix4.tag().into(),
         midi_control_mix5.tag().into(),
-    ];
+    ]);
     mixer.level = adsr.tag().into();
 
     // Filter

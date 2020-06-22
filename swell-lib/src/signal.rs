@@ -293,7 +293,7 @@ impl<'a> Iterator for Iter<'a> {
 /// node in the subrack.
 #[derive(Clone)]
 pub struct Link {
-    pub tag: Tag,
+    tag: Tag,
     pub value: In,
 }
 

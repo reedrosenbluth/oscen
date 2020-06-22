@@ -78,8 +78,8 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     vca.level = 0.95.into();
 
     // Feedback loop
-    mixer.waves = vec![vca.tag(), noise.tag()];
-    mixer.levels = vec![1.0.into(), 0.4.into()];
+    mixer.waves(vec![vca.tag(), noise.tag()]);
+    mixer.levels(vec![1.0.into(), 0.4.into()]);
 
     let graph = Rack::new(vec![
         midi_pitch.clone(),

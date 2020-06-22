@@ -7,7 +7,7 @@ use std::ops::{Index, IndexMut};
 #[derive(Clone)]
 pub struct Union {
     tag: Tag,
-    pub waves: Vec<Tag>,
+    waves: Vec<Tag>,
     pub active: Tag,
     pub level: In,
 }
@@ -21,6 +21,11 @@ impl Union {
             active,
             level: 1.into(),
         }
+    }
+
+    pub fn waves(&mut self, arg: Vec<Tag>) -> &mut Self {
+        self.waves = arg;
+        self
     }
 
     pub fn level(&mut self, arg: In) -> &mut Self {
@@ -53,7 +58,7 @@ impl IndexMut<usize> for Union {
 }
 #[derive(Clone)]
 pub struct Product {
-    pub tag: Tag,
+    tag: Tag,
     pub waves: Vec<Tag>,
 }
 
@@ -91,7 +96,7 @@ impl IndexMut<usize> for Product {
 
 #[derive(Copy, Clone)]
 pub struct Vca {
-    pub tag: Tag,
+    tag: Tag,
     pub wave: Tag,
     pub level: In,
 }
@@ -142,9 +147,9 @@ impl IndexMut<&str> for Vca {
 
 #[derive(Clone)]
 pub struct Mixer {
-    pub tag: Tag,
-    pub waves: Vec<Tag>,
-    pub levels: Vec<In>,
+    tag: Tag,
+    waves: Vec<Tag>,
+    levels: Vec<In>,
     pub level: In,
 }
 
@@ -159,7 +164,14 @@ impl Mixer {
         }
     }
 
+    pub fn waves(&mut self, arg: Vec<Tag>) -> &mut Self {
+        self.waves = arg;
+        self.levels.resize_with(self.waves.len(), || 0.5.into());
+        self
+    }
+
     pub fn levels(&mut self, arg: Vec<In>) -> &mut Self {
+        assert_eq!(arg.len(), self.waves.len(), "Levels must have same length as waves");
         self.levels = arg;
         self
     }
@@ -196,7 +208,7 @@ impl IndexMut<usize> for Mixer {
 }
 #[derive(Copy, Clone)]
 pub struct Lerp {
-    pub tag: Tag,
+    tag: Tag,
     pub wave1: In,
     pub wave2: In,
     pub alpha: In,
@@ -274,7 +286,7 @@ pub fn set_alpha(rack: &Rack, k: In, a: Real) {
 /// hz by adding mod_idx * mod_hz * output of modulator wave.
 #[derive(Copy, Clone)]
 pub struct Modulator {
-    pub tag: Tag,
+    tag: Tag,
     pub wave: In,
     pub base_hz: In,
     pub mod_hz: In,
@@ -348,7 +360,7 @@ impl IndexMut<&str> for Modulator {
 
 #[derive(Clone)]
 pub struct Delay {
-    pub tag: Tag,
+    tag: Tag,
     pub wave: Tag,
     pub delay_time: In,
     ring_buffer: RingBuffer<Real>,
