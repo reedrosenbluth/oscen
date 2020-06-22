@@ -7,10 +7,11 @@ use nannou_audio::Buffer;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
 use swell::midi::{listen_midi, set_step, MidiControl, MidiPitch};
-use swell::operators::{Lerp, Union, Vca};
-use swell::oscillators::{square_wave, SineOsc, TriangleOsc};
+use swell::operators::{Lerp, Union, Vca, Delay, Mixer};
+use swell::oscillators::{square_wave, SquareOsc, SineOsc, TriangleOsc, WhiteNoise};
 use swell::shaping::{SineFold, Tanh};
 use swell::signal::{arc, connect, ArcMutex, Builder, Rack, Real, Signal, Tag};
+use swell::filters::{Lpf};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -35,7 +36,6 @@ struct Synth {
     midi_receiver: Receiver<Vec<u8>>,
     voice: Rack,
     adsr_tag: Tag,
-    union_tag: Tag,
     sender: Sender<f32>,
 }
 
@@ -45,7 +45,12 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let midi_volume = arc(MidiControl::new(1, 64, 0.0, 0.5, 1.0));
 
     // Envelope Generator
-    let adsr = Adsr::new(0.2, 0.2, 0.2);
+    let adsr = Adsr::new(0.2, 0.2, 0.2)
+        .attack(0.001.into())
+        .decay(0.into())
+        .sustain(0.into())
+        .release(0.001.into())
+        .build();
     let adsr_tag = adsr.tag();
 
     // To demonstrate how to use the `connect` function, typically one would write
@@ -56,28 +61,36 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     // sine["hz"] = midi_pitch.tag().into();
     let mut sine = SineOsc::new();
     connect(&midi_pitch, &mut sine, "hz");
-    let sinefold = SineFold::new(sine.tag());
-    let tri = TriangleOsc::new().hz(midi_pitch.tag().into()).wrap();
-    let mut lerp = Lerp::new(sine.tag(), tri.tag());
-    lerp.alpha = (0.2).into();
-    let tanh = Tanh::new(sine.tag());
-    let mut sq = square_wave(16, true);
-    sq.hz = midi_pitch.tag().into();
-    let mut union = Union::new(vec![sine.tag(), sinefold.tag(), sq.tag(), tanh.tag()]);
-    union.level = adsr.tag().into();
-    let union_tag = union.tag();
-    let vca = Vca::new(union_tag).level((0.5).into()).wrap();
+
+    // Burst of noise
+    let mut noise = SquareOsc::new().hz(2.0.into()).build();
+    noise.amplitude = adsr.tag().into();
+
+    let mut mixer = Mixer::new(vec![]);
+
+    // -> Delay
+    let delay = Delay::new(mixer.tag(), 0.03.into());
+
+    // -> Filter
+    let lpf = Lpf::new(delay.tag()).cutoff_freq(2000.into()).wrap();
+
+    let mut vca = Vca::new(lpf.tag());
+    vca.level = 0.95.into();
+
+    // Feedback loop
+    mixer.waves = vec![vca.tag(), noise.tag()];
+    mixer.levels = vec![1.0.into(), 0.4.into()];
+
     let graph = Rack::new(vec![
         midi_pitch.clone(),
         midi_volume.clone(),
         arc(adsr),
         arc(sine),
-        arc(sinefold),
-        tri,
-        arc(sq),
-        arc(tanh),
-        arc(union),
-        vca,
+        arc(noise),
+        lpf,
+        arc(vca),
+        arc(mixer),
+        arc(delay),
     ]);
 
     Synth {
@@ -88,7 +101,6 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
         midi_receiver,
         voice: graph,
         adsr_tag,
-        union_tag,
         sender,
     }
 }
@@ -110,7 +122,6 @@ fn model(app: &App) -> Model {
     let _window = app
         .new_window()
         .size(900, 520)
-        .key_pressed(key_pressed)
         .view(view)
         .build()
         .unwrap();
@@ -165,35 +176,6 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
             *channel = amp;
         }
         synth.sender.send(amp).unwrap();
-    }
-}
-
-fn key_pressed(_app: &App, model: &mut Model, key: Key) {
-    let activate = |n| {
-        model
-            .stream
-            .send(move |synth| {
-                let union_tag = synth.union_tag;
-                if let Some(v) = synth.voice.nodes[&union_tag]
-                    .module
-                    .lock()
-                    .unwrap()
-                    .as_any_mut()
-                    .downcast_mut::<Union>()
-                {
-                    let tag = v.waves[n];
-                    v.active = tag;
-                }
-            })
-            .unwrap();
-    };
-    match key {
-        // Pause or unpause the audio when Space is pressed.
-        Key::Key0 => activate(0),
-        Key::Key1 => activate(1),
-        Key::Key2 => activate(2),
-        Key::Key3 => activate(3),
-        _ => {}
     }
 }
 

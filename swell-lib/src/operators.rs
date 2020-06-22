@@ -385,6 +385,6 @@ impl Signal for Delay {
         }
         let val = rack.output(self.wave);
         self.ring_buffer.push(val);
-        self.ring_buffer.get_linear()
+        self.ring_buffer.get_cubic()
     }
 }
