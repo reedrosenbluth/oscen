@@ -16,6 +16,7 @@ fn main() {
     nannou::app(model).update(update).run();
 }
 
+#[allow(dead_code)]
 struct Model {
     ui: Ui,
     stream: audio::Stream<Synth>,
