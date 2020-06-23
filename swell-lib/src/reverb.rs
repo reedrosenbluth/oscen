@@ -59,7 +59,8 @@ impl Freeverb {
             comb6.tag(),
             comb7.tag(),
             comb8.tag(),
-        ]).wrap();
+        ])
+        .wrap();
 
         let all1 = AllPass::new(combs.tag(), ALLPASS_TUNING_1).wrap();
         let all2 = AllPass::new(all1.tag(), ALLPASS_TUNING_2).wrap();

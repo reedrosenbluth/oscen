@@ -92,16 +92,16 @@ impl Adsr {
         if self.triggered {
             match self.clock {
                 // Attack
-                t if t < a => self.a_interp.interp(t/a),
+                t if t < a => self.a_interp.interp(t / a),
                 // Decay
-                t if t < a + d => self.d_interp.interp((t-a)/d),
+                t if t < a + d => self.d_interp.interp((t - a) / d),
                 // Sustain
                 _ => s,
             }
         } else {
             match self.clock {
                 // Release
-                t if t < r => self.r_interp.interp(t/r),
+                t if t < r => self.r_interp.interp(t / r),
                 // Off
                 _ => 0.,
             }

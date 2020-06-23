@@ -171,7 +171,11 @@ impl Mixer {
     }
 
     pub fn levels<T: Into<In>>(&mut self, arg: Vec<T>) -> &mut Self {
-        assert_eq!(arg.len(), self.waves.len(), "Levels must have same length as waves");
+        assert_eq!(
+            arg.len(),
+            self.waves.len(),
+            "Levels must have same length as waves"
+        );
         let v = arg.into_iter().map(|x| x.into());
         self.levels = v.collect();
         self
@@ -368,7 +372,7 @@ pub struct Delay {
 }
 
 impl Delay {
-    pub fn new(wave:Tag, delay_time: In) -> Self {
+    pub fn new(wave: Tag, delay_time: In) -> Self {
         let ring = RingBuffer::<Real>::new(0.0, 0);
         Self {
             tag: mk_tag(),

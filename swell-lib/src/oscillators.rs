@@ -364,8 +364,7 @@ impl WhiteNoise {
         }
     }
 
-    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self
-    {
+    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
         self.amplitude = arg.into();
         self
     }

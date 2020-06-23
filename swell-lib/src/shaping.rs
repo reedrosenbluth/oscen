@@ -1,5 +1,5 @@
 use super::signal::*;
-use crate::{std_signal, as_any_mut};
+use crate::{as_any_mut, std_signal};
 use std::any::Any;
 
 pub struct SineFold {
@@ -10,7 +10,11 @@ pub struct SineFold {
 
 impl SineFold {
     pub fn new(wave: Tag) -> Self {
-        Self { tag: mk_tag(), wave, fold_param: TAU.into() }
+        Self {
+            tag: mk_tag(),
+            wave,
+            fold_param: TAU.into(),
+        }
     }
 
     pub fn fold_param<T: Into<In>>(&mut self, arg: T) -> &mut Self {
@@ -37,8 +41,11 @@ pub struct Tanh {
 
 impl Tanh {
     pub fn new(wave: Tag) -> Self {
-        Self { tag: mk_tag(), wave}
-    }    
+        Self {
+            tag: mk_tag(),
+            wave,
+        }
+    }
 }
 
 impl Builder for Tanh {}
