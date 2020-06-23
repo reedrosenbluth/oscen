@@ -6,12 +6,11 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
 use swell::envelopes::{off, on, Adsr};
+use swell::filters::Lpf;
 use swell::midi::{listen_midi, set_step, MidiControl, MidiPitch};
-use swell::operators::{Lerp, Union, Vca, Delay, Mixer};
-use swell::oscillators::{square_wave, SquareOsc, SineOsc, TriangleOsc, WhiteNoise};
-use swell::shaping::{SineFold, Tanh};
+use swell::operators::{Delay, Mixer, Vca};
+use swell::oscillators::{SineOsc, SquareOsc};
 use swell::signal::{arc, connect, ArcMutex, Builder, Rack, Real, Signal, Tag};
-use swell::filters::{Lpf};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -40,18 +39,22 @@ struct Synth {
 }
 
 fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
+    let mut rack = Rack::new(vec![]);
     //  Midi
-    let midi_pitch = arc(MidiPitch::new());
-    let midi_volume = arc(MidiControl::new(1, 64, 0.0, 0.5, 1.0));
+    let midi_pitch = MidiPitch::new().wrap();
+    rack.append(midi_pitch.clone());
+    let midi_volume = MidiControl::new(1, 64, 0.0, 0.5, 1.0).wrap();
+    rack.append(midi_volume.clone());
 
     // Envelope Generator
     let adsr = Adsr::new(0.2, 0.2, 0.2)
-        .attack(0.001.into())
-        .decay(0.into())
-        .sustain(0.into())
-        .release(0.001.into())
+        .attack(0.001)
+        .decay(0)
+        .sustain(0)
+        .release(0.001)
         .build();
     let adsr_tag = adsr.tag();
+    rack.append(arc(adsr));
 
     // To demonstrate how to use the `connect` function, typically one would write
     // the following:
@@ -60,38 +63,34 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     // let mut sine = SineOsc::new();
     // sine["hz"] = midi_pitch.tag().into();
     let mut sine = SineOsc::new();
-    connect(&midi_pitch, &mut sine, "hz");
+    connect(&midi_pitch.clone(), &mut sine, "hz");
+    rack.append(sine.wrap());
 
     // Burst of noise
-    let mut noise = SquareOsc::new().hz(2.0.into()).build();
-    noise.amplitude = adsr.tag().into();
+    let noise = SquareOsc::new().hz(2.0).amplitude(adsr.tag()).wrap();
+    rack.append(noise.clone());
 
+    // Create the mixer so that we can use it's tag.
     let mut mixer = Mixer::new(vec![]);
 
     // -> Delay
-    let delay = Delay::new(mixer.tag(), 0.03.into());
+    let delay = Delay::new(mixer.tag(), 0.03.into()).wrap();
 
     // -> Filter
-    let lpf = Lpf::new(delay.tag()).cutoff_freq(2000.into()).wrap();
+    let lpf = Lpf::new(delay.tag()).cutoff_freq(2000).wrap();
 
-    let mut vca = Vca::new(lpf.tag());
-    vca.level = 0.95.into();
+    let vca = Vca::new(lpf.tag()).level(0.95).wrap();
 
     // Feedback loop
-    mixer.waves(vec![vca.tag(), noise.tag()]);
-    mixer.levels(vec![1.0.into(), 0.4.into()]);
+    let mixer = mixer
+        .waves(vec![vca.tag(), noise.tag()])
+        .levels(vec![1.0, 0.4])
+        .wrap();
 
-    let graph = Rack::new(vec![
-        midi_pitch.clone(),
-        midi_volume.clone(),
-        arc(adsr),
-        arc(sine),
-        arc(noise),
-        lpf,
-        arc(vca),
-        arc(mixer),
-        arc(delay),
-    ]);
+    rack.append(lpf);
+    rack.append(vca);
+    rack.append(mixer);
+    rack.append(delay);
 
     Synth {
         midi: Midi {
@@ -99,7 +98,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
             midi_controls: vec![midi_volume],
         },
         midi_receiver,
-        voice: graph,
+        voice: rack,
         adsr_tag,
         sender,
     }
@@ -119,12 +118,7 @@ fn model(app: &App) -> Model {
         update_interval: Duration::from_millis(1),
     });
 
-    let _window = app
-        .new_window()
-        .size(900, 520)
-        .view(view)
-        .build()
-        .unwrap();
+    let _window = app.new_window().size(900, 520).view(view).build().unwrap();
 
     let ui = app.new_ui().build().unwrap();
 

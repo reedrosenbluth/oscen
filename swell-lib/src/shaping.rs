@@ -13,8 +13,8 @@ impl SineFold {
         Self { tag: mk_tag(), wave, fold_param: TAU.into() }
     }
 
-    pub fn fold_param(&mut self, arg: In) -> &mut Self {
-        self.fold_param = arg;
+    pub fn fold_param<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.fold_param = arg.into();
         self
     }
 }

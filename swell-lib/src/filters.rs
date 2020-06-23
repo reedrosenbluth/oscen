@@ -35,13 +35,13 @@ impl Lpf {
         }
     }
 
-    pub fn cutoff_freq(&mut self, arg: In) -> &mut Self {
-        self.cutoff_freq = arg;
+    pub fn cutoff_freq<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.cutoff_freq = arg.into();
         self
     }
 
-    pub fn q(&mut self, arg: In) -> &mut Self {
-        self.q = arg;
+    pub fn q<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.q = arg.into();
         self
     }
 }
@@ -147,13 +147,13 @@ impl Hpf {
         }
     }
 
-    pub fn cutoff_freq(&mut self, arg: In) -> &mut Self {
-        self.cutoff_freq = arg;
+    pub fn cutoff_freq<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.cutoff_freq = arg.into();
         self
     }
 
-    pub fn q(&mut self, arg: In) -> &mut Self {
-        self.q = arg;
+    pub fn q<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.q = arg.into();
         self
     }
 }
@@ -259,13 +259,13 @@ impl Bpf {
         }
     }
 
-    pub fn cutoff_freq(&mut self, arg: In) -> &mut Self {
-        self.cutoff_freq = arg;
+    pub fn cutoff_freq<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.cutoff_freq = arg.into();
         self
     }
 
-    pub fn q(&mut self, arg: In) -> &mut Self {
-        self.q = arg;
+    pub fn q<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.q = arg.into();
         self
     }
 }
@@ -372,13 +372,13 @@ impl Notch {
         }
     }
 
-    pub fn cutoff_freq(&mut self, arg: In) -> &mut Self {
-        self.cutoff_freq = arg;
+    pub fn cutoff_freq<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.cutoff_freq = arg.into();
         self
     }
 
-    pub fn q(&mut self, arg: In) -> &mut Self {
-        self.q = arg;
+    pub fn q<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.q = arg.into();
         self
     }
 }
@@ -484,18 +484,18 @@ impl Comb {
         }
     }
 
-    pub fn feedback(&mut self, arg: In) -> &mut Self {
-        self.feedback = arg;
+    pub fn feedback<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.feedback = arg.into();
         self
     }
 
-    pub fn dampening(&mut self, arg: In) -> &mut Self {
-        self.dampening = arg;
+    pub fn dampening<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.dampening = arg.into();
         self
     }
 
-    pub fn dampening_inverse(&mut self, arg: In) -> &mut Self {
-        self.dampening_inverse = arg;
+    pub fn dampening_inverse<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.dampening_inverse = arg.into();
         self
     }
 }

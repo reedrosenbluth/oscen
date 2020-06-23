@@ -28,18 +28,18 @@ impl SineOsc {
         }
     }
 
-    pub fn hz(&mut self, arg: In) -> &mut Self {
-        self.hz = arg;
+    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.hz = arg.into();
         self
     }
 
-    pub fn amplitude(&mut self, arg: In) -> &mut Self {
-        self.amplitude = arg;
+    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.amplitude = arg.into();
         self
     }
 
-    pub fn phase(&mut self, arg: In) -> &mut Self {
-        self.phase = arg;
+    pub fn phase<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.phase = arg.into();
         self
     }
 }
@@ -107,18 +107,18 @@ impl SawOsc {
         }
     }
 
-    pub fn hz(&mut self, arg: In) -> &mut Self {
-        self.hz = arg;
+    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.hz = arg.into();
         self
     }
 
-    pub fn amplitude(&mut self, arg: In) -> &mut Self {
-        self.amplitude = arg;
+    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.amplitude = arg.into();
         self
     }
 
-    pub fn phase(&mut self, arg: In) -> &mut Self {
-        self.phase = arg;
+    pub fn phase<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.phase = arg.into();
         self
     }
 }
@@ -192,18 +192,18 @@ impl TriangleOsc {
         }
     }
 
-    pub fn hz(&mut self, arg: In) -> &mut Self {
-        self.hz = arg;
+    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.hz = arg.into();
         self
     }
 
-    pub fn amplitude(&mut self, arg: In) -> &mut Self {
-        self.amplitude = arg;
+    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.amplitude = arg.into();
         self
     }
 
-    pub fn phase(&mut self, arg: In) -> &mut Self {
-        self.phase = arg;
+    pub fn phase<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.phase = arg.into();
         self
     }
 }
@@ -275,18 +275,18 @@ impl SquareOsc {
         }
     }
 
-    pub fn hz(&mut self, arg: In) -> &mut Self {
-        self.hz = arg;
+    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.hz = arg.into();
         self
     }
 
-    pub fn amplitude(&mut self, arg: In) -> &mut Self {
-        self.amplitude = arg;
+    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.amplitude = arg.into();
         self
     }
 
-    pub fn phase(&mut self, arg: In) -> &mut Self {
-        self.phase = arg;
+    pub fn phase<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.phase = arg.into();
         self
     }
 }
@@ -360,12 +360,13 @@ impl WhiteNoise {
         Self {
             tag: mk_tag(),
             amplitude: 1.into(),
-            dist: NoiseDistribution::StdNormal, 
+            dist: NoiseDistribution::StdNormal,
         }
     }
 
-    pub fn amplitude(&mut self, arg: In) -> &mut Self {
-        self.amplitude = arg;
+    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self
+    {
+        self.amplitude = arg.into();
         self
     }
 
@@ -429,13 +430,13 @@ impl Osc01 {
         }
     }
 
-    pub fn hz(&mut self, arg: In) -> &mut Self {
-        self.hz = arg;
+    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.hz = arg.into();
         self
     }
 
-    pub fn phase(&mut self, arg: In) -> &mut Self {
-        self.phase = arg;
+    pub fn phase<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.phase = arg.into();
         self
     }
 }
@@ -518,13 +519,13 @@ impl FourierOsc {
         }
     }
 
-    pub fn hz(&mut self, arg: In) -> &mut Self {
-        self.hz = arg;
+    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.hz = arg.into();
         self
     }
 
-    pub fn amplitude(&mut self, arg: In) -> &mut Self {
-        self.amplitude = arg;
+    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.amplitude = arg.into();
         self
     }
 

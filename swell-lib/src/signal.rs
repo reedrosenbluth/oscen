@@ -305,8 +305,8 @@ impl Link {
         }
     }
 
-    pub fn value(&mut self, arg: In) -> &mut Self {
-        self.value = arg;
+    pub fn value<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.value = arg.into();
         self
     }
 }

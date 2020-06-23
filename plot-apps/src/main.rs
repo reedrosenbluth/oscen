@@ -5,10 +5,10 @@ use swell::utils::signals;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut adsr = envelopes::Adsr::new(0.2, 0.2, 0.2)
-        .attack(1.into())
-        .decay(1.into())
-        .release(1.into())
-        .sustain(0.8.into())
+        .attack(1)
+        .decay(1)
+        .release(1)
+        .sustain(0.8)
         .build();
 
     adsr.on();

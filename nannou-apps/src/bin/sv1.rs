@@ -49,17 +49,17 @@ fn build_synth(
     let midi_control_release = MidiControl::new(37, 1, 0.05, 1.0, 10.0).wrap();
 
     let adsr = Adsr::linear()
-        .release(midi_control_release.tag().into())
-        .attack(1.into())
-        .decay(1.into())
-        .sustain(0.8.into())
+        .release(midi_control_release.tag())
+        .attack(1)
+        .decay(1)
+        .sustain(0.8)
         .wrap();
     let adsr_tag = adsr.tag();
     
     let midi_control_tri_lfo_hz = MidiControl::new(46, 0, 0.0, 100.0, 500.0).wrap();
 
     // LFO
-    let tri_lfo = TriangleOsc::new().hz(midi_control_tri_lfo_hz.tag().into()).wrap();
+    let tri_lfo = TriangleOsc::new().hz(midi_control_tri_lfo_hz.tag()).wrap();
     let square_lfo = SquareOsc::new().wrap();
 
     let midi_control_mod_hz2 = MidiControl::new(44, 0, 0.0, 440.0, 1760.0).wrap();
@@ -68,34 +68,34 @@ fn build_synth(
     // TODO: tune these lower
     // Sub Oscillators for Osc
     let modulator_osc2 = Modulator::new(tri_lfo.tag().into())
-        .base_hz(midi_pitch.tag().into())
-        .mod_hz(midi_control_mod_hz2.tag().into())
-        .mod_idx(midi_control_mod_idx2.tag().into())
+        .base_hz(midi_pitch.tag())
+        .mod_hz(midi_control_mod_hz2.tag())
+        .mod_idx(midi_control_mod_idx2.tag())
         .wrap();
 
     // Oscillator 2
-    let sine2 = SineOsc::new().hz(modulator_osc2.tag().into()).wrap();
-    let saw2 = SawOsc::new().hz(midi_pitch.tag().into()).wrap();
-    let square2 = SquareOsc::new().hz(midi_pitch.tag().into()).wrap();
-    let triangle2 = TriangleOsc::new().hz(midi_pitch.tag().into()).wrap();
+    let sine2 = SineOsc::new().hz(modulator_osc2.tag()).wrap();
+    let saw2 = SawOsc::new().hz(midi_pitch.tag()).wrap();
+    let square2 = SquareOsc::new().hz(midi_pitch.tag()).wrap();
+    let triangle2 = TriangleOsc::new().hz(midi_pitch.tag()).wrap();
     
     let midi_control_mod_hz1 = MidiControl::new(42, 0, 0.0, 440.0, 1760.0).wrap();
     let midi_control_mod_idx1 = MidiControl::new(43, 0, 0.0, 4.0, 16.0).wrap();
 
     let modulator_osc1 = Modulator::new(sine2.tag())
-        .base_hz(midi_pitch.tag().into())
-        .mod_hz(midi_control_mod_hz1.tag().into())
-        .mod_idx(midi_control_mod_idx1.tag().into())
+        .base_hz(midi_pitch.tag())
+        .mod_hz(midi_control_mod_hz1.tag())
+        .mod_idx(midi_control_mod_idx1.tag())
         .wrap();
 
     // Oscillator 1
-    let sine1 = SineOsc::new().hz(modulator_osc1.tag().into()).wrap();
-    let saw1 = SawOsc::new().hz(midi_pitch.tag().into()).wrap();
-    let square1 = SquareOsc::new().hz(midi_pitch.tag().into()).wrap();
-    let triangle1 = TriangleOsc::new().hz(midi_pitch.tag().into()).wrap();
+    let sine1 = SineOsc::new().hz(modulator_osc1.tag()).wrap();
+    let saw1 = SawOsc::new().hz(midi_pitch.tag()).wrap();
+    let square1 = SquareOsc::new().hz(midi_pitch.tag()).wrap();
+    let triangle1 = TriangleOsc::new().hz(midi_pitch.tag()).wrap();
 
-    let sub1 = SquareOsc::new().hz(midi_pitch.tag().into()).wrap();
-    let sub2 = SquareOsc::new().hz(midi_pitch.tag().into()).wrap();
+    let sub1 = SquareOsc::new().hz(midi_pitch.tag()).wrap();
+    let sub2 = SquareOsc::new().hz(midi_pitch.tag()).wrap();
 
     // Noise
     let noise = WhiteNoise::new().wrap();
@@ -116,11 +116,11 @@ fn build_synth(
     let midi_control_mix5 = MidiControl::new(36, 0, 0.0, 0.5, 1.0).wrap();
 
     mixer.levels(vec![
-        midi_control_mix1.tag().into(),
-        midi_control_mix2.tag().into(),
-        midi_control_mix3.tag().into(),
-        midi_control_mix4.tag().into(),
-        midi_control_mix5.tag().into(),
+        midi_control_mix1.tag(),
+        midi_control_mix2.tag(),
+        midi_control_mix3.tag(),
+        midi_control_mix4.tag(),
+        midi_control_mix5.tag(),
     ]);
     mixer.level = adsr.tag().into();
 
@@ -129,14 +129,14 @@ fn build_synth(
     let midi_control_resonance = MidiControl::new(41, 0, 0.707, 4.0, 10.0).wrap();
 
     let low_pass_filter = Lpf::new(mixer.tag())
-        .cutoff_freq(midi_control_cutoff.tag().into())
-        .q(midi_control_resonance.tag().into())
+        .cutoff_freq(midi_control_cutoff.tag())
+        .q(midi_control_resonance.tag())
         .wrap();
 
     // VCA
     let midi_control_volume = MidiControl::new(47, 64, 0.0, 0.5, 1.0).wrap();
     let vca = Vca::new(low_pass_filter.tag())
-        .level(midi_control_volume.tag().into())
+        .level(midi_control_volume.tag())
         .wrap();
 
     let graph = Rack::new(vec![

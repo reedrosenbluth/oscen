@@ -55,23 +55,23 @@ impl Adsr {
         Self::new(0.2, 0.2, 0.2)
     }
 
-    pub fn attack(&mut self, arg: In) -> &mut Self {
-        self.attack = arg;
+    pub fn attack<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.attack = arg.into();
         self
     }
 
-    pub fn decay(&mut self, arg: In) -> &mut Self {
-        self.decay = arg;
+    pub fn decay<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.decay = arg.into();
         self
     }
 
-    pub fn sustain(&mut self, arg: In) -> &mut Self {
-        self.sustain = arg;
+    pub fn sustain<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.sustain = arg.into();
         self
     }
 
-    pub fn release(&mut self, arg: In) -> &mut Self {
-        self.release = arg;
+    pub fn release<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.release = arg.into();
         self
     }
 

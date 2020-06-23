@@ -28,8 +28,8 @@ impl Union {
         self
     }
 
-    pub fn level(&mut self, arg: In) -> &mut Self {
-        self.level = arg;
+    pub fn level<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.level = arg.into();
         self
     }
 }
@@ -110,8 +110,8 @@ impl Vca {
         }
     }
 
-    pub fn level(&mut self, arg: In) -> &mut Self {
-        self.level = arg;
+    pub fn level<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.level = arg.into();
         self
     }
 }
@@ -170,14 +170,15 @@ impl Mixer {
         self
     }
 
-    pub fn levels(&mut self, arg: Vec<In>) -> &mut Self {
+    pub fn levels<T: Into<In>>(&mut self, arg: Vec<T>) -> &mut Self {
         assert_eq!(arg.len(), self.waves.len(), "Levels must have same length as waves");
-        self.levels = arg;
+        let v = arg.into_iter().map(|x| x.into());
+        self.levels = v.collect();
         self
     }
 
-    pub fn level(&mut self, arg: In) -> &mut Self {
-        self.level = arg;
+    pub fn level<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.level = arg.into();
         self
     }
 }
@@ -224,8 +225,8 @@ impl Lerp {
         }
     }
 
-    pub fn alpha(&mut self, arg: In) -> &mut Self {
-        self.alpha = arg;
+    pub fn alpha<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.alpha = arg.into();
         self
     }
 }
@@ -304,18 +305,18 @@ impl Modulator {
         }
     }
 
-    pub fn base_hz(&mut self, arg: In) -> &mut Self {
-        self.base_hz = arg;
+    pub fn base_hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.base_hz = arg.into();
         self
     }
 
-    pub fn mod_hz(&mut self, arg: In) -> &mut Self {
-        self.mod_hz = arg;
+    pub fn mod_hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.mod_hz = arg.into();
         self
     }
 
-    pub fn mod_idx(&mut self, arg: In) -> &mut Self {
-        self.mod_idx = arg;
+    pub fn mod_idx<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.mod_idx = arg.into();
         self
     }
 }
@@ -377,8 +378,8 @@ impl Delay {
         }
     }
 
-    pub fn delay_time(&mut self, arg: In) -> &mut Self {
-        self.delay_time = arg;
+    pub fn delay_time<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.delay_time = arg.into();
         self
     }
 }
