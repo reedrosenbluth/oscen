@@ -120,6 +120,14 @@ where
     pub fn resize(&mut self, size: usize) {
         self.buffer.resize_with(size, Default::default);
     }
+
+    pub fn set_read_pos(&mut self, rp: Real) {
+        self.read_pos = rp % self.buffer.len() as Real;
+    }
+
+    pub fn set_write_pos(&mut self, wp: usize) {
+        self.write_pos = wp % self.buffer.len();
+    }
 }
 
 impl<T> RingBuffer<T>

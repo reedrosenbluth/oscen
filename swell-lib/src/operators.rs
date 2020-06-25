@@ -229,6 +229,16 @@ impl Lerp {
         }
     }
 
+    pub fn wave1<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.wave1 = arg.into();
+        self
+    }
+
+    pub fn wave2<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.wave2 = arg.into();
+        self
+    }
+
     pub fn alpha<T: Into<In>>(&mut self, arg: T) -> &mut Self {
         self.alpha = arg.into();
         self
@@ -394,11 +404,12 @@ impl Signal for Delay {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let delay = In::val(rack, self.delay_time) * sample_rate;
+        let rp = self.ring_buffer.read_pos;
+        let wp = (delay + rp).ceil();
+        self.ring_buffer.set_write_pos(wp as usize);
+        self.ring_buffer.set_read_pos(wp - delay);
         if delay > self.ring_buffer.len() as Real - 3.0 {
             self.ring_buffer.resize(delay as usize + 3);
-            let wp = delay.ceil();
-            self.ring_buffer.write_pos = wp as usize;
-            self.ring_buffer.read_pos = delay - wp;
         }
         let val = rack.output(self.wave);
         self.ring_buffer.push(val);

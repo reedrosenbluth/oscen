@@ -42,3 +42,5 @@ pub mod shaping;
 pub mod midi;
 /// Utilites.
 pub mod utils;
+/// Instruments.
+pub mod instruments;
