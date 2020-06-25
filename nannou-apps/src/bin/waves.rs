@@ -7,7 +7,7 @@ use nannou_audio::Buffer;
 use std::thread;
 use swell::instruments;
 use swell::instruments::WaveGuide;
-use swell::midi::{listen_midi, set_step, MidiControl, MidiPitch};
+use swell::midi::{listen_midi, MidiControl, MidiPitch};
 use swell::oscillators::SquareOsc;
 use swell::signal::{ArcMutex, Builder, Rack, Real, Signal, Tag};
 
@@ -114,7 +114,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
         if message.len() == 3 {
             let step = message[1] as f32;
             if message[0] == 144 {
-                set_step(synth.midi.midi_pitch.clone(), step);
+                synth.midi.midi_pitch.lock().unwrap().step(step);
                 instruments::on(&synth.rack, string_tag);
             } else if message[0] == 128 {
                 instruments::off(&synth.rack, string_tag);
