@@ -24,8 +24,8 @@ const ALLPASS_TUNING_3: usize = 341;
 const ALLPASS_TUNING_4: usize = 225;
 
 pub struct Freeverb {
-    pub tag: Tag,
-    pub wave: Tag,
+    tag: Tag,
+    wave: Tag,
     input: ArcMutex<Link>,
     rack: Rack,
     wet_gain: Real,
@@ -98,6 +98,11 @@ impl Freeverb {
         }
     }
 
+    pub fn wave(&mut self, arg: Tag) -> &mut Self {
+        self.wave = arg;
+        self
+    }
+
     pub fn set_dampening(&mut self, value: Real) {
         self.dampening = value * SCALE_DAMPENING;
         self.update_combs();
@@ -150,8 +155,8 @@ impl Freeverb {
                 .as_any_mut()
                 .downcast_mut::<Comb>()
             {
-                v.feedback = feedback.into();
-                v.dampening = dampening.into();
+                v.feedback(feedback);
+                v.dampening(dampening);
             }
         }
     }
@@ -165,7 +170,7 @@ impl Signal for Freeverb {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let inp = rack.output(self.wave);
-        self.input.lock().unwrap().value = inp.into();
+        self.input.lock().unwrap().value(inp);
         let out = self.rack.signal(sample_rate);
         out * self.wet_gain + inp * self.dry
     }

@@ -294,7 +294,7 @@ impl<'a> Iterator for Iter<'a> {
 #[derive(Clone)]
 pub struct Link {
     tag: Tag,
-    pub value: In,
+    value: In,
 }
 
 impl Link {

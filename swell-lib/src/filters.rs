@@ -9,15 +9,15 @@ use std::{
 
 #[derive(Clone)]
 pub struct Lpf {
-    pub tag: Tag,
-    pub wave: Tag,
-    pub cutoff_freq: In,
-    pub q: In,
+    tag: Tag,
+    wave: Tag,
+    cutoff_freq: In,
+    q: In,
     x1: Real,
     x2: Real,
     y1: Real,
     y2: Real,
-    pub off: bool,
+    off: bool,
 }
 
 impl Lpf {
@@ -33,6 +33,11 @@ impl Lpf {
             y2: 0.0,
             off: false,
         }
+    }
+
+    pub fn wave(&mut self, arg: Tag) -> &mut Self {
+        self.wave = arg;
+        self
     }
 
     pub fn cutoff_freq<T: Into<In>>(&mut self, arg: T) -> &mut Self {
@@ -121,15 +126,15 @@ pub fn lpf_off(rack: &mut Rack, n: Tag) {
 
 #[derive(Clone)]
 pub struct Hpf {
-    pub tag: Tag,
-    pub wave: Tag,
-    pub cutoff_freq: In,
-    pub q: In,
+    tag: Tag,
+    wave: Tag,
+    cutoff_freq: In,
+    q: In,
     x1: Real,
     x2: Real,
     y1: Real,
     y2: Real,
-    pub off: bool,
+    off: bool,
 }
 
 impl Hpf {
@@ -145,6 +150,11 @@ impl Hpf {
             y2: 0.0,
             off: false,
         }
+    }
+
+    pub fn wave(&mut self, arg: Tag) -> &mut Self {
+        self.wave = arg;
+        self
     }
 
     pub fn cutoff_freq<T: Into<In>>(&mut self, arg: T) -> &mut Self {
@@ -233,15 +243,15 @@ pub fn hpf_off(rack: &mut Rack, n: Tag) {
 
 #[derive(Clone)]
 pub struct Bpf {
-    pub tag: Tag,
-    pub wave: Tag,
-    pub cutoff_freq: In,
-    pub q: In,
+    tag: Tag,
+    wave: Tag,
+    cutoff_freq: In,
+    q: In,
     x1: Real,
     x2: Real,
     y1: Real,
     y2: Real,
-    pub off: bool,
+    off: bool,
 }
 
 impl Bpf {
@@ -257,6 +267,11 @@ impl Bpf {
             y2: 0.0,
             off: false,
         }
+    }
+
+    pub fn wave(&mut self, arg: Tag) -> &mut Self {
+        self.wave = arg;
+        self
     }
 
     pub fn cutoff_freq<T: Into<In>>(&mut self, arg: T) -> &mut Self {
@@ -346,15 +361,15 @@ pub fn bpf_off(rack: &mut Rack, n: Tag) {
 
 #[derive(Clone)]
 pub struct Notch {
-    pub tag: Tag,
-    pub wave: Tag,
-    pub cutoff_freq: In,
-    pub q: In,
+    tag: Tag,
+    wave: Tag,
+    cutoff_freq: In,
+    q: In,
     x1: Real,
     x2: Real,
     y1: Real,
     y2: Real,
-    pub off: bool,
+    off: bool,
 }
 
 impl Notch {
@@ -370,6 +385,11 @@ impl Notch {
             y2: 0.0,
             off: false,
         }
+    }
+
+    pub fn wave(&mut self, arg: Tag) -> &mut Self {
+        self.wave = arg;
+        self
     }
 
     pub fn cutoff_freq<T: Into<In>>(&mut self, arg: T) -> &mut Self {
@@ -460,14 +480,14 @@ pub fn notch_off(rack: &mut Rack, n: Tag) {
 /// https://ccrma.stanford.edu/~jos/pasp/Lowpass_Feedback_Comb_Filter.html
 #[derive(Clone)]
 pub struct Comb {
-    pub tag: Tag,
-    pub wave: Tag,
+    tag: Tag,
+    wave: Tag,
     buffer: Vec<Real>,
     index: usize,
-    pub feedback: In,
-    pub filter_state: Real,
-    pub dampening: In,
-    pub dampening_inverse: In,
+    feedback: In,
+    filter_state: Real,
+    dampening: In,
+    dampening_inverse: In,
 }
 
 impl Comb {
@@ -482,6 +502,11 @@ impl Comb {
             dampening: (0.5).into(),
             dampening_inverse: (0.5).into(),
         }
+    }
+
+    pub fn wave(&mut self, arg: Tag) -> &mut Self {
+        self.wave = arg;
+        self
     }
 
     pub fn feedback<T: Into<In>>(&mut self, arg: T) -> &mut Self {
@@ -546,8 +571,8 @@ impl IndexMut<&str> for Comb {
 
 #[derive(Clone)]
 pub struct AllPass {
-    pub tag: Tag,
-    pub wave: Tag,
+    tag: Tag,
+    wave: Tag,
     buffer: Vec<Real>,
     index: usize,
 }
@@ -560,6 +585,11 @@ impl AllPass {
             buffer: vec![0.0; length],
             index: 0,
         }
+    }
+
+    pub fn wave(&mut self, arg: Tag) -> &mut Self {
+        self.wave = arg;
+        self
     }
 }
 

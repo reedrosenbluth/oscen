@@ -115,14 +115,13 @@ fn build_synth(
     let midi_control_mix4 = MidiControl::new(35, 0, 0.0, 0.5, 1.0).wrap();
     let midi_control_mix5 = MidiControl::new(36, 0, 0.0, 0.5, 1.0).wrap();
 
-    mixer.levels(vec![
+    let mixer = mixer.levels(vec![
         midi_control_mix1.tag(),
         midi_control_mix2.tag(),
         midi_control_mix3.tag(),
         midi_control_mix4.tag(),
         midi_control_mix5.tag(),
-    ]);
-    mixer.level = adsr.tag().into();
+    ]).level(adsr.tag()).wrap();
 
     // Filter
     let midi_control_cutoff = MidiControl::new(40, 127, 10.0, 1320.0, 20000.0).wrap();
@@ -171,7 +170,7 @@ fn build_synth(
         noise,
         tri_lfo,
         square_lfo,
-        arc(mixer),
+        mixer,
         low_pass_filter,
         vca,
     ]);
@@ -264,7 +263,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
                 for c in &synth.midi.midi_controls {
                     let mut control = c.lock().unwrap();
                     if control.controller == message[1] {
-                        control.set_value(message[2]);
+                        control.value(message[2]);
                     }
                 }
             }

@@ -9,12 +9,12 @@ use std::{
 #[derive(Copy, Clone)]
 pub struct Adsr {
     tag: Tag,
-    pub attack: In,
-    pub decay: In,
-    pub sustain: In,
-    pub release: In,
+    attack: In,
+    decay: In,
+    sustain: In,
+    release: In,
     clock: Real,
-    pub triggered: bool,
+    triggered: bool,
     level: Real,
     a_param: Real,
     d_param: Real,

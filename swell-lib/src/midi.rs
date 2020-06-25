@@ -11,8 +11,8 @@ use std::io::{stdin, stdout, Write};
 /// The most recent note received from the midi source.
 #[derive(Clone)]
 pub struct MidiPitch {
-    pub tag: Tag,
-    pub step: f32,
+    tag: Tag,
+    step: f32,
 }
 
 impl MidiPitch {
@@ -39,10 +39,10 @@ impl Signal for MidiPitch {
 
 #[derive(Clone)]
 pub struct MidiControl {
-    pub tag: Tag,
+    tag: Tag,
     pub controller: u8,
-    pub value: u8,
-    pub exp_interp: ExpInterp,
+    value: u8,
+    exp_interp: ExpInterp,
 }
 
 impl MidiControl {
@@ -60,8 +60,14 @@ impl MidiControl {
         self.exp_interp.interp(x)
     }
 
-    pub fn set_value(&mut self, value: u8) {
-        self.value = value;
+    pub fn controller(&mut self, arg: u8) -> &mut Self {
+        self.controller = arg;
+        self
+    }
+
+    pub fn value(&mut self, arg: u8) -> &mut Self {
+        self.value = arg;
+        self
     }
 }
 

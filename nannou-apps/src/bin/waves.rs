@@ -5,11 +5,11 @@ use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
-use swell::midi::{listen_midi, set_step, MidiControl, MidiPitch};
-use swell::oscillators::WhiteNoise;
-use swell::signal::{ArcMutex, Builder, Rack, Real, Signal, Tag};
 use swell::instruments;
 use swell::instruments::WaveGuide;
+use swell::midi::{listen_midi, set_step, MidiControl, MidiPitch};
+use swell::oscillators::SquareOsc;
+use swell::signal::{ArcMutex, Builder, Rack, Real, Signal, Tag};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -34,7 +34,7 @@ struct Synth {
     midi: Midi,
     midi_receiver: Receiver<Vec<u8>>,
     rack: Rack,
-    string_tag: Tag,
+    karplus_tag: Tag,
     sender: Sender<f32>,
 }
 
@@ -46,14 +46,17 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let midi_volume = MidiControl::new(1, 64, 0.0, 0.5, 1.0).wrap();
     rack.append(midi_volume.clone());
 
-    // Burst of noise
-    let noise = WhiteNoise::new().wrap();
-    rack.append(noise.clone());
+    let excite = SquareOsc::new().hz(110).wrap();
+    rack.append(excite.clone());
 
-    let string = WaveGuide::new(noise.tag()).hz(midi_pitch.tag()).wrap();
-    // let string = WaveGuide::new(noise.tag()).wrap();
-    let string_tag = string.tag();
-    rack.append(string);
+    let karplus = WaveGuide::new(excite.tag())
+        .hz(midi_pitch.tag())
+        .wet_decay(0.95)
+        .attack(0.005)
+        .release(0.005)
+        .wrap();
+    let karplus_tag = karplus.tag();
+    rack.append(karplus);
 
     Synth {
         midi: Midi {
@@ -62,7 +65,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
         },
         midi_receiver,
         rack,
-        string_tag,
+        karplus_tag,
         sender,
     }
 }
@@ -106,7 +109,7 @@ fn model(app: &App) -> Model {
 // In this case we play a simple sine wave at the audio's current frequency in `hz`.
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let midi_messages: Vec<Vec<u8>> = synth.midi_receiver.try_iter().collect();
-    let string_tag = synth.string_tag;
+    let string_tag = synth.karplus_tag;
     for message in midi_messages {
         if message.len() == 3 {
             let step = message[1] as f32;
@@ -119,7 +122,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
                 for c in &synth.midi.midi_controls {
                     let mut control = c.lock().unwrap();
                     if control.controller == message[1] {
-                        control.set_value(message[2]);
+                        control.value(message[2]);
                     }
                 }
             }

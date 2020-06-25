@@ -13,9 +13,9 @@ use std::{
 #[derive(Copy, Clone)]
 pub struct SineOsc {
     tag: Tag,
-    pub hz: In,
-    pub amplitude: In,
-    pub phase: In,
+    hz: In,
+    amplitude: In,
+    phase: In,
 }
 
 impl SineOsc {
@@ -92,9 +92,9 @@ impl IndexMut<&str> for SineOsc {
 #[derive(Copy, Clone)]
 pub struct SawOsc {
     tag: Tag,
-    pub hz: In,
-    pub amplitude: In,
-    pub phase: In,
+    hz: In,
+    amplitude: In,
+    phase: In,
 }
 
 impl SawOsc {
@@ -177,9 +177,9 @@ impl IndexMut<&str> for SawOsc {
 #[derive(Copy, Clone)]
 pub struct TriangleOsc {
     tag: Tag,
-    pub hz: In,
-    pub amplitude: In,
-    pub phase: In,
+    hz: In,
+    amplitude: In,
+    phase: In,
 }
 
 impl TriangleOsc {
@@ -258,10 +258,10 @@ impl IndexMut<&str> for TriangleOsc {
 #[derive(Copy, Clone)]
 pub struct SquareOsc {
     tag: Tag,
-    pub hz: In,
-    pub amplitude: In,
-    pub phase: In,
-    pub duty_cycle: In,
+    hz: In,
+    amplitude: In,
+    phase: In,
+    duty_cycle: In,
 }
 
 impl SquareOsc {
@@ -287,6 +287,11 @@ impl SquareOsc {
 
     pub fn phase<T: Into<In>>(&mut self, arg: T) -> &mut Self {
         self.phase = arg.into();
+        self
+    }
+
+    pub fn duty_cycle<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.duty_cycle = arg.into();
         self
     }
 }
@@ -351,8 +356,8 @@ pub enum NoiseDistribution {
 #[derive(Copy, Clone)]
 pub struct WhiteNoise {
     tag: Tag,
-    pub amplitude: In,
-    pub dist: NoiseDistribution,
+    amplitude: In,
+    dist: NoiseDistribution,
 }
 
 impl WhiteNoise {
@@ -416,8 +421,8 @@ impl IndexMut<&str> for WhiteNoise {
 #[derive(Copy, Clone)]
 pub struct Osc01 {
     tag: Tag,
-    pub hz: In,
-    pub phase: In,
+    hz: In,
+    phase: In,
 }
 
 impl Osc01 {
@@ -493,10 +498,10 @@ fn sinc(x: Real) -> Real {
 #[derive(Clone)]
 pub struct FourierOsc {
     tag: Tag,
-    pub hz: In,
-    pub amplitude: In,
+    hz: In,
+    amplitude: In,
     sines: Rack,
-    pub lanczos: bool,
+    lanczos: bool,
 }
 
 impl FourierOsc {

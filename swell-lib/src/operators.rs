@@ -8,8 +8,8 @@ use std::ops::{Index, IndexMut};
 pub struct Union {
     tag: Tag,
     waves: Vec<Tag>,
-    pub active: Tag,
-    pub level: In,
+    active: Tag,
+    level: In,
 }
 
 impl Union {
@@ -25,6 +25,11 @@ impl Union {
 
     pub fn waves(&mut self, arg: Vec<Tag>) -> &mut Self {
         self.waves = arg;
+        self
+    }
+
+    pub fn active(&mut self, arg: Tag) -> &mut Self {
+        self.active = arg;
         self
     }
 
@@ -59,7 +64,7 @@ impl IndexMut<usize> for Union {
 #[derive(Clone)]
 pub struct Product {
     tag: Tag,
-    pub waves: Vec<Tag>,
+    waves: Vec<Tag>,
 }
 
 impl Product {
@@ -68,6 +73,11 @@ impl Product {
             tag: mk_tag(),
             waves,
         }
+    }
+
+    pub fn waves(&mut self, arg: Vec<Tag>) -> &mut Self {
+        self.waves = arg;
+        self
     }
 }
 
@@ -97,8 +107,8 @@ impl IndexMut<usize> for Product {
 #[derive(Copy, Clone)]
 pub struct Vca {
     tag: Tag,
-    pub wave: Tag,
-    pub level: In,
+    wave: Tag,
+    level: In,
 }
 
 impl Vca {
@@ -108,6 +118,11 @@ impl Vca {
             wave,
             level: 1.into(),
         }
+    }
+    
+    pub fn wave(&mut self, arg: Tag) -> &mut Self {
+        self.wave = arg;
+        self
     }
 
     pub fn level<T: Into<In>>(&mut self, arg: T) -> &mut Self {
@@ -150,7 +165,7 @@ pub struct Mixer {
     tag: Tag,
     waves: Vec<Tag>,
     levels: Vec<In>,
-    pub level: In,
+    level: In,
 }
 
 impl Mixer {
@@ -185,6 +200,11 @@ impl Mixer {
         self.level = arg.into();
         self
     }
+
+    pub fn level_nth<T: Into<In>>(&mut self, n: usize, arg: T) -> &mut Self {
+        self.levels[n] = arg.into();
+        self
+    }
 }
 
 impl Builder for Mixer {}
@@ -212,16 +232,16 @@ impl IndexMut<usize> for Mixer {
     }
 }
 #[derive(Copy, Clone)]
-pub struct Lerp {
+pub struct CrossFade {
     tag: Tag,
-    pub wave1: In,
-    pub wave2: In,
-    pub alpha: In,
+    wave1: In,
+    wave2: In,
+    alpha: In,
 }
 
-impl Lerp {
+impl CrossFade {
     pub fn new(wave1: Tag, wave2: Tag) -> Self {
-        Lerp {
+        CrossFade {
             tag: mk_tag(),
             wave1: wave1.into(),
             wave2: wave2.into(),
@@ -245,9 +265,9 @@ impl Lerp {
     }
 }
 
-impl Builder for Lerp {}
+impl Builder for CrossFade {}
 
-impl Signal for Lerp {
+impl Signal for CrossFade {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
         let alpha = In::val(rack, self.alpha);
@@ -255,7 +275,7 @@ impl Signal for Lerp {
     }
 }
 
-impl Index<&str> for Lerp {
+impl Index<&str> for CrossFade {
     type Output = In;
 
     fn index(&self, index: &str) -> &Self::Output {
@@ -268,7 +288,7 @@ impl Index<&str> for Lerp {
     }
 }
 
-impl IndexMut<&str> for Lerp {
+impl IndexMut<&str> for CrossFade {
     fn index_mut(&mut self, index: &str) -> &mut Self::Output {
         match index {
             "wave1" => &mut self.wave1,
@@ -287,7 +307,7 @@ pub fn set_alpha(rack: &Rack, k: In, a: Real) {
                 .lock()
                 .unwrap()
                 .as_any_mut()
-                .downcast_mut::<Lerp>()
+                .downcast_mut::<CrossFade>()
             {
                 v.alpha = a.into()
             }
@@ -302,10 +322,10 @@ pub fn set_alpha(rack: &Rack, k: In, a: Real) {
 #[derive(Copy, Clone)]
 pub struct Modulator {
     tag: Tag,
-    pub wave: In,
-    pub base_hz: In,
-    pub mod_hz: In,
-    pub mod_idx: In,
+    wave: In,
+    base_hz: In,
+    mod_hz: In,
+    mod_idx: In,
 }
 
 impl Modulator {
@@ -317,6 +337,11 @@ impl Modulator {
             mod_hz: 0.into(),
             mod_idx: 0.into(),
         }
+    }
+
+    pub fn wave<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.wave = arg.into();
+        self
     }
 
     pub fn base_hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
@@ -376,8 +401,8 @@ impl IndexMut<&str> for Modulator {
 #[derive(Clone)]
 pub struct Delay {
     tag: Tag,
-    pub wave: Tag,
-    pub delay_time: In,
+    wave: Tag,
+    delay_time: In,
     ring_buffer: RingBuffer<Real>,
 }
 
@@ -390,6 +415,11 @@ impl Delay {
             delay_time,
             ring_buffer: ring,
         }
+    }
+
+    pub fn wave(&mut self, arg: Tag) -> &mut Self {
+        self.wave = arg;
+        self
     }
 
     pub fn delay_time<T: Into<In>>(&mut self, arg: T) -> &mut Self {

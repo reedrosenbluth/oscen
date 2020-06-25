@@ -3,9 +3,9 @@ use crate::{as_any_mut, std_signal};
 use std::any::Any;
 
 pub struct SineFold {
-    pub tag: Tag,
-    pub wave: Tag,
-    pub fold_param: In,
+    tag: Tag,
+    wave: Tag,
+    fold_param: In,
 }
 
 impl SineFold {
@@ -15,6 +15,11 @@ impl SineFold {
             wave,
             fold_param: TAU.into(),
         }
+    }
+
+    pub fn wave(&mut self, arg: Tag) -> &mut Self {
+        self.wave = arg;
+        self
     }
 
     pub fn fold_param<T: Into<In>>(&mut self, arg: T) -> &mut Self {
@@ -35,8 +40,8 @@ impl Signal for SineFold {
 }
 
 pub struct Tanh {
-    pub tag: Tag,
-    pub wave: Tag,
+    tag: Tag,
+    wave: Tag,
 }
 
 impl Tanh {
@@ -45,6 +50,11 @@ impl Tanh {
             tag: mk_tag(),
             wave,
         }
+    }
+
+    pub fn wave(&mut self, arg: Tag) -> &mut Self {
+        self.wave = arg;
+        self
     }
 }
 
