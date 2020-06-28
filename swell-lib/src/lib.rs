@@ -44,3 +44,5 @@ pub mod midi;
 pub mod utils;
 /// Instruments.
 pub mod instruments;
+/// Sequencer
+pub mod sequencer;

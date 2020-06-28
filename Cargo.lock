@@ -1460,6 +1460,7 @@ dependencies = [
  "midir",
  "nannou",
  "nannou_audio",
+ "pitch_calc",
  "swell",
 ]
 
