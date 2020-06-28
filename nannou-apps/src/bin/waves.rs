@@ -27,7 +27,6 @@ struct Model {
 #[derive(Clone)]
 struct Midi {
     midi_pitch: ArcMutex<MidiPitch>,
-    midi_controls: Vec<ArcMutex<MidiControl>>,
 }
 
 struct Synth {
@@ -59,10 +58,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     rack.append(karplus);
 
     Synth {
-        midi: Midi {
-            midi_pitch,
-            midi_controls: vec![midi_volume],
-        },
+        midi: Midi { midi_pitch },
         midi_receiver,
         rack,
         karplus_tag,
@@ -106,25 +102,17 @@ fn model(app: &App) -> Model {
 }
 
 // A function that renders the given `Audio` to the given `Buffer`.
-// In this case we play a simple sine wave at the audio's current frequency in `hz`.
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let midi_messages: Vec<Vec<u8>> = synth.midi_receiver.try_iter().collect();
-    let string_tag = synth.karplus_tag;
+    let karplus_tag = synth.karplus_tag;
     for message in midi_messages {
         if message.len() == 3 {
             let step = message[1] as f32;
             if message[0] == 144 {
                 synth.midi.midi_pitch.lock().unwrap().step(step);
-                instruments::on(&synth.rack, string_tag);
+                instruments::on(&synth.rack, karplus_tag);
             } else if message[0] == 128 {
-                instruments::off(&synth.rack, string_tag);
-            } else if message[0] == 176 {
-                for c in &synth.midi.midi_controls {
-                    let mut control = c.lock().unwrap();
-                    if control.controller == message[1] {
-                        control.value(message[2]);
-                    }
-                }
+                instruments::off(&synth.rack, karplus_tag);
             }
         }
     }

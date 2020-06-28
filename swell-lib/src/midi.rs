@@ -13,6 +13,8 @@ use std::io::{stdin, stdout, Write};
 pub struct MidiPitch {
     tag: Tag,
     step: f32,
+    offset: f32, // In semitones
+    factor: f32,
 }
 
 impl MidiPitch {
@@ -20,11 +22,23 @@ impl MidiPitch {
         MidiPitch {
             tag: mk_tag(),
             step: 0.0,
+            offset: 0.0,
+            factor: 1.0,
         }
     }
 
     pub fn step(&mut self, arg: f32) -> &mut Self {
         self.step = arg;
+        self
+    }
+
+    pub fn offset(&mut self, arg: f32) -> &mut Self {
+        self.offset = arg;
+        self
+    }
+
+    pub fn factor(&mut self, arg: f32) -> &mut Self {
+        self.factor = arg;
         self
     }
 }
@@ -34,7 +48,7 @@ impl Builder for MidiPitch {}
 impl Signal for MidiPitch {
     std_signal!();
     fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
-        hz_from_step(self.step) as Real
+        hz_from_step(self.factor * self.step + self.offset) as Real
     }
 }
 

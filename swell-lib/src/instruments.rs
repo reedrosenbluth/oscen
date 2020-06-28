@@ -1,4 +1,9 @@
-use super::{envelopes::*, filters::*, operators::*, signal::*};
+use super::{
+    envelopes::Adsr,
+    filters::Lpf,
+    operators::{Delay, Mixer, Product},
+    signal::{mk_tag, ArcMutex, Builder, In, Link, Rack, Real, Signal, Tag},
+};
 use crate::{as_any_mut, std_signal};
 use std::any::Any;
 
@@ -101,7 +106,7 @@ impl WaveGuide {
         self.gate.lock().unwrap().release(arg);
         self
     }
-    
+
     pub fn cutoff_freq<T: Into<In>>(&mut self, arg: T) -> &mut Self {
         self.lpf.lock().unwrap().cutoff_freq(arg);
         self
