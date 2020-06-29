@@ -57,20 +57,20 @@ impl Sequencer {
 impl Builder for Sequencer {}
 
 #[derive(Clone)]
-pub struct Pitch {
+pub struct PitchSeq {
     tag: Tag,
     seq: Sequencer,
 }
 
-impl Pitch {
+impl PitchSeq {
     pub fn new(seq: Sequencer) -> Self {
         Self { tag: mk_tag(), seq }
     }
 }
 
-impl Builder for Pitch {}
+impl Builder for PitchSeq {}
 
-impl Signal for Pitch {
+impl Signal for PitchSeq {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let bps = In::val(&rack, self.seq.bpm) / 60.0;
@@ -82,20 +82,20 @@ impl Signal for Pitch {
 }
 
 #[derive(Clone)]
-pub struct Gate {
+pub struct GateSeq {
     tag: Tag,
     seq: Sequencer,
 }
 
-impl Gate {
+impl GateSeq {
     pub fn new(seq: Sequencer) -> Self {
         Self { tag: mk_tag(), seq }
     }
 }
 
-impl Builder for Gate {}
+impl Builder for GateSeq {}
 
-impl Signal for Gate {
+impl Signal for GateSeq {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let bps = In::val(&rack, self.seq.bpm) / 60.0;
@@ -120,7 +120,7 @@ mod tests {
             Note::new(Letter::A, 5, false),
         ];
         let seq: Sequencer = Sequencer::new().sequence(notes).build();
-        let mut ps = Pitch::new(seq);
+        let mut ps = PitchSeq::new(seq);
         let sigs = signals(&mut ps, 0, 16, 4.0);
         let s0 = sigs[0].1.round();
         let s1 = sigs[1].1.round();
@@ -142,7 +142,7 @@ mod tests {
             Note::new(Letter::A, 5, false),
         ];
         let seq: Sequencer = Sequencer::new().sequence(notes).build();
-        let mut ps = Gate::new(seq);
+        let mut ps = GateSeq::new(seq);
         let sigs = signals(&mut ps, 0, 16, 4.0);
         let s0 = sigs[0].1;
         let s1 = sigs[1].1;

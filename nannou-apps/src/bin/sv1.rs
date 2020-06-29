@@ -5,12 +5,12 @@ use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
-use swell::envelopes::{off, on, Adsr};
+use swell::envelopes::Adsr;
 use swell::filters::Lpf;
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
 use swell::operators::{Mixer, Modulator, Vca};
 use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
-use swell::signal::{arc, ArcMutex, Builder, Rack, Real, Signal, Tag};
+use swell::signal::{ArcMutex, Builder, Rack, Real, Signal, Tag, Gate};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -256,9 +256,9 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
             let midi_step = message[1] as f32;
             if message[0] == 144 {
                 synth.midi.midi_pitch.lock().unwrap().step(midi_step);
-                on(&synth.voice, adsr_tag);
+                Adsr::gate_on(&synth.voice, adsr_tag);
             } else if message[0] == 128 {
-                off(&synth.voice, adsr_tag);
+                Adsr::gate_off(&synth.voice, adsr_tag);
             } else if message[0] == 176 {
                 for c in &synth.midi.midi_controls {
                     let mut control = c.lock().unwrap();

@@ -52,6 +52,44 @@ macro_rules! std_signal {
     };
 }
 
+/// Types that implement the gate type can be turned on and off from within a 
+///`Rack`, e.g. envelope generators.
+pub trait Gate {
+    fn gate_on(rack: &Rack, n: Tag);
+    fn gate_off(rack: &Rack, n: Tag);
+}
+
+#[macro_export]
+macro_rules! gate {
+    ($t:ty) => {
+        impl Gate for $t {
+            fn gate_on(rack: &Rack, n: Tag) {
+                if let Some(v) = rack.nodes[&n]
+                    .module
+                    .lock()
+                    .unwrap()
+                    .as_any_mut()
+                    .downcast_mut::<Self>()
+                {
+                    v.on();
+                }
+            }
+
+            fn gate_off(rack: &Rack, n: Tag) {
+                if let Some(v) = rack.nodes[&n]
+                    .module
+                    .lock()
+                    .unwrap()
+                    .as_any_mut()
+                    .downcast_mut::<Self>()
+                {
+                    v.off();
+                }
+            }
+        }
+    };
+}
+
 /// Signals typically need to decalare that they are `Send` so that they are
 /// thread safe.
 pub type Sig = dyn Signal + Send;

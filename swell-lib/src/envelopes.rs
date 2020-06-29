@@ -1,6 +1,6 @@
 use super::signal::*;
 use super::utils::ExpInterp;
-use crate::{as_any_mut, std_signal};
+use crate::{as_any_mut, std_signal, gate};
 use std::{
     any::Any,
     ops::{Index, IndexMut},
@@ -121,6 +121,8 @@ impl Adsr {
 
 impl Builder for Adsr {}
 
+gate!(Adsr);
+
 impl Signal for Adsr {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
@@ -158,29 +160,5 @@ impl IndexMut<&str> for Adsr {
             "release" => &mut self.release,
             _ => panic!("Adsr does not have a field named: {}", index),
         }
-    }
-}
-
-pub fn on(rack: &Rack, n: Tag) {
-    if let Some(v) = rack.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<Adsr>()
-    {
-        v.on();
-    }
-}
-
-pub fn off(rack: &Rack, n: Tag) {
-    if let Some(v) = rack.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<Adsr>()
-    {
-        v.off();
     }
 }

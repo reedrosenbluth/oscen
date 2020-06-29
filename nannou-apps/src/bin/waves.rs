@@ -5,11 +5,10 @@ use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
-use swell::instruments;
 use swell::instruments::WaveGuide;
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
 use swell::oscillators::SquareOsc;
-use swell::signal::{ArcMutex, Builder, Rack, Real, Signal, Tag};
+use swell::signal::{ArcMutex, Builder, Rack, Real, Signal, Tag, Gate};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -110,9 +109,9 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
             let step = message[1] as f32;
             if message[0] == 144 {
                 synth.midi.midi_pitch.lock().unwrap().step(step);
-                instruments::on(&synth.rack, karplus_tag);
+                WaveGuide::gate_on(&synth.rack, karplus_tag);
             } else if message[0] == 128 {
-                instruments::off(&synth.rack, karplus_tag);
+                WaveGuide::gate_off(&synth.rack, karplus_tag);
             }
         }
     }

@@ -2,9 +2,9 @@ use super::{
     envelopes::Adsr,
     filters::Lpf,
     operators::{Delay, Mixer, Product},
-    signal::{mk_tag, ArcMutex, Builder, In, Link, Rack, Real, Signal, Tag},
+    signal::{mk_tag, ArcMutex, Builder, In, Link, Rack, Real, Signal, Tag, Gate},
 };
-use crate::{as_any_mut, std_signal};
+use crate::{as_any_mut, std_signal, gate};
 use std::any::Any;
 
 #[derive(Clone)]
@@ -120,6 +120,8 @@ impl WaveGuide {
 
 impl Builder for WaveGuide {}
 
+gate!(WaveGuide);
+
 impl Signal for WaveGuide {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
@@ -131,26 +133,3 @@ impl Signal for WaveGuide {
     }
 }
 
-pub fn on(rack: &Rack, n: Tag) {
-    if let Some(v) = rack.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<WaveGuide>()
-    {
-        v.on();
-    }
-}
-
-pub fn off(rack: &Rack, n: Tag) {
-    if let Some(v) = rack.nodes[&n]
-        .module
-        .lock()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<WaveGuide>()
-    {
-        v.off();
-    }
-}

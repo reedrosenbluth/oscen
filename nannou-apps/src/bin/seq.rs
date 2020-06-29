@@ -4,11 +4,11 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use pitch_calc::{Letter, LetterOctave};
+use pitch_calc::Letter;
 use swell::filters::Lpf;
 use swell::operators::Product;
-use swell::oscillators::{SawOsc, SquareOsc, TriangleOsc};
-use swell::sequencer::{Sequencer, Note, Gate, Pitch};
+use swell::oscillators::TriangleOsc;
+use swell::sequencer::{Sequencer, Note, GateSeq, PitchSeq};
 use swell::signal::{Builder, Rack, Real, Signal};
 
 fn main() {
@@ -33,68 +33,24 @@ fn build_synth(sender: Sender<f32>) -> Synth {
     let mut rack = Rack::new(vec![]);
 
     let notes = vec![
-        Note::new(Letter::G, -4, true),
-        Note::new(Letter::G, 4, true),
-        Note::new(Letter::A, 4, true),
-        Note::new(Letter::G, 4, true),
-        Note::new(Letter::A, 4, true),
-        Note::new(Letter::A, 4, true),
-        Note::new(Letter::A, 4, true),
-        Note::new(Letter::A, 4, true),
+        Note::new(Letter::F, 2, true),
+        Note::new(Letter::B, 2, true),
+        Note::new(Letter::Dsh, 3, true),
+        Note::new(Letter::Gsh, 3, true),
+        Note::new(Letter::E, 2, true),
+        Note::new(Letter::Gsh, 2, true),
+        Note::new(Letter::D, 3, true),
+        Note::new(Letter::Ash, 3, true),
 
-        Note::new(Letter::A, -4, true),
-        Note::new(Letter::G, 4, true),
-        Note::new(Letter::A, 4, true),
-        Note::new(Letter::G, 4, true),
-        Note::new(Letter::A, 4, true),
-        Note::new(Letter::A, 4, true),
-        Note::new(Letter::C, 5, true),
-        Note::new(Letter::G, 4, true),
-        
-        Note::new(Letter::G, 4, true),
-        Note::new(Letter::G, 4, true),
-        Note::new(Letter::G, 4, true),
-        Note::new(Letter::G, 4, true),
-        Note::new(Letter::G, -4, true),
-        Note::new(Letter::G, -4, true),
-        Note::new(Letter::G, -4, true),
-        Note::new(Letter::G, -4, true),
-
-        Note::new(Letter::F, -4, true),
-        Note::new(Letter::F, 4, true),
-        Note::new(Letter::G, 4, true),
-        Note::new(Letter::F, 4, true),
-        Note::new(Letter::G, 4, true),
-        Note::new(Letter::C, 5, true),
-        Note::new(Letter::C, 5, true),
-        Note::new(Letter::F, 4, true),
-
-        Note::new(Letter::F, 4, true),
-        Note::new(Letter::F, 4, true),
-        Note::new(Letter::F, 4, true),
-        Note::new(Letter::F, 4, true),
-        Note::new(Letter::F, -4, true),
-        Note::new(Letter::F, -4, true),
-        Note::new(Letter::F, -4, true),
-        Note::new(Letter::F, -4, true),
-        
-        Note::new(Letter::F, -4, true),
-        Note::new(Letter::F, -4, true),
-        Note::new(Letter::F, -4, true),
-        Note::new(Letter::D, 4, true),
-        Note::new(Letter::D, 4, true),
-        Note::new(Letter::F, 4, true),
-        Note::new(Letter::D, 4, true),
-        Note::new(Letter::C, 4, true),
     ];
-    let seq = Sequencer::new().sequence(notes).bpm(160.0).build();
-    let mut pitch_seq = Pitch::new(seq.clone());
+    let seq = Sequencer::new().sequence(notes).bpm(480.0).build();
+    let mut pitch_seq = PitchSeq::new(seq.clone());
     rack.append(pitch_seq.wrap());
 
-    let mut gate_seq = Gate::new(seq);
+    let mut gate_seq = GateSeq::new(seq);
     rack.append(gate_seq.wrap());
 
-    let wave = SquareOsc::new().hz(pitch_seq.tag()).wrap();
+    let wave = TriangleOsc::new().hz(pitch_seq.tag()).wrap();
     rack.append(wave.clone());
 
     let lpf = Lpf::new(wave.tag()).cutoff_freq(1000).wrap();
