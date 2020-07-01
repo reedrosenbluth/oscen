@@ -53,6 +53,7 @@ fn build_synth(
         .attack(1)
         .decay(1)
         .sustain(0.8)
+        .release(1)
         .wrap();
     let adsr_tag = adsr.tag();
     

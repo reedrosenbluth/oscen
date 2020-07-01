@@ -1,6 +1,6 @@
 use super::signal::*;
 use super::utils::ExpInterp;
-use crate::{as_any_mut, std_signal, gate};
+use crate::{as_any_mut, gate, std_signal};
 use std::{
     any::Any,
     ops::{Index, IndexMut},
@@ -14,6 +14,7 @@ pub struct Adsr {
     sustain: In,
     release: In,
     clock: Real,
+    sustain_time: Real,
     triggered: bool,
     level: Real,
     a_param: Real,
@@ -36,6 +37,7 @@ impl Adsr {
             sustain: 1.into(),
             release: (0.1).into(),
             clock: 0.0,
+            sustain_time: 0.0,
             triggered: false,
             level: 0.0,
             a_param,
@@ -75,7 +77,7 @@ impl Adsr {
         self
     }
 
-    pub fn calc_level(&self, rack: &Rack) -> Real {
+    pub fn calc_level(&mut self, rack: &Rack) -> Real {
         fn max01(a: f64) -> f64 {
             if a > 0.01 {
                 a
@@ -96,12 +98,21 @@ impl Adsr {
                 // Decay
                 t if t < a + d => self.d_interp.interp((t - a) / d),
                 // Sustain
-                _ => s,
+                t => {
+                    self.sustain_time = t - a - d;
+                    s
+                }
             }
         } else {
             match self.clock {
+                // Attack
+                t if t < a => self.a_interp.interp(t / a),
+                // Decay
+                t if t < a + d => self.d_interp.interp((t - a) / d),
                 // Release
-                t if t < r => self.r_interp.interp(t / r),
+                t if t < a + d + r + self.sustain_time => {
+                    self.r_interp.interp((t - a - d - self.sustain_time) / r)
+                }
                 // Off
                 _ => 0.,
             }
@@ -110,12 +121,12 @@ impl Adsr {
 
     pub fn on(&mut self) {
         self.triggered = true;
+        self.sustain_time = 0.0;
         self.clock = self.a_interp.interp_inv(self.level);
     }
 
     pub fn off(&mut self) {
         self.triggered = false;
-        self.clock = self.r_interp.interp_inv(self.level);
     }
 }
 
@@ -130,10 +141,9 @@ impl Signal for Adsr {
         let s = In::val(rack, self.sustain);
         self.d_interp.update(1.0, s + self.d_param * (1.0 - s), s);
         self.r_interp.update(s, self.r_param * s, 0.0);
-        let amp = self.calc_level(rack);
-        self.clock += 1. / sample_rate;
         self.level = self.calc_level(rack);
-        amp
+        self.clock += 1. / sample_rate;
+        self.level
     }
 }
 
