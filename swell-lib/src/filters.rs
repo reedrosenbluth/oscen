@@ -1,5 +1,5 @@
 use super::signal::*;
-use crate::{as_any_mut, std_signal};
+use crate::{as_any_mut, std_signal, gate};
 use std::any::Any;
 use std::{
     f64::consts::PI,
@@ -49,9 +49,19 @@ impl Lpf {
         self.q = arg.into();
         self
     }
+
+    pub fn on(&mut self) {
+        self.off = false;
+    }
+
+    pub fn off(&mut self) {
+        self.off = true;
+    }
 }
 
 impl Builder for Lpf {}
+
+gate!(Lpf);
 
 impl Signal for Lpf {
     std_signal!();
@@ -98,32 +108,6 @@ impl IndexMut<&str> for Lpf {
     }
 }
 
-pub fn lpf_on(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack
-        .nodes
-        .get_mut(&n)
-        .unwrap()
-        .module
-        .as_any_mut()
-        .downcast_mut::<Lpf>()
-    {
-        v.off = false;
-    }
-}
-
-pub fn lpf_off(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack
-        .nodes
-        .get_mut(&n)
-        .unwrap()
-        .module
-        .as_any_mut()
-        .downcast_mut::<Lpf>()
-    {
-        v.off = true;
-    }
-}
-
 #[derive(Clone)]
 pub struct Hpf {
     tag: Tag,
@@ -138,9 +122,9 @@ pub struct Hpf {
 }
 
 impl Hpf {
-    pub fn new(tag: Tag, wave: Tag) -> Self {
+    pub fn new(wave: Tag) -> Self {
         Self {
-            tag,
+            tag: mk_tag(),
             wave,
             cutoff_freq: 22050.into(),
             q: (1.0 / SQRT_2).into(),
@@ -166,9 +150,19 @@ impl Hpf {
         self.q = arg.into();
         self
     }
+
+    pub fn on(&mut self) {
+        self.off = false;
+    }
+
+    pub fn off(&mut self) {
+        self.off = true;
+    }
 }
 
 impl Builder for Hpf {}
+
+gate!(Hpf);
 
 impl Signal for Hpf {
     std_signal!();
@@ -215,32 +209,6 @@ impl IndexMut<&str> for Hpf {
     }
 }
 
-pub fn hpf_on(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack
-        .nodes
-        .get_mut(&n)
-        .unwrap()
-        .module
-        .as_any_mut()
-        .downcast_mut::<Hpf>()
-    {
-        v.off = false;
-    }
-}
-
-pub fn hpf_off(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack
-        .nodes
-        .get_mut(&n)
-        .unwrap()
-        .module
-        .as_any_mut()
-        .downcast_mut::<Hpf>()
-    {
-        v.off = true;
-    }
-}
-
 #[derive(Clone)]
 pub struct Bpf {
     tag: Tag,
@@ -255,9 +223,9 @@ pub struct Bpf {
 }
 
 impl Bpf {
-    pub fn new(tag: Tag, wave: Tag) -> Self {
+    pub fn new(wave: Tag) -> Self {
         Self {
-            tag,
+            tag: mk_tag(),
             wave,
             cutoff_freq: 22050.into(),
             q: (1.0 / SQRT_2).into(),
@@ -283,9 +251,19 @@ impl Bpf {
         self.q = arg.into();
         self
     }
+
+    pub fn on(&mut self) {
+        self.off = false;
+    }
+
+    pub fn off(&mut self) {
+        self.off = true;
+    }
 }
 
 impl Builder for Bpf {}
+
+gate!(Bpf);
 
 impl Signal for Bpf {
     std_signal!();
@@ -333,32 +311,6 @@ impl IndexMut<&str> for Bpf {
     }
 }
 
-pub fn bpf_on(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack
-        .nodes
-        .get_mut(&n)
-        .unwrap()
-        .module
-        .as_any_mut()
-        .downcast_mut::<Bpf>()
-    {
-        v.off = false;
-    }
-}
-
-pub fn bpf_off(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack
-        .nodes
-        .get_mut(&n)
-        .unwrap()
-        .module
-        .as_any_mut()
-        .downcast_mut::<Bpf>()
-    {
-        v.off = true;
-    }
-}
-
 #[derive(Clone)]
 pub struct Notch {
     tag: Tag,
@@ -373,9 +325,9 @@ pub struct Notch {
 }
 
 impl Notch {
-    pub fn new(tag: Tag, wave: Tag) -> Self {
+    pub fn new(wave: Tag) -> Self {
         Self {
-            tag,
+            tag: mk_tag(),
             wave,
             cutoff_freq: 22050.into(),
             q: (1.0 / SQRT_2).into(),
@@ -401,9 +353,19 @@ impl Notch {
         self.q = arg.into();
         self
     }
+
+    pub fn on(&mut self) {
+        self.off = false;
+    }
+
+    pub fn off(&mut self) {
+        self.off = true;
+    }
 }
 
 impl Builder for Notch {}
+
+ gate!(Notch);
 
 impl Signal for Notch {
     std_signal!();
@@ -447,32 +409,6 @@ impl IndexMut<&str> for Notch {
             "q" => &mut self.q,
             _ => panic!("Notch does not have a field named: {}", index),
         }
-    }
-}
-
-pub fn notch_on(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack
-        .nodes
-        .get_mut(&n)
-        .unwrap()
-        .module
-        .as_any_mut()
-        .downcast_mut::<Notch>()
-    {
-        v.off = false;
-    }
-}
-
-pub fn notch_off(rack: &mut Rack, n: Tag) {
-    if let Some(v) = rack
-        .nodes
-        .get_mut(&n)
-        .unwrap()
-        .module
-        .as_any_mut()
-        .downcast_mut::<Notch>()
-    {
-        v.off = true;
     }
 }
 

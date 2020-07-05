@@ -269,6 +269,14 @@ impl Rack {
         self.order.push(tag);
     }
 
+    /// Add a `Node` (synth module) to the `Rack` and set it's order to be first`.
+    pub fn preppend(&mut self, sig: ArcMutex<Sig>) {
+        let tag = sig.tag();
+        let node = Node::new(sig);
+        self.nodes.insert(tag, node);
+        self.order.insert(0, tag);
+    }
+
     /// Insert a sub-rack into the rack before node `loc`.
     pub fn insert(&mut self, rack: Rack, loc: usize) {
         let n = rack.nodes.len() + self.nodes.len();

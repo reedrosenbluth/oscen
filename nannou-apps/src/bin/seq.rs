@@ -43,7 +43,7 @@ fn build_synth(sender: Sender<f32>) -> Synth {
         Note::new(Letter::Ash, 3, true),
 
     ];
-    let seq = Sequencer::new().sequence(notes).bpm(480.0).build();
+    let seq = Sequencer::new().sequence(notes).bpm(320.0).build();
     let mut pitch_seq = PitchSeq::new(seq.clone());
     rack.append(pitch_seq.wrap());
 
@@ -53,7 +53,7 @@ fn build_synth(sender: Sender<f32>) -> Synth {
     let wave = TriangleOsc::new().hz(pitch_seq.tag()).wrap();
     rack.append(wave.clone());
 
-    let lpf = Lpf::new(wave.tag()).cutoff_freq(1000).wrap();
+    let lpf = Lpf::new(wave.tag()).cutoff_freq(440).wrap();
     rack.append(lpf.clone());
 
     let prod = Product::new(vec![lpf.tag(), gate_seq.tag()]).wrap();

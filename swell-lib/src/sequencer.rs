@@ -2,6 +2,8 @@ use super::signal::*;
 use crate::{as_any_mut, std_signal};
 use pitch_calc::{hz_from_letter_octave, Letter, LetterOctave, Octave};
 use std::any::Any;
+use rand::thread_rng;
+use rand::seq::SliceRandom;
 
 fn tick(clock: Real, seq_len: usize, bps: Real, sample_rate: Real) -> Real {
     let n = seq_len as Real;
@@ -75,6 +77,10 @@ impl Signal for PitchSeq {
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let bps = In::val(&rack, self.seq.bpm) / 60.0;
         let idx = idx(self.seq.clock, bps, sample_rate);
+        if idx == 0 {
+            let mut rng = thread_rng();
+            self.seq.sequence.shuffle(&mut rng);
+        }
         self.seq.clock = tick(self.seq.clock, self.seq.sequence.len(), bps, sample_rate);
         let LetterOctave(letter, octave) = self.seq.sequence[idx].pitch;
         hz_from_letter_octave(letter, octave) as Real
