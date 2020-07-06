@@ -1,5 +1,5 @@
 use super::signal::*;
-use crate::{as_any_mut, std_signal, gate};
+use crate::{as_any_mut, gate, std_signal};
 use std::any::Any;
 use std::{
     f64::consts::PI,
@@ -365,7 +365,7 @@ impl Notch {
 
 impl Builder for Notch {}
 
- gate!(Notch);
+gate!(Notch);
 
 impl Signal for Notch {
     std_signal!();

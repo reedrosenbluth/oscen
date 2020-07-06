@@ -283,7 +283,7 @@ impl Index<&str> for CrossFade {
             "wave1" => &self.wave1,
             "wave2" => &self.wave2,
             "alpha" => &self.alpha,
-            _ => panic!("Lerp does not have a field named: {}", index),
+            _ => panic!("CrossFade does not have a field named: {}", index),
         }
     }
 }
@@ -294,7 +294,7 @@ impl IndexMut<&str> for CrossFade {
             "wave1" => &mut self.wave1,
             "wave2" => &mut self.wave2,
             "alpha" => &mut self.alpha,
-            _ => panic!("Lerp does not have a field named: {}", index),
+            _ => panic!("CrossFade does not have a field named: {}", index),
         }
     }
 }
@@ -312,7 +312,7 @@ pub fn set_alpha(rack: &Rack, k: In, a: Real) {
                 v.alpha = a.into()
             }
         }
-        In::Fix(_) => panic!("Lerp wave can only be a In::Var"),
+        In::Fix(_) => panic!("CrossFade wave can only be a In::Var"),
     }
 }
 

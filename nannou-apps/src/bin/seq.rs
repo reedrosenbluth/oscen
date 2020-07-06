@@ -45,7 +45,7 @@ fn build_synth(sender: Sender<f32>) -> Synth {
         Note::new(Letter::Csh, 3, true),
 
     ];
-    let seq = Sequencer::new().sequence(notes).bpm(240.0).build();
+    let seq = Sequencer::new().sequence(notes).bpm(120.0).build();
     let mut pitch_seq = PitchSeq::new(seq.clone());
     rack.append(pitch_seq.wrap());
 
@@ -55,7 +55,7 @@ fn build_synth(sender: Sender<f32>) -> Synth {
     let wave = SawOsc::new().hz(pitch_seq.tag()).wrap();
     rack.append(wave.clone());
 
-    let lpf = Lpf::new(wave.tag()).cutoff_freq(400).q(10).wrap();
+    let lpf = Lpf::new(wave.tag()).cutoff_freq(400).wrap();
     rack.append(lpf.clone());
 
     let reverb = arc(Freeverb::new(lpf.tag()));

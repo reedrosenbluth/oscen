@@ -52,7 +52,7 @@ macro_rules! std_signal {
     };
 }
 
-/// Types that implement the gate type can be turned on and off from within a 
+/// Types that implement the gate type can be turned on and off from within a
 ///`Rack`, e.g. envelope generators.
 pub trait Gate {
     fn gate_on(rack: &Rack, n: Tag);
@@ -192,7 +192,7 @@ where
     dest[field] = source.tag().into();
 }
 
-/// Nodes for the rack will have both a synth module (i.e an implentor of
+/// Nodes for the rack will have both a synth module (i.e an implementor of
 /// `Signal`) and will store their current signal value as `output`
 #[derive(Clone)]
 pub struct Node {
@@ -258,7 +258,10 @@ impl Rack {
 
     /// Get the `output` of a `Node`.
     pub fn output(&self, n: Tag) -> Real {
-        self.nodes[&n].output
+        self.nodes
+            .get(&n)
+            .expect("Function output could not find tag")
+            .output
     }
 
     /// Add a `Node` (synth module) to the `Rack` and set it's order to be last.
@@ -300,10 +303,18 @@ impl Rack {
     pub fn signal(&mut self, sample_rate: Real) -> Real {
         let mut outs: Vec<Real> = Vec::new();
         for node in self.iter() {
-            outs.push(node.module.lock().unwrap().signal(&self, sample_rate))
+            outs.push(
+                node.module
+                    .lock()
+                    .expect("Function rack::signal could not find tag in first loop")
+                    .signal(&self, sample_rate),
+            )
         }
         for (i, o) in self.order.iter().enumerate() {
-            self.nodes.get_mut(o).unwrap().output = outs[i];
+            self.nodes
+                .get_mut(o)
+                .expect("Function rack::signal could not find tag in second loop")
+                .output = outs[i];
         }
         self.nodes[&self.out_tag()].output
     }

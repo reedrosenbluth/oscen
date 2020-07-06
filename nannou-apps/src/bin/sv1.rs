@@ -10,7 +10,7 @@ use swell::filters::Lpf;
 use swell::midi::{listen_midi, MidiControl, MidiPitch};
 use swell::operators::{Mixer, Modulator, Vca};
 use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
-use swell::signal::{ArcMutex, Builder, Rack, Real, Signal, Tag, Gate};
+use swell::signal::{ArcMutex, Builder, Gate, Rack, Real, Signal, Tag};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -47,16 +47,16 @@ fn build_synth(
 
     // Envelope Generator
     let midi_control_release = MidiControl::new(37, 1, 0.05, 1.0, 10.0).wrap();
+    let midi_control_attack = MidiControl::new(38, 1, 0.05, 1.0, 10.0).wrap();
 
     let adsr = Adsr::linear()
         .release(midi_control_release.tag())
-        .attack(1)
-        .decay(1)
+        .attack(midi_control_attack.tag())
+        .decay(0.05)
         .sustain(0.8)
-        .release(1)
         .wrap();
     let adsr_tag = adsr.tag();
-    
+
     let midi_control_tri_lfo_hz = MidiControl::new(46, 0, 0.0, 100.0, 500.0).wrap();
 
     // LFO
@@ -79,9 +79,9 @@ fn build_synth(
     let saw2 = SawOsc::new().hz(midi_pitch.tag()).wrap();
     let square2 = SquareOsc::new().hz(midi_pitch.tag()).wrap();
     let triangle2 = TriangleOsc::new().hz(midi_pitch.tag()).wrap();
-    
-    let midi_control_mod_hz1 = MidiControl::new(42, 0, 0.0, 440.0, 1760.0).wrap();
-    let midi_control_mod_idx1 = MidiControl::new(43, 0, 0.0, 4.0, 16.0).wrap();
+
+    let midi_control_mod_hz1 = MidiControl::new(43, 0, 0.0, 440.0, 1760.0).wrap();
+    let midi_control_mod_idx1 = MidiControl::new(42, 0, 0.0, 4.0, 16.0).wrap();
 
     let modulator_osc1 = Modulator::new(sine2.tag())
         .base_hz(midi_pitch.tag())
@@ -90,9 +90,14 @@ fn build_synth(
         .wrap();
 
     // Oscillator 1
+    let midi_control_pulse_width = MidiControl::new(39, 0, 0.1, 0.4, 0.9).wrap();
+
     let sine1 = SineOsc::new().hz(modulator_osc1.tag()).wrap();
     let saw1 = SawOsc::new().hz(midi_pitch.tag()).wrap();
-    let square1 = SquareOsc::new().hz(midi_pitch.tag()).wrap();
+    let square1 = SquareOsc::new()
+        .hz(midi_pitch.tag())
+        .duty_cycle(midi_control_pulse_width.tag())
+        .wrap();
     let triangle1 = TriangleOsc::new().hz(midi_pitch.tag()).wrap();
 
     let sub1 = SquareOsc::new().hz(midi_pitch.tag()).wrap();
@@ -116,13 +121,16 @@ fn build_synth(
     let midi_control_mix4 = MidiControl::new(35, 0, 0.0, 0.5, 1.0).wrap();
     let midi_control_mix5 = MidiControl::new(36, 0, 0.0, 0.5, 1.0).wrap();
 
-    let mixer = mixer.levels(vec![
-        midi_control_mix1.tag(),
-        midi_control_mix2.tag(),
-        midi_control_mix3.tag(),
-        midi_control_mix4.tag(),
-        midi_control_mix5.tag(),
-    ]).level(adsr.tag()).wrap();
+    let mixer = mixer
+        .levels(vec![
+            midi_control_mix1.tag(),
+            midi_control_mix2.tag(),
+            midi_control_mix3.tag(),
+            midi_control_mix4.tag(),
+            midi_control_mix5.tag(),
+        ])
+        .level(adsr.tag())
+        .wrap();
 
     // Filter
     let midi_control_cutoff = MidiControl::new(40, 127, 10.0, 1320.0, 20000.0).wrap();
@@ -147,6 +155,7 @@ fn build_synth(
         midi_control_mix4.clone(),
         midi_control_mix5.clone(),
         midi_control_release.clone(),
+        midi_control_attack.clone(),
         midi_control_cutoff.clone(),
         midi_control_resonance.clone(),
         midi_control_mod_hz1.clone(),
@@ -154,6 +163,7 @@ fn build_synth(
         midi_control_mod_idx1.clone(),
         midi_control_mod_idx2.clone(),
         midi_control_tri_lfo_hz.clone(),
+        midi_control_pulse_width.clone(),
         midi_control_volume.clone(),
         adsr,
         sine1,
@@ -186,6 +196,7 @@ fn build_synth(
                 midi_control_mix4,
                 midi_control_mix5,
                 midi_control_release,
+                midi_control_attack,
                 midi_control_cutoff,
                 midi_control_mod_hz1,
                 midi_control_mod_hz2,
@@ -193,6 +204,7 @@ fn build_synth(
                 midi_control_mod_idx2,
                 midi_control_resonance,
                 midi_control_tri_lfo_hz,
+                midi_control_pulse_width,
                 midi_control_volume,
             ],
         },
