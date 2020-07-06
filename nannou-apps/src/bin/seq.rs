@@ -7,9 +7,10 @@ use nannou_audio::Buffer;
 use pitch_calc::Letter;
 use swell::filters::Lpf;
 use swell::operators::Product;
-use swell::oscillators::TriangleOsc;
+use swell::oscillators::*;
 use swell::sequencer::{Sequencer, Note, GateSeq, PitchSeq};
-use swell::signal::{Builder, Rack, Real, Signal};
+use swell::signal::{arc, Builder, Rack, Real, Signal};
+use swell::reverb::Freeverb;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -33,30 +34,34 @@ fn build_synth(sender: Sender<f32>) -> Synth {
     let mut rack = Rack::new(vec![]);
 
     let notes = vec![
+        Note::new(Letter::D, 1, true),
+        Note::new(Letter::A, 2, true),
+        Note::new(Letter::D, 2, true),
         Note::new(Letter::F, 2, true),
-        Note::new(Letter::B, 2, true),
-        Note::new(Letter::Dsh, 3, true),
-        Note::new(Letter::Gsh, 3, true),
-        Note::new(Letter::E, 2, true),
-        Note::new(Letter::Gsh, 2, true),
+        Note::new(Letter::A, 3, true),
         Note::new(Letter::D, 3, true),
-        Note::new(Letter::Ash, 3, true),
+        Note::new(Letter::F, 3, true),
+        Note::new(Letter::Csh, 2, true),
+        Note::new(Letter::Csh, 3, true),
 
     ];
-    let seq = Sequencer::new().sequence(notes).bpm(320.0).build();
+    let seq = Sequencer::new().sequence(notes).bpm(240.0).build();
     let mut pitch_seq = PitchSeq::new(seq.clone());
     rack.append(pitch_seq.wrap());
 
     let mut gate_seq = GateSeq::new(seq);
     rack.append(gate_seq.wrap());
 
-    let wave = TriangleOsc::new().hz(pitch_seq.tag()).wrap();
+    let wave = SawOsc::new().hz(pitch_seq.tag()).wrap();
     rack.append(wave.clone());
 
-    let lpf = Lpf::new(wave.tag()).cutoff_freq(440).wrap();
+    let lpf = Lpf::new(wave.tag()).cutoff_freq(400).q(10).wrap();
     rack.append(lpf.clone());
 
-    let prod = Product::new(vec![lpf.tag(), gate_seq.tag()]).wrap();
+    let reverb = arc(Freeverb::new(lpf.tag()));
+    rack.append(reverb.clone());
+
+    let prod = Product::new(vec![reverb.clone().tag(), gate_seq.tag()]).wrap();
     rack.append(prod);
 
     Synth { rack, sender }

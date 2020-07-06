@@ -23,6 +23,7 @@ const ALLPASS_TUNING_2: usize = 441;
 const ALLPASS_TUNING_3: usize = 341;
 const ALLPASS_TUNING_4: usize = 225;
 
+#[derive(Clone)]
 pub struct Freeverb {
     tag: Tag,
     wave: Tag,
@@ -87,7 +88,7 @@ impl Freeverb {
             wave,
             input,
             rack,
-            wet_gain: 0.5,
+            wet_gain: 0.25,
             wet: 1.0,
             dry: 0.0,
             input_gain: 0.5,
@@ -103,39 +104,45 @@ impl Freeverb {
         self
     }
 
-    pub fn set_dampening(&mut self, value: Real) {
+    pub fn dampening(&mut self, value: Real) -> &mut Self {
         self.dampening = value * SCALE_DAMPENING;
         self.update_combs();
+        self
     }
 
-    pub fn set_freeze(&mut self, frozen: bool) {
+    pub fn freeze(&mut self, frozen: bool) -> &mut Self {
         self.frozen = frozen;
         self.update_combs();
+        self
     }
 
-    pub fn set_wet(&mut self, value: Real) {
+    pub fn wet(&mut self, value: Real) -> &mut Self {
         self.wet = value * SCALE_WET;
         self.update_wet_gains();
+        self
     }
 
-    pub fn set_width(&mut self, value: Real) {
+    pub fn width(&mut self, value: Real) -> &mut Self {
         self.width = value;
         self.update_wet_gains();
+        self
     }
 
     fn update_wet_gains(&mut self) {
         self.wet_gain = self.wet * (self.width / 2.0 + 0.5);
     }
 
-    pub fn set_frozen(&mut self, frozen: bool) {
+    pub fn frozen(&mut self, frozen: bool) -> &mut Self {
         self.frozen = frozen;
         self.input_gain = if frozen { 0.0 } else { 1.0 };
         self.update_combs();
+        self
     }
 
-    pub fn set_room_size(&mut self, value: Real) {
+    pub fn room_size(&mut self, value: Real) -> &mut Self {
         self.room_size = value * SCALE_ROOM + OFFSET_ROOM;
         self.update_combs();
+        self
     }
 
     fn update_combs(&mut self) {
@@ -161,8 +168,9 @@ impl Freeverb {
         }
     }
 
-    pub fn set_dry(&mut self, value: Real) {
+    pub fn dry(&mut self, value: Real) -> &mut Self {
         self.dry = value;
+        self
     }
 }
 
