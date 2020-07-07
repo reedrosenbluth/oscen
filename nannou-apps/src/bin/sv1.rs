@@ -90,7 +90,7 @@ fn build_synth(
         .wrap();
 
     // Oscillator 1
-    let midi_control_pulse_width = MidiControl::new(39, 0, 0.1, 0.4, 0.9).wrap();
+    let midi_control_pulse_width = MidiControl::new(39, 0, 0.05, 0.5, 0.95).wrap();
 
     let sine1 = SineOsc::new().hz(modulator_osc1.tag()).wrap();
     let saw1 = SawOsc::new().hz(midi_pitch.tag()).wrap();
@@ -236,7 +236,13 @@ fn model(app: &App) -> Model {
         update_interval: Duration::from_millis(1),
     });
 
-    let _window = app.new_window().size(900, 520).view(view).build().unwrap();
+    let _window = app
+        .new_window()
+        .size(700, 360)
+        .view(view)
+        .always_on_top(true)
+        .build()
+        .unwrap();
 
     // Create audio host
     let audio_host = audio::Host::new();
@@ -329,7 +335,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
             .weight(2.)
             .points(scope_points)
             .color(CORNFLOWERBLUE)
-            .x_y(-200., 0.);
+            .x_y(-295., 0.);
 
         draw.to_frame(app, &frame).unwrap();
     }

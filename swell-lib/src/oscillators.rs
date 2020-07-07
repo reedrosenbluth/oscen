@@ -314,13 +314,21 @@ impl Signal for SquareOsc {
         };
         let duty_cycle = In::val(rack, self.duty_cycle);
         let t = phase - floor(phase, 0);
-        if t < 0.001 {
-            0.0
-        } else if t <= duty_cycle {
-            amplitude
+        // if t < 0.001 {
+        //     0.0
+        // } else if t <= duty_cycle {
+        //     amplitude
+        // } else {
+        //     -amplitude
+        // }
+        let y = if t < duty_cycle / 2.0 {
+            t
+        } else if t < (1.0 + duty_cycle) / 2.0 {
+            duty_cycle - t
         } else {
-            -amplitude
-        }
+            t - 2.0 * duty_cycle - 0.5
+        };
+        amplitude * (256.0 * y).tanh() 
     }
 }
 
