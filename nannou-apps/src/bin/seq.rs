@@ -45,23 +45,18 @@ fn build_synth(sender: Sender<f32>) -> Synth {
 
     ];
     let seq = Sequencer::new().sequence(notes).bpm(120.0).build();
-    let mut pitch_seq = PitchSeq::new(seq.clone());
-    rack.append(pitch_seq.wrap());
+    let pitch_seq = PitchSeq::new(seq.clone()).rack(&mut rack);
 
-    let mut gate_seq = GateSeq::new(seq);
-    rack.append(gate_seq.wrap());
+    let gate_seq = GateSeq::new(seq).rack(&mut rack);
 
-    let wave = SawOsc::new().hz(pitch_seq.tag()).wrap();
-    rack.append(wave.clone());
+    let wave = SawOsc::new().hz(pitch_seq.tag()).rack(&mut rack);
 
-    let lpf = Lpf::new(wave.tag()).cutoff_freq(400).wrap();
-    rack.append(lpf.clone());
+    let lpf = Lpf::new(wave.tag()).cutoff_freq(400).rack(&mut rack);
 
     let reverb = arc(Freeverb::new(lpf.tag()));
     rack.append(reverb.clone());
 
-    let prod = Product::new(vec![reverb.clone().tag(), gate_seq.tag()]).wrap();
-    rack.append(prod);
+    Product::new(vec![reverb.clone().tag(), gate_seq.tag()]).rack(&mut rack);
 
     Synth { rack, sender }
 }

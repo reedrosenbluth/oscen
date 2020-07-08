@@ -1,5 +1,4 @@
 use core::cmp::Ordering;
-use core::time::Duration;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
@@ -38,23 +37,20 @@ struct Synth {
 
 fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let mut rack = Rack::new(vec![]);
-    //  Midi
-    let midi_pitch = MidiPitch::new().wrap();
-    rack.append(midi_pitch.clone());
-    let midi_volume = MidiControl::new(1, 64, 0.0, 0.5, 1.0).wrap();
-    rack.append(midi_volume.clone());
 
-    let excite = SquareOsc::new().hz(110).wrap();
-    rack.append(excite.clone());
+    //  Midi
+    let midi_pitch = MidiPitch::new().rack(&mut rack);
+    MidiControl::new(1, 64, 0.0, 0.5, 1.0).rack(&mut rack);
+
+    let excite = SquareOsc::new().hz(110).rack(&mut rack);
 
     let karplus = WaveGuide::new(excite.tag())
         .hz(midi_pitch.tag())
         .wet_decay(0.95)
         .attack(0.005)
         .release(0.005)
-        .wrap();
+        .rack(&mut rack);
     let karplus_tag = karplus.tag();
-    rack.append(karplus);
 
     Synth {
         midi: Midi { midi_pitch },
