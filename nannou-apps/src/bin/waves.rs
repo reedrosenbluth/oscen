@@ -143,46 +143,6 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
-    let draw = app.draw();
-    let c = rgb(9. / 255., 9. / 255., 44. / 255.);
-    draw.background().color(c);
-    if frame.nth() == 0 {
-        draw.to_frame(app, &frame).unwrap()
-    }
-    let mut shifted: Vec<f32> = vec![];
-    let mut iter = model.amps.iter().peekable();
-
-    let mut i = 0;
-    while iter.len() > 0 {
-        let amp = iter.next().unwrap_or(&0.);
-        if *amp < 0.0 && **iter.peek().unwrap_or(&amp) > 0.0 {
-            shifted = model.amps[i..].to_vec();
-            break;
-        }
-        i += 1;
-    }
-
-    let l = 600;
-    let mut points: Vec<Point2> = vec![];
-    for (i, amp) in shifted.iter().enumerate() {
-        if i == l {
-            break;
-        }
-        points.push(pt2(i as f32, amp * 120.));
-    }
-
-    // only draw if we got enough info back from the audio thread
-    if points.len() == 600 {
-        draw.path()
-            .stroke()
-            .weight(2.)
-            .points(points)
-            .color(CORNFLOWERBLUE)
-            .x_y(-200., 0.);
-
-        draw.to_frame(app, &frame).unwrap();
-    }
-
-    // Draw the state of the `Ui` to the frame.
-    model.ui.draw_to_frame(app, &frame).unwrap();
+    use nannou_apps::scope;
+    scope(app, &model.amps, frame);
 }

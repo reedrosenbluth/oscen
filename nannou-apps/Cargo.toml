@@ -1,5 +1,5 @@
 [package]
-name = "nannou-apps"
+name = "nannou_apps"
 version = "0.1.0"
 authors = [
     "Satya Bodduluri  <skbodduluri@gmail.com >",

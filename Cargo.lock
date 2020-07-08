@@ -1468,7 +1468,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nannou-apps"
+name = "nannou_apps"
 version = "0.1.0"
 dependencies = [
  "crossbeam",
