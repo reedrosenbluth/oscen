@@ -70,11 +70,6 @@ fn build_synth(sender: Sender<f32>) -> Synth {
 fn model(app: &App) -> Model {
     let (sender, receiver) = unbounded();
 
-    // Create a window to receive key pressed events.
-    app.set_loop_mode(LoopMode::Rate {
-        update_interval: Duration::from_millis(1),
-    });
-
     let _window = app.new_window().size(900, 520).view(view).build().unwrap();
 
     let ui = app.new_ui().build().unwrap();

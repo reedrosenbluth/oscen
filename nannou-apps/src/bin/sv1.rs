@@ -133,7 +133,7 @@ fn build_synth(
         .wrap();
 
     // Filter
-    let midi_control_cutoff = MidiControl::new(40, 127, 10.0, 1320.0, 20000.0).wrap();
+    let midi_control_cutoff = MidiControl::new(40, 127, 10.0, 1320.0, 25000.0).wrap();
     let midi_control_resonance = MidiControl::new(41, 0, 0.707, 4.0, 10.0).wrap();
 
     let low_pass_filter = Lpf::new(mixer.tag())
@@ -231,11 +231,6 @@ fn model(app: &App) -> Model {
         Err(err) => println!("Error: {}", err),
     });
 
-    // Create a window to receive key pressed events.
-    app.set_loop_mode(LoopMode::Rate {
-        update_interval: Duration::from_millis(1),
-    });
-
     let _window = app
         .new_window()
         .size(700, 360)
@@ -318,7 +313,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
     let mut shifted_scope_data: Vec<f32> = vec![];
 
     for (i, amp) in scope_data.clone().enumerate() {
-        if amp.abs() < 0.01 && scope_data.peek().unwrap_or(&amp) > &amp {
+        if *amp <= 0.0 && scope_data.peek().unwrap_or(&amp) > &&0.0 {
             shifted_scope_data = model.scope_data[i..].to_vec();
             break;
         }

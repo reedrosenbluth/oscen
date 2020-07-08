@@ -12,7 +12,7 @@ edition = "2018"
 
 [dependencies]
 swell = { path = "../swell-lib" }
-nannou = "0.14"
+nannou = "0.14.1"
 nannou_audio = "0.14"
 midir = "0.5"
 crossbeam = "0.7"

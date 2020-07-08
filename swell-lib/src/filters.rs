@@ -67,7 +67,8 @@ impl Signal for Lpf {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let x0 = rack.output(self.wave);
-        if self.off {
+        let cutoff_freq = In::val(rack, self.cutoff_freq);
+        if self.off || cutoff_freq >= 20_000.0 {
             return x0;
         }
         let cutoff_freq = In::val(rack, self.cutoff_freq);

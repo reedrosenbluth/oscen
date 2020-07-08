@@ -74,11 +74,6 @@ fn model(app: &App) -> Model {
         Err(err) => println!("Error: {}", err),
     });
 
-    // Create a window to receive key pressed events.
-    app.set_loop_mode(LoopMode::Rate {
-        update_interval: Duration::from_millis(1),
-    });
-
     let _window = app.new_window().size(900, 520).view(view).build().unwrap();
 
     let ui = app.new_ui().build().unwrap();
@@ -160,7 +155,7 @@ fn view(app: &App, model: &Model, frame: Frame) {
     let mut i = 0;
     while iter.len() > 0 {
         let amp = iter.next().unwrap_or(&0.);
-        if amp.abs() < 0.01 && **iter.peek().unwrap_or(&amp) > *amp {
+        if *amp < 0.0 && **iter.peek().unwrap_or(&amp) > 0.0 {
             shifted = model.amps[i..].to_vec();
             break;
         }

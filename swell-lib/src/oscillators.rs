@@ -141,7 +141,7 @@ impl Signal for SawOsc {
         };
         let t = phase - 0.5;
         let s = -t - floor(0.5 - t, 0);
-        if s < -0.499 {
+        if s < -0.5 {
             0.0
         } else {
             amplitude * 2.0 * s
@@ -314,21 +314,11 @@ impl Signal for SquareOsc {
         };
         let duty_cycle = In::val(rack, self.duty_cycle);
         let t = phase - floor(phase, 0);
-        // if t < 0.001 {
-        //     0.0
-        // } else if t <= duty_cycle {
-        //     amplitude
-        // } else {
-        //     -amplitude
-        // }
-        let y = if t < duty_cycle / 2.0 {
-            t
-        } else if t < (1.0 + duty_cycle) / 2.0 {
-            duty_cycle - t
+        if t <= duty_cycle {
+            amplitude
         } else {
-            t - 2.0 * duty_cycle - 0.5
-        };
-        amplitude * (256.0 * y).tanh() 
+            -amplitude
+        }
     }
 }
 
