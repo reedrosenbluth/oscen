@@ -42,28 +42,38 @@ fn build_synth(
     midi_receiver2: Receiver<Vec<u8>>,
     scope_sender: Sender<f32>,
 ) -> Synth {
-    let midi_pitch = MidiPitch::new().wrap();
+    let mut rack = Rack::new(vec![]);
+    let mut midi_controls: Vec<ArcMutex<MidiControl>> = vec![];
+
+    let midi_pitch = MidiPitch::new().rack(&mut rack);
 
     // Envelope Generator
-    let midi_control_release = MidiControl::new(37, 1, 0.05, 1.0, 10.0).wrap();
-    let midi_control_attack = MidiControl::new(38, 1, 0.05, 1.0, 10.0).wrap();
+    let midi_control_release = MidiControl::new(37, 1, 0.05, 1.0, 10.0).rack(&mut rack);
+    midi_controls.push(midi_control_release.clone());
+    let midi_control_attack = MidiControl::new(38, 1, 0.05, 1.0, 10.0).rack(&mut rack);
+    midi_controls.push(midi_control_attack.clone());
 
     let adsr = Adsr::linear()
         .release(midi_control_release.tag())
         .attack(midi_control_attack.tag())
         .decay(0.05)
         .sustain(0.8)
-        .wrap();
+        .rack(&mut rack);
     let adsr_tag = adsr.tag();
 
-    let midi_control_tri_lfo_hz = MidiControl::new(46, 0, 0.0, 100.0, 500.0).wrap();
+    let midi_control_tri_lfo_hz = MidiControl::new(46, 0, 0.0, 100.0, 500.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_tri_lfo_hz.clone());
 
-    // LFO
-    let tri_lfo = TriangleOsc::new().hz(midi_control_tri_lfo_hz.tag()).wrap();
-    let square_lfo = SquareOsc::new().wrap();
+    // LFO's
+    let tri_lfo = TriangleOsc::new()
+        .hz(midi_control_tri_lfo_hz.tag())
+        .rack(&mut rack);
+    SquareOsc::new().rack(&mut rack);
 
-    let midi_control_mod_hz2 = MidiControl::new(44, 0, 0.0, 440.0, 1760.0).wrap();
-    let midi_control_mod_idx2 = MidiControl::new(45, 0, 0.0, 4.0, 16.0).wrap();
+    let midi_control_mod_hz2 = MidiControl::new(44, 0, 0.0, 440.0, 1760.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_mod_hz2.clone());
+    let midi_control_mod_idx2 = MidiControl::new(45, 0, 0.0, 4.0, 16.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_mod_idx2.clone());
 
     // TODO: tune these lower
     // Sub Oscillators for Osc
@@ -71,39 +81,43 @@ fn build_synth(
         .base_hz(midi_pitch.tag())
         .mod_hz(midi_control_mod_hz2.tag())
         .mod_idx(midi_control_mod_idx2.tag())
-        .wrap();
+        .rack(&mut rack);
 
     // Oscillator 2
-    let sine2 = SineOsc::new().hz(modulator_osc2.tag()).wrap();
-    let saw2 = SawOsc::new().hz(midi_pitch.tag()).wrap();
-    let square2 = SquareOsc::new().hz(midi_pitch.tag()).wrap();
-    let triangle2 = TriangleOsc::new().hz(midi_pitch.tag()).wrap();
+    let sine2 = SineOsc::new().hz(modulator_osc2.tag()).rack(&mut rack);
+    SawOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
+    SquareOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
+    TriangleOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
 
-    let midi_control_mod_hz1 = MidiControl::new(43, 0, 0.0, 440.0, 1760.0).wrap();
-    let midi_control_mod_idx1 = MidiControl::new(42, 0, 0.0, 4.0, 16.0).wrap();
+    let midi_control_mod_hz1 = MidiControl::new(43, 0, 0.0, 440.0, 1760.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_mod_hz1.clone());
+    let midi_control_mod_idx1 = MidiControl::new(42, 0, 0.0, 4.0, 16.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_mod_idx1.clone());
 
     let modulator_osc1 = Modulator::new(sine2.tag())
         .base_hz(midi_pitch.tag())
         .mod_hz(midi_control_mod_hz1.tag())
         .mod_idx(midi_control_mod_idx1.tag())
-        .wrap();
+        .rack(&mut rack);
 
     // Oscillator 1
-    let midi_control_pulse_width = MidiControl::new(39, 0, 0.05, 0.5, 0.95).wrap();
+    let midi_control_pulse_width = MidiControl::new(39, 0, 0.05, 0.5, 0.95).rack_pre(&mut rack);
+    midi_controls.push(midi_control_pulse_width.clone());
 
-    let sine1 = SineOsc::new().hz(modulator_osc1.tag()).wrap();
-    let saw1 = SawOsc::new().hz(midi_pitch.tag()).wrap();
+    let sine1 = SineOsc::new().hz(modulator_osc1.tag()).rack(&mut rack);
+    let saw1 = SawOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
     let square1 = SquareOsc::new()
         .hz(midi_pitch.tag())
         .duty_cycle(midi_control_pulse_width.tag())
-        .wrap();
-    let triangle1 = TriangleOsc::new().hz(midi_pitch.tag()).wrap();
+        .rack(&mut rack);
+    let triangle1 = TriangleOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
 
-    let sub1 = SquareOsc::new().hz(midi_pitch.tag()).wrap();
-    let sub2 = SquareOsc::new().hz(midi_pitch.tag()).wrap();
+    // Sub 1 & 2
+    SquareOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
+    SquareOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
 
     // Noise
-    let noise = WhiteNoise::new().wrap();
+    let noise = WhiteNoise::new().rack(&mut rack);
 
     // Mixers
     let mut mixer = Mixer::new(vec![
@@ -114,11 +128,16 @@ fn build_synth(
         noise.tag(),
     ]);
 
-    let midi_control_mix1 = MidiControl::new(32, 127, 0.0, 0.5, 1.0).wrap();
-    let midi_control_mix2 = MidiControl::new(33, 0, 0.0, 0.5, 1.0).wrap();
-    let midi_control_mix3 = MidiControl::new(34, 0, 0.0, 0.5, 1.0).wrap();
-    let midi_control_mix4 = MidiControl::new(35, 0, 0.0, 0.5, 1.0).wrap();
-    let midi_control_mix5 = MidiControl::new(36, 0, 0.0, 0.5, 1.0).wrap();
+    let midi_control_mix1 = MidiControl::new(32, 127, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_mix1.clone());
+    let midi_control_mix2 = MidiControl::new(33, 0, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_mix2.clone());
+    let midi_control_mix3 = MidiControl::new(34, 0, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_mix3.clone());
+    let midi_control_mix4 = MidiControl::new(35, 0, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_mix4.clone());
+    let midi_control_mix5 = MidiControl::new(36, 0, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_mix5.clone());
 
     let mixer = mixer
         .levels(vec![
@@ -129,88 +148,35 @@ fn build_synth(
             midi_control_mix5.tag(),
         ])
         .level(adsr.tag())
-        .wrap();
+        .rack(&mut rack);
 
     // Filter
-    let midi_control_cutoff = MidiControl::new(40, 127, 10.0, 1320.0, 25000.0).wrap();
-    let midi_control_resonance = MidiControl::new(41, 0, 0.707, 4.0, 10.0).wrap();
+    let midi_control_cutoff = MidiControl::new(40, 127, 10.0, 1320.0, 25000.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_cutoff.clone());
+    let midi_control_resonance = MidiControl::new(41, 0, 0.707, 4.0, 10.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_resonance.clone());
 
     let low_pass_filter = Lpf::new(mixer.tag())
         .cutoff_freq(midi_control_cutoff.tag())
         .q(midi_control_resonance.tag())
-        .wrap();
+        .rack(&mut rack);
 
     // VCA
-    let midi_control_volume = MidiControl::new(47, 64, 0.0, 0.5, 1.0).wrap();
-    let vca = Vca::new(low_pass_filter.tag())
+    let midi_control_volume = MidiControl::new(47, 64, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    midi_controls.push(midi_control_volume.clone());
+    Vca::new(low_pass_filter.tag())
         .level(midi_control_volume.tag())
-        .wrap();
-
-    let graph = Rack::new(vec![
-        midi_pitch.clone(),
-        midi_control_mix1.clone(),
-        midi_control_mix2.clone(),
-        midi_control_mix3.clone(),
-        midi_control_mix4.clone(),
-        midi_control_mix5.clone(),
-        midi_control_release.clone(),
-        midi_control_attack.clone(),
-        midi_control_cutoff.clone(),
-        midi_control_resonance.clone(),
-        midi_control_mod_hz1.clone(),
-        midi_control_mod_hz2.clone(),
-        midi_control_mod_idx1.clone(),
-        midi_control_mod_idx2.clone(),
-        midi_control_tri_lfo_hz.clone(),
-        midi_control_pulse_width.clone(),
-        midi_control_volume.clone(),
-        adsr,
-        sine1,
-        saw1,
-        square1,
-        triangle1,
-        sub1,
-        sub2,
-        sine2,
-        saw2,
-        square2,
-        triangle2,
-        modulator_osc1,
-        modulator_osc2,
-        noise,
-        tri_lfo,
-        square_lfo,
-        mixer,
-        low_pass_filter,
-        vca,
-    ]);
+        .rack(&mut rack);
 
     Synth {
         midi: Midi {
             midi_pitch,
-            midi_controls: vec![
-                midi_control_mix1,
-                midi_control_mix2,
-                midi_control_mix3,
-                midi_control_mix4,
-                midi_control_mix5,
-                midi_control_release,
-                midi_control_attack,
-                midi_control_cutoff,
-                midi_control_mod_hz1,
-                midi_control_mod_hz2,
-                midi_control_mod_idx1,
-                midi_control_mod_idx2,
-                midi_control_resonance,
-                midi_control_tri_lfo_hz,
-                midi_control_pulse_width,
-                midi_control_volume,
-            ],
+            midi_controls,
         },
         midi_receiver1,
         midi_receiver2,
         scope_sender,
-        voice: graph,
+        voice: rack,
         adsr_tag,
     }
 }

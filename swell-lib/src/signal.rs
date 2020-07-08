@@ -139,6 +139,24 @@ pub trait Builder {
     {
         arc(self.clone())
     }
+
+    fn rack(&mut self, rack: &mut Rack) -> ArcMutex<Self>
+    where
+        Self: Signal + Send + Sized + Clone,
+    {
+        let result = arc(self.clone());
+        rack.append(result.clone());
+        result
+    }
+
+    fn rack_pre(&mut self, rack: &mut Rack) -> ArcMutex<Self>
+    where
+        Self: Signal + Send + Sized + Clone,
+    {
+        let result = arc(self.clone());
+        rack.preppend(result.clone());
+        result
+    }
 }
 
 /// Inputs to synth modules can either be constant (`Fix`) or a control voltage
