@@ -9,6 +9,38 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+#[derive(Copy, Clone)]
+pub struct Clock {
+    tag: Tag,
+    clock: u64,
+    interval: Real,
+}
+
+impl Clock {
+    pub fn new(interval: Real) -> Self {
+        Self {
+            tag: mk_tag(),
+            clock: 0,
+            interval,
+        }
+    }
+}
+
+impl Signal for Clock {
+    std_signal!();
+    fn signal(&mut self, _rack: &Rack, sample_rate: Real) -> Real {
+        let interval = (self.interval * sample_rate) as u64;
+        if self.clock == 0 {
+            self.clock += 1;
+            1.0
+        } else {
+            self.clock += 1;
+            self.clock %= interval;
+            0.0
+        }
+    }
+}
+
 /// A basic sine oscillator.
 #[derive(Copy, Clone)]
 pub struct SineOsc {

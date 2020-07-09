@@ -1,4 +1,3 @@
-use core::cmp::Ordering;
 use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
@@ -119,23 +118,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 
 fn update(_app: &App, model: &mut Model, _update: Update) {
     let amps: Vec<f32> = model.receiver.try_iter().collect();
-    let clone = amps.clone();
-
-    // find max amplitude in waveform
-    let max = amps.iter().max_by(|x, y| {
-        if x > y {
-            Ordering::Greater
-        } else {
-            Ordering::Less
-        }
-    });
-
-    // store if it's greater than the previously stored max
-    if max.is_some() && *max.unwrap() > model.max_amp {
-        model.max_amp = *max.unwrap();
-    }
-
-    model.amps = clone;
+    model.amps = amps;
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
