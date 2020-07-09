@@ -9,61 +9,88 @@ connect (or patch) the output of one module into the input of another.
 ## Example
 
 ```Rust
-fn build_synth(midi_pitch: ArcMutex<MidiPitch>) -> Graph {
-    // Oscillator 1
-    let sine1 = SineOsc::with_hz(cv("modulator_osc1"));
-    let saw1 = SawOsc::with_hz(cv("midi_pitch"));
-    let square1 = SquareOsc::with_hz(cv("midi_pitch"));
-    let triangle1 = TriangleOsc::with_hz(cv("midi_pitch"));
+use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
+use nannou::prelude::*;
+use nannou_audio as audio;
+use nannou_audio::Buffer;
+use swell::filters::Lpf;
+use swell::operators::Modulator;
+use swell::oscillators::{SineOsc, SquareOsc};
+use swell::signal::*;
 
-    // FM modulator for oscillator 1
-    let modulator_osc1 = Modulator::wrapped("sine2", cv("midi_pitch"), fix(0.0), fix(0.0));
+fn main() {
+    nannou::app(model).update(update).run();
+}
 
-    // Oscillator 2
-    let sine2 = SineOsc::with_hz(cv("modulator_osc2"));
-    let saw2 = SawOsc::with_hz(cv("midi_pitch"));
-    let square2 = SquareOsc::with_hz(cv("midi_pitch"));
-    let triangle2 = TriangleOsc::with_hz(cv("midi_pitch"));
+struct Model {
+    pub stream: audio::Stream<Synth>,
+    receiver: Receiver<f32>,
+    samples: Vec<f32>,
+}
 
-    // FM modulator for oscillator 2
-    let modulator_osc2 = Modulator::wrapped("tri_lfo", cv("midi_pitch"), fix(0.0), fix(0.0));
+struct Synth {
+    sender: Sender<f32>,
+    rack: Rack,
+}
 
-    // LFO
-    let tri_lfo = TriangleOsc::wrapped();
-    let square_lfo = SquareOsc::wrapped();
+fn model(app: &App) -> Model {
+    let (sender, receiver) = unbounded();
+    app.new_window().size(700, 360).view(view).build().unwrap();
+    let audio_host = audio::Host::new();
 
-    // Noise
-    let noise = WhiteNoise::wrapped();
+    // Build the Synth.
+    // A Rack is a collection of synth modules.
+    let mut rack = Rack::new(vec![]);
 
-    // Mixers
-    // sine1 + saw1
-    let mixer1 = Mixer::wrapped(vec!["sine1", "saw1"]);
-    // square1 + sub1
-    let mixer2 = Mixer::wrapped(vec!["square1", "sub1"]);
-    // mixer1 + mixer2
-    let mixer3 = Mixer::wrapped(vec!["mixer1", "mixer2"]);
+    // Use a low frequencey sine wave to modulate the frequency of a square wave.
+    let sine = SineOsc::new().hz(1).rack(&mut rack);
+    let modulator = Modulator::new(sine.tag())
+        .base_hz(440)
+        .mod_hz(220)
+        .mod_idx(1)
+        .rack(&mut rack);
 
-    // Envelope Generator
-    let adsr = SustainSynth::wrapped("mixer3");
+    // Create a square wave oscillator and add it the the rack.
+    let square = SquareOsc::new().hz(modulator.tag()).rack(&mut rack);
 
-    Graph::new(vec![("midi_pitch", midi_pitch),
-                        ("sine1", arc(sine1)),
-                        ("saw1", arc(saw1)),
-                        ("square1", arc(square1)),
-                        ("triangle1", arc(triangle1)),
-                        ("sine2", arc(sine2)),
-                        ("saw2", arc(saw2)),
-                        ("square2", arc(square2)),
-                        ("triangle2", arc(triangle2)),
-                        ("modulator_osc1", modulator_osc1),
-                        ("modulator_osc2", modulator_osc2),
-                        ("noise", noise),
-                        ("tri_lfo", tri_lfo),
-                        ("square_lfo", square_lfo),
-                        ("mixer1", mixer1),
-                        ("mixer2", mixer2),
-                        ("mixer3", mixer3),
-                        ("adsr", adsr),
-                       ])
+    // Create a low pass filter whose input is the square wave.
+    Lpf::new(square.tag()).cutoff_freq(880).rack(&mut rack);
+
+    let synth = Synth { sender, rack };
+    let stream = audio_host
+        .new_output_stream(synth)
+        .render(audio)
+        .build()
+        .unwrap();
+
+    Model {
+        stream,
+        receiver,
+        samples: vec![],
+    }
+}
+
+fn audio(synth: &mut Synth, buffer: &mut Buffer) {
+    let sample_rate = buffer.sample_rate() as Real;
+    for frame in buffer.frames_mut() {
+        // The signal method returns the sample of the last synth module in
+        // the rack.
+        let amp = synth.rack.signal(sample_rate) as f32;
+
+        for channel in frame {
+            *channel = amp;
+        }
+        synth.sender.send(amp).unwrap();
+    }
+}
+
+fn update(_app: &App, model: &mut Model, _update: Update) {
+    let samples: Vec<f32> = model.receiver.try_iter().collect();
+    model.samples = samples;
+}
+
+fn view(app: &App, model: &Model, frame: Frame) {
+    use nannou_apps::scope;
+    scope(app, &model.samples, frame);
 }
 ```
