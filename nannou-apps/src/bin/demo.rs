@@ -3,18 +3,18 @@ use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use swell::filters::Lpf;
-use swell::oscillators::SquareOsc;
+use swell::oscillators::{SineOsc, SquareOsc};
+use swell::operators::Modulator;
 use swell::signal::*;
 
 fn main() {
     nannou::app(model).update(update).run();
 }
 
-#[allow(dead_code)]
 struct Model {
     stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
-    amps: Vec<f32>,
+    samples: Vec<f32>,
 }
 
 struct Synth {
@@ -24,14 +24,24 @@ struct Synth {
 
 fn model(app: &App) -> Model {
     let (sender, receiver) = unbounded();
-    let _window = app.new_window().size(700, 360).view(view).build().unwrap();
+    app.new_window().size(700, 360).view(view).build().unwrap();
     let audio_host = audio::Host::new();
-    
-    let mut rack = Rack::new(vec![]);
-    let square = SquareOsc::new().hz(220).rack(&mut rack);
-    Lpf::new(square.tag()).cutoff_freq(440).rack(&mut rack);
-    let synth = Synth { sender, rack};
 
+    // Build the Synth.
+    // A Rack is a collection of synth modules.
+    let mut rack = Rack::new(vec![]);
+    
+    // Use a low frequencey sine wave to modulate the frequency of a square wave.
+    let sine = SineOsc::new().hz(1).rack(&mut rack);
+    let modulator = Modulator::new(sine.tag()).base_hz(440).mod_hz(220).mod_idx(1).rack(&mut rack);
+
+    // Create a square wave oscillator and add it the the rack.
+    let square = SquareOsc::new().hz(modulator.tag()).rack(&mut rack);
+
+    // Create a low pass filter whose input is the square wave.
+    Lpf::new(square.tag()).cutoff_freq(880).rack(&mut rack);
+
+    let synth = Synth { sender, rack };
     let stream = audio_host
         .new_output_stream(synth)
         .render(audio)
@@ -41,15 +51,17 @@ fn model(app: &App) -> Model {
     Model {
         stream,
         receiver,
-        amps: vec![],
+        samples: vec![],
     }
 }
 
-// A function that renders the given `Audio` to the given `Buffer`.
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as Real;
     for frame in buffer.frames_mut() {
+        // The signal method returns the sample of the last synth module in
+        // the rack.
         let amp = synth.rack.signal(sample_rate) as f32;
+
         for channel in frame {
             *channel = amp;
         }
@@ -58,11 +70,11 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
 }
 
 fn update(_app: &App, model: &mut Model, _update: Update) {
-    let amps: Vec<f32> = model.receiver.try_iter().collect();
-    model.amps = amps;
+    let samples: Vec<f32> = model.receiver.try_iter().collect();
+    model.samples = samples;
 }
 
 fn view(app: &App, model: &Model, frame: Frame) {
     use nannou_apps::scope;
-    scope(app, &model.amps, frame);
+    scope(app, &model.samples, frame);
 }
