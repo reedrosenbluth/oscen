@@ -3,8 +3,8 @@ use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use swell::filters::Lpf;
-use swell::oscillators::{SineOsc, SquareOsc};
 use swell::operators::Modulator;
+use swell::oscillators::{SineOsc, SquareOsc};
 use swell::signal::*;
 
 fn main() {
@@ -12,7 +12,7 @@ fn main() {
 }
 
 struct Model {
-    stream: audio::Stream<Synth>,
+    pub stream: audio::Stream<Synth>,
     receiver: Receiver<f32>,
     samples: Vec<f32>,
 }
@@ -30,10 +30,14 @@ fn model(app: &App) -> Model {
     // Build the Synth.
     // A Rack is a collection of synth modules.
     let mut rack = Rack::new(vec![]);
-    
+
     // Use a low frequencey sine wave to modulate the frequency of a square wave.
     let sine = SineOsc::new().hz(1).rack(&mut rack);
-    let modulator = Modulator::new(sine.tag()).base_hz(440).mod_hz(220).mod_idx(1).rack(&mut rack);
+    let modulator = Modulator::new(sine.tag())
+        .base_hz(440)
+        .mod_hz(220)
+        .mod_idx(1)
+        .rack(&mut rack);
 
     // Create a square wave oscillator and add it the the rack.
     let square = SquareOsc::new().hz(modulator.tag()).rack(&mut rack);
