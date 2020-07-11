@@ -446,6 +446,74 @@ impl IndexMut<&str> for WhiteNoise {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct PinkNoise {
+    tag: Tag,
+    b: [Real; 7],
+    amplitude: In,
+}
+
+impl PinkNoise {
+    pub fn new() -> Self {
+        Self {
+            tag: mk_tag(),
+            b: [0.0; 7],
+            amplitude: 1.into(),
+        }
+    }
+
+    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.amplitude = arg.into();
+        self
+    }
+}
+
+impl Builder for PinkNoise {}
+
+impl Signal for PinkNoise {
+    std_signal!();
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+        let mut rng = thread_rng();
+        let white = Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng);
+        self.b[0] = 0.99886 * self.b[0] + white * 0.0555179;
+        self.b[1] = 0.99332 * self.b[1] + white * 0.0750759;
+        self.b[2] = 0.96900 * self.b[2] + white * 0.1538520;
+        self.b[3] = 0.86650 * self.b[3] + white * 0.3104856;
+        self.b[4] = 0.55000 * self.b[4] + white * 0.5329522;
+        self.b[5] = -0.7616 * self.b[5] - white * 0.0168980;
+        let pink = self.b[0]
+            + self.b[1]
+            + self.b[2]
+            + self.b[3]
+            + self.b[4]
+            + self.b[5]
+            + self.b[6]
+            + white * 0.5362;
+        self.b[6] = white * 0.115926;
+        pink * In::val(rack, self.amplitude)
+    }
+}
+
+impl Index<&str> for PinkNoise {
+    type Output = In;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        match index {
+            "amp" => &self.amplitude,
+            _ => panic!("PinkNoise does not have a field names: {}", index),
+        }
+    }
+}
+
+impl IndexMut<&str> for PinkNoise {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        match index {
+            "amp" => &mut self.amplitude,
+            _ => panic!("PinkNoise does not have a field named:  {}", index),
+        }
+    }
+}
+
 /// An oscillator used to modulate parameters that take values between 0 and 1,
 /// based on a sinusoid.
 #[derive(Copy, Clone)]
