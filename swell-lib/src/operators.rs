@@ -302,7 +302,7 @@ impl IndexMut<&str> for CrossFade {
 pub fn set_alpha(rack: &Rack, k: In, a: Real) {
     match k {
         In::Cv(n) => {
-            if let Some(v) = rack.nodes[&n]
+            if let Some(v) = rack.modules[&n]
                 .module
                 .lock()
                 .unwrap()

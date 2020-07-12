@@ -155,7 +155,7 @@ impl Freeverb {
         for o in self.rack.order.clone().iter_mut() {
             if let Some(v) = self
                 .rack
-                .nodes
+                .modules
                 .get_mut(o)
                 .unwrap()
                 .module

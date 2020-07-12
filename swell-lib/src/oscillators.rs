@@ -446,6 +446,8 @@ impl IndexMut<&str> for WhiteNoise {
     }
 }
 
+// Paul Kellet's pk3 as in:
+// paul.kellett@maxim.abel.co.uk, http://www.abel.co.uk/~maxim/ 
 #[derive(Copy, Clone)]
 pub struct PinkNoise {
     tag: Tag,
@@ -656,7 +658,7 @@ impl Signal for FourierOsc {
             }
         }
         self.sines.signal(sample_rate);
-        let out = self.sines.nodes.iter().fold(0., |acc, x| acc + x.1.output);
+        let out = self.sines.modules.iter().fold(0., |acc, x| acc + x.1.output);
         amp * out
     }
 }

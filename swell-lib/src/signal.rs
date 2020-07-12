@@ -16,7 +16,8 @@ pub fn mk_tag() -> Tag {
     Uuid::new_v4()
 }
 
-/// Synth modules must implement the Signal trait. `as_any_mut` is necessary
+/// Synth modules must implement the Signal trait. In fact one could define a
+/// synth module as a struct that implements `Signal`. `as_any_mut` is necessary
 /// so that modules can be downcast in order to access their specific fields.
 pub trait Signal: Any {
     /// This method has the same trivial implementation for all implentors of
@@ -59,12 +60,14 @@ pub trait Gate {
     fn gate_off(rack: &Rack, n: Tag);
 }
 
+/// If your module has `on` and `off` methods you can use this macro to generate
+/// the `Gate` trait.
 #[macro_export]
 macro_rules! gate {
     ($t:ty) => {
         impl Gate for $t {
             fn gate_on(rack: &Rack, n: Tag) {
-                if let Some(v) = rack.nodes[&n]
+                if let Some(v) = rack.modules[&n]
                     .module
                     .lock()
                     .unwrap()
@@ -76,7 +79,7 @@ macro_rules! gate {
             }
 
             fn gate_off(rack: &Rack, n: Tag) {
-                if let Some(v) = rack.nodes[&n]
+                if let Some(v) = rack.modules[&n]
                     .module
                     .lock()
                     .unwrap()
@@ -201,7 +204,7 @@ impl Default for In {
     }
 }
 
-/// Connect the `source` node to the `field` input of the `dest` node.
+/// Connect the `source` module to the `field` input of the `dest` module.
 pub fn connect<T, U>(source: &T, dest: &mut U, field: &'static str)
 where
     T: Signal,
@@ -210,15 +213,15 @@ where
     dest[field] = source.tag().into();
 }
 
-/// Nodes for the rack will have both a synth module (i.e an implementor of
+/// SynthModules for the rack will have both a module (i.e an implementor of
 /// `Signal`) and will store their current signal value as `output`
 #[derive(Clone)]
-pub struct Node {
+pub struct SynthModule {
     pub module: ArcMutex<Sig>,
     pub output: Real,
 }
 
-impl Node {
+impl SynthModule {
     fn new(signal: ArcMutex<Sig>) -> Self {
         Self {
             module: signal,
@@ -227,7 +230,7 @@ impl Node {
     }
 }
 
-impl Signal for Node {
+impl Signal for SynthModule {
     as_any_mut!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         self.module.signal(rack, sample_rate)
@@ -238,10 +241,10 @@ impl Signal for Node {
     }
 }
 
-/// A `Rack` is basically a `HashMap` of nodes to be visited in the specified order.
+/// A `Rack` is basically a `HashMap` of synth modules to be visited in the specified order.
 #[derive(Clone)]
 pub struct Rack {
-    pub nodes: HashMap<Tag, Node>,
+    pub modules: HashMap<Tag, SynthModule>,
     pub order: Vec<Tag>,
 }
 
@@ -249,14 +252,14 @@ impl Rack {
     /// Create a `Rack` object whose order is set to the order of the `Signal`s
     /// in the input `ws`.
     pub fn new(ws: Vec<ArcMutex<Sig>>) -> Self {
-        let mut nodes: HashMap<Tag, Node> = HashMap::new();
+        let mut nodes: HashMap<Tag, SynthModule> = HashMap::new();
         let mut order: Vec<Tag> = Vec::new();
         for s in ws {
             let t = s.lock().unwrap().tag();
-            nodes.insert(t, Node::new(s));
+            nodes.insert(t, SynthModule::new(s));
             order.push(t)
         }
-        Rack { nodes, order }
+        Rack { modules: nodes, order }
     }
 
     /// Convert a rack into an `Iter` - note: we don't need an `iter_mut` since
@@ -270,13 +273,13 @@ impl Rack {
 
     /// Convenience function get the `Tag` of the final node in the `Rack`.
     pub fn out_tag(&self) -> Tag {
-        let n = self.nodes.len() - 1;
+        let n = self.modules.len() - 1;
         self.order[n]
     }
 
     /// Get the `output` of a `Node`.
     pub fn output(&self, n: Tag) -> Real {
-        self.nodes
+        self.modules
             .get(&n)
             .expect("Function output could not find tag")
             .output
@@ -285,22 +288,34 @@ impl Rack {
     /// Add a `Node` (synth module) to the `Rack` and set it's order to be last.
     pub fn append(&mut self, sig: ArcMutex<Sig>) {
         let tag = sig.tag();
-        let node = Node::new(sig);
-        self.nodes.insert(tag, node);
+        let node = SynthModule::new(sig);
+        self.modules.insert(tag, node);
         self.order.push(tag);
     }
 
-    /// Add a `Node` (synth module) to the `Rack` and set it's order to be first`.
+    /// Add a `SynthModule` to the `Rack` and set it's order to be first`.
     pub fn preppend(&mut self, sig: ArcMutex<Sig>) {
         let tag = sig.tag();
-        let node = Node::new(sig);
-        self.nodes.insert(tag, node);
+        let node = SynthModule::new(sig);
+        self.modules.insert(tag, node);
         self.order.insert(0, tag);
+    }
+
+    /// Add a `SynthModule` to the `Rack` at the position `before` was.
+    pub fn before(&mut self, before: Tag, sig: ArcMutex<Sig>) {
+        if let Some(pos) = self.order.iter().position(|&x| x == before) {
+            let tag = sig.tag();
+            let node = SynthModule::new(sig);
+            self.modules.insert(tag, node);
+            self.order.insert(pos, tag);
+        } else {
+            panic!("rack does not contain {} tag", before);
+        }
     }
 
     /// Insert a sub-rack into the rack before node `loc`.
     pub fn insert(&mut self, rack: Rack, loc: usize) {
-        let n = rack.nodes.len() + self.nodes.len();
+        let n = rack.modules.len() + self.modules.len();
         let mut new_order: Vec<Tag> = Vec::with_capacity(n);
         for i in 0..loc {
             new_order.push(self.order[i])
@@ -308,11 +323,11 @@ impl Rack {
         for i in 0..rack.order.len() {
             new_order.push(rack.order[i])
         }
-        for i in loc..self.nodes.len() {
+        for i in loc..self.modules.len() {
             new_order.push(self.order[i])
         }
         self.order = new_order;
-        self.nodes.extend(rack.nodes);
+        self.modules.extend(rack.modules);
     }
 
     /// A `Rack` generates a signal by travesing the list of modules and
@@ -329,12 +344,12 @@ impl Rack {
             )
         }
         for (i, o) in self.order.iter().enumerate() {
-            self.nodes
+            self.modules
                 .get_mut(o)
                 .expect("Function rack::signal could not find tag in second loop")
                 .output = outs[i];
         }
-        self.nodes[&self.out_tag()].output
+        self.modules[&self.out_tag()].output
     }
 }
 
@@ -344,7 +359,7 @@ pub struct Iter<'a> {
 }
 
 impl<'a> IntoIterator for &'a Rack {
-    type Item = &'a Node;
+    type Item = &'a SynthModule;
     type IntoIter = Iter<'a>;
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -352,14 +367,14 @@ impl<'a> IntoIterator for &'a Rack {
 }
 
 impl<'a> Iterator for Iter<'a> {
-    type Item = &'a Node;
+    type Item = &'a SynthModule;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.rack.order.len() {
             return None;
         }
         let tag = self.rack.order[self.index];
         self.index += 1;
-        self.rack.nodes.get(&tag)
+        self.rack.modules.get(&tag)
     }
 }
 
