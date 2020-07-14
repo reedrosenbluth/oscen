@@ -379,8 +379,8 @@ impl<'a> Iterator for Iter<'a> {
 }
 
 /// Use to connect subracks to the main rack. Simply store the value of the
-/// input node from the main rack as a connect node, which will be the first
-/// node in the subrack.
+/// input node from the main rack as a link module, which will be the first
+/// module in the subrack.
 #[derive(Clone)]
 pub struct Link {
     tag: Tag,

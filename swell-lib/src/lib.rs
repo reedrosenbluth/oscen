@@ -5,6 +5,8 @@
 //! modules without having to modify any of the library code, e.g. add cases to
 //! an enum. This is accomplished by defining the [`Signal`] trait and using trait
 //! objects to represent synth modules which can be added to a `Rack` (graph).
+//! Signal objects can be downcast using the `Any` trait to access specific
+//! features of that particular `SynthModule`.
 //!
 //! - **Dynamic** - The [`Rack`] should be able to be "patched" while the synth
 //! is running, similar to a modular hardware synth. A [`Rack`] is basically a

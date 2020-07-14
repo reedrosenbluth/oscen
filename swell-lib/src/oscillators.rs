@@ -9,6 +9,8 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+/// A `SynthModule` that emits 1.0 every `interval` seconds otherwise it emits
+/// 0.0.
 #[derive(Copy, Clone)]
 pub struct Clock {
     tag: Tag,
@@ -286,7 +288,8 @@ impl IndexMut<&str> for TriangleOsc {
     }
 }
 
-/// Square wave oscillator with a `duty_cycle` that takes values in (0, 1).
+/// Square (Pulse) wave oscillator with a `duty_cycle` that takes values in (0, 1),
+/// that determines the pulse width.
 #[derive(Copy, Clone)]
 pub struct SquareOsc {
     tag: Tag,
@@ -378,11 +381,14 @@ impl IndexMut<&str> for SquareOsc {
     }
 }
 
+/// Choose between Normal(0,1) and Uniforem distributions for `WhiteNoise`.
 #[derive(Copy, Clone)]
 pub enum NoiseDistribution {
     StdNormal,
     Uni,
 }
+
+/// White noise oscillator.
 #[derive(Copy, Clone)]
 pub struct WhiteNoise {
     tag: Tag,
@@ -446,6 +452,7 @@ impl IndexMut<&str> for WhiteNoise {
     }
 }
 
+/// Pink noise oscillator.
 // Paul Kellet's pk3 as in:
 // paul.kellett@maxim.abel.co.uk, http://www.abel.co.uk/~maxim/ 
 #[derive(Copy, Clone)]
@@ -685,6 +692,7 @@ impl IndexMut<&str> for FourierOsc {
     }
 }
 
+/// Square wave oscillator implemented as a fourier approximation.
 pub fn square_wave(n: u32, lanczos: bool) -> FourierOsc {
     let mut coefficients: Vec<Real> = Vec::new();
     for i in 0..=n {
@@ -697,6 +705,7 @@ pub fn square_wave(n: u32, lanczos: bool) -> FourierOsc {
     FourierOsc::new(coefficients.as_ref(), lanczos)
 }
 
+/// Triangle wave oscillator implemented as a fourier approximation.
 pub fn triangle_wave(n: u32, lanczos: bool) -> FourierOsc {
     let mut coefficients: Vec<Real> = Vec::new();
     for i in 0..=n {

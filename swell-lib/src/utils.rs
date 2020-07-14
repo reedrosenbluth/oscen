@@ -82,6 +82,7 @@ where
     result
 }
 
+/// Variable length circular buffer.
 #[derive(Clone)]
 pub struct RingBuffer<T> {
     buffer: Vec<T>,

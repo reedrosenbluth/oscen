@@ -4,6 +4,9 @@ use crate::{as_any_mut, std_signal};
 use std::any::Any;
 use std::ops::{Index, IndexMut};
 
+/// The `Union` module holds a vector of oscillators and plays one based on the
+/// active tag. The `level` field is used to set the volume of whichever signal
+/// is playing.
 #[derive(Clone)]
 pub struct Union {
     tag: Tag,
@@ -61,6 +64,7 @@ impl IndexMut<usize> for Union {
         &mut self.waves[index]
     }
 }
+/// `Product` multiplies the signals of a vector of synth modules.
 #[derive(Clone)]
 pub struct Product {
     tag: Tag,
@@ -104,6 +108,8 @@ impl IndexMut<usize> for Product {
     }
 }
 
+/// "Voltage controlled amplifier" multiplies the volume of the `wave` by the
+/// value of `level`.
 #[derive(Copy, Clone)]
 pub struct Vca {
     tag: Tag,
@@ -119,7 +125,7 @@ impl Vca {
             level: 1.into(),
         }
     }
-    
+
     pub fn wave(&mut self, arg: Tag) -> &mut Self {
         self.wave = arg;
         self
@@ -160,6 +166,7 @@ impl IndexMut<&str> for Vca {
     }
 }
 
+/// Mixer with individual attenuverters for each wave plus an overall attenuverter.
 #[derive(Clone)]
 pub struct Mixer {
     tag: Tag,
@@ -231,6 +238,8 @@ impl IndexMut<usize> for Mixer {
         &mut self.waves[index]
     }
 }
+
+/// A cross fade synth module, alpha = 0 means 100% wave 1.
 #[derive(Copy, Clone)]
 pub struct CrossFade {
     tag: Tag,
@@ -296,23 +305,6 @@ impl IndexMut<&str> for CrossFade {
             "alpha" => &mut self.alpha,
             _ => panic!("CrossFade does not have a field named: {}", index),
         }
-    }
-}
-
-pub fn set_alpha(rack: &Rack, k: In, a: Real) {
-    match k {
-        In::Cv(n) => {
-            if let Some(v) = rack.modules[&n]
-                .module
-                .lock()
-                .unwrap()
-                .as_any_mut()
-                .downcast_mut::<CrossFade>()
-            {
-                v.alpha = a.into()
-            }
-        }
-        In::Fix(_) => panic!("CrossFade wave can only be a In::Var"),
     }
 }
 
@@ -398,6 +390,7 @@ impl IndexMut<&str> for Modulator {
     }
 }
 
+/// A variable length delay line.
 #[derive(Clone)]
 pub struct Delay {
     tag: Tag,
