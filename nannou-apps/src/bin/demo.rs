@@ -27,25 +27,28 @@ fn model(app: &App) -> Model {
     app.new_window().size(700, 360).view(view).build().unwrap();
     let audio_host = audio::Host::new();
 
-    // Build the Synth.
-    // A Rack is a collection of synth modules.
-    let mut rack = Rack::new(vec![]);
-
     // Use a low frequencey sine wave to modulate the frequency of a square wave.
-    let sine = SineOsc::new().hz(1).rack(&mut rack);
+    let sine = SineOsc::new().hz(1).wrap();
+    let r = rack_append(sine.clone());
+
     let modulator = Modulator::new(sine.tag())
         .base_hz(440)
         .mod_hz(220)
         .mod_idx(1)
-        .rack(&mut rack);
+        .wrap();
+    let r = r.and_then(|()| rack_append(modulator.clone()));
 
     // Create a square wave oscillator and add it the the rack.
-    let square = SquareOsc::new().hz(modulator.tag()).rack(&mut rack);
+    let square = SquareOsc::new().hz(modulator.tag()).wrap();
+    let r = r.and_then(|()| rack_append(square.clone()));
 
     // Create a low pass filter whose input is the square wave.
-    Lpf::new(square.tag()).cutoff_freq(880).rack(&mut rack);
+    let r = r.and_then(|()| rack_append(Lpf::new(square.tag()).cutoff_freq(880).wrap()));
+    let environment = exec_state(r, Environment::new(44_100.0));
 
-    let synth = Synth { sender, rack };
+    println!("{:?}", environment);
+
+    let synth = Synth { sender, rack: environment.rack };
     let stream = audio_host
         .new_output_stream(synth)
         .render(audio)

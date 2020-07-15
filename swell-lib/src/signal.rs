@@ -3,17 +3,16 @@ use std::{
     collections::HashMap,
     f64::consts::PI,
     ops::{Index, IndexMut},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex}, fmt::Debug,
 };
-use uuid::Uuid;
 
 pub const TAU: f64 = 2.0 * PI;
 pub type Real = f64;
-pub type Tag = Uuid;
+pub type Tag = u32;
 
 /// Generate a unique tag for a synth module.
 pub fn mk_tag() -> Tag {
-    Uuid::new_v4()
+    0
 }
 
 /// Synth modules must implement the Signal trait. In fact one could define a
@@ -29,6 +28,7 @@ pub trait Signal: Any {
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real;
     /// Synth modules must have a tag (name) to serve as their key in the rack.
     fn tag(&self) -> Tag;
+    fn set_tag(&mut self, tag: Tag);
 }
 
 /// Since `as_any_mut()` usually has the same implementation for any `Signal`
@@ -49,6 +49,9 @@ macro_rules! std_signal {
         as_any_mut!();
         fn tag(&self) -> Tag {
             self.tag
+        }
+        fn set_tag(&mut self, tag: Tag) {
+            self.tag = tag;
         }
     };
 }
@@ -115,6 +118,10 @@ where
     fn tag(&self) -> Tag {
         self.lock().unwrap().tag()
     }
+
+    fn set_tag(&mut self, tag: Tag) {
+        self.lock().unwrap().set_tag(tag);
+    }
 }
 
 impl Signal for ArcMutex<dyn Signal + Send> {
@@ -125,6 +132,10 @@ impl Signal for ArcMutex<dyn Signal + Send> {
 
     fn tag(&self) -> Tag {
         self.lock().unwrap().tag()
+    }
+
+    fn set_tag(&mut self, tag: Tag) {
+        self.lock().unwrap().set_tag(tag);
     }
 }
 
@@ -230,6 +241,16 @@ impl SynthModule {
     }
 }
 
+impl Debug for SynthModule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SynthModule")
+         .field("tag", &self.module.lock().unwrap().tag())
+         .field("output", &self.output)
+         .finish()
+    }
+    
+}
+
 impl Signal for SynthModule {
     as_any_mut!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
@@ -239,10 +260,14 @@ impl Signal for SynthModule {
     fn tag(&self) -> Tag {
         self.module.tag()
     }
+
+    fn set_tag(&mut self, tag: Tag) {
+        self.module.set_tag(tag);
+    }
 }
 
 /// A `Rack` is basically a `HashMap` of synth modules to be visited in the specified order.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Rack {
     pub modules: HashMap<Tag, SynthModule>,
     pub order: Vec<Tag>,
@@ -259,7 +284,10 @@ impl Rack {
             nodes.insert(t, SynthModule::new(s));
             order.push(t)
         }
-        Rack { modules: nodes, order }
+        Rack {
+            modules: nodes,
+            order,
+        }
     }
 
     /// Convert a rack into an `Iter` - note: we don't need an `iter_mut` since
@@ -336,6 +364,7 @@ impl Rack {
     pub fn signal(&mut self, sample_rate: Real) -> Real {
         let mut outs: Vec<Real> = Vec::new();
         for node in self.iter() {
+            println!("Node: {:?}", node);
             outs.push(
                 node.module
                     .lock()
@@ -343,6 +372,7 @@ impl Rack {
                     .signal(&self, sample_rate),
             )
         }
+        println!("Before Second Loop");
         for (i, o) in self.order.iter().enumerate() {
             self.modules
                 .get_mut(o)
@@ -376,6 +406,108 @@ impl<'a> Iterator for Iter<'a> {
         self.index += 1;
         self.rack.modules.get(&tag)
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Environment {
+    pub rack: Rack,
+    pub next_tag: u32,
+    pub sample_rate: Real,
+}
+
+impl Environment {
+    pub fn new(sample_rate: Real) -> Self {
+        Self {
+            rack: Rack::new(Vec::new()),
+            next_tag: 0,
+            sample_rate,
+        }
+    }
+}
+
+pub struct State<'a, A> {
+    pub run: Box<dyn 'a + Fn(Environment) -> (A, Environment)>,
+}
+
+impl<'a, A: 'a + Clone> State<'a, A> {
+    pub fn pure(a: A) -> Self {
+        State {
+            run: Box::new(move |e: Environment| (a.clone(), e)),
+        }
+    }
+
+    pub fn and_then<B, F: 'a>(self, f: F) -> State<'a, B>
+    where
+        F: Fn(A) -> State<'a, B>,
+    {
+        State {
+            run: Box::new(move |e: Environment| {
+                let (v, e1) = (*self.run)(e);
+                let g = f(v).run;
+                (*g)(e1)
+            }),
+        }
+    }
+}
+
+pub fn get_state<'a>() -> State<'a, Environment> {
+    State {
+        run: Box::new(|e: Environment| (e.clone(), e)),
+    }
+}
+
+pub fn put_state<'a>(e: Environment) -> State<'a, ()> {
+    State {
+        run: Box::new(move |_| ((), e.clone())),
+    }
+}
+
+pub fn modify_state<'a, F: 'a>(f: F) -> State<'a, ()>
+where
+    F: Fn(Environment) -> Environment,
+{
+    let e = get_state();
+    e.and_then(Box::new(move |x| put_state(f(x))))
+}
+
+pub fn eval_state<'a, A>(state: State<'a, A>, e: Environment) -> A {
+    (state.run)(e).0
+}
+
+pub fn exec_state<'a, A>(state: State<'a, A>, e: Environment) -> Environment {
+    (state.run)(e).1
+}
+
+// pub fn next_tag<'a>() -> State<'a, u32> {
+//     let g = |e| {
+//         let env = (get_state().run)(e).0;
+//         let t = env.next_tag + 1;
+//         Environment {
+//             rack: env.rack.clone(),
+//             next_tag: t,
+//             sample_rate: env.sample_rate,
+//         }
+//     };
+//     modify_state(Box::new(g))
+//         .and_then(Box::new(|()| get_state()))
+//         .and_then(|e| State::pure(e.next_tag))
+// }
+
+pub fn rack_append<'a>(module: ArcMutex<dyn Signal + Send>) -> State<'a, ()> {
+    let g = move |e| {
+        let env = (get_state().run)(e).0;
+        let t = env.next_tag + 1;
+        module.lock().unwrap().set_tag(t);
+        let mut rack = env.rack.clone();
+        rack.append(module.clone());
+        Environment
+         {
+            rack,
+            next_tag: t,
+            sample_rate: env.sample_rate,
+        }
+    };
+    modify_state(Box::new(g))
 }
 
 /// Use to connect subracks to the main rack. Simply store the value of the
