@@ -2,8 +2,9 @@ use std::{
     any::Any,
     collections::HashMap,
     f64::consts::PI,
+    fmt::Debug,
     ops::{Index, IndexMut},
-    sync::{Arc, Mutex}, fmt::Debug,
+    sync::{Arc, Mutex},
 };
 
 pub const TAU: f64 = 2.0 * PI;
@@ -244,11 +245,10 @@ impl SynthModule {
 impl Debug for SynthModule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SynthModule")
-         .field("tag", &self.module.lock().unwrap().tag())
-         .field("output", &self.output)
-         .finish()
+            .field("tag", &self.module.lock().unwrap().tag())
+            .field("output", &self.output)
+            .finish()
     }
-    
 }
 
 impl Signal for SynthModule {
@@ -426,7 +426,7 @@ impl Environment {
 }
 
 pub struct State<'a, A> {
-    pub run: Box<dyn 'a + Fn(Environment) -> (A, Environment)>,
+    pub run: Box<dyn 'a + FnOnce(Environment) -> (A, Environment)>,
 }
 
 impl<'a, A: 'a + Clone> State<'a, A> {
@@ -436,17 +436,33 @@ impl<'a, A: 'a + Clone> State<'a, A> {
         }
     }
 
-    pub fn and_then<B, F: 'a>(self, f: F) -> State<'a, B>
+    pub fn map<B, F: 'a>(self, f: F) -> State<'a, B>
     where
-        F: Fn(A) -> State<'a, B>,
+        F: FnOnce(A) -> B,
     {
         State {
             run: Box::new(move |e: Environment| {
-                let (v, e1) = (*self.run)(e);
-                let g = f(v).run;
-                (*g)(e1)
+                let (v, e1) = (self.run)(e);
+                (f(v), e1)
             }),
         }
+    }
+
+    pub fn and_then<B, F: 'a>(self, f: F) -> State<'a, B>
+    where
+        F: FnOnce(A) -> State<'a, B>,
+    {
+        State {
+            run: Box::new(move |e: Environment| {
+                let (v, e1) = (self.run)(e);
+                let g = f(v).run;
+                g(e1)
+            }),
+        }
+    }
+
+    pub fn then<B: 'a>(self, state: State<'a, B>) -> State<'a, B> {
+        self.and_then(|_| state)
     }
 }
 
@@ -500,8 +516,7 @@ pub fn rack_append<'a>(module: ArcMutex<dyn Signal + Send>) -> State<'a, ()> {
         module.lock().unwrap().set_tag(t);
         let mut rack = env.rack.clone();
         rack.append(module.clone());
-        Environment
-         {
+        Environment {
             rack,
             next_tag: t,
             sample_rate: env.sample_rate,
