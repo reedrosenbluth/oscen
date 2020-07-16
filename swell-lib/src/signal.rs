@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    cell::RefCell,
     collections::HashMap,
     f64::consts::PI,
     fmt::Debug,
@@ -426,101 +427,72 @@ impl Environment {
 }
 
 pub struct State<'a, A> {
-    pub run: Box<dyn 'a + FnOnce(Environment) -> (A, Environment)>,
+    pub run: Box<dyn 'a + Fn(RefCell<Environment>) -> A>,
 }
 
 impl<'a, A: 'a + Clone> State<'a, A> {
     pub fn pure(a: A) -> Self {
         State {
-            run: Box::new(move |e: Environment| (a.clone(), e)),
+            run: Box::new(move |_| a.clone()),
         }
     }
 
     pub fn map<B, F: 'a>(self, f: F) -> State<'a, B>
     where
-        F: FnOnce(A) -> B,
+        F: Fn(A) -> B,
     {
         State {
-            run: Box::new(move |e: Environment| {
-                let (v, e1) = (self.run)(e);
-                (f(v), e1)
+            run: Box::new(move |e| {
+                let v = (self.run)(e);
+                f(v)
             }),
         }
     }
 
-    pub fn and_then<B, F: 'a>(self, f: F) -> State<'a, B>
+    pub fn and_then<B, F>(self, f: F) -> State<'a, B>
     where
-        F: FnOnce(A) -> State<'a, B>,
+        F: 'a + Fn(A) -> State<'a, B>,
+        B: 'a,
     {
         State {
-            run: Box::new(move |e: Environment| {
-                let (v, e1) = (self.run)(e);
-                let g = f(v).run;
-                g(e1)
+                run: Box::new(move |e| {
+                    let v = (self.run)(e);
+                    let g = f(v).run;
+                    g(e)
             }),
         }
     }
 
-    pub fn then<B: 'a>(self, state: State<'a, B>) -> State<'a, B> {
-        self.and_then(|_| state)
-    }
+    // pub fn then<B: 'a>(self, state: State<'a, B>) -> State<'a, B> {
+    //     self.and_then(move |_| state)
+    // }
 }
 
-pub fn get_state<'a>() -> State<'a, Environment> {
+pub fn get_state<'a>() -> State<'a, RefCell<Environment>> {
     State {
-        run: Box::new(|e: Environment| (e.clone(), e)),
-    }
-}
-
-pub fn put_state<'a>(e: Environment) -> State<'a, ()> {
-    State {
-        run: Box::new(move |_| ((), e.clone())),
+        run: Box::new(|e| e),
     }
 }
 
 pub fn modify_state<'a, F: 'a>(f: F) -> State<'a, ()>
 where
-    F: Fn(Environment) -> Environment,
+    F: Fn(RefCell<Environment>),
 {
-    let e = get_state();
-    e.and_then(Box::new(move |x| put_state(f(x))))
+    State {
+        run: Box::new(move |e| {
+            f(e);
+        }),
+    }
 }
-
-pub fn eval_state<'a, A>(state: State<'a, A>, e: Environment) -> A {
-    (state.run)(e).0
-}
-
-pub fn exec_state<'a, A>(state: State<'a, A>, e: Environment) -> Environment {
-    (state.run)(e).1
-}
-
-// pub fn next_tag<'a>() -> State<'a, u32> {
-//     let g = |e| {
-//         let env = (get_state().run)(e).0;
-//         let t = env.next_tag + 1;
-//         Environment {
-//             rack: env.rack.clone(),
-//             next_tag: t,
-//             sample_rate: env.sample_rate,
-//         }
-//     };
-//     modify_state(Box::new(g))
-//         .and_then(Box::new(|()| get_state()))
-//         .and_then(|e| State::pure(e.next_tag))
-// }
 
 pub fn rack_append<'a>(module: ArcMutex<dyn Signal + Send>) -> State<'a, ()> {
-    let g = move |e| {
-        let env = (get_state().run)(e).0;
-        let t = env.next_tag + 1;
-        module.lock().unwrap().set_tag(t);
-        let mut rack = env.rack.clone();
-        rack.append(module.clone());
-        Environment {
-            rack,
-            next_tag: t,
-            sample_rate: env.sample_rate,
-        }
+    let g = move |e: RefCell<Environment>| {
+        println!("e: {:?}", e);
+        let mut env = e.borrow_mut();
+        env.next_tag += 1;
+        module.lock().unwrap().set_tag(env.next_tag);
+        env.rack.append(module.clone());
+        println!("Env: {:?}", env);
     };
     modify_state(Box::new(g))
 }

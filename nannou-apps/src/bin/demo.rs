@@ -2,6 +2,7 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
+use std::cell::RefCell;
 use swell::filters::Lpf;
 use swell::operators::Modulator;
 use swell::oscillators::{SineOsc, SquareOsc};
@@ -36,15 +37,17 @@ fn model(app: &App) -> Model {
         .mod_hz(220)
         .mod_idx(1)
         .wrap();
-    let r = r.then(rack_append(modulator.clone()));
+    let r = r.and_then(|()| rack_append(modulator.clone()));
 
     // Create a square wave oscillator and add it the the rack.
     let square = SquareOsc::new().hz(modulator.tag()).wrap();
-    let r = r.then(rack_append(square.clone()));
+    let r = r.and_then(|()| rack_append(square.clone()));
 
     // Create a low pass filter whose input is the square wave.
-    let r = r.then(rack_append(Lpf::new(square.tag()).cutoff_freq(880).wrap()));
-    let environment = exec_state(r, Environment::new(44_100.0));
+    let r = r.and_then(|()| rack_append(Lpf::new(square.tag()).cutoff_freq(880).wrap()));
+    let state = r.and_then(|()| get_state());
+    let refcell: RefCell<Environment> = (state.run)(RefCell::new(Environment::new(44_100.0)));
+    let environment = refcell.into_inner();
 
     println!("{:?}", environment);
 
