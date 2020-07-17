@@ -1,14 +1,17 @@
 [package]
 name = "oscen"
 version = "0.1.0"
-authors = [
-    "Satya Bodduluri  <skbodduluri@gmail.com >",
-    "Reed Rosenbluth <reed.rosenbluth@gmail.com>", 
-    "Jeffrey Rosenbluth <jeffrey.rosenbluth@gmail.com>"
-]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = [
+    "Reed Rosenbluth <reed.rosenbluth@gmail.com>", 
+    "Jeffrey Rosenbluth <jeffrey.rosenbluth@gmail.com>",
+    "Satya Bodduluri  <skbodduluri@gmail.com >",
+]
+homepage = "https://github.com/reedrosenbluth/oscen"
+license = "MIT OR Apache-2.0"
+description = "A library for building modular synthesizers"
+keywords = ["audio", "dsp", "synth", "synthesizer", "modular", "music", "sound"]
+categories = ["multimedia::audio"]
 
 [dependencies]
 approx = "0.3"
