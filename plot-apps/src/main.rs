@@ -1,7 +1,7 @@
 use plotters::prelude::*;
-use swell::envelopes;
-use swell::signal::*;
-use swell::utils::signals;
+use oscen::envelopes;
+use oscen::signal::*;
+use oscen::utils::signals;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut adsr = envelopes::Adsr::new(0.2, 0.2, 0.2)

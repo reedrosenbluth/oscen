@@ -1,7 +1,7 @@
 [workspace]
 
 members = [
-    "swell-lib",
+    "oscen-lib",
     "nannou-apps",
     "plot-apps",
 ]

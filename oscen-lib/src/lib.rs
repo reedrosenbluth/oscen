@@ -1,7 +1,7 @@
-//! ## Swell - a library to build modular software synthesizers.
+//! ## Oscen - a library to build modular software synthesizers.
 //! 
-//! ### The Swell architecture is designed with the following objcectives in mind:
-//! - **Extensible** — Users of Swell should be able to create their own synth
+//! ### The Oscen architecture is designed with the following objcectives in mind:
+//! - **Extensible** — Users of Oscen should be able to create their own synth
 //! modules without having to modify any of the library code, e.g. add cases to
 //! an enum. This is accomplished by defining the [`Signal`] trait and using trait
 //! objects to represent synth modules which can be added to a `Rack` (graph).
@@ -32,7 +32,7 @@ pub mod filters;
 pub mod reverb;
 /// Envelope generators.
 pub mod envelopes;
-/// Core Swell types and traits.
+/// Core Oscen types and traits.
 pub mod signal;
 /// Syth modules for combining other sytn modules.
 pub mod operators;

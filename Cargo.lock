@@ -1475,9 +1475,9 @@ dependencies = [
  "midir",
  "nannou",
  "nannou_audio",
+ "oscen",
  "pitch_calc",
  "rand 0.7.3",
- "swell",
 ]
 
 [[package]]
@@ -1816,6 +1816,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "oscen"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "crossbeam",
+ "libmath",
+ "midir",
+ "num 0.2.1",
+ "pitch_calc",
+ "rand 0.7.3",
+ "rand_distr",
+ "uuid",
+]
+
+[[package]]
 name = "palette"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2023,8 +2038,8 @@ checksum = "05da548ad6865900e60eaba7f589cc0783590a92e940c26953ff81ddbab2d677"
 name = "plot-apps"
 version = "0.1.0"
 dependencies = [
+ "oscen",
  "plotters",
- "swell",
 ]
 
 [[package]]
@@ -2726,21 +2741,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd0a4829a5c591dc24a944a736d6b1e4053e51339a79fd5d4702c4c999a9c45e"
 dependencies = [
  "lock_api",
-]
-
-[[package]]
-name = "swell"
-version = "0.1.0"
-dependencies = [
- "approx",
- "crossbeam",
- "libmath",
- "midir",
- "num 0.2.1",
- "pitch_calc",
- "rand 0.7.3",
- "rand_distr",
- "uuid",
 ]
 
 [[package]]

@@ -4,12 +4,12 @@ use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
-use swell::envelopes::Adsr;
-use swell::filters::Lpf;
-use swell::midi::{listen_midi, MidiControl, MidiPitch};
-use swell::operators::{Mixer, Modulator, Vca};
-use swell::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
-use swell::signal::{ArcMutex, Builder, Gate, Rack, Real, Signal, Tag};
+use oscen::envelopes::Adsr;
+use oscen::filters::Lpf;
+use oscen::midi::{listen_midi, MidiControl, MidiPitch};
+use oscen::operators::{Mixer, Modulator, Vca};
+use oscen::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
+use oscen::signal::{ArcMutex, Builder, Gate, Rack, Real, Signal, Tag};
 
 fn main() {
     nannou::app(model).update(update).run();

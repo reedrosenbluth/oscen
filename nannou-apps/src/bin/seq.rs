@@ -4,12 +4,12 @@ use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use pitch_calc::Letter;
-use swell::filters::Lpf;
-use swell::operators::Product;
-use swell::oscillators::*;
-use swell::sequencer::{Sequencer, Note, GateSeq, PitchSeq};
-use swell::signal::{arc, Builder, Rack, Real, Signal};
-use swell::reverb::Freeverb;
+use oscen::filters::Lpf;
+use oscen::operators::Product;
+use oscen::oscillators::*;
+use oscen::sequencer::{Sequencer, Note, GateSeq, PitchSeq};
+use oscen::signal::{arc, Builder, Rack, Real, Signal};
+use oscen::reverb::Freeverb;
 
 fn main() {
     nannou::app(model).update(update).run();

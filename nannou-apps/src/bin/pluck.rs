@@ -3,10 +3,10 @@ use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
-use swell::instruments::WaveGuide;
-use swell::midi::{listen_midi, MidiControl, MidiPitch};
-use swell::oscillators::SquareOsc;
-use swell::signal::{ArcMutex, Builder, Rack, Real, Signal, Tag, Gate};
+use oscen::instruments::WaveGuide;
+use oscen::midi::{listen_midi, MidiControl, MidiPitch};
+use oscen::oscillators::SquareOsc;
+use oscen::signal::{ArcMutex, Builder, Rack, Real, Signal, Tag, Gate};
 
 fn main() {
     nannou::app(model).update(update).run();

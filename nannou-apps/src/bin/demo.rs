@@ -2,10 +2,10 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use swell::filters::Lpf;
-use swell::operators::Modulator;
-use swell::oscillators::{SineOsc, SquareOsc};
-use swell::signal::*;
+use oscen::filters::Lpf;
+use oscen::operators::Modulator;
+use oscen::oscillators::{SineOsc, SquareOsc};
+use oscen::signal::*;
 
 fn main() {
     nannou::app(model).update(update).run();
