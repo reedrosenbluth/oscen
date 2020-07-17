@@ -10,7 +10,7 @@ authors = [
 homepage = "https://github.com/reedrosenbluth/oscen"
 license = "MIT OR Apache-2.0"
 description = "A library for building modular synthesizers"
-keywords = ["audio", "dsp", "synth", "synthesizer", "modular", "music", "sound"]
+keywords = ["audio", "dsp", "synth", "synthesizer", "sound"]
 categories = ["multimedia::audio"]
 
 [dependencies]
