@@ -15,7 +15,7 @@ pub struct WaveGuide {
     cutoff_freq: In,
     wet_decay: In,
     input: ArcMutex<Link>,
-    gate: ArcMutex<Adsr>,
+    envelope: ArcMutex<Adsr>,
     lpf: ArcMutex<Lpf>,
     delay: ArcMutex<Delay>,
     mixer: ArcMutex<Mixer>,
@@ -30,16 +30,16 @@ impl WaveGuide {
         rack.append(input.clone());
 
         // Adsr
-        let gate = Adsr::new(0.2, 0.2, 0.2)
+        let envelope = Adsr::new(0.2, 0.2, 0.2)
             .attack(0.001)
             .decay(0)
             .sustain(0)
             .release(0.001)
             .wrap();
-        rack.append(gate.clone());
+        rack.append(envelope.clone());
 
         // Exciter: gated noise
-        let exciter = Product::new(vec![input.tag(), gate.tag()]).wrap();
+        let exciter = Product::new(vec![input.tag(), envelope.tag()]).wrap();
         rack.append(exciter.clone());
 
         // Feedback loop
@@ -66,7 +66,7 @@ impl WaveGuide {
             cutoff_freq: cutoff_freq.into(),
             wet_decay: wet_decay.into(),
             input,
-            gate,
+            envelope,
             lpf,
             delay,
             mixer,
@@ -80,30 +80,30 @@ impl WaveGuide {
     }
 
     pub fn on(&mut self) {
-        self.gate.lock().unwrap().on();
+        self.envelope.lock().unwrap().on();
     }
 
     pub fn off(&mut self) {
-        self.gate.lock().unwrap().off();
+        self.envelope.lock().unwrap().off();
     }
 
     pub fn attack<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.gate.lock().unwrap().attack(arg);
+        self.envelope.lock().unwrap().attack(arg);
         self
     }
 
     pub fn decay<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.gate.lock().unwrap().decay(arg);
+        self.envelope.lock().unwrap().decay(arg);
         self
     }
 
     pub fn sustain<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.gate.lock().unwrap().sustain(arg);
+        self.envelope.lock().unwrap().sustain(arg);
         self
     }
 
     pub fn release<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.gate.lock().unwrap().release(arg);
+        self.envelope.lock().unwrap().release(arg);
         self
     }
 
