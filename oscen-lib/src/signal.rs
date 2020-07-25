@@ -259,7 +259,10 @@ impl Rack {
             nodes.insert(t, SynthModule::new(s));
             order.push(t)
         }
-        Rack { modules: nodes, order }
+        Rack {
+            modules: nodes,
+            order,
+        }
     }
 
     /// Convert a rack into an `Iter` - note: we don't need an `iter_mut` since

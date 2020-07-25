@@ -5,7 +5,7 @@ use nannou_audio::Buffer;
 use std::thread;
 use oscen::instruments::WaveGuide;
 use oscen::midi::{listen_midi, MidiControl, MidiPitch};
-use oscen::oscillators::SquareOsc;
+use oscen::oscillators::{StdOsc, square_osc};
 use oscen::signal::{ArcMutex, Builder, Rack, Real, Signal, Tag, Gate};
 
 fn main() {
@@ -41,7 +41,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let midi_pitch = MidiPitch::new().rack(&mut rack);
     MidiControl::new(1, 64, 0.0, 0.5, 1.0).rack(&mut rack);
 
-    let excite = SquareOsc::new().hz(110).rack(&mut rack);
+    let excite = StdOsc::new(square_osc).hz(110).rack(&mut rack);
 
     let karplus = WaveGuide::new(excite.tag())
         .hz(midi_pitch.tag())

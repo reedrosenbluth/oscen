@@ -4,7 +4,7 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use oscen::filters::Lpf;
 use oscen::operators::Modulator;
-use oscen::oscillators::{SineOsc, SquareOsc};
+use oscen::oscillators::{StdOsc, sine_osc, square_osc};
 use oscen::signal::*;
 
 fn main() {
@@ -32,18 +32,22 @@ fn model(app: &App) -> Model {
     let mut rack = Rack::new(vec![]);
 
     // Use a low frequencey sine wave to modulate the frequency of a square wave.
-    let sine = SineOsc::new().hz(1).rack(&mut rack);
+    let sine = StdOsc::new(sine_osc).hz(1760).rack(&mut rack);
+    // let sine = SineOsc::new().hz(1760).rack(&mut rack);
     let modulator = Modulator::new(sine.tag())
-        .base_hz(440)
-        .mod_hz(220)
-        .mod_idx(1)
+        .hz(440)
+        .ratio(4)
+        .index(2)
         .rack(&mut rack);
 
     // Create a square wave oscillator and add it the the rack.
-    let square = SquareOsc::new().hz(modulator.tag()).rack(&mut rack);
+    // let square = SquareOsc::new().hz(modulator.tag()).rack(&mut rack);
+    let square = StdOsc::new(square_osc).hz(modulator.tag()).arg(0.5).rack(&mut rack);
+
+
 
     // Create a low pass filter whose input is the square wave.
-    Lpf::new(square.tag()).cutoff_freq(880).rack(&mut rack);
+    Lpf::new(square.tag()).cutoff_freq(440).rack(&mut rack);
 
     let synth = Synth { sender, rack };
     let stream = audio_host

@@ -8,7 +8,7 @@ use oscen::envelopes::Adsr;
 use oscen::filters::Lpf;
 use oscen::midi::{listen_midi, MidiControl, MidiPitch};
 use oscen::operators::{Mixer, Modulator, Vca};
-use oscen::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
+use oscen::oscillators::{StdOsc, sine_osc, square_osc, triangle_osc, saw_osc, WhiteNoise};
 use oscen::signal::{ArcMutex, Builder, Gate, Rack, Real, Signal, Tag};
 
 fn main() {
@@ -65,10 +65,10 @@ fn build_synth(
     midi_controls.push(midi_control_tri_lfo_hz.clone());
 
     // LFO's
-    let tri_lfo = TriangleOsc::new()
+    let tri_lfo = StdOsc::new(triangle_osc)
         .hz(midi_control_tri_lfo_hz.tag())
         .rack(&mut rack);
-    SquareOsc::new().rack(&mut rack);
+    StdOsc::new(square_osc).rack(&mut rack);
 
     let midi_control_mod_hz2 = MidiControl::new(44, 0, 0.0, 440.0, 1760.0).rack_pre(&mut rack);
     midi_controls.push(midi_control_mod_hz2.clone());
@@ -78,16 +78,16 @@ fn build_synth(
     // TODO: tune these lower
     // Sub Oscillators for Osc
     let modulator_osc2 = Modulator::new(tri_lfo.tag().into())
-        .base_hz(midi_pitch.tag())
-        .mod_hz(midi_control_mod_hz2.tag())
-        .mod_idx(midi_control_mod_idx2.tag())
+        .hz(midi_pitch.tag())
+        .ratio(midi_control_mod_hz2.tag())
+        .index(midi_control_mod_idx2.tag())
         .rack(&mut rack);
 
     // Oscillator 2
-    let sine2 = SineOsc::new().hz(modulator_osc2.tag()).rack(&mut rack);
-    SawOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
-    SquareOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
-    TriangleOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
+    let sine2 = StdOsc::new(sine_osc).hz(modulator_osc2.tag()).rack(&mut rack);
+    StdOsc::new(saw_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    StdOsc::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    StdOsc::new(triangle_osc).hz(midi_pitch.tag()).rack(&mut rack);
 
     let midi_control_mod_hz1 = MidiControl::new(43, 0, 0.0, 440.0, 1760.0).rack_pre(&mut rack);
     midi_controls.push(midi_control_mod_hz1.clone());
@@ -95,26 +95,26 @@ fn build_synth(
     midi_controls.push(midi_control_mod_idx1.clone());
 
     let modulator_osc1 = Modulator::new(sine2.tag())
-        .base_hz(midi_pitch.tag())
-        .mod_hz(midi_control_mod_hz1.tag())
-        .mod_idx(midi_control_mod_idx1.tag())
+        .hz(midi_pitch.tag())
+        .ratio(midi_control_mod_hz1.tag())
+        .index(midi_control_mod_idx1.tag())
         .rack(&mut rack);
 
     // Oscillator 1
     let midi_control_pulse_width = MidiControl::new(39, 0, 0.05, 0.5, 0.95).rack_pre(&mut rack);
     midi_controls.push(midi_control_pulse_width.clone());
 
-    let sine1 = SineOsc::new().hz(modulator_osc1.tag()).rack(&mut rack);
-    let saw1 = SawOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
-    let square1 = SquareOsc::new()
+    let sine1 = StdOsc::new(sine_osc).hz(modulator_osc1.tag()).rack(&mut rack);
+    let saw1 = StdOsc::new(saw_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    let square1 = StdOsc::new(square_osc)
         .hz(midi_pitch.tag())
-        .duty_cycle(midi_control_pulse_width.tag())
+        .arg(midi_control_pulse_width.tag())
         .rack(&mut rack);
-    let triangle1 = TriangleOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
+    let triangle1 = StdOsc::new(triangle_osc).hz(midi_pitch.tag()).rack(&mut rack);
 
     // Sub 1 & 2
-    SquareOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
-    SquareOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
+    StdOsc::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    StdOsc::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
 
     // Noise
     let noise = WhiteNoise::new().rack(&mut rack);

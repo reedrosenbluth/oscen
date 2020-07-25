@@ -315,9 +315,9 @@ impl IndexMut<&str> for CrossFade {
 pub struct Modulator {
     tag: Tag,
     wave: In,
-    base_hz: In,
-    mod_hz: In,
-    mod_idx: In,
+    hz: In,
+    ratio: In,
+    index: In,
 }
 
 impl Modulator {
@@ -325,9 +325,10 @@ impl Modulator {
         Modulator {
             tag: mk_tag(),
             wave: wave.into(),
-            base_hz: 0.into(),
-            mod_hz: 0.into(),
-            mod_idx: 0.into(),
+            hz: 0.into(),
+            /// modulator frequency / carrier frequency
+            ratio: 0.into(),
+            index: 0.into(),
         }
     }
 
@@ -336,18 +337,18 @@ impl Modulator {
         self
     }
 
-    pub fn base_hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.base_hz = arg.into();
+    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.hz = arg.into();
         self
     }
 
-    pub fn mod_hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.mod_hz = arg.into();
+    pub fn ratio<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.ratio = arg.into();
         self
     }
 
-    pub fn mod_idx<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.mod_idx = arg.into();
+    pub fn index<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.index = arg.into();
         self
     }
 }
@@ -357,10 +358,10 @@ impl Builder for Modulator {}
 impl Signal for Modulator {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        let mod_hz = In::val(rack, self.mod_hz);
-        let mod_idx = In::val(rack, self.mod_idx);
-        let base_hz = In::val(rack, self.base_hz);
-        base_hz + mod_idx * mod_hz * In::val(rack, self.wave)
+        let ratio = In::val(rack, self.ratio);
+        let index = In::val(rack, self.index);
+        let hz = In::val(rack, self.hz);
+        hz + index * hz * ratio * In::val(rack, self.wave)
     }
 }
 
@@ -370,9 +371,9 @@ impl Index<&str> for Modulator {
     fn index(&self, index: &str) -> &Self::Output {
         match index {
             "wave" => &self.wave,
-            "base_hz" => &self.base_hz,
-            "mod_hz" => &self.mod_hz,
-            "mod_idx" => &self.mod_idx,
+            "base_hz" => &self.hz,
+            "mod_hz" => &self.ratio,
+            "mod_idx" => &self.index,
             _ => panic!("Modulator only does not have a field named:  {}", index),
         }
     }
@@ -382,9 +383,9 @@ impl IndexMut<&str> for Modulator {
     fn index_mut(&mut self, index: &str) -> &mut Self::Output {
         match index {
             "wave" => &mut self.wave,
-            "base_hz" => &mut self.base_hz,
-            "mod_hz" => &mut self.mod_hz,
-            "mod_idx" => &mut self.mod_idx,
+            "base_hz" => &mut self.hz,
+            "mod_hz" => &mut self.ratio,
+            "mod_idx" => &mut self.index,
             _ => panic!("Modulator only does not have a field named:  {}", index),
         }
     }

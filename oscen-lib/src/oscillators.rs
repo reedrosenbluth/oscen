@@ -43,270 +43,25 @@ impl Signal for Clock {
     }
 }
 
-/// A basic sine oscillator.
 #[derive(Copy, Clone)]
-pub struct SineOsc {
+pub struct StdOsc {
     tag: Tag,
     hz: In,
     amplitude: In,
     phase: In,
+    arg: In,
+    signal_fn: fn(Real, Real) -> Real,
 }
 
-impl SineOsc {
-    pub fn new() -> Self {
+impl StdOsc {
+    pub fn new(signal_fn: fn(Real, Real) -> Real) -> Self {
         Self {
             tag: mk_tag(),
             hz: 0.into(),
             amplitude: 1.into(),
             phase: 0.into(),
-        }
-    }
-
-    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.hz = arg.into();
-        self
-    }
-
-    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.amplitude = arg.into();
-        self
-    }
-
-    pub fn phase<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.phase = arg.into();
-        self
-    }
-}
-
-impl Builder for SineOsc {}
-
-impl Signal for SineOsc {
-    std_signal!();
-    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
-        let hz = In::val(rack, self.hz);
-        let amplitude = In::val(rack, self.amplitude);
-        let phase = In::val(rack, self.phase);
-        match &self.phase {
-            In::Fix(p) => {
-                let mut ph = *p + hz / sample_rate;
-                ph %= sample_rate;
-                self.phase = In::Fix(ph);
-            }
-            In::Cv(_) => {}
-        };
-        amplitude * (TAU * phase).sin()
-    }
-}
-
-impl Index<&str> for SineOsc {
-    type Output = In;
-
-    fn index(&self, index: &str) -> &Self::Output {
-        match index {
-            "hz" => &self.hz,
-            "amp" => &self.amplitude,
-            "phase" => &self.phase,
-            _ => panic!("SineOsc does not have a field named:  {}", index),
-        }
-    }
-}
-
-impl IndexMut<&str> for SineOsc {
-    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
-        match index {
-            "hz" => &mut self.hz,
-            "amp" => &mut self.amplitude,
-            "phase" => &mut self.phase,
-            _ => panic!("SineOsc does not have a field named:  {}", index),
-        }
-    }
-}
-
-/// Saw wave oscillator.
-#[derive(Copy, Clone)]
-pub struct SawOsc {
-    tag: Tag,
-    hz: In,
-    amplitude: In,
-    phase: In,
-}
-
-impl SawOsc {
-    pub fn new() -> Self {
-        Self {
-            tag: mk_tag(),
-            hz: 0.into(),
-            amplitude: 1.into(),
-            phase: 0.into(),
-        }
-    }
-
-    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.hz = arg.into();
-        self
-    }
-
-    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.amplitude = arg.into();
-        self
-    }
-
-    pub fn phase<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.phase = arg.into();
-        self
-    }
-}
-
-impl Builder for SawOsc {}
-
-impl Signal for SawOsc {
-    std_signal!();
-    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
-        let hz = In::val(rack, self.hz);
-        let amplitude = In::val(rack, self.amplitude);
-        let phase = In::val(rack, self.phase);
-        match &self.phase {
-            In::Fix(p) => {
-                let mut ph = *p + hz / sample_rate;
-                ph %= sample_rate;
-                self.phase = In::Fix(ph);
-            }
-            In::Cv(_) => {}
-        };
-        let t = phase - 0.5;
-        let s = -t - floor(0.5 - t, 0);
-        if s < -0.5 {
-            0.0
-        } else {
-            amplitude * 2.0 * s
-        }
-    }
-}
-
-impl Index<&str> for SawOsc {
-    type Output = In;
-
-    fn index(&self, index: &str) -> &Self::Output {
-        match index {
-            "hz" => &self.hz,
-            "amp" => &self.amplitude,
-            "phase" => &self.phase,
-            _ => panic!("SawOsc does not have a field named:  {}", index),
-        }
-    }
-}
-
-impl IndexMut<&str> for SawOsc {
-    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
-        match index {
-            "hz" => &mut self.hz,
-            "amp" => &mut self.amplitude,
-            "phase" => &mut self.phase,
-            _ => panic!("SawOsc does not have a field named:  {}", index),
-        }
-    }
-}
-
-/// Triangle wave oscillator.
-#[derive(Copy, Clone)]
-pub struct TriangleOsc {
-    tag: Tag,
-    hz: In,
-    amplitude: In,
-    phase: In,
-}
-
-impl TriangleOsc {
-    pub fn new() -> Self {
-        Self {
-            tag: mk_tag(),
-            hz: 0.into(),
-            amplitude: 1.into(),
-            phase: 0.into(),
-        }
-    }
-
-    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.hz = arg.into();
-        self
-    }
-
-    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.amplitude = arg.into();
-        self
-    }
-
-    pub fn phase<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.phase = arg.into();
-        self
-    }
-}
-
-impl Builder for TriangleOsc {}
-
-impl Signal for TriangleOsc {
-    std_signal!();
-    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
-        let hz = In::val(rack, self.hz);
-        let amplitude = In::val(rack, self.amplitude);
-        let phase = In::val(rack, self.phase);
-        match &self.phase {
-            In::Fix(p) => {
-                let mut ph = *p + hz / sample_rate;
-                ph %= sample_rate;
-                self.phase = In::Fix(ph);
-            }
-            In::Cv(_) => {}
-        };
-        let t = phase - 0.75;
-        let saw_amp = 2. * (-t - floor(0.5 - t, 0));
-        (2. * saw_amp.abs() - amplitude) * amplitude
-    }
-}
-
-impl Index<&str> for TriangleOsc {
-    type Output = In;
-
-    fn index(&self, index: &str) -> &Self::Output {
-        match index {
-            "hz" => &self.hz,
-            "amp" => &self.amplitude,
-            "phase" => &self.phase,
-            _ => panic!("TriangleOsc does not have a field named:  {}", index),
-        }
-    }
-}
-
-impl IndexMut<&str> for TriangleOsc {
-    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
-        match index {
-            "hz" => &mut self.hz,
-            "amp" => &mut self.amplitude,
-            "phase" => &mut self.phase,
-            _ => panic!("TriangleOsc does not have a field named:  {}", index),
-        }
-    }
-}
-
-/// Square (Pulse) wave oscillator with a `duty_cycle` that takes values in (0, 1),
-/// that determines the pulse width.
-#[derive(Copy, Clone)]
-pub struct SquareOsc {
-    tag: Tag,
-    hz: In,
-    amplitude: In,
-    phase: In,
-    duty_cycle: In,
-}
-
-impl SquareOsc {
-    pub fn new() -> Self {
-        Self {
-            tag: mk_tag(),
-            hz: 0.into(),
-            amplitude: 1.into(),
-            phase: 0.into(),
-            duty_cycle: (0.5).into(),
+            arg: 0.into(),
+            signal_fn,
         }
     }
 
@@ -325,20 +80,21 @@ impl SquareOsc {
         self
     }
 
-    pub fn duty_cycle<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.duty_cycle = arg.into();
+    pub fn arg<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.arg = arg.into();
         self
     }
 }
 
-impl Builder for SquareOsc {}
+impl Builder for StdOsc {}
 
-impl Signal for SquareOsc {
+impl Signal for StdOsc {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let hz = In::val(rack, self.hz);
         let amplitude = In::val(rack, self.amplitude);
         let phase = In::val(rack, self.phase);
+        let arg = In::val(rack, self.arg);
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
@@ -347,17 +103,11 @@ impl Signal for SquareOsc {
             }
             In::Cv(_) => {}
         };
-        let duty_cycle = In::val(rack, self.duty_cycle);
-        let t = phase - floor(phase, 0);
-        if t <= duty_cycle {
-            amplitude
-        } else {
-            -amplitude
-        }
+        amplitude * (self.signal_fn)(phase, arg)
     }
 }
 
-impl Index<&str> for SquareOsc {
+impl Index<&str> for StdOsc {
     type Output = In;
 
     fn index(&self, index: &str) -> &Self::Output {
@@ -365,20 +115,51 @@ impl Index<&str> for SquareOsc {
             "hz" => &self.hz,
             "amp" => &self.amplitude,
             "phase" => &self.phase,
-            _ => panic!("SquareOsc does not have a field named:  {}", index),
+            "arg" => &self.arg,
+            _ => panic!("StandardOsc does not have a field named:  {}", index),
         }
     }
 }
 
-impl IndexMut<&str> for SquareOsc {
+impl IndexMut<&str> for StdOsc {
     fn index_mut(&mut self, index: &str) -> &mut Self::Output {
         match index {
             "hz" => &mut self.hz,
             "amp" => &mut self.amplitude,
             "phase" => &mut self.phase,
-            _ => panic!("SquareOsc does not have a field named:  {}", index),
+            "arg" => &mut self.arg,
+            _ => panic!("StandardOsc does not have a field named:  {}", index),
         }
     }
+}
+
+pub fn sine_osc(phase: Real, _: Real) -> Real {
+    (phase * TAU).sin()
+}
+
+pub fn square_osc(phase: Real, duty_cycle: Real) -> Real {
+    let t = phase - floor(phase, 0);
+    if t <= duty_cycle {
+        1.0
+    } else {
+        -1.0
+    }
+}
+
+pub fn saw_osc(phase: Real, _: Real) -> Real {
+    let t = phase - 0.5;
+    let s = -t - floor(0.5 - t, 0);
+    if s < -0.5 {
+        0.0
+    } else {
+        2.0 * s
+    }
+}
+
+pub fn triangle_osc(phase: Real, _: Real) -> Real {
+    let t = phase - 0.75;
+    let saw_amp = 2. * (-t - floor(0.5 - t, 0));
+    2. * saw_amp.abs() - 1.0
 }
 
 /// Choose between Normal(0,1) and Uniforem distributions for `WhiteNoise`.
@@ -454,7 +235,7 @@ impl IndexMut<&str> for WhiteNoise {
 
 /// Pink noise oscillator.
 // Paul Kellet's pk3 as in:
-// paul.kellett@maxim.abel.co.uk, http://www.abel.co.uk/~maxim/ 
+// paul.kellett@maxim.abel.co.uk, http://www.abel.co.uk/~maxim/
 #[derive(Copy, Clone)]
 pub struct PinkNoise {
     tag: Tag,
@@ -616,7 +397,7 @@ impl FourierOsc {
         let sigma = lanczos as i32;
         let mut wwaves: Vec<ArcMutex<Sig>> = Vec::new();
         for (n, c) in coefficients.iter().enumerate() {
-            let mut s = SineOsc::new();
+            let mut s = StdOsc::new(sine_osc);
             s.amplitude =
                 (*c * sinc(sigma as Real * n as Real / coefficients.len() as Real)).into();
             wwaves.push(arc(s));
@@ -659,13 +440,17 @@ impl Signal for FourierOsc {
                 .lock()
                 .unwrap()
                 .as_any_mut()
-                .downcast_mut::<SineOsc>()
+                .downcast_mut::<StdOsc>()
             {
                 v.hz = (hz * n as Real).into();
             }
         }
         self.sines.signal(sample_rate);
-        let out = self.sines.modules.iter().fold(0., |acc, x| acc + x.1.output);
+        let out = self
+            .sines
+            .modules
+            .iter()
+            .fold(0., |acc, x| acc + x.1.output);
         amp * out
     }
 }
