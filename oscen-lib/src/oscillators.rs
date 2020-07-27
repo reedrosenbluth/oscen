@@ -9,6 +9,36 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+/// An synth module that returns a constant In value.
+#[derive(Copy, Clone)]
+pub struct ConstOsc {
+    tag: Tag,
+    value: In,
+}
+
+impl ConstOsc {
+    pub fn new(value: In) -> Self {
+        Self {
+            tag: mk_tag(),
+            value,
+        }
+    }
+
+    pub fn value<T: Into<In>>(&mut self, arg: T) -> &mut Self {
+        self.value = arg.into();
+        self
+    }
+}
+
+impl Builder for ConstOsc {}
+
+impl Signal for ConstOsc {
+    std_signal!();
+    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+        In::val(rack, self.value)
+    }
+}
+
 /// A `SynthModule` that emits 1.0 every `interval` seconds otherwise it emits
 /// 0.0.
 #[derive(Copy, Clone)]
@@ -43,6 +73,8 @@ impl Signal for Clock {
     }
 }
 
+pub type SignalFn = fn(Real, Real) -> Real;
+
 #[derive(Copy, Clone)]
 pub struct StdOsc {
     tag: Tag,
@@ -54,7 +86,7 @@ pub struct StdOsc {
 }
 
 impl StdOsc {
-    pub fn new(signal_fn: fn(Real, Real) -> Real) -> Self {
+    pub fn new(signal_fn: SignalFn) -> Self {
         Self {
             tag: mk_tag(),
             hz: 0.into(),
@@ -93,6 +125,9 @@ impl Signal for StdOsc {
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let hz = In::val(rack, self.hz);
         let amplitude = In::val(rack, self.amplitude);
+        if hz == 0.0 {
+            return amplitude;
+        }
         let phase = In::val(rack, self.phase);
         let arg = In::val(rack, self.arg);
         match &self.phase {

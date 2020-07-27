@@ -2,9 +2,9 @@ use super::{
     envelopes::Adsr,
     filters::Lpf,
     operators::{Delay, Mixer, Product},
-    signal::{mk_tag, ArcMutex, Builder, In, Link, Rack, Real, Signal, Tag, Gate},
+    signal::{mk_tag, ArcMutex, Builder, Gate, In, Link, Rack, Real, Signal, Tag},
 };
-use crate::{as_any_mut, std_signal, gate};
+use crate::{as_any_mut, gate, std_signal};
 use std::any::Any;
 
 #[derive(Clone)]
@@ -132,4 +132,3 @@ impl Signal for WaveGuide {
         self.rack.signal(sample_rate)
     }
 }
-
