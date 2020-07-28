@@ -98,7 +98,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
         if message.len() == 3 {
             let step = message[1] as f32;
             if message[0] == 144 {
-                synth.midi.midi_pitch.lock().unwrap().step(step);
+                synth.midi.midi_pitch.lock().step(step);
                 WaveGuide::gate_on(&synth.rack, karplus_tag);
             } else if message[0] == 128 {
                 WaveGuide::gate_off(&synth.rack, karplus_tag);

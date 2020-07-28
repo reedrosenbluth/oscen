@@ -80,40 +80,40 @@ impl WaveGuide {
     }
 
     pub fn on(&mut self) {
-        self.envelope.lock().unwrap().on();
+        self.envelope.lock().on();
     }
 
     pub fn off(&mut self) {
-        self.envelope.lock().unwrap().off();
+        self.envelope.lock().off();
     }
 
     pub fn attack<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.envelope.lock().unwrap().attack(arg);
+        self.envelope.lock().attack(arg);
         self
     }
 
     pub fn decay<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.envelope.lock().unwrap().decay(arg);
+        self.envelope.lock().decay(arg);
         self
     }
 
     pub fn sustain<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.envelope.lock().unwrap().sustain(arg);
+        self.envelope.lock().sustain(arg);
         self
     }
 
     pub fn release<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.envelope.lock().unwrap().release(arg);
+        self.envelope.lock().release(arg);
         self
     }
 
     pub fn cutoff_freq<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.lpf.lock().unwrap().cutoff_freq(arg);
+        self.lpf.lock().cutoff_freq(arg);
         self
     }
 
     pub fn wet_decay<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.mixer.lock().unwrap().level_nth(1, arg.into());
+        self.mixer.lock().level_nth(1, arg.into());
         self
     }
 }
@@ -126,9 +126,9 @@ impl Signal for WaveGuide {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let input = rack.output(self.burst);
-        self.input.lock().unwrap().value(input);
+        self.input.lock().value(input);
         let dt = 1.0 / f64::max(1.0, In::val(&rack, self.hz));
-        self.delay.lock().unwrap().delay_time(dt);
+        self.delay.lock().delay_time(dt);
         self.rack.signal(sample_rate)
     }
 }

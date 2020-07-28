@@ -246,13 +246,13 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
         if message.len() == 3 {
             let midi_step = message[1] as f32;
             if message[0] == 144 {
-                synth.midi.midi_pitch.lock().unwrap().step(midi_step);
+                synth.midi.midi_pitch.lock().step(midi_step);
                 Adsr::gate_on(&synth.voice, adsr_tag);
             } else if message[0] == 128 {
                 Adsr::gate_off(&synth.voice, adsr_tag);
             } else if message[0] == 176 {
                 for c in &synth.midi.midi_controls {
-                    let mut control = c.lock().unwrap();
+                    let mut control = c.lock();
                     if control.controller == message[1] {
                         control.value(message[2]);
                     }

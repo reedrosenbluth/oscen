@@ -474,7 +474,6 @@ impl Signal for FourierOsc {
             if let Some(v) = node
                 .module
                 .lock()
-                .unwrap()
                 .as_any_mut()
                 .downcast_mut::<Oscillator>()
             {
