@@ -1,4 +1,4 @@
-use super::oscillators::{ConstOsc, SignalFn, StdOsc};
+use super::oscillators::{ConstOsc, SignalFn, Oscillator};
 use super::signal::*;
 use super::utils::RingBuffer;
 use crate::{as_any_mut, std_signal};
@@ -315,7 +315,7 @@ impl IndexMut<&str> for CrossFade {
 #[derive(Clone)]
 pub struct Modulator {
     tag: Tag,
-    wave: ArcMutex<StdOsc>,
+    wave: ArcMutex<Oscillator>,
     hz: In,
     ratio: In,
     index: In,
@@ -344,7 +344,7 @@ impl Modulator {
         let amp_factor =
             Product::new(vec![index_osc.tag(), hz_osc.tag(), ratio_osc.tag()]).rack(&mut rack);
         let mod_amp = Mixer::new(vec![hz_osc.tag(), amp_factor.tag()]).rack(&mut rack);
-        let wave = StdOsc::new(signal_fn)
+        let wave = Oscillator::new(signal_fn)
             .hz(mod_hz.tag())
             .amplitude(mod_amp.tag())
             .rack(&mut rack);

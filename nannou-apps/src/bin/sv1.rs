@@ -7,7 +7,7 @@ use oscen::envelopes::Adsr;
 use oscen::filters::Lpf;
 use oscen::midi::{listen_midi, MidiControl, MidiPitch};
 use oscen::operators::{Mixer, Modulator, Vca};
-use oscen::oscillators::{saw_osc, sine_osc, square_osc, triangle_osc, StdOsc, WhiteNoise};
+use oscen::oscillators::{saw_osc, sine_osc, square_osc, triangle_osc, Oscillator, WhiteNoise};
 use oscen::signal::{ArcMutex, Builder, Gate, Rack, Real, Signal, Tag};
 use std::thread;
 
@@ -65,10 +65,10 @@ fn build_synth(
     midi_controls.push(midi_control_tri_lfo_hz.clone());
 
     // LFO's
-    let tri_lfo = StdOsc::new(triangle_osc)
+    let tri_lfo = Oscillator::new(triangle_osc)
         .hz(midi_control_tri_lfo_hz.tag())
         .rack(&mut rack);
-    StdOsc::new(square_osc).rack(&mut rack);
+    Oscillator::new(square_osc).rack(&mut rack);
 
     let midi_control_mod_hz2 = MidiControl::new(44, 0, 0.0, 440.0, 1760.0).rack_pre(&mut rack);
     midi_controls.push(midi_control_mod_hz2.clone());
@@ -86,12 +86,12 @@ fn build_synth(
     .rack(&mut rack);
 
     // Oscillator 2
-    let sine2 = StdOsc::new(sine_osc)
+    let sine2 = Oscillator::new(sine_osc)
         .hz(modulator_osc2.tag())
         .rack(&mut rack);
-    StdOsc::new(saw_osc).hz(midi_pitch.tag()).rack(&mut rack);
-    StdOsc::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
-    StdOsc::new(triangle_osc)
+    Oscillator::new(saw_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    Oscillator::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    Oscillator::new(triangle_osc)
         .hz(midi_pitch.tag())
         .rack(&mut rack);
 
@@ -112,21 +112,21 @@ fn build_synth(
     let midi_control_pulse_width = MidiControl::new(39, 0, 0.05, 0.5, 0.95).rack_pre(&mut rack);
     midi_controls.push(midi_control_pulse_width.clone());
 
-    let sine1 = StdOsc::new(sine_osc)
+    let sine1 = Oscillator::new(sine_osc)
         .hz(modulator_osc1.tag())
         .rack(&mut rack);
-    let saw1 = StdOsc::new(saw_osc).hz(midi_pitch.tag()).rack(&mut rack);
-    let square1 = StdOsc::new(square_osc)
+    let saw1 = Oscillator::new(saw_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    let square1 = Oscillator::new(square_osc)
         .hz(midi_pitch.tag())
         .arg(midi_control_pulse_width.tag())
         .rack(&mut rack);
-    let triangle1 = StdOsc::new(triangle_osc)
+    let triangle1 = Oscillator::new(triangle_osc)
         .hz(midi_pitch.tag())
         .rack(&mut rack);
 
     // Sub 1 & 2
-    StdOsc::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
-    StdOsc::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    Oscillator::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    Oscillator::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
 
     // Noise
     let noise = WhiteNoise::new().rack(&mut rack);

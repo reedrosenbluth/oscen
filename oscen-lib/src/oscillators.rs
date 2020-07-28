@@ -77,7 +77,7 @@ impl Signal for Clock {
 pub type SignalFn = fn(Real, Real) -> Real;
 
 #[derive(Copy, Clone)]
-pub struct StdOsc {
+pub struct Oscillator {
     tag: Tag,
     hz: In,
     amplitude: In,
@@ -86,7 +86,7 @@ pub struct StdOsc {
     signal_fn: fn(Real, Real) -> Real,
 }
 
-impl StdOsc {
+impl Oscillator {
     pub fn new(signal_fn: SignalFn) -> Self {
         Self {
             tag: mk_tag(),
@@ -119,9 +119,9 @@ impl StdOsc {
     }
 }
 
-impl Builder for StdOsc {}
+impl Builder for Oscillator {}
 
-impl Signal for StdOsc {
+impl Signal for Oscillator {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let hz = In::val(rack, self.hz);
@@ -143,7 +143,7 @@ impl Signal for StdOsc {
     }
 }
 
-impl Index<&str> for StdOsc {
+impl Index<&str> for Oscillator {
     type Output = In;
 
     fn index(&self, index: &str) -> &Self::Output {
@@ -157,7 +157,7 @@ impl Index<&str> for StdOsc {
     }
 }
 
-impl IndexMut<&str> for StdOsc {
+impl IndexMut<&str> for Oscillator {
     fn index_mut(&mut self, index: &str) -> &mut Self::Output {
         match index {
             "hz" => &mut self.hz,
@@ -433,7 +433,7 @@ impl FourierOsc {
         let sigma = lanczos as i32;
         let mut wwaves: Vec<ArcMutex<Sig>> = Vec::new();
         for (n, c) in coefficients.iter().enumerate() {
-            let mut s = StdOsc::new(sine_osc);
+            let mut s = Oscillator::new(sine_osc);
             s.amplitude =
                 (*c * sinc(sigma as Real * n as Real / coefficients.len() as Real)).into();
             wwaves.push(arc(s));
@@ -476,7 +476,7 @@ impl Signal for FourierOsc {
                 .lock()
                 .unwrap()
                 .as_any_mut()
-                .downcast_mut::<StdOsc>()
+                .downcast_mut::<Oscillator>()
             {
                 v.hz = (hz * n as Real).into();
             }

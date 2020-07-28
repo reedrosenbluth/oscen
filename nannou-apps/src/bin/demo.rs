@@ -4,7 +4,7 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use oscen::filters::Lpf;
 use oscen::operators::Modulator;
-use oscen::oscillators::{sine_osc, square_osc, StdOsc};
+use oscen::oscillators::{sine_osc, square_osc, Oscillator};
 use oscen::signal::*;
 
 fn main() {
@@ -35,7 +35,7 @@ fn model(app: &App) -> Model {
 
     // Create a square wave oscillator and add it the the rack.
     // let square = SquareOsc::new().hz(modulator.tag()).rack(&mut rack);
-    let square = StdOsc::new(square_osc)
+    let square = Oscillator::new(square_osc)
         .hz(modulator.tag())
         .arg(0.5)
         .rack(&mut rack);
