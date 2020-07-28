@@ -330,11 +330,16 @@ pub struct Modulator {
 }
 
 impl Modulator {
-    pub fn new(signal_fn: SignalFn, hz: In, ratio: In, index: In) -> Self {
+    pub fn new<H, R, I>(signal_fn: SignalFn, hz: H, ratio: R, index: I) -> Self
+    where
+        H: Into<In> + Copy,
+        R: Into<In> + Copy,
+        I: Into<In> + Copy,
+    {
         let mut rack = Rack::new(vec![]);
-        let hz_osc = ConstOsc::new(hz).rack(&mut rack);
-        let ratio_osc = ConstOsc::new(ratio).rack(&mut rack);
-        let index_osc = ConstOsc::new(index).rack(&mut rack);
+        let hz_osc = ConstOsc::new(hz.into()).rack(&mut rack);
+        let ratio_osc = ConstOsc::new(ratio.into()).rack(&mut rack);
+        let index_osc = ConstOsc::new(index.into()).rack(&mut rack);
         let mod_hz = Product::new(vec![ratio_osc.tag(), hz_osc.tag()]).rack(&mut rack);
         let amp_factor =
             Product::new(vec![index_osc.tag(), hz_osc.tag(), ratio_osc.tag()]).rack(&mut rack);
@@ -347,10 +352,10 @@ impl Modulator {
         Modulator {
             tag: mk_tag(),
             wave,
-            hz,
+            hz: hz.into(),
             /// modulator frequency / carrier frequency
-            ratio,
-            index,
+            ratio: ratio.into(),
+            index: index.into(),
             hz_osc,
             ratio_osc,
             index_osc,

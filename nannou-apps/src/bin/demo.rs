@@ -31,7 +31,7 @@ fn model(app: &App) -> Model {
     // A Rack is a collection of synth modules.
     let mut rack = Rack::new(vec![]);
 
-    let modulator = Modulator::new(sine_osc, 440.into(), 4.into(), 2.into()).rack(&mut rack);
+    let modulator = Modulator::new(sine_osc, 440, 4, 2).rack(&mut rack);
 
     // Create a square wave oscillator and add it the the rack.
     // let square = SquareOsc::new().hz(modulator.tag()).rack(&mut rack);
