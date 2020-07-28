@@ -9,7 +9,8 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-/// An synth module that returns a constant In value.
+/// An synth module that returns a constant In value. Useful for example to
+/// multiply or add constants to oscillators.
 #[derive(Copy, Clone)]
 pub struct ConstOsc {
     tag: Tag,
