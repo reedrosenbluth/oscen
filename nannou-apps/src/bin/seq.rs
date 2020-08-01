@@ -49,7 +49,7 @@ fn build_synth(sender: Sender<f32>) -> Synth {
 
     let gate_seq = GateSeq::new(seq).rack(&mut rack);
 
-    let wave = SawOsc::new().hz(pitch_seq.tag()).rack(&mut rack);
+    let wave = Oscillator::new(saw_osc).hz(pitch_seq.tag()).rack(&mut rack);
 
     let lpf = Lpf::new(wave.tag()).cutoff_freq(400).rack(&mut rack);
 

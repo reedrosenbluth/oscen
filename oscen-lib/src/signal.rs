@@ -3,8 +3,9 @@ use std::{
     collections::HashMap,
     f64::consts::PI,
     ops::{Index, IndexMut},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
+use parking_lot::Mutex;
 use uuid::Uuid;
 
 pub const TAU: f64 = 2.0 * PI;
@@ -70,7 +71,6 @@ macro_rules! gate {
                 if let Some(v) = rack.modules[&n]
                     .module
                     .lock()
-                    .unwrap()
                     .as_any_mut()
                     .downcast_mut::<Self>()
                 {
@@ -82,7 +82,6 @@ macro_rules! gate {
                 if let Some(v) = rack.modules[&n]
                     .module
                     .lock()
-                    .unwrap()
                     .as_any_mut()
                     .downcast_mut::<Self>()
                 {
@@ -109,22 +108,22 @@ where
 {
     as_any_mut!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
-        self.lock().unwrap().signal(rack, sample_rate)
+        self.lock().signal(rack, sample_rate)
     }
 
     fn tag(&self) -> Tag {
-        self.lock().unwrap().tag()
+        self.lock().tag()
     }
 }
 
 impl Signal for ArcMutex<dyn Signal + Send> {
     as_any_mut!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
-        self.lock().unwrap().signal(rack, sample_rate)
+        self.lock().signal(rack, sample_rate)
     }
 
     fn tag(&self) -> Tag {
-        self.lock().unwrap().tag()
+        self.lock().tag()
     }
 }
 
@@ -255,11 +254,14 @@ impl Rack {
         let mut nodes: HashMap<Tag, SynthModule> = HashMap::new();
         let mut order: Vec<Tag> = Vec::new();
         for s in ws {
-            let t = s.lock().unwrap().tag();
+            let t = s.lock().tag();
             nodes.insert(t, SynthModule::new(s));
             order.push(t)
         }
-        Rack { modules: nodes, order }
+        Rack {
+            modules: nodes,
+            order,
+        }
     }
 
     /// Convert a rack into an `Iter` - note: we don't need an `iter_mut` since
@@ -339,7 +341,6 @@ impl Rack {
             outs.push(
                 node.module
                     .lock()
-                    .expect("Function rack::signal could not find tag in first loop")
                     .signal(&self, sample_rate),
             )
         }

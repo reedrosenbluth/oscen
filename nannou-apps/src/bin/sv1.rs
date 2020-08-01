@@ -3,13 +3,13 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use std::thread;
 use oscen::envelopes::Adsr;
 use oscen::filters::Lpf;
 use oscen::midi::{listen_midi, MidiControl, MidiPitch};
 use oscen::operators::{Mixer, Modulator, Vca};
-use oscen::oscillators::{SawOsc, SineOsc, SquareOsc, TriangleOsc, WhiteNoise};
+use oscen::oscillators::{saw_osc, sine_osc, square_osc, triangle_osc, Oscillator, WhiteNoise};
 use oscen::signal::{ArcMutex, Builder, Gate, Rack, Real, Signal, Tag};
+use std::thread;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -65,10 +65,10 @@ fn build_synth(
     midi_controls.push(midi_control_tri_lfo_hz.clone());
 
     // LFO's
-    let tri_lfo = TriangleOsc::new()
+    let tri_lfo = Oscillator::new(triangle_osc)
         .hz(midi_control_tri_lfo_hz.tag())
         .rack(&mut rack);
-    SquareOsc::new().rack(&mut rack);
+    Oscillator::new(square_osc).rack(&mut rack);
 
     let midi_control_mod_hz2 = MidiControl::new(44, 0, 0.0, 440.0, 1760.0).rack_pre(&mut rack);
     midi_controls.push(midi_control_mod_hz2.clone());
@@ -77,44 +77,56 @@ fn build_synth(
 
     // TODO: tune these lower
     // Sub Oscillators for Osc
-    let modulator_osc2 = Modulator::new(tri_lfo.tag().into())
-        .base_hz(midi_pitch.tag())
-        .mod_hz(midi_control_mod_hz2.tag())
-        .mod_idx(midi_control_mod_idx2.tag())
-        .rack(&mut rack);
+    let modulator_osc2 = Modulator::new(
+        triangle_osc,
+        midi_pitch.tag(),
+        midi_control_mod_hz2.tag(),
+        midi_control_mod_idx2.tag(),
+    )
+    .rack(&mut rack);
 
     // Oscillator 2
-    let sine2 = SineOsc::new().hz(modulator_osc2.tag()).rack(&mut rack);
-    SawOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
-    SquareOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
-    TriangleOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
+    let sine2 = Oscillator::new(sine_osc)
+        .hz(modulator_osc2.tag())
+        .rack(&mut rack);
+    Oscillator::new(saw_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    Oscillator::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    Oscillator::new(triangle_osc)
+        .hz(midi_pitch.tag())
+        .rack(&mut rack);
 
     let midi_control_mod_hz1 = MidiControl::new(43, 0, 0.0, 440.0, 1760.0).rack_pre(&mut rack);
     midi_controls.push(midi_control_mod_hz1.clone());
     let midi_control_mod_idx1 = MidiControl::new(42, 0, 0.0, 4.0, 16.0).rack_pre(&mut rack);
     midi_controls.push(midi_control_mod_idx1.clone());
 
-    let modulator_osc1 = Modulator::new(sine2.tag())
-        .base_hz(midi_pitch.tag())
-        .mod_hz(midi_control_mod_hz1.tag())
-        .mod_idx(midi_control_mod_idx1.tag())
-        .rack(&mut rack);
+    let modulator_osc1 = Modulator::new(
+        sine_osc,
+        midi_pitch.tag(),
+        midi_control_mod_hz1.tag(),
+        midi_control_mod_idx1.tag(),
+    )
+    .rack(&mut rack);
 
     // Oscillator 1
     let midi_control_pulse_width = MidiControl::new(39, 0, 0.05, 0.5, 0.95).rack_pre(&mut rack);
     midi_controls.push(midi_control_pulse_width.clone());
 
-    let sine1 = SineOsc::new().hz(modulator_osc1.tag()).rack(&mut rack);
-    let saw1 = SawOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
-    let square1 = SquareOsc::new()
-        .hz(midi_pitch.tag())
-        .duty_cycle(midi_control_pulse_width.tag())
+    let sine1 = Oscillator::new(sine_osc)
+        .hz(modulator_osc1.tag())
         .rack(&mut rack);
-    let triangle1 = TriangleOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
+    let saw1 = Oscillator::new(saw_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    let square1 = Oscillator::new(square_osc)
+        .hz(midi_pitch.tag())
+        .arg(midi_control_pulse_width.tag())
+        .rack(&mut rack);
+    let triangle1 = Oscillator::new(triangle_osc)
+        .hz(midi_pitch.tag())
+        .rack(&mut rack);
 
     // Sub 1 & 2
-    SquareOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
-    SquareOsc::new().hz(midi_pitch.tag()).rack(&mut rack);
+    Oscillator::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
+    Oscillator::new(square_osc).hz(midi_pitch.tag()).rack(&mut rack);
 
     // Noise
     let noise = WhiteNoise::new().rack(&mut rack);
@@ -234,13 +246,13 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
         if message.len() == 3 {
             let midi_step = message[1] as f32;
             if message[0] == 144 {
-                synth.midi.midi_pitch.lock().unwrap().step(midi_step);
+                synth.midi.midi_pitch.lock().step(midi_step);
                 Adsr::gate_on(&synth.voice, adsr_tag);
             } else if message[0] == 128 {
                 Adsr::gate_off(&synth.voice, adsr_tag);
             } else if message[0] == 176 {
                 for c in &synth.midi.midi_controls {
-                    let mut control = c.lock().unwrap();
+                    let mut control = c.lock();
                     if control.controller == message[1] {
                         control.value(message[2]);
                     }

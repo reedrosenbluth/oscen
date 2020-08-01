@@ -178,7 +178,7 @@ impl Signal for Freeverb {
     std_signal!();
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
         let inp = rack.output(self.wave);
-        self.input.lock().unwrap().value(inp);
+        self.input.lock().value(inp);
         let out = self.rack.signal(sample_rate);
         out * self.wet_gain + inp * self.dry
     }
