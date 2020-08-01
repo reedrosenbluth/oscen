@@ -4,4 +4,5 @@ members = [
     "oscen-lib",
     "nannou-apps",
     "plot-apps",
+    "cpal-apps"
 ]
