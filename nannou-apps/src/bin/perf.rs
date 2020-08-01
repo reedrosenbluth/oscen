@@ -1,7 +1,7 @@
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use oscen::oscillators::{sine_osc, Oscillator};
+use oscen::oscillators::*;
 use oscen::operators::Mixer;
 use oscen::signal::*;
 
@@ -17,17 +17,18 @@ fn model(app: &App) -> Model {
     app.new_window().size(250, 250).build().unwrap();
     let audio_host = audio::Host::new();
     let mut rack = Rack::new(vec![]);
-    let num_oscillators = 120;
+    let num_oscillators = 100;
     let amp = 1.0 / num_oscillators as f64;
     let mut oscs = vec![];
     for _ in 0..num_oscillators {
-        let osc = Oscillator::new(sine_osc)
+        let osc = Oscillator::new(square_osc)
             .amplitude(amp)
             .hz(200)
+            .arg(0.5)
             .rack(&mut rack);
         oscs.push(osc.tag());
     }
-    Mixer::new(oscs).rack(&mut rack);
+    Mixer::new(oscs).level(0.2).rack(&mut rack);
     let stream = audio_host
         .new_output_stream(rack)
         .render(audio)
