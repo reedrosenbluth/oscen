@@ -1,3 +1,4 @@
+use parking_lot::Mutex;
 use std::{
     any::Any,
     collections::HashMap,
@@ -5,7 +6,6 @@ use std::{
     ops::{Index, IndexMut},
     sync::Arc,
 };
-use parking_lot::Mutex;
 use uuid::Uuid;
 
 pub const TAU: f64 = 2.0 * PI;
@@ -338,11 +338,7 @@ impl Rack {
     pub fn signal(&mut self, sample_rate: Real) -> Real {
         let mut outs: Vec<Real> = Vec::new();
         for node in self.iter() {
-            outs.push(
-                node.module
-                    .lock()
-                    .signal(&self, sample_rate),
-            )
+            outs.push(node.module.lock().signal(&self, sample_rate))
         }
         for (i, o) in self.order.iter().enumerate() {
             self.modules
