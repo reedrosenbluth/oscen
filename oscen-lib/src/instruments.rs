@@ -2,7 +2,7 @@ use super::{
     envelopes::Adsr,
     filters::Lpf,
     operators::{Delay, Mixer, Product},
-    signal::{mk_tag, ArcMutex, Builder, Gate, In, Link, Rack, Real, Signal, Tag},
+    signal::*,
 };
 use crate::{as_any_mut, gate, std_signal};
 use std::any::Any;
@@ -23,14 +23,15 @@ pub struct WaveGuide {
 }
 
 impl WaveGuide {
-    pub fn new(burst: Tag) -> Self {
-        let mut rack = Rack::new(vec![]);
+    pub fn new(id_gen: &mut IdGen, burst: Tag) -> Self {
+        let mut rack = Rack::new();
+        let mut id = IdGen::new();
 
-        let input = Link::new().wrap();
+        let input = Link::new(&mut id).wrap();
         rack.append(input.clone());
 
         // Adsr
-        let envelope = Adsr::new(0.2, 0.2, 0.2)
+        let envelope = Adsr::new(&mut id, 0.2, 0.2, 0.2)
             .attack(0.001)
             .decay(0)
             .sustain(0)
@@ -39,15 +40,15 @@ impl WaveGuide {
         rack.append(envelope.clone());
 
         // Exciter: gated noise
-        let exciter = Product::new(vec![input.tag(), envelope.tag()]).wrap();
+        let exciter = Product::new(&mut id, vec![input.tag(), envelope.tag()]).wrap();
         rack.append(exciter.clone());
 
         // Feedback loop
-        let mut mixer = Mixer::new(vec![]).build();
-        let delay = Delay::new(mixer.tag(), (0.02).into()).wrap();
+        let mut mixer = Mixer::new(&mut id, vec![]).build();
+        let delay = Delay::new(&mut id, mixer.tag(), (0.02).into()).wrap();
 
         let cutoff_freq = 2000;
-        let lpf = Lpf::new(delay.tag()).cutoff_freq(cutoff_freq).wrap();
+        let lpf = Lpf::new(&mut id, delay.tag()).cutoff_freq(cutoff_freq).wrap();
 
         let wet_decay = 0.95;
         let mixer = mixer
@@ -60,7 +61,7 @@ impl WaveGuide {
         rack.append(mixer.clone());
 
         WaveGuide {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             burst,
             hz: 440.into(),
             cutoff_freq: cutoff_freq.into(),

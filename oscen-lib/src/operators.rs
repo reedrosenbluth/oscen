@@ -17,10 +17,10 @@ pub struct Union {
 }
 
 impl Union {
-    pub fn new(waves: Vec<Tag>) -> Self {
+    pub fn new(id_gen: &mut IdGen, waves: Vec<Tag>) -> Self {
         let active = waves[0];
         Union {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             waves,
             active,
             level: 1.into(),
@@ -73,9 +73,9 @@ pub struct Product {
 }
 
 impl Product {
-    pub fn new(waves: Vec<Tag>) -> Self {
+    pub fn new(id_gen: &mut IdGen, waves: Vec<Tag>) -> Self {
         Product {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             waves,
         }
     }
@@ -119,9 +119,9 @@ pub struct Vca {
 }
 
 impl Vca {
-    pub fn new(wave: Tag) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
             level: 1.into(),
         }
@@ -177,10 +177,10 @@ pub struct Mixer {
 }
 
 impl Mixer {
-    pub fn new(waves: Vec<Tag>) -> Self {
+    pub fn new(id_gen: &mut IdGen, waves: Vec<Tag>) -> Self {
         let levels = waves.iter().map(|_| 1.into()).collect();
         Mixer {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             waves,
             levels,
             level: 1.into(),
@@ -250,9 +250,9 @@ pub struct CrossFade {
 }
 
 impl CrossFade {
-    pub fn new(wave1: Tag, wave2: Tag) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave1: Tag, wave2: Tag) -> Self {
         CrossFade {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave1: wave1.into(),
             wave2: wave2.into(),
             alpha: (0.5).into(),
@@ -330,27 +330,28 @@ pub struct Modulator {
 }
 
 impl Modulator {
-    pub fn new<H, R, I>(signal_fn: SignalFn, hz: H, ratio: R, index: I) -> Self
+    pub fn new<H, R, I>(id_gen: &mut IdGen, signal_fn: SignalFn, hz: H, ratio: R, index: I) -> Self
     where
         H: Into<In> + Copy,
         R: Into<In> + Copy,
         I: Into<In> + Copy,
     {
-        let mut rack = Rack::new(vec![]);
-        let hz_osc = ConstOsc::new(hz.into()).rack(&mut rack);
-        let ratio_osc = ConstOsc::new(ratio.into()).rack(&mut rack);
-        let index_osc = ConstOsc::new(index.into()).rack(&mut rack);
-        let mod_hz = Product::new(vec![ratio_osc.tag(), hz_osc.tag()]).rack(&mut rack);
+        let mut rack = Rack::new();
+        let mut id = IdGen::new();
+        let hz_osc = ConstOsc::new(&mut id, hz.into()).rack(&mut rack);
+        let ratio_osc = ConstOsc::new(&mut id, ratio.into()).rack(&mut rack);
+        let index_osc = ConstOsc::new(&mut id, index.into()).rack(&mut rack);
+        let mod_hz = Product::new(&mut id, vec![ratio_osc.tag(), hz_osc.tag()]).rack(&mut rack);
         let amp_factor =
-            Product::new(vec![index_osc.tag(), hz_osc.tag(), ratio_osc.tag()]).rack(&mut rack);
-        let mod_amp = Mixer::new(vec![hz_osc.tag(), amp_factor.tag()]).rack(&mut rack);
-        let wave = Oscillator::new(signal_fn)
+            Product::new(&mut id, vec![index_osc.tag(), hz_osc.tag(), ratio_osc.tag()]).rack(&mut rack);
+        let mod_amp = Mixer::new(&mut id, vec![hz_osc.tag(), amp_factor.tag()]).rack(&mut rack);
+        let wave = Oscillator::new(&mut id, signal_fn)
             .hz(mod_hz.tag())
             .amplitude(mod_amp.tag())
             .rack(&mut rack);
-        let carrier_hz = Mixer::new(vec![wave.tag(), hz_osc.tag()]).rack(&mut rack);
+        let carrier_hz = Mixer::new(&mut id, vec![wave.tag(), hz_osc.tag()]).rack(&mut rack);
         Modulator {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
             hz: hz.into(),
             /// modulator frequency / carrier frequency
@@ -411,10 +412,10 @@ pub struct Delay {
 }
 
 impl Delay {
-    pub fn new(wave: Tag, delay_time: In) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag, delay_time: In) -> Self {
         let ring = RingBuffer::<Real>::new(0.0, 0);
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
             delay_time,
             ring_buffer: ring,

@@ -11,7 +11,7 @@ pub struct SineFold {
 impl SineFold {
     pub fn new(wave: Tag) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: 0,
             wave,
             fold_param: TAU.into(),
         }
@@ -47,7 +47,7 @@ pub struct Tanh {
 impl Tanh {
     pub fn new(wave: Tag) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: 0,
             wave,
         }
     }

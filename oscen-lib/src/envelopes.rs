@@ -26,12 +26,12 @@ pub struct Adsr {
 }
 
 impl Adsr {
-    pub fn new(a_param: Real, d_param: Real, r_param: Real) -> Self {
+    pub fn new(id_gen: &mut IdGen, a_param: Real, d_param: Real, r_param: Real) -> Self {
         let a_interp = ExpInterp::new(0.0, 0.5, 1.0);
         let d_interp = ExpInterp::new(0.0, 0.5, 1.0);
         let r_interp = ExpInterp::new(0.0, 0.5, 1.0);
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             attack: (0.01).into(),
             decay: 0.into(),
             sustain: 1.into(),
@@ -49,12 +49,12 @@ impl Adsr {
         }
     }
 
-    pub fn linear() -> Self {
-        Self::new(0.5, 0.5, 0.5)
+    pub fn linear(id_gen: &mut IdGen) -> Self {
+        Self::new(id_gen, 0.5, 0.5, 0.5)
     }
 
-    pub fn exp_20() -> Self {
-        Self::new(0.2, 0.2, 0.2)
+    pub fn exp_20(id_gen: &mut IdGen) -> Self {
+        Self::new(id_gen, 0.2, 0.2, 0.2)
     }
 
     pub fn attack<T: Into<In>>(&mut self, arg: T) -> &mut Self {

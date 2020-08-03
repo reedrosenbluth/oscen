@@ -20,7 +20,7 @@ pub struct MidiPitch {
 impl MidiPitch {
     pub fn new() -> Self {
         MidiPitch {
-            tag: mk_tag(),
+            tag: 0,
             step: 0.0,
             offset: 0.0,
             factor: 1.0,
@@ -63,7 +63,7 @@ pub struct MidiControl {
 impl MidiControl {
     pub fn new(controller: u8, value: u8, low: Real, mid: Real, high: Real) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: 0,
             controller,
             value,
             exp_interp: ExpInterp::new(low, mid, high),

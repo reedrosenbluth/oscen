@@ -71,7 +71,7 @@ pub fn signals<T>(module: &mut T, start: u32, end: u32, sample_rate: Real) -> Ve
 where
     T: Signal,
 {
-    let rack = Rack::new(vec![]);
+    let rack = Rack::new();
     let mut result = vec![];
     for i in start..=end {
         result.push((

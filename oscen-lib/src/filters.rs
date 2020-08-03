@@ -21,9 +21,9 @@ pub struct Lpf {
 }
 
 impl Lpf {
-    pub fn new(wave: Tag) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
             cutoff_freq: 22050.into(),
             q: (1.0 / SQRT_2).into(),
@@ -123,9 +123,9 @@ pub struct Hpf {
 }
 
 impl Hpf {
-    pub fn new(wave: Tag) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
             cutoff_freq: 22050.into(),
             q: (1.0 / SQRT_2).into(),
@@ -224,9 +224,9 @@ pub struct Bpf {
 }
 
 impl Bpf {
-    pub fn new(wave: Tag) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
             cutoff_freq: 22050.into(),
             q: (1.0 / SQRT_2).into(),
@@ -326,9 +326,9 @@ pub struct Notch {
 }
 
 impl Notch {
-    pub fn new(wave: Tag) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
             cutoff_freq: 22050.into(),
             q: (1.0 / SQRT_2).into(),
@@ -428,9 +428,9 @@ pub struct Comb {
 }
 
 impl Comb {
-    pub fn new(wave: Tag, length: usize) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag, length: usize) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
             buffer: vec![0.0; length],
             index: 0,
@@ -515,9 +515,9 @@ pub struct AllPass {
 }
 
 impl AllPass {
-    pub fn new(wave: Tag, length: usize) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag, length: usize) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
             buffer: vec![0.0; length],
             index: 0,

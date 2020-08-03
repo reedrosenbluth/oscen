@@ -18,9 +18,9 @@ pub struct ConstOsc {
 }
 
 impl ConstOsc {
-    pub fn new(value: In) -> Self {
+    pub fn new(id_gen: &mut IdGen, value: In) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             value,
         }
     }
@@ -50,9 +50,9 @@ pub struct Clock {
 }
 
 impl Clock {
-    pub fn new(interval: Real) -> Self {
+    pub fn new(id_gen: &mut IdGen, interval: Real) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             clock: 0,
             interval,
         }
@@ -87,9 +87,9 @@ pub struct Oscillator {
 }
 
 impl Oscillator {
-    pub fn new(signal_fn: SignalFn) -> Self {
+    pub fn new(id_gen: &mut IdGen, signal_fn: SignalFn) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             hz: 0.into(),
             amplitude: 1.into(),
             phase: 0.into(),
@@ -214,9 +214,9 @@ pub struct WhiteNoise {
 }
 
 impl WhiteNoise {
-    pub fn new() -> Self {
+    pub fn new(id_gen: &mut IdGen, ) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             amplitude: 1.into(),
             dist: NoiseDistribution::StdNormal,
         }
@@ -280,9 +280,9 @@ pub struct PinkNoise {
 }
 
 impl PinkNoise {
-    pub fn new() -> Self {
+    pub fn new(id_gen: &mut IdGen, ) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             b: [0.0; 7],
             amplitude: 1.into(),
         }
@@ -350,9 +350,9 @@ pub struct Osc01 {
 }
 
 impl Osc01 {
-    pub fn new() -> Self {
+    pub fn new(id_gen: &mut IdGen, ) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             hz: 0.into(),
             phase: 0.into(),
         }
@@ -429,20 +429,21 @@ pub struct FourierOsc {
 }
 
 impl FourierOsc {
-    pub fn new(coefficients: &[Real], lanczos: bool) -> Self {
+    pub fn new(id_gen: &mut IdGen, coefficients: &[Real], lanczos: bool) -> Self {
         let sigma = lanczos as i32;
-        let mut wwaves: Vec<ArcMutex<Sig>> = Vec::new();
+        let mut wwaves: Vec<SynthModule> = Vec::new();
+        let mut id = IdGen::new();
         for (n, c) in coefficients.iter().enumerate() {
-            let mut s = Oscillator::new(sine_osc);
+            let mut s = Oscillator::new(&mut id, sine_osc);
             s.amplitude =
                 (*c * sinc(sigma as Real * n as Real / coefficients.len() as Real)).into();
-            wwaves.push(arc(s));
+            wwaves.push(SynthModule::new(arc(s)));
         }
         FourierOsc {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             hz: 0.into(),
             amplitude: 1.into(),
-            sines: Rack::new(wwaves),
+            sines: Rack::new().modules(wwaves).build(),
             lanczos,
         }
     }
@@ -483,9 +484,9 @@ impl Signal for FourierOsc {
         self.sines.signal(sample_rate);
         let out = self
             .sines
-            .modules
+            .0
             .iter()
-            .fold(0., |acc, x| acc + x.1.output);
+            .fold(0., |acc, x| acc + x.output);
         amp * out
     }
 }
@@ -513,7 +514,7 @@ impl IndexMut<&str> for FourierOsc {
 }
 
 /// Square wave oscillator implemented as a fourier approximation.
-pub fn square_wave(n: u32, lanczos: bool) -> FourierOsc {
+pub fn square_wave(id_gen: &mut IdGen, n: u32, lanczos: bool) -> FourierOsc {
     let mut coefficients: Vec<Real> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {
@@ -522,11 +523,11 @@ pub fn square_wave(n: u32, lanczos: bool) -> FourierOsc {
             coefficients.push(0.);
         }
     }
-    FourierOsc::new(coefficients.as_ref(), lanczos)
+    FourierOsc::new(id_gen, coefficients.as_ref(), lanczos)
 }
 
 /// Triangle wave oscillator implemented as a fourier approximation.
-pub fn triangle_wave(n: u32, lanczos: bool) -> FourierOsc {
+pub fn triangle_wave(id_gen: &mut IdGen, n: u32, lanczos: bool) -> FourierOsc {
     let mut coefficients: Vec<Real> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {
@@ -536,5 +537,5 @@ pub fn triangle_wave(n: u32, lanczos: bool) -> FourierOsc {
             coefficients.push(0.);
         }
     }
-    FourierOsc::new(coefficients.as_ref(), lanczos)
+    FourierOsc::new(id_gen, coefficients.as_ref(), lanczos)
 }

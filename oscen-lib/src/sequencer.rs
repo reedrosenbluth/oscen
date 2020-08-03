@@ -66,7 +66,7 @@ pub struct PitchSeq {
 
 impl PitchSeq {
     pub fn new(seq: Sequencer) -> Self {
-        Self { tag: mk_tag(), seq }
+        Self { tag: 0, seq }
     }
 }
 
@@ -95,7 +95,7 @@ pub struct GateSeq {
 
 impl GateSeq {
     pub fn new(seq: Sequencer) -> Self {
-        Self { tag: mk_tag(), seq }
+        Self { tag: 0, seq }
     }
 }
 
