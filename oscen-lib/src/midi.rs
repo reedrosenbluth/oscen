@@ -18,9 +18,9 @@ pub struct MidiPitch {
 }
 
 impl MidiPitch {
-    pub fn new() -> Self {
+    pub fn new(id_gen: &mut IdGen) -> Self {
         MidiPitch {
-            tag: 0,
+            tag: id_gen.id(),
             step: 0.0,
             offset: 0.0,
             factor: 1.0,
@@ -61,9 +61,9 @@ pub struct MidiControl {
 }
 
 impl MidiControl {
-    pub fn new(controller: u8, value: u8, low: Real, mid: Real, high: Real) -> Self {
+    pub fn new(id_gen: &mut IdGen, controller: u8, value: u8, low: Real, mid: Real, high: Real) -> Self {
         Self {
-            tag: 0,
+            tag: id_gen.id(),
             controller,
             value,
             exp_interp: ExpInterp::new(low, mid, high),

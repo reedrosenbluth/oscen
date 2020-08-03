@@ -4,7 +4,8 @@ use oscen::signal::*;
 use oscen::utils::signals;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut adsr = envelopes::Adsr::new(0.2, 0.2, 0.2)
+    let mut id_gen = IdGen::new();
+    let mut adsr = envelopes::Adsr::new(&mut id_gen, 0.2, 0.2, 0.2)
         .attack(1)
         .decay(1)
         .release(1)

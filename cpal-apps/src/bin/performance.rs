@@ -28,19 +28,20 @@ where
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
 
-    let mut rack = Rack::new(vec![]);
-    let num_oscillators = 110;
+    let mut rack = Rack::new();
+    let mut id_gen = IdGen::new();
+    let num_oscillators = 450;
     let amp = 1.0 / num_oscillators as f64;
     let mut oscs = vec![];
     for _ in 0..num_oscillators {
-        let osc = Oscillator::new(sine_osc)
+        let osc = Oscillator::new(&mut id_gen, sine_osc)
             .amplitude(amp)
             .hz(200)
             .arg(0.5)
             .rack(&mut rack);
         oscs.push(osc.tag());
     }
-    Mixer::new(oscs).level(0.2).rack(&mut rack);
+    Mixer::new(&mut id_gen, oscs).level(0.2).rack(&mut rack);
 
     // Produce a sinusoid of maximum amplitude.
     let mut next_value = move || {

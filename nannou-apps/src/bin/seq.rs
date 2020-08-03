@@ -8,7 +8,7 @@ use oscen::filters::Lpf;
 use oscen::operators::Product;
 use oscen::oscillators::*;
 use oscen::sequencer::{Sequencer, Note, GateSeq, PitchSeq};
-use oscen::signal::{arc, Builder, Rack, Real, Signal};
+use oscen::signal::{arc, Builder, IdGen, Rack, Real, Signal};
 use oscen::reverb::Freeverb;
 
 fn main() {
@@ -30,7 +30,8 @@ struct Synth {
 }
 
 fn build_synth(sender: Sender<f32>) -> Synth {
-    let mut rack = Rack::new(vec![]);
+    let mut rack = Rack::new();
+    let mut id_gen = IdGen::new();
 
     let notes = vec![
         Note::new(Letter::D, 1, true),
@@ -49,14 +50,14 @@ fn build_synth(sender: Sender<f32>) -> Synth {
 
     let gate_seq = GateSeq::new(seq).rack(&mut rack);
 
-    let wave = Oscillator::new(saw_osc).hz(pitch_seq.tag()).rack(&mut rack);
+    let wave = Oscillator::new(&mut id_gen, saw_osc).hz(pitch_seq.tag()).rack(&mut rack);
 
-    let lpf = Lpf::new(wave.tag()).cutoff_freq(400).rack(&mut rack);
+    let lpf = Lpf::new(&mut id_gen, wave.tag()).cutoff_freq(400).rack(&mut rack);
 
-    let reverb = arc(Freeverb::new(lpf.tag()));
+    let reverb = arc(Freeverb::new(&mut id_gen, lpf.tag()));
     rack.append(reverb.clone());
 
-    Product::new(vec![reverb.clone().tag(), gate_seq.tag()]).rack(&mut rack);
+    Product::new(&mut id_gen, vec![reverb.clone().tag(), gate_seq.tag()]).rack(&mut rack);
 
     Synth { rack, sender }
 }

@@ -6,7 +6,7 @@ use std::thread;
 use oscen::instruments::WaveGuide;
 use oscen::midi::{listen_midi, MidiControl, MidiPitch};
 use oscen::oscillators::{Oscillator, square_osc};
-use oscen::signal::{ArcMutex, Builder, Rack, Real, Signal, Tag, Gate};
+use oscen::signal::{ArcMutex, Builder, IdGen, Rack, Real, Signal, Tag, Gate};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -35,15 +35,16 @@ struct Synth {
 }
 
 fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
-    let mut rack = Rack::new(vec![]);
+    let mut rack = Rack::new();
+    let mut id_gen = IdGen::new();
 
     //  Midi
-    let midi_pitch = MidiPitch::new().rack(&mut rack);
-    MidiControl::new(1, 64, 0.0, 0.5, 1.0).rack(&mut rack);
+    let midi_pitch = MidiPitch::new(&mut id_gen).rack(&mut rack);
+    MidiControl::new(&mut id_gen, 1, 64, 0.0, 0.5, 1.0).rack(&mut rack);
 
-    let excite = Oscillator::new(square_osc).hz(110).rack(&mut rack);
+    let excite = Oscillator::new(&mut id_gen, square_osc).hz(110).rack(&mut rack);
 
-    let karplus = WaveGuide::new(excite.tag())
+    let karplus = WaveGuide::new(&mut id_gen, excite.tag())
         .hz(midi_pitch.tag())
         .wet_decay(0.95)
         .attack(0.005)
