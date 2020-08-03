@@ -65,8 +65,8 @@ pub struct PitchSeq {
 }
 
 impl PitchSeq {
-    pub fn new(seq: Sequencer) -> Self {
-        Self { tag: 0, seq }
+    pub fn new(id_gen: &mut IdGen, seq: Sequencer) -> Self {
+        Self { tag: id_gen.id(), seq }
     }
 }
 
@@ -94,8 +94,8 @@ pub struct GateSeq {
 }
 
 impl GateSeq {
-    pub fn new(seq: Sequencer) -> Self {
-        Self { tag: 0, seq }
+    pub fn new(id_gen: &mut IdGen, seq: Sequencer) -> Self {
+        Self { tag: id_gen.id(), seq }
     }
 }
 
@@ -126,7 +126,8 @@ mod tests {
             Note::new(Letter::A, 5, false),
         ];
         let seq: Sequencer = Sequencer::new().sequence(notes).build();
-        let mut ps = PitchSeq::new(seq);
+        let mut id_gen = IdGen::new();
+        let mut ps = PitchSeq::new(&mut id_gen, seq);
         let sigs = signals(&mut ps, 0, 16, 4.0);
         let s0 = sigs[0].1.round();
         let s1 = sigs[1].1.round();
@@ -148,7 +149,8 @@ mod tests {
             Note::new(Letter::A, 5, false),
         ];
         let seq: Sequencer = Sequencer::new().sequence(notes).build();
-        let mut ps = GateSeq::new(seq);
+        let mut id_gen = IdGen::new();
+        let mut ps = GateSeq::new(&mut id_gen, seq);
         let sigs = signals(&mut ps, 0, 16, 4.0);
         let s0 = sigs[0].1;
         let s1 = sigs[1].1;

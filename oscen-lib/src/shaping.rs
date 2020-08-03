@@ -9,9 +9,9 @@ pub struct SineFold {
 }
 
 impl SineFold {
-    pub fn new(wave: Tag) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
         Self {
-            tag: 0,
+            tag: id_gen.id(),
             wave,
             fold_param: TAU.into(),
         }
@@ -45,9 +45,9 @@ pub struct Tanh {
 }
 
 impl Tanh {
-    pub fn new(wave: Tag) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
         Self {
-            tag: 0,
+            tag: id_gen.id(),
             wave,
         }
     }

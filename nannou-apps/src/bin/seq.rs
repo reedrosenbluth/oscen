@@ -46,9 +46,9 @@ fn build_synth(sender: Sender<f32>) -> Synth {
 
     ];
     let seq = Sequencer::new().sequence(notes).bpm(120.0).build();
-    let pitch_seq = PitchSeq::new(seq.clone()).rack(&mut rack);
+    let pitch_seq = PitchSeq::new(&mut id_gen, seq.clone()).rack(&mut rack);
 
-    let gate_seq = GateSeq::new(seq).rack(&mut rack);
+    let gate_seq = GateSeq::new(&mut id_gen, seq).rack(&mut rack);
 
     let wave = Oscillator::new(&mut id_gen, saw_osc).hz(pitch_seq.tag()).rack(&mut rack);
 
