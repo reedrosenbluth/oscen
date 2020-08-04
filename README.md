@@ -1,6 +1,6 @@
 # Oscen [![crates.io](https://img.shields.io/crates/v/oscen.svg)](https://crates.io/crates/oscen)
 
-![logo](logo.png)
+![logo](logo.svg)
 
 Oscen _[“oh-sin”]_ is a library for building modular synthesizers in Rust.
 
