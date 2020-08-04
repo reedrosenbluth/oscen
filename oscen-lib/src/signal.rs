@@ -236,42 +236,6 @@ where
     dest[field] = source.tag().into();
 }
 
-/// SynthModules for the rack will have both a module (i.e an implementor of
-/// `Signal`) and will store their current signal value as `output`
-#[derive(Clone)]
-pub struct SynthModule {
-    pub module: ArcMutex<Sig>,
-    pub output: Real,
-}
-
-impl SynthModule {
-    pub fn new(signal: ArcMutex<Sig>) -> Self {
-        Self {
-            module: signal,
-            output: 0.0,
-        }
-    }
-}
-
-impl Signal for SynthModule {
-    as_any_mut!();
-    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
-        self.module.signal(rack, sample_rate)
-    }
-
-    fn tag(&self) -> Tag {
-        self.module.tag()
-    }
-
-    fn modify_tag(&mut self, f: fn(Tag) -> Tag) {
-        self.module.modify_tag(f);
-    }
-
-    fn out(&self) -> Real {
-        self.module.out()
-    }
-}
-
 #[derive(Clone)]
 pub struct Rack(pub Vec<ArcMutex<Sig>>);
 
