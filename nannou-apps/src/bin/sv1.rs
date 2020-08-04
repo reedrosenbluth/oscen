@@ -65,7 +65,7 @@ fn build_synth(
     let adsr_tag = adsr.tag();
 
     let midi_control_tri_lfo_hz =
-        MidiControl::new(&mut id_gen, 46, 0, 0.0, 100.0, 500.0).rack_pre(&mut rack);
+        MidiControl::new(&mut id_gen, 46, 0, 0.0, 100.0, 500.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_tri_lfo_hz.clone());
 
     // LFO's
@@ -75,10 +75,10 @@ fn build_synth(
     Oscillator::new(&mut id_gen, square_osc).rack(&mut rack);
 
     let midi_control_mod_hz2 =
-        MidiControl::new(&mut id_gen, 44, 0, 0.0, 440.0, 1760.0).rack_pre(&mut rack);
+        MidiControl::new(&mut id_gen, 44, 0, 0.0, 440.0, 1760.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_mod_hz2.clone());
     let midi_control_mod_idx2 =
-        MidiControl::new(&mut id_gen, 45, 0, 0.0, 4.0, 16.0).rack_pre(&mut rack);
+        MidiControl::new(&mut id_gen, 45, 0, 0.0, 4.0, 16.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_mod_idx2.clone());
 
     // TODO: tune these lower
@@ -107,10 +107,10 @@ fn build_synth(
         .rack(&mut rack);
 
     let midi_control_mod_hz1 =
-        MidiControl::new(&mut id_gen, 43, 0, 0.0, 440.0, 1760.0).rack_pre(&mut rack);
+        MidiControl::new(&mut id_gen, 43, 0, 0.0, 440.0, 1760.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_mod_hz1.clone());
     let midi_control_mod_idx1 =
-        MidiControl::new(&mut id_gen, 42, 0, 0.0, 4.0, 16.0).rack_pre(&mut rack);
+        MidiControl::new(&mut id_gen, 42, 0, 0.0, 4.0, 16.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_mod_idx1.clone());
 
     let modulator_osc1 = Modulator::new(
@@ -123,7 +123,8 @@ fn build_synth(
     .rack(&mut rack);
 
     // Oscillator 1
-    let midi_control_pulse_width = MidiControl::new(&mut id_gen, 39, 0, 0.05, 0.5, 0.95).rack_pre(&mut rack);
+    let midi_control_pulse_width =
+        MidiControl::new(&mut id_gen, 39, 0, 0.05, 0.5, 0.95).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_pulse_width.clone());
 
     let sine1 = Oscillator::new(&mut id_gen, sine_osc)
@@ -149,26 +150,30 @@ fn build_synth(
         .rack(&mut rack);
 
     // Noise
-    let noise = WhiteNoise::new(&mut id_gen, ).rack(&mut rack);
+    let noise = WhiteNoise::new(&mut id_gen).rack(&mut rack);
 
     // Mixers
-    let mut mixer = Mixer::new(&mut id_gen, vec![
-        sine1.tag(),
-        square1.tag(),
-        saw1.tag(),
-        triangle1.tag(),
-        noise.tag(),
-    ]);
+    let mut mixer = Mixer::new(
+        &mut id_gen,
+        vec![
+            sine1.tag(),
+            square1.tag(),
+            saw1.tag(),
+            triangle1.tag(),
+            noise.tag(),
+        ],
+    );
 
-    let midi_control_mix1 = MidiControl::new(&mut id_gen, 32, 127, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    let midi_control_mix1 =
+        MidiControl::new(&mut id_gen, 32, 127, 0.0, 0.5, 1.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_mix1.clone());
-    let midi_control_mix2 = MidiControl::new(&mut id_gen, 33, 0, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    let midi_control_mix2 = MidiControl::new(&mut id_gen, 33, 0, 0.0, 0.5, 1.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_mix2.clone());
-    let midi_control_mix3 = MidiControl::new(&mut id_gen, 34, 0, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    let midi_control_mix3 = MidiControl::new(&mut id_gen, 34, 0, 0.0, 0.5, 1.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_mix3.clone());
-    let midi_control_mix4 = MidiControl::new(&mut id_gen, 35, 0, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    let midi_control_mix4 = MidiControl::new(&mut id_gen, 35, 0, 0.0, 0.5, 1.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_mix4.clone());
-    let midi_control_mix5 = MidiControl::new(&mut id_gen, 36, 0, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    let midi_control_mix5 = MidiControl::new(&mut id_gen, 36, 0, 0.0, 0.5, 1.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_mix5.clone());
 
     let mixer = mixer
@@ -183,9 +188,11 @@ fn build_synth(
         .rack(&mut rack);
 
     // Filter
-    let midi_control_cutoff = MidiControl::new(&mut id_gen, 40, 127, 10.0, 1320.0, 25000.0).rack_pre(&mut rack);
+    let midi_control_cutoff =
+        MidiControl::new(&mut id_gen, 40, 127, 10.0, 1320.0, 25000.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_cutoff.clone());
-    let midi_control_resonance = MidiControl::new(&mut id_gen, 41, 0, 0.707, 4.0, 10.0).rack_pre(&mut rack);
+    let midi_control_resonance =
+        MidiControl::new(&mut id_gen, 41, 0, 0.707, 4.0, 10.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_resonance.clone());
 
     let low_pass_filter = Lpf::new(&mut id_gen, mixer.tag())
@@ -194,7 +201,8 @@ fn build_synth(
         .rack(&mut rack);
 
     // VCA
-    let midi_control_volume = MidiControl::new(&mut id_gen, 47, 64, 0.0, 0.5, 1.0).rack_pre(&mut rack);
+    let midi_control_volume =
+        MidiControl::new(&mut id_gen, 47, 64, 0.0, 0.5, 1.0).rack_insert(0, &mut rack);
     midi_controls.push(midi_control_volume.clone());
     Vca::new(&mut id_gen, low_pass_filter.tag())
         .level(midi_control_volume.tag())

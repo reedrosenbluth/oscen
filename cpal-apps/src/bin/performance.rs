@@ -30,7 +30,7 @@ where
 
     let mut rack = Rack::new();
     let mut id_gen = IdGen::new();
-    let num_oscillators = 450;
+    let num_oscillators = 250;
     let amp = 1.0 / num_oscillators as f64;
     let mut oscs = vec![];
     for _ in 0..num_oscillators {

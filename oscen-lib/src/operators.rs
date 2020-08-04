@@ -1,4 +1,4 @@
-use super::oscillators::{ConstOsc, SignalFn, Oscillator};
+use super::oscillators::{ConstOsc, Oscillator, SignalFn};
 use super::signal::*;
 use super::utils::RingBuffer;
 use crate::{as_any_mut, std_signal};
@@ -14,6 +14,7 @@ pub struct Union {
     waves: Vec<Tag>,
     active: Tag,
     level: In,
+    out: Real,
 }
 
 impl Union {
@@ -24,6 +25,7 @@ impl Union {
             waves,
             active,
             level: 1.into(),
+            out: 0.0,
         }
     }
 
@@ -48,7 +50,8 @@ impl Builder for Union {}
 impl Signal for Union {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        In::val(rack, self.level) * rack.output(self.active)
+        self.out = In::val(rack, self.level) * rack.output(self.active);
+        self.out
     }
 }
 
@@ -70,6 +73,7 @@ impl IndexMut<usize> for Union {
 pub struct Product {
     tag: Tag,
     waves: Vec<Tag>,
+    out: Real,
 }
 
 impl Product {
@@ -77,6 +81,7 @@ impl Product {
         Product {
             tag: id_gen.id(),
             waves,
+            out: 0.0,
         }
     }
 
@@ -91,7 +96,8 @@ impl Builder for Product {}
 impl Signal for Product {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        self.waves.iter().fold(1.0, |acc, n| acc * rack.output(*n))
+        self.out = self.waves.iter().fold(1.0, |acc, n| acc * rack.output(*n));
+        self.out
     }
 }
 
@@ -116,6 +122,7 @@ pub struct Vca {
     tag: Tag,
     wave: Tag,
     level: In,
+    out: Real,
 }
 
 impl Vca {
@@ -124,6 +131,7 @@ impl Vca {
             tag: id_gen.id(),
             wave,
             level: 1.into(),
+            out: 0.0,
         }
     }
 
@@ -143,7 +151,8 @@ impl Builder for Vca {}
 impl Signal for Vca {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        rack.output(self.wave) * In::val(rack, self.level)
+        self.out = rack.output(self.wave) * In::val(rack, self.level);
+        self.out
     }
 }
 
@@ -174,6 +183,7 @@ pub struct Mixer {
     waves: Vec<Tag>,
     levels: Vec<In>,
     level: In,
+    out: Real,
 }
 
 impl Mixer {
@@ -184,6 +194,7 @@ impl Mixer {
             waves,
             levels,
             level: 1.into(),
+            out: 0.0,
         }
     }
 
@@ -220,9 +231,10 @@ impl Builder for Mixer {}
 impl Signal for Mixer {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        self.waves.iter().enumerate().fold(0.0, |acc, (i, n)| {
+        self.out = self.waves.iter().enumerate().fold(0.0, |acc, (i, n)| {
             acc + rack.output(*n) * In::val(rack, self.levels[i])
-        }) * In::val(rack, self.level)
+        }) * In::val(rack, self.level);
+        self.out
     }
 }
 
@@ -247,6 +259,7 @@ pub struct CrossFade {
     wave1: In,
     wave2: In,
     alpha: In,
+    out: Real,
 }
 
 impl CrossFade {
@@ -256,6 +269,7 @@ impl CrossFade {
             wave1: wave1.into(),
             wave2: wave2.into(),
             alpha: (0.5).into(),
+            out: 0.0,
         }
     }
 
@@ -281,7 +295,8 @@ impl Signal for CrossFade {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
         let alpha = In::val(rack, self.alpha);
-        alpha * In::val(rack, self.wave2) + (1.0 - alpha) * In::val(rack, self.wave1)
+        self.out = alpha * In::val(rack, self.wave2) + (1.0 - alpha) * In::val(rack, self.wave1);
+        self.out
     }
 }
 
@@ -327,6 +342,7 @@ pub struct Modulator {
     mod_amp: ArcMutex<Mixer>,
     carrier_hz: ArcMutex<Mixer>,
     rack: Rack,
+    out: Real,
 }
 
 impl Modulator {
@@ -342,8 +358,11 @@ impl Modulator {
         let ratio_osc = ConstOsc::new(&mut id, ratio.into()).rack(&mut rack);
         let index_osc = ConstOsc::new(&mut id, index.into()).rack(&mut rack);
         let mod_hz = Product::new(&mut id, vec![ratio_osc.tag(), hz_osc.tag()]).rack(&mut rack);
-        let amp_factor =
-            Product::new(&mut id, vec![index_osc.tag(), hz_osc.tag(), ratio_osc.tag()]).rack(&mut rack);
+        let amp_factor = Product::new(
+            &mut id,
+            vec![index_osc.tag(), hz_osc.tag(), ratio_osc.tag()],
+        )
+        .rack(&mut rack);
         let mod_amp = Mixer::new(&mut id, vec![hz_osc.tag(), amp_factor.tag()]).rack(&mut rack);
         let wave = Oscillator::new(&mut id, signal_fn)
             .hz(mod_hz.tag())
@@ -365,6 +384,7 @@ impl Modulator {
             mod_amp,
             carrier_hz,
             rack,
+            out: 0.0,
         }
     }
 }
@@ -374,7 +394,8 @@ impl Builder for Modulator {}
 impl Signal for Modulator {
     std_signal!();
     fn signal(&mut self, _rack: &Rack, sample_rate: Real) -> Real {
-        self.rack.signal(sample_rate)
+        self.out = self.rack.signal(sample_rate);
+        self.out
     }
 }
 
@@ -409,6 +430,7 @@ pub struct Delay {
     wave: Tag,
     delay_time: In,
     ring_buffer: RingBuffer<Real>,
+    out: Real,
 }
 
 impl Delay {
@@ -419,6 +441,7 @@ impl Delay {
             wave,
             delay_time,
             ring_buffer: ring,
+            out: 0.0,
         }
     }
 
@@ -448,6 +471,7 @@ impl Signal for Delay {
         }
         let val = rack.output(self.wave);
         self.ring_buffer.push(val);
-        self.ring_buffer.get_cubic()
+        self.out = self.ring_buffer.get_cubic();
+        self.out
     }
 }

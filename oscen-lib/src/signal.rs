@@ -23,6 +23,8 @@ pub trait Signal: Any {
     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real;
     /// Synth modules must have a tag (name) to serve as their key in the rack.
     fn tag(&self) -> Tag;
+    fn modify_tag(&mut self, f: fn(Tag) -> Tag);
+    fn out(&self) -> Real;
 }
 
 /// Since `as_any_mut()` usually has the same implementation for any `Signal`
@@ -43,6 +45,12 @@ macro_rules! std_signal {
         as_any_mut!();
         fn tag(&self) -> Tag {
             self.tag
+        }
+        fn modify_tag(&mut self, f: fn(Tag) -> Tag) {
+            self.tag = f(self.tag);
+        }
+        fn out(&self) -> Real {
+            self.out
         }
     };
 }
@@ -78,23 +86,13 @@ macro_rules! gate {
     ($t:ty) => {
         impl Gate for $t {
             fn gate_on(rack: &Rack, n: Tag) {
-                if let Some(v) = rack.0[n]
-                    .module
-                    .lock()
-                    .as_any_mut()
-                    .downcast_mut::<Self>()
-                {
+                if let Some(v) = rack.0[n].lock().as_any_mut().downcast_mut::<Self>() {
                     v.on();
                 }
             }
 
             fn gate_off(rack: &Rack, n: Tag) {
-                if let Some(v) = rack.0[n]
-                    .module
-                    .lock()
-                    .as_any_mut()
-                    .downcast_mut::<Self>()
-                {
+                if let Some(v) = rack.0[n].lock().as_any_mut().downcast_mut::<Self>() {
                     v.off();
                 }
             }
@@ -124,6 +122,14 @@ where
     fn tag(&self) -> Tag {
         self.lock().tag()
     }
+
+    fn modify_tag(&mut self, f: fn(Tag) -> Tag) {
+        self.lock().modify_tag(f);
+    }
+
+    fn out(&self) -> Real {
+        self.lock().out()
+    }
 }
 
 impl Signal for ArcMutex<dyn Signal + Send> {
@@ -134,6 +140,14 @@ impl Signal for ArcMutex<dyn Signal + Send> {
 
     fn tag(&self) -> Tag {
         self.lock().tag()
+    }
+
+    fn modify_tag(&mut self, f: fn(Tag) -> Tag) {
+        self.lock().modify_tag(f);
+    }
+
+    fn out(&self) -> Real {
+        self.lock().out()
     }
 }
 
@@ -161,12 +175,12 @@ pub trait Builder {
         result
     }
 
-    fn rack_pre(&mut self, rack: &mut Rack) -> ArcMutex<Self>
+    fn rack_insert(&mut self, at: Tag, rack: &mut Rack) -> ArcMutex<Self>
     where
         Self: Signal + Send + Sized + Clone,
     {
         let result = arc(self.clone());
-        rack.preppend(result.clone());
+        rack.insert(at, result.clone());
         result
     }
 }
@@ -248,10 +262,18 @@ impl Signal for SynthModule {
     fn tag(&self) -> Tag {
         self.module.tag()
     }
+
+    fn modify_tag(&mut self, f: fn(Tag) -> Tag) {
+        self.module.modify_tag(f);
+    }
+
+    fn out(&self) -> Real {
+        self.module.out()
+    }
 }
 
 #[derive(Clone)]
-pub struct Rack(pub Vec<SynthModule>);
+pub struct Rack(pub Vec<ArcMutex<Sig>>);
 
 impl Rack {
     /// Create a `Rack` object whose order is set to the order of the `Signal`s
@@ -260,18 +282,15 @@ impl Rack {
         Rack(vec![])
     }
 
-    pub fn modules(&mut self, ms: Vec<SynthModule>) -> &mut Self {
+    pub fn modules(&mut self, ms: Vec<ArcMutex<Sig>>) -> &mut Self {
         self.0 = ms;
         self
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &SynthModule> {
+    pub fn iter(&self) -> impl Iterator<Item = &ArcMutex<Sig>> {
         self.0.iter()
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut SynthModule> {
-        self.0.iter_mut()
-    }
     /// Convenience function get the `Tag` of the final node in the `Rack`.
     pub fn out_tag(&self) -> Tag {
         self.0.len() - 1
@@ -279,36 +298,30 @@ impl Rack {
 
     /// Get the `output` of a `Node`.
     pub fn output(&self, n: Tag) -> Real {
-        self.0[n].output
+        self.0[n].out()
     }
 
     /// Add a `Node` (synth module) to the `Rack` and set it's order to be last.
     pub fn append(&mut self, sig: ArcMutex<Sig>) {
-        self.0.push(SynthModule::new(sig));
-    }
-
-    /// Add a `SynthModule` to the `Rack` and set it's order to be first`.
-    pub fn preppend(&mut self, sig: ArcMutex<Sig>) {
-        self.0.insert(0, SynthModule::new(sig));
+        self.0.push(sig);
     }
 
     /// Add a `SynthModule` to the `Rack` at the position `before` was.
-    pub fn before(&mut self, before: Tag, sig: ArcMutex<Sig>) {
-        self.0.insert(before, SynthModule::new(sig));
+    pub fn insert(&mut self, at: Tag, sig: ArcMutex<Sig>) {
+        for i in at..self.0.len() {
+            self.0[i].modify_tag(|t| t + 1);
+        }
+        self.0.insert(at, sig);
     }
 
     /// A `Rack` generates a signal by travesing the list of modules and
     /// updating each one's output in turn. The output of the last `Node` is
     /// returned.
     pub fn signal(&mut self, sample_rate: Real) -> Real {
-        let mut outs = vec![];
         for sm in self.iter() {
-            outs.push(sm.module.lock().signal(self, sample_rate));
+            sm.lock().signal(self, sample_rate);
         }
-        for (i, sm) in self.iter_mut().enumerate() {
-            sm.output = outs[i];
-        }
-        self.0[self.out_tag()].output
+        self.0[self.out_tag()].out()
     }
 }
 
@@ -321,6 +334,7 @@ impl Builder for Rack {}
 pub struct Link {
     tag: Tag,
     value: In,
+    out: Real,
 }
 
 impl Link {
@@ -328,6 +342,7 @@ impl Link {
         Self {
             tag: id_gen.id(),
             value: 0.into(),
+            out: 0.0,
         }
     }
 
@@ -342,7 +357,8 @@ impl Builder for Link {}
 impl Signal for Link {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        In::val(rack, self.value)
+        self.out = In::val(rack, self.value);
+        self.out
     }
 }
 

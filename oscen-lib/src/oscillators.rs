@@ -15,6 +15,7 @@ use std::{
 pub struct ConstOsc {
     tag: Tag,
     value: In,
+    out: Real,
 }
 
 impl ConstOsc {
@@ -22,6 +23,7 @@ impl ConstOsc {
         Self {
             tag: id_gen.id(),
             value,
+            out: 0.0,
         }
     }
 
@@ -36,7 +38,8 @@ impl Builder for ConstOsc {}
 impl Signal for ConstOsc {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        In::val(rack, self.value)
+        self.out = In::val(rack, self.value);
+        self.out
     }
 }
 
@@ -47,6 +50,7 @@ pub struct Clock {
     tag: Tag,
     clock: u64,
     interval: Real,
+    out: Real,
 }
 
 impl Clock {
@@ -55,6 +59,7 @@ impl Clock {
             tag: id_gen.id(),
             clock: 0,
             interval,
+            out: 0.0,
         }
     }
 }
@@ -65,12 +70,13 @@ impl Signal for Clock {
         let interval = (self.interval * sample_rate) as u64;
         if self.clock == 0 {
             self.clock += 1;
-            1.0
+            self.out = 1.0;
         } else {
             self.clock += 1;
             self.clock %= interval;
-            0.0
+            self.out = 0.0;
         }
+        self.out
     }
 }
 
@@ -84,6 +90,7 @@ pub struct Oscillator {
     phase: In,
     arg: In,
     signal_fn: fn(Real, Real) -> Real,
+    out: Real,
 }
 
 impl Oscillator {
@@ -95,6 +102,7 @@ impl Oscillator {
             phase: 0.into(),
             arg: 0.into(),
             signal_fn,
+            out: 0.0,
         }
     }
 
@@ -127,7 +135,8 @@ impl Signal for Oscillator {
         let hz = In::val(rack, self.hz);
         let amplitude = In::val(rack, self.amplitude);
         if hz == 0.0 {
-            return amplitude;
+            self.out = amplitude;
+            return self.out;
         }
         let phase = In::val(rack, self.phase);
         let arg = In::val(rack, self.arg);
@@ -139,7 +148,8 @@ impl Signal for Oscillator {
             }
             In::Cv(_) => {}
         };
-        amplitude * (self.signal_fn)(phase, arg)
+        self.out = amplitude * (self.signal_fn)(phase, arg);
+        self.out
     }
 }
 
@@ -211,14 +221,16 @@ pub struct WhiteNoise {
     tag: Tag,
     amplitude: In,
     dist: NoiseDistribution,
+    out: Real,
 }
 
 impl WhiteNoise {
-    pub fn new(id_gen: &mut IdGen, ) -> Self {
+    pub fn new(id_gen: &mut IdGen) -> Self {
         Self {
             tag: id_gen.id(),
             amplitude: 1.into(),
             dist: NoiseDistribution::StdNormal,
+            out: 0.0,
         }
     }
 
@@ -242,10 +254,13 @@ impl Signal for WhiteNoise {
         let mut rng = thread_rng();
         match self.dist {
             NoiseDistribution::Uni => {
-                amplitude * Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng)
+                self.out = amplitude * Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng)
             }
-            NoiseDistribution::StdNormal => amplitude * rng.sample::<f64, _>(StandardNormal),
+            NoiseDistribution::StdNormal => {
+                self.out = amplitude * rng.sample::<f64, _>(StandardNormal)
+            }
         }
+        self.out
     }
 }
 
@@ -277,14 +292,16 @@ pub struct PinkNoise {
     tag: Tag,
     b: [Real; 7],
     amplitude: In,
+    out: Real,
 }
 
 impl PinkNoise {
-    pub fn new(id_gen: &mut IdGen, ) -> Self {
+    pub fn new(id_gen: &mut IdGen) -> Self {
         Self {
             tag: id_gen.id(),
             b: [0.0; 7],
             amplitude: 1.into(),
+            out: 0.0,
         }
     }
 
@@ -316,7 +333,8 @@ impl Signal for PinkNoise {
             + self.b[6]
             + white * 0.5362;
         self.b[6] = white * 0.115926;
-        pink * In::val(rack, self.amplitude)
+        self.out = pink * In::val(rack, self.amplitude);
+        self.out
     }
 }
 
@@ -347,14 +365,16 @@ pub struct Osc01 {
     tag: Tag,
     hz: In,
     phase: In,
+    out: Real,
 }
 
 impl Osc01 {
-    pub fn new(id_gen: &mut IdGen, ) -> Self {
+    pub fn new(id_gen: &mut IdGen) -> Self {
         Self {
             tag: id_gen.id(),
             hz: 0.into(),
             phase: 0.into(),
+            out: 0.0,
         }
     }
 
@@ -384,7 +404,8 @@ impl Signal for Osc01 {
             }
             In::Cv(_) => {}
         };
-        0.5 * ((TAU * phase).sin() + 1.0)
+        self.out = 0.5 * ((TAU * phase).sin() + 1.0);
+        self.out
     }
 }
 
@@ -426,18 +447,19 @@ pub struct FourierOsc {
     amplitude: In,
     sines: Rack,
     lanczos: bool,
+    out: Real,
 }
 
 impl FourierOsc {
     pub fn new(id_gen: &mut IdGen, coefficients: &[Real], lanczos: bool) -> Self {
         let sigma = lanczos as i32;
-        let mut wwaves: Vec<SynthModule> = Vec::new();
+        let mut wwaves: Vec<ArcMutex<Sig>> = Vec::new();
         let mut id = IdGen::new();
         for (n, c) in coefficients.iter().enumerate() {
             let mut s = Oscillator::new(&mut id, sine_osc);
             s.amplitude =
                 (*c * sinc(sigma as Real * n as Real / coefficients.len() as Real)).into();
-            wwaves.push(SynthModule::new(arc(s)));
+            wwaves.push(arc(s));
         }
         FourierOsc {
             tag: id_gen.id(),
@@ -445,6 +467,7 @@ impl FourierOsc {
             amplitude: 1.into(),
             sines: Rack::new().modules(wwaves).build(),
             lanczos,
+            out: 0.0,
         }
     }
 
@@ -472,22 +495,14 @@ impl Signal for FourierOsc {
         let hz = In::val(rack, self.hz);
         let amp = In::val(rack, self.amplitude);
         for (n, node) in self.sines.iter().enumerate() {
-            if let Some(v) = node
-                .module
-                .lock()
-                .as_any_mut()
-                .downcast_mut::<Oscillator>()
-            {
+            if let Some(v) = node.lock().as_any_mut().downcast_mut::<Oscillator>() {
                 v.hz = (hz * n as Real).into();
             }
         }
         self.sines.signal(sample_rate);
-        let out = self
-            .sines
-            .0
-            .iter()
-            .fold(0., |acc, x| acc + x.output);
-        amp * out
+        let out = self.sines.0.iter().fold(0., |acc, x| acc + x.out());
+        self.out = amp * out;
+        self.out
     }
 }
 

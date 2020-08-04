@@ -23,6 +23,7 @@ pub struct Adsr {
     a_interp: ExpInterp,
     d_interp: ExpInterp,
     r_interp: ExpInterp,
+    out: Real,
 }
 
 impl Adsr {
@@ -46,6 +47,7 @@ impl Adsr {
             a_interp,
             d_interp,
             r_interp,
+            out: 0.0,
         }
     }
 
@@ -141,9 +143,9 @@ impl Signal for Adsr {
         let s = In::val(rack, self.sustain);
         self.d_interp.update(1.0, s + self.d_param * (1.0 - s), s);
         self.r_interp.update(s, self.r_param * s, 0.0);
-        self.level = self.calc_level(rack);
+        self.out = self.calc_level(rack);
         self.clock += 1. / sample_rate;
-        self.level
+        self.out
     }
 }
 

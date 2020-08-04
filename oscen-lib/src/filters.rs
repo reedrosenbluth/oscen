@@ -18,6 +18,7 @@ pub struct Lpf {
     y1: Real,
     y2: Real,
     off: bool,
+    out: Real,
 }
 
 impl Lpf {
@@ -32,6 +33,7 @@ impl Lpf {
             y1: 0.0,
             y2: 0.0,
             off: false,
+            out: 0.0,
         }
     }
 
@@ -78,12 +80,12 @@ impl Signal for Lpf {
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.25 * (1.0 + b1 + b2);
         let a1 = 2.0 * a0;
-        let amp = a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2;
+        self.out = a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x0;
         self.y2 = self.y1;
-        self.y1 = if amp.is_nan() { 0.0 } else { amp };
-        amp
+        self.y1 = if self.out.is_nan() { 0.0 } else { self.out };
+        self.out
     }
 }
 
@@ -120,6 +122,7 @@ pub struct Hpf {
     y1: Real,
     y2: Real,
     off: bool,
+    out: Real,
 }
 
 impl Hpf {
@@ -134,6 +137,7 @@ impl Hpf {
             y1: 0.0,
             y2: 0.0,
             off: false,
+            out: 0.0,
         }
     }
 
@@ -179,12 +183,12 @@ impl Signal for Hpf {
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.25 * (1.0 - b1 + b2);
         let a1 = -2.0 * a0;
-        let amp = a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2;
+        self.out = a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x0;
         self.y2 = self.y1;
-        self.y1 = if amp.is_nan() { 0.0 } else { amp };
-        amp
+        self.y1 = if self.out.is_nan() { 0.0 } else { self.out };
+        self.out
     }
 }
 
@@ -221,6 +225,7 @@ pub struct Bpf {
     y1: Real,
     y2: Real,
     off: bool,
+    out: Real,
 }
 
 impl Bpf {
@@ -235,6 +240,7 @@ impl Bpf {
             y1: 0.0,
             y2: 0.0,
             off: false,
+            out: 0.0,
         }
     }
 
@@ -281,12 +287,12 @@ impl Signal for Bpf {
         let a0 = 0.5 * (1.0 - b2);
         let a1 = 0.0;
         let a2 = -a0;
-        let amp = a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2;
+        self.out = a0 * x0 + a1 * self.x1 + a2 * self.x2 - b1 * self.y1 - b2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x0;
         self.y2 = self.y1;
-        self.y1 = if amp.is_nan() { 0.0 } else { amp };
-        amp
+        self.y1 = if self.out.is_nan() { 0.0 } else { self.out };
+        self.out
     }
 }
 
@@ -323,6 +329,7 @@ pub struct Notch {
     y1: Real,
     y2: Real,
     off: bool,
+    out: Real,
 }
 
 impl Notch {
@@ -337,6 +344,7 @@ impl Notch {
             y1: 0.0,
             y2: 0.0,
             off: false,
+            out: 0.0,
         }
     }
 
@@ -382,12 +390,12 @@ impl Signal for Notch {
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.5 * (1.0 + b2);
         let a1 = b1;
-        let amp = a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2;
+        self.out = a0 * x0 + a1 * self.x1 + a0 * self.x2 - b1 * self.y1 - b2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x0;
         self.y2 = self.y1;
-        self.y1 = if amp.is_nan() { 0.0 } else { amp };
-        amp
+        self.y1 = if self.out.is_nan() { 0.0 } else { self.out };
+        self.out
     }
 }
 
@@ -425,6 +433,7 @@ pub struct Comb {
     filter_state: Real,
     dampening: In,
     dampening_inverse: In,
+    out: Real,
 }
 
 impl Comb {
@@ -438,6 +447,7 @@ impl Comb {
             filter_state: 0.0,
             dampening: (0.5).into(),
             dampening_inverse: (0.5).into(),
+            out: 0.0,
         }
     }
 
@@ -471,14 +481,14 @@ impl Signal for Comb {
         let dampening = In::val(rack, self.dampening);
         let dampening_inverse = In::val(rack, self.dampening_inverse);
         let input = rack.output(self.wave);
-        let output = self.buffer[self.index];
-        self.filter_state = output * dampening_inverse + self.filter_state * dampening;
+        self.out = self.buffer[self.index];
+        self.filter_state = self.out * dampening_inverse + self.filter_state * dampening;
         self.buffer[self.index] = input + (self.filter_state * feedback);
         self.index += 1;
         if self.index == self.buffer.len() {
             self.index = 0
         }
-        output
+        self.out
     }
 }
 
@@ -512,6 +522,7 @@ pub struct AllPass {
     wave: Tag,
     buffer: Vec<Real>,
     index: usize,
+    out: Real,
 }
 
 impl AllPass {
@@ -521,6 +532,7 @@ impl AllPass {
             wave,
             buffer: vec![0.0; length],
             index: 0,
+            out: 0.0,
         }
     }
 
@@ -543,6 +555,7 @@ impl Signal for AllPass {
         if self.index == self.buffer.len() {
             self.index = 0
         }
-        output as Real
+        self.out = output as Real;
+        self.out
     }
 }

@@ -1,9 +1,9 @@
 use super::signal::*;
 use crate::{as_any_mut, std_signal};
 use pitch_calc::{hz_from_letter_octave, Letter, LetterOctave, Octave};
-use std::any::Any;
-use rand::thread_rng;
 use rand::seq::SliceRandom;
+use rand::thread_rng;
+use std::any::Any;
 
 fn tick(clock: Real, seq_len: usize, bps: Real, sample_rate: Real) -> Real {
     let n = seq_len as Real;
@@ -62,11 +62,16 @@ impl Builder for Sequencer {}
 pub struct PitchSeq {
     tag: Tag,
     seq: Sequencer,
+    out: Real,
 }
 
 impl PitchSeq {
     pub fn new(id_gen: &mut IdGen, seq: Sequencer) -> Self {
-        Self { tag: id_gen.id(), seq }
+        Self {
+            tag: id_gen.id(),
+            seq,
+            out: 0.0,
+        }
     }
 }
 
@@ -83,7 +88,8 @@ impl Signal for PitchSeq {
         }
         self.seq.clock = tick(self.seq.clock, self.seq.sequence.len(), bps, sample_rate);
         let LetterOctave(letter, octave) = self.seq.sequence[idx].pitch;
-        hz_from_letter_octave(letter, octave) as Real
+        self.out = hz_from_letter_octave(letter, octave) as Real;
+        self.out
     }
 }
 
@@ -91,11 +97,16 @@ impl Signal for PitchSeq {
 pub struct GateSeq {
     tag: Tag,
     seq: Sequencer,
+    out: Real,
 }
 
 impl GateSeq {
     pub fn new(id_gen: &mut IdGen, seq: Sequencer) -> Self {
-        Self { tag: id_gen.id(), seq }
+        Self {
+            tag: id_gen.id(),
+            seq,
+            out: 0.0,
+        }
     }
 }
 
@@ -107,7 +118,8 @@ impl Signal for GateSeq {
         let bps = In::val(&rack, self.seq.bpm) / 60.0;
         let idx = idx(self.seq.clock, bps, sample_rate);
         self.seq.clock = tick(self.seq.clock, self.seq.sequence.len(), bps, sample_rate);
-        self.seq.sequence[idx].gate as usize as Real
+        self.out = self.seq.sequence[idx].gate as usize as Real;
+        self.out
     }
 }
 

@@ -20,6 +20,7 @@ pub struct WaveGuide {
     delay: ArcMutex<Delay>,
     mixer: ArcMutex<Mixer>,
     rack: Rack,
+    out: Real,
 }
 
 impl WaveGuide {
@@ -48,7 +49,9 @@ impl WaveGuide {
         let delay = Delay::new(&mut id, mixer.tag(), (0.02).into()).wrap();
 
         let cutoff_freq = 2000;
-        let lpf = Lpf::new(&mut id, delay.tag()).cutoff_freq(cutoff_freq).wrap();
+        let lpf = Lpf::new(&mut id, delay.tag())
+            .cutoff_freq(cutoff_freq)
+            .wrap();
 
         let wet_decay = 0.95;
         let mixer = mixer
@@ -72,6 +75,7 @@ impl WaveGuide {
             delay,
             mixer,
             rack,
+            out: 0.0,
         }
     }
 
@@ -130,6 +134,7 @@ impl Signal for WaveGuide {
         self.input.lock().value(input);
         let dt = 1.0 / f64::max(1.0, In::val(&rack, self.hz));
         self.delay.lock().delay_time(dt);
-        self.rack.signal(sample_rate)
+        self.out = self.rack.signal(sample_rate);
+        self.out
     }
 }

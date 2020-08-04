@@ -37,6 +37,7 @@ pub struct Freeverb {
     dampening: Real,
     room_size: Real,
     frozen: bool,
+    out: Real,
 }
 
 impl Freeverb {
@@ -73,20 +74,20 @@ impl Freeverb {
         let all4 = AllPass::new(&mut id, all3.tag(), ALLPASS_TUNING_4).wrap();
         let rack = Rack::new()
             .modules(vec![
-                SynthModule::new(input.clone()),
-                SynthModule::new(comb1),
-                SynthModule::new(comb2),
-                SynthModule::new(comb3),
-                SynthModule::new(comb4),
-                SynthModule::new(comb5),
-                SynthModule::new(comb6),
-                SynthModule::new(comb7),
-                SynthModule::new(comb8),
-                SynthModule::new(combs),
-                SynthModule::new(all1),
-                SynthModule::new(all2),
-                SynthModule::new(all3),
-                SynthModule::new(all4),
+                input.clone(),
+                comb1,
+                comb2,
+                comb3,
+                comb4,
+                comb5,
+                comb6,
+                comb7,
+                comb8,
+                combs,
+                all1,
+                all2,
+                all3,
+                all4,
             ])
             .build();
         Freeverb {
@@ -102,6 +103,7 @@ impl Freeverb {
             dampening: 0.5,
             room_size: 0.5,
             frozen: false,
+            out: 0.0,
         }
     }
 
@@ -159,7 +161,7 @@ impl Freeverb {
         };
 
         for o in self.rack.0.clone().iter_mut() {
-            if let Some(v) = o.module.as_any_mut().downcast_mut::<Comb>() {
+            if let Some(v) = o.as_any_mut().downcast_mut::<Comb>() {
                 v.feedback(feedback);
                 v.dampening(dampening);
             }
@@ -178,6 +180,7 @@ impl Signal for Freeverb {
         let inp = rack.output(self.wave);
         self.input.lock().value(inp);
         let out = self.rack.signal(sample_rate);
-        out * self.wet_gain + inp * self.dry
+        self.out = out * self.wet_gain + inp * self.dry;
+        self.out
     }
 }
