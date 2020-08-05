@@ -73,7 +73,9 @@ impl Signal for Clock {
             self.out = 1.0;
         } else {
             self.clock += 1;
-            self.clock %= interval;
+            while self.clock >= interval {
+                self.clock -= interval;
+            }
             self.out = 0.0;
         }
         self.out
@@ -143,7 +145,13 @@ impl Signal for Oscillator {
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
-                ph %= sample_rate;
+                // This is faster than using the modulo operator (%)
+                while ph >= 1.0 {
+                    ph -= 1.0;
+                }
+                while ph <= -1.0 {
+                    ph += 1.0;
+                }
                 self.phase = In::Fix(ph);
             }
             In::Cv(_) => {}
@@ -399,7 +407,12 @@ impl Signal for Osc01 {
         match &self.phase {
             In::Fix(p) => {
                 let mut ph = *p + hz / sample_rate;
-                ph %= sample_rate;
+                while ph >= 1.0 {
+                    ph -= 1.0
+                }
+                while ph < -1.0 {
+                    ph += 1.0
+                }
                 self.phase = In::Fix(ph);
             }
             In::Cv(_) => {}
