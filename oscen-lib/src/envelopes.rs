@@ -23,15 +23,16 @@ pub struct Adsr {
     a_interp: ExpInterp,
     d_interp: ExpInterp,
     r_interp: ExpInterp,
+    out: Real,
 }
 
 impl Adsr {
-    pub fn new(a_param: Real, d_param: Real, r_param: Real) -> Self {
+    pub fn new(id_gen: &mut IdGen, a_param: Real, d_param: Real, r_param: Real) -> Self {
         let a_interp = ExpInterp::new(0.0, 0.5, 1.0);
         let d_interp = ExpInterp::new(0.0, 0.5, 1.0);
         let r_interp = ExpInterp::new(0.0, 0.5, 1.0);
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             attack: (0.01).into(),
             decay: 0.into(),
             sustain: 1.into(),
@@ -46,15 +47,16 @@ impl Adsr {
             a_interp,
             d_interp,
             r_interp,
+            out: 0.0,
         }
     }
 
-    pub fn linear() -> Self {
-        Self::new(0.5, 0.5, 0.5)
+    pub fn linear(id_gen: &mut IdGen) -> Self {
+        Self::new(id_gen, 0.5, 0.5, 0.5)
     }
 
-    pub fn exp_20() -> Self {
-        Self::new(0.2, 0.2, 0.2)
+    pub fn exp_20(id_gen: &mut IdGen) -> Self {
+        Self::new(id_gen, 0.2, 0.2, 0.2)
     }
 
     pub fn attack<T: Into<In>>(&mut self, arg: T) -> &mut Self {
@@ -141,9 +143,9 @@ impl Signal for Adsr {
         let s = In::val(rack, self.sustain);
         self.d_interp.update(1.0, s + self.d_param * (1.0 - s), s);
         self.r_interp.update(s, self.r_param * s, 0.0);
-        self.level = self.calc_level(rack);
+        self.out = self.calc_level(rack);
         self.clock += 1. / sample_rate;
-        self.level
+        self.out
     }
 }
 

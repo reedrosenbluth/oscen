@@ -6,14 +6,16 @@ pub struct SineFold {
     tag: Tag,
     wave: Tag,
     fold_param: In,
+    out: Real,
 }
 
 impl SineFold {
-    pub fn new(wave: Tag) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
             fold_param: TAU.into(),
+            out: 0.0,
         }
     }
 
@@ -35,20 +37,23 @@ impl Signal for SineFold {
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
         let a = rack.output(self.wave);
         let fold_param = In::val(rack, self.fold_param);
-        (a * TAU / fold_param).sin()
+        self.out = (a * TAU / fold_param).sin();
+        self.out
     }
 }
 
 pub struct Tanh {
     tag: Tag,
     wave: Tag,
+    out: Real,
 }
 
 impl Tanh {
-    pub fn new(wave: Tag) -> Self {
+    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
+            out: 0.0,
         }
     }
 
@@ -64,6 +69,7 @@ impl Signal for Tanh {
     std_signal!();
     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
         let a = rack.output(self.wave);
-        (a * TAU).tanh()
+        self.out = (a * TAU).tanh();
+        self.out
     }
 }

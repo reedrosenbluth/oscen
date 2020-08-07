@@ -27,8 +27,10 @@ where
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
 
-    let mut rack = Rack::new(vec![]);
-    Oscillator::new(sine_osc).hz(440.0).rack(&mut rack);
+    let mut rack = Rack::new();
+    let mut id_gen = IdGen::new();
+    
+    Oscillator::new(&mut id_gen, sine_osc).hz(440.0).rack(&mut rack);
 
     // Produce a sinusoid of maximum amplitude.
     let mut next_value = move || {

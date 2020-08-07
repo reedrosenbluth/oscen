@@ -15,15 +15,17 @@ pub struct MidiPitch {
     step: f32,
     offset: f32, // In semitones
     factor: f32,
+    out: Real,
 }
 
 impl MidiPitch {
-    pub fn new() -> Self {
+    pub fn new(id_gen: &mut IdGen) -> Self {
         MidiPitch {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             step: 0.0,
             offset: 0.0,
             factor: 1.0,
+            out: 0.0,
         }
     }
 
@@ -48,7 +50,8 @@ impl Builder for MidiPitch {}
 impl Signal for MidiPitch {
     std_signal!();
     fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
-        hz_from_step(self.factor * self.step + self.offset) as Real
+        self.out = hz_from_step(self.factor * self.step + self.offset) as Real;
+        self.out
     }
 }
 
@@ -58,15 +61,17 @@ pub struct MidiControl {
     pub controller: u8,
     value: u8,
     exp_interp: ExpInterp,
+    out: Real,
 }
 
 impl MidiControl {
-    pub fn new(controller: u8, value: u8, low: Real, mid: Real, high: Real) -> Self {
+    pub fn new(id_gen: &mut IdGen, controller: u8, value: u8, low: Real, mid: Real, high: Real) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             controller,
             value,
             exp_interp: ExpInterp::new(low, mid, high),
+            out: 0.0,
         }
     }
 
@@ -92,7 +97,8 @@ impl Signal for MidiControl {
     std_signal!();
 
     fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
-        self.map_range(self.value as Real)
+        self.out = self.map_range(self.value as Real);
+        self.out
     }
 }
 

@@ -37,54 +37,61 @@ pub struct Freeverb {
     dampening: Real,
     room_size: Real,
     frozen: bool,
+    out: Real,
 }
 
 impl Freeverb {
-    pub fn new(wave: Tag) -> Self {
-        let input = Link::new().wrap();
-        let comb1 = Comb::new(input.tag(), COMB_TUNING_1).wrap();
-        let comb2 = Comb::new(input.tag(), COMB_TUNING_2).wrap();
-        let comb3 = Comb::new(input.tag(), COMB_TUNING_3).wrap();
-        let comb4 = Comb::new(input.tag(), COMB_TUNING_4).wrap();
-        let comb5 = Comb::new(input.tag(), COMB_TUNING_5).wrap();
-        let comb6 = Comb::new(input.tag(), COMB_TUNING_6).wrap();
-        let comb7 = Comb::new(input.tag(), COMB_TUNING_7).wrap();
-        let comb8 = Comb::new(input.tag(), COMB_TUNING_8).wrap();
+    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
+        let mut id = IdGen::new();
+        let input = Link::new(&mut id).wrap();
+        let comb1 = Comb::new(&mut id, input.tag(), COMB_TUNING_1).wrap();
+        let comb2 = Comb::new(&mut id, input.tag(), COMB_TUNING_2).wrap();
+        let comb3 = Comb::new(&mut id, input.tag(), COMB_TUNING_3).wrap();
+        let comb4 = Comb::new(&mut id, input.tag(), COMB_TUNING_4).wrap();
+        let comb5 = Comb::new(&mut id, input.tag(), COMB_TUNING_5).wrap();
+        let comb6 = Comb::new(&mut id, input.tag(), COMB_TUNING_6).wrap();
+        let comb7 = Comb::new(&mut id, input.tag(), COMB_TUNING_7).wrap();
+        let comb8 = Comb::new(&mut id, input.tag(), COMB_TUNING_8).wrap();
 
-        let combs = Mixer::new(vec![
-            comb1.tag(),
-            comb2.tag(),
-            comb3.tag(),
-            comb4.tag(),
-            comb5.tag(),
-            comb6.tag(),
-            comb7.tag(),
-            comb8.tag(),
-        ])
+        let combs = Mixer::new(
+            &mut id,
+            vec![
+                comb1.tag(),
+                comb2.tag(),
+                comb3.tag(),
+                comb4.tag(),
+                comb5.tag(),
+                comb6.tag(),
+                comb7.tag(),
+                comb8.tag(),
+            ],
+        )
         .wrap();
 
-        let all1 = AllPass::new(combs.tag(), ALLPASS_TUNING_1).wrap();
-        let all2 = AllPass::new(all1.tag(), ALLPASS_TUNING_2).wrap();
-        let all3 = AllPass::new(all2.tag(), ALLPASS_TUNING_3).wrap();
-        let all4 = AllPass::new(all3.tag(), ALLPASS_TUNING_4).wrap();
-        let rack = Rack::new(vec![
-            input.clone(),
-            comb1,
-            comb2,
-            comb3,
-            comb4,
-            comb5,
-            comb6,
-            comb7,
-            comb8,
-            combs,
-            all1,
-            all2,
-            all3,
-            all4,
-        ]);
+        let all1 = AllPass::new(&mut id, combs.tag(), ALLPASS_TUNING_1).wrap();
+        let all2 = AllPass::new(&mut id, all1.tag(), ALLPASS_TUNING_2).wrap();
+        let all3 = AllPass::new(&mut id, all2.tag(), ALLPASS_TUNING_3).wrap();
+        let all4 = AllPass::new(&mut id, all3.tag(), ALLPASS_TUNING_4).wrap();
+        let rack = Rack::new()
+            .modules(vec![
+                input.clone(),
+                comb1,
+                comb2,
+                comb3,
+                comb4,
+                comb5,
+                comb6,
+                comb7,
+                comb8,
+                combs,
+                all1,
+                all2,
+                all3,
+                all4,
+            ])
+            .build();
         Freeverb {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             wave,
             input,
             rack,
@@ -96,6 +103,7 @@ impl Freeverb {
             dampening: 0.5,
             room_size: 0.5,
             frozen: false,
+            out: 0.0,
         }
     }
 
@@ -152,16 +160,8 @@ impl Freeverb {
             (self.room_size, self.dampening)
         };
 
-        for o in self.rack.order.clone().iter_mut() {
-            if let Some(v) = self
-                .rack
-                .modules
-                .get_mut(o)
-                .unwrap()
-                .module
-                .as_any_mut()
-                .downcast_mut::<Comb>()
-            {
+        for o in self.rack.0.clone().iter_mut() {
+            if let Some(v) = o.as_any_mut().downcast_mut::<Comb>() {
                 v.feedback(feedback);
                 v.dampening(dampening);
             }
@@ -180,6 +180,7 @@ impl Signal for Freeverb {
         let inp = rack.output(self.wave);
         self.input.lock().value(inp);
         let out = self.rack.signal(sample_rate);
-        out * self.wet_gain + inp * self.dry
+        self.out = out * self.wet_gain + inp * self.dry;
+        self.out
     }
 }

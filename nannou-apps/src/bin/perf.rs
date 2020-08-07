@@ -16,19 +16,20 @@ struct Model {
 fn model(app: &App) -> Model {
     app.new_window().size(250, 250).build().unwrap();
     let audio_host = audio::Host::new();
-    let mut rack = Rack::new(vec![]);
-    let num_oscillators = 100;
+    let mut rack = Rack::new();
+    let mut id_gen = IdGen::new();
+    let num_oscillators = 325;
     let amp = 1.0 / num_oscillators as f64;
     let mut oscs = vec![];
     for _ in 0..num_oscillators {
-        let osc = Oscillator::new(square_osc)
+        let osc = Oscillator::new(&mut id_gen, square_osc)
             .amplitude(amp)
             .hz(200)
             .arg(0.5)
             .rack(&mut rack);
         oscs.push(osc.tag());
     }
-    Mixer::new(oscs).level(0.2).rack(&mut rack);
+    Mixer::new(&mut id_gen, oscs).level(0.2).rack(&mut rack);
     let stream = audio_host
         .new_output_stream(rack)
         .render(audio)

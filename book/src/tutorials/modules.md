@@ -34,8 +34,8 @@ In most cases both of these methods can be implmented via the `std_signal` macro
 
 Let's begin building the module, first we create the struct. Almost all synth
 modules will have a tag field, which contains a unique identifier. We usually
-initialize this using the `mk_tag` function which creates a unique id using the 
-`Uuid` crate. We also need fields for the frequency `hz`, amplitutde and 
+initialize this using the `id()` function on a `IdGen` struct, which creates a unique integer id. 
+We also need fields for the frequency `hz`, amplitutde and 
 phase of the oscillator. These fields are all of type `In` which is an enum with
 two variants: `Cv(Tag)` or `Fix(Real)`. The `In` enum allows these fields to be
 set to a fixed number or controlled by another module. The constructor `new` 
@@ -55,9 +55,9 @@ to type `In`.
  }
 
  impl Funky {
-    pub fn new() -> Self {
+    pub fn new(id_gen: &mut IdGen) -> Self {
         Self {
-            tag: mk_tag(),
+            tag: id_gen.id(),
             hz: 0.into(),
             amplitude: 1.into(),
             phase: 0.into(),
