@@ -25,7 +25,7 @@
 //! [`Signal`]: signal/trait.Signal.html
 //! [`Rack`]: signal/struct.Rack.html
 
-
+pub mod rack;
 /// A collection of some basic audio filters.
 pub mod filters;
 /// An implementation of *freeverb*.
@@ -38,6 +38,7 @@ pub mod signal;
 pub mod operators;
 /// Some common (and some less common) oscillators.
 pub mod oscillators;
+pub mod osc;
 /// Wave shaping.
 pub mod shaping;
 /// Midi interface nodes.

@@ -10,7 +10,7 @@ fn main() {
 }
 
 struct Model {
-    stream: audio::Stream<Rack>,
+    _stream: audio::Stream<Rack>,
 }
 
 fn model(app: &App) -> Model {
@@ -35,7 +35,7 @@ fn model(app: &App) -> Model {
         .render(audio)
         .build()
         .unwrap();
-    Model { stream }
+    Model {_stream: stream }
 }
 
 fn audio(rack: &mut Rack, buffer: &mut Buffer) {

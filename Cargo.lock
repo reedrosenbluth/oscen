@@ -593,6 +593,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cpal 0.12.1",
+ "libmath",
  "oscen",
 ]
 

@@ -1,5 +1,6 @@
 use anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use math::round::floor;
 use std::f32::consts::PI;
 use std::sync::Arc;
 
@@ -7,15 +8,36 @@ type Real = f32;
 type Tag = usize;
 
 const TAU: f32 = 2.0 * PI;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModuleData {
     inputs: Vec<In>,
+    parameters: Vec<Parameter>,
+    buffer: Vec<Real>,
     outputs: Vec<Real>,
 }
 
 impl ModuleData {
     pub fn new(inputs: Vec<In>, outputs: Vec<Real>) -> Self {
-        Self { inputs, outputs }
+        Self {
+            inputs,
+            parameters: vec![],
+            buffer: vec![],
+            outputs,
+        }
+    }
+    pub fn parameters(&mut self, values: Vec<Parameter>) -> &mut Self {
+        self.parameters = values;
+        self
+    }
+    pub fn buffer(&mut self, values: Vec<Real>) -> &mut Self {
+        self.buffer = values;
+        self
+    }
+    pub fn build(&mut self) -> Self
+    where
+        Self: Clone,
+    {
+        self.to_owned()
     }
 }
 
@@ -61,6 +83,14 @@ pub enum In {
     Fix(Real),
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum Parameter {
+    Bool(bool),
+    Int(i32),
+    UInt(usize),
+    Float(f64),
+}
+
 pub struct Rack(pub Vec<Arc<dyn Signal + Send + Sync>>);
 
 impl Rack {
@@ -73,48 +103,120 @@ impl Rack {
     }
 }
 
-pub struct SineOsc {
-    tag: Tag,
+pub struct OscBuilder {
+    signal_fn: fn(Real, Real) -> Real,
+    phase: In,
+    hz: In,
+    amp: In,
+    arg: In,
 }
 
-impl SineOsc {
-    pub fn new(tag: Tag) -> Self {
-        Self { tag }
+impl OscBuilder {
+    pub fn new(signal_fn: fn(Real, Real) -> Real) -> Self {
+        Self {
+            signal_fn,
+            phase: In::Fix(0.0),
+            hz: In::Fix(0.0),
+            amp: In::Fix(1.0),
+            arg: In::Fix(0.5),
+        }
     }
-    pub fn phase(&self, table: &ModuleTable) -> Real {
-        let inp = table.inputs(self.tag)[0];
-        table.value(inp)
+    pub fn phase(&mut self, value: In) -> &mut Self {
+        self.phase = value;
+        self
     }
-    pub fn set_phase(&self, table: &mut ModuleTable, hz: In) {
-        table.inputs_mut(self.tag)[0] = hz;
+    pub fn hz(&mut self, value: In) -> &mut Self {
+        self.hz = value;
+        self
     }
-    pub fn hz(&self, table: &ModuleTable) -> Real {
-        let inp = table.inputs(self.tag)[1];
-        table.value(inp)
+    pub fn amp(&mut self, value: In) -> &mut Self {
+        self.amp = value;
+        self
     }
-    pub fn set_hz(&self, table: &mut ModuleTable, hz: In) {
-        table.inputs_mut(self.tag)[1] = hz;
+    pub fn arg(&mut self, value: In) -> &mut Self {
+        self.arg = value;
+        self
     }
-    pub fn amplitude(&self, table: &ModuleTable) -> Real {
-        let inp = table.inputs(self.tag)[2];
-        table.value(inp)
-    }
-    pub fn set_amplitude(&self, table: &mut ModuleTable, hz: In) {
-        table.inputs_mut(self.tag)[2] = hz;
-    }
-    pub fn rack<'a>(rack: &'a mut Rack, table: &mut ModuleTable) -> Arc<Self> {
+    pub fn rack<'a>(&self, rack: &'a mut Rack, table: &mut ModuleTable) -> Arc<Oscillator> {
         let tag = rack.0.len();
-        let inputs = vec![In::Fix(0.0), In::Fix(0.0), In::Fix(1.0)];
+        let inputs = vec![self.phase, self.hz, self.amp, self.arg];
         let outputs = vec![0.0];
         let data = ModuleData::new(inputs, outputs);
         table.table.push(data);
-        let osc = Arc::new(Self::new(tag));
+        let osc = Arc::new(Oscillator::new(tag, self.signal_fn));
         rack.0.push(osc.clone());
         osc
     }
 }
 
-impl Signal for SineOsc {
+pub fn sine_osc(phase: Real, _: Real) -> Real {
+    (phase * TAU).sin()
+}
+
+pub fn square_osc(phase: Real, duty_cycle: Real) -> Real {
+    let t = phase - floor(phase as f64, 0) as f32;
+    if t <= duty_cycle {
+        1.0
+    } else {
+        -1.0
+    }
+}
+
+pub fn saw_osc(phase: Real, _: Real) -> Real {
+    let t = phase - 0.5;
+    let s = -t - floor(0.5 - t as f64, 0) as f32;
+    if s < -0.5 {
+        0.0
+    } else {
+        2.0 * s
+    }
+}
+
+pub fn triangle_osc(phase: Real, _: Real) -> Real {
+    let t = phase - 0.75;
+    let saw_amp = 2. * (-t - floor(0.5 - t as f64, 0) as f32);
+    2. * saw_amp.abs() - 1.0
+}
+pub struct Oscillator {
+    tag: Tag,
+    signal_fn: fn(Real, Real) -> Real,
+}
+
+impl Oscillator {
+    pub fn new(tag: Tag, signal_fn: fn(Real, Real) -> Real) -> Self {
+        Self { tag, signal_fn }
+    }
+    pub fn phase(&self, table: &ModuleTable) -> Real {
+        let inp = table.inputs(self.tag)[0];
+        table.value(inp)
+    }
+    pub fn set_phase(&self, table: &mut ModuleTable, value: In) {
+        table.inputs_mut(self.tag)[0] = value;
+    }
+    pub fn hz(&self, table: &ModuleTable) -> Real {
+        let inp = table.inputs(self.tag)[1];
+        table.value(inp)
+    }
+    pub fn set_hz(&self, table: &mut ModuleTable, value: In) {
+        table.inputs_mut(self.tag)[1] = value;
+    }
+    pub fn amplitude(&self, table: &ModuleTable) -> Real {
+        let inp = table.inputs(self.tag)[2];
+        table.value(inp)
+    }
+    pub fn set_amplitude(&self, table: &mut ModuleTable, value: In) {
+        table.inputs_mut(self.tag)[2] = value;
+    }
+    pub fn arg(&self, table: &ModuleTable) -> Real {
+        let inp = table.inputs(self.tag)[3];
+        table.value(inp)
+    }
+    pub fn set_arg(&self, table: &mut ModuleTable, value: In) {
+        table.inputs_mut(self.tag)[3] = value;
+    }
+}
+
+impl Signal for Oscillator {
     fn tag(&self) -> Tag {
         self.tag
     }
@@ -125,6 +227,7 @@ impl Signal for SineOsc {
         let phase = self.phase(table);
         let hz = self.hz(table);
         let amp = self.amplitude(table);
+        let arg = self.arg(table);
         let ins = table.inputs_mut(self.tag);
         match ins[0] {
             In::Fix(p) => {
@@ -140,7 +243,7 @@ impl Signal for SineOsc {
             In::Cv(_, _) => {}
         };
         let outs = table.outputs_mut(self.tag);
-        outs[0] = amp * (phase * TAU).sin();
+        outs[0] = amp * (self.signal_fn)(phase, arg);
         outs[0]
     }
 }
@@ -205,25 +308,21 @@ where
 {
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
+
     let mut rack = Rack(vec![]);
-
-    // let data = ModuleData {
-    //     inputs: vec![In::Fix(0.0), In::Fix(440.0), In::Fix(1.0)],
-    //     outputs: vec![0.0],
-    // };
-
     let mut table = ModuleTable::new(vec![]);
     let num_oscillators = 900;
     let amp = 1.0 / num_oscillators as f32;
     let mut oscs = vec![];
     for _ in 0..num_oscillators {
-        let sine = SineOsc::rack(&mut rack, &mut table);
-        sine.set_hz(&mut table, In::Fix(440.0));
-        sine.set_amplitude(&mut table, In::Fix(amp));
+        let sine = OscBuilder::new(saw_osc)
+            .hz(In::Fix(440.0))
+            .amp(In::Fix(amp))
+            .rack(&mut rack, &mut table);
         oscs.push(sine.tag());
     }
 
-    let mixer = Mixer::rack(&mut rack, &mut table, oscs);
+    let _mixer = Mixer::rack(&mut rack, &mut table, oscs);
     dbg!(table.table.len());
 
     // Produce a sinusoid of maximum amplitude.

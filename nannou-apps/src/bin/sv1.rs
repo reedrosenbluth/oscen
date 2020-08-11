@@ -69,7 +69,7 @@ fn build_synth(
     midi_controls.push(midi_control_tri_lfo_hz.clone());
 
     // LFO's
-    let tri_lfo = Oscillator::new(&mut id_gen, triangle_osc)
+    let _tri_lfo = Oscillator::new(&mut id_gen, triangle_osc)
         .hz(midi_control_tri_lfo_hz.tag())
         .rack(&mut rack);
     Oscillator::new(&mut id_gen, square_osc).rack(&mut rack);
@@ -93,7 +93,7 @@ fn build_synth(
     .rack(&mut rack);
 
     // Oscillator 2
-    let sine2 = Oscillator::new(&mut id_gen, sine_osc)
+    let _sine2 = Oscillator::new(&mut id_gen, sine_osc)
         .hz(modulator_osc2.tag())
         .rack(&mut rack);
     Oscillator::new(&mut id_gen, saw_osc)
