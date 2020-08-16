@@ -1,8 +1,11 @@
-use std::sync::Arc;
-
 /// Unique identifier for each Synth Module.
 pub type Tag = usize;
 pub type Real = f32;
+pub type SignalFn = fn(Real, Real) -> Real;
+
+pub const MAX_CONTROLS: usize = 32;
+pub const MAX_OUTPUTS: usize = 32;
+pub const MAX_MODULES: usize = 1024;
 
 /// Inputs to Synth Modules can either be constant (`Fix`) or a control voltage
 /// from another synth module (`Cv`). The tag is the unique id of the module and
@@ -31,93 +34,31 @@ impl Default for In {
     }
 }
 
-/// A union type encapsulating the abstraction for types of parameters for a
-/// Synth Module.
-#[derive(Copy, Clone, Debug)]
-pub enum Parameter {
-    Bool(bool),
-    Int(i32),
-    UInt(usize),
-    Float(f64),
-}
+#[derive(Copy, Clone)]
+pub struct Controls(pub [[In; MAX_CONTROLS]; MAX_MODULES]);
+pub struct Outputs(pub [[Real; MAX_OUTPUTS]; MAX_MODULES]);
 
-/// Each Synth Module has associated date `ModuleData` that stores any inputs,
-/// parameters, buffer (e.g. filters), and outputs.
-#[derive(Debug, Clone)]
-pub struct ModuleData {
-    inputs: Vec<In>,
-    parameters: Vec<Parameter>,
-    buffer: Vec<Real>,
-    outputs: Vec<Real>,
-}
-
-impl ModuleData {
-    pub fn new(inputs: Vec<In>, outputs: Vec<Real>) -> Self {
-        Self {
-            inputs,
-            parameters: vec![],
-            buffer: vec![],
-            outputs,
-        }
+impl Controls {
+    pub fn controls(&self, tag: Tag) -> &[In] {
+        self.0[tag].as_ref()
     }
-    pub fn parameters(&mut self, values: Vec<Parameter>) -> &mut Self {
-        self.parameters = values;
-        self
-    }
-    pub fn buffer(&mut self, values: Vec<Real>) -> &mut Self {
-        self.buffer = values;
-        self
-    }
-    pub fn build(&mut self) -> Self
-    where
-        Self: Clone,
-    {
-        self.clone()
+    pub fn controls_mut(&mut self, tag: Tag) -> &mut [In] {
+        self.0[tag].as_mut()
     }
 }
 
-/// A `ModuleTable` contains all mutable data for a synth.
-#[derive(Debug, Clone)]
-pub struct ModuleTable {
-    table: Vec<ModuleData>,
-}
-
-impl ModuleTable {
-    pub fn new(table: Vec<ModuleData>) -> Self {
-        Self { table }
+impl Outputs {
+    pub fn outputs(&self, tag: Tag) -> &[Real] {
+        self.0[tag].as_ref()
     }
-    pub fn inputs(&self, n: Tag) -> &[In] {
-        self.table[n].inputs.as_slice()
-    }
-    pub fn inputs_mut(&mut self, n: Tag) -> &mut [In] {
-        self.table[n].inputs.as_mut_slice()
-    }
-    pub fn parameters(&self, n: Tag) -> &[Parameter] {
-        self.table[n].parameters.as_slice()
-    }
-    pub fn parameters_mut(&mut self, n: Tag) -> &mut [Parameter] {
-        self.table[n].parameters.as_mut_slice()
-    }
-    pub fn buffer(&self, n: Tag) -> &[Real] {
-        self.table[n].buffer.as_slice()
-    }
-    pub fn buffer_mut(&mut self, n: Tag) -> &mut [Real] {
-        self.table[n].buffer.as_mut_slice()
-    }
-    pub fn outputs(&self, n: Tag) -> &[Real] {
-        self.table[n].outputs.as_slice()
-    }
-    pub fn outputs_mut(&mut self, n: Tag) -> &mut [Real] {
-        self.table[n].outputs.as_mut_slice()
+    pub fn outputs_mut(&mut self, tag: Tag) -> &mut [Real] {
+        self.0[tag].as_mut()
     }
     pub fn value(&self, inp: In) -> Real {
         match inp {
             In::Fix(p) => p,
-            In::Cv(n, i) => self.table[n].outputs[i],
+            In::Cv(n, i) => self.0[n][i],
         }
-    }
-    pub fn push(&mut self, value:ModuleData) {
-        self.table.push(value);
     }
 }
 
@@ -130,7 +71,7 @@ pub trait Signal {
     fn modify_tag(&mut self, f: fn(Tag) -> Tag);
     /// Responsible for updating the any inputs including `phase` and returning the next signal
     /// output.
-    fn signal(&self, modules: &mut ModuleTable, sample_rate: Real);
+    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, sample_rate: Real);
 }
 
 /// A macro to reduce the boiler plate of creating a Synth Module by implementing
@@ -147,23 +88,30 @@ macro_rules! tag {
     };
 }
 
-
-/// A Rack is a topologically sorted `Vector` of Synth Modules. A synth is one or
-/// more racks. All mutable data is stored in the `ModuleTable`.
-pub struct Rack(pub Vec<Arc<dyn Signal + Send + Sync>>);
+/// A Rack is a topologically sorted `Array` of Synth Modules. A synth is one or
+/// more racks.
+pub struct Rack(pub Vec<Box<dyn Signal + Send + Sync>>);
 
 impl Rack {
+    pub fn num_modules(&self) -> usize {
+        self.0.len()
+    }
     /// Call the `signal` function for each module in turn returning the vector
     /// of outpts in the last module.
-    pub fn play(&self, table: &mut ModuleTable, sample_rate: Real) -> Vec<Real> {
+    pub fn play(
+        &mut self,
+        controls: &Controls,
+        outputs: &mut Outputs,
+        sample_rate: Real,
+    ) -> [Real; MAX_OUTPUTS] {
         let n = self.0.len() - 1;
-        for module in self.0.iter() {
-            module.signal(table, sample_rate);
+        for module in self.0.iter_mut() {
+            module.signal(controls, outputs, sample_rate);
         }
-        table.outputs(n).to_owned()
+        outputs.0[n]
     }
     /// Like play but only returns the sample in `outputs[0].
-    pub fn mono(&self, table: &mut ModuleTable, sample_rate: Real) -> Real {
-        self.play(table, sample_rate)[0]
+    pub fn mono(&mut self, controls: &Controls, outpus: &mut Outputs, sample_rate: Real) -> Real {
+        self.play(controls, outpus, sample_rate)[0]
     }
 }

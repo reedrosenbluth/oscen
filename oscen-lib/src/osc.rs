@@ -1,7 +1,7 @@
 use crate::rack::*;
 use crate::tag;
 use math::round::floor;
-use std::{f32::consts, sync::Arc};
+use std::f32::consts;
 
 const TAU: f32 = 2.0 * consts::PI;
 
@@ -13,9 +13,17 @@ pub struct OscBuilder {
     arg: In,
 }
 
+/// A standard oscillator that has phase, hz, and amp. Pass in a signal function
+/// to operate on the phase and an optional extra argument.
+#[derive(Clone)]
 pub struct Oscillator {
     tag: Tag,
+    phase: In,
     signal_fn: fn(Real, Real) -> Real,
+}
+
+pub fn oscillator(signal_fn: SignalFn) -> OscBuilder {
+    OscBuilder::new(signal_fn)
 }
 
 impl OscBuilder {
@@ -44,13 +52,12 @@ impl OscBuilder {
         self.arg = value;
         self
     }
-    pub fn rack<'a>(&self, rack: &'a mut Rack, table: &mut ModuleTable) -> Arc<Oscillator> {
-        let tag = rack.0.len();
-        let inputs = vec![self.phase, self.hz, self.amp, self.arg];
-        let outputs = vec![0.0];
-        let data = ModuleData::new(inputs, outputs);
-        table.push(data);
-        let osc = Arc::new(Oscillator::new(tag, self.signal_fn));
+    pub fn rack<'a>(&self, rack: &'a mut Rack, controls: &mut Controls) -> Box<Oscillator> {
+        let tag = rack.num_modules();
+        controls.controls_mut(tag)[0] = self.hz;
+        controls.controls_mut(tag)[1] = self.amp;
+        controls.controls_mut(tag)[2] = self.arg;
+        let osc = Box::new(Oscillator::new(tag, self.signal_fn));
         rack.0.push(osc.clone());
         osc
     }
@@ -87,47 +94,49 @@ pub fn triangle_osc(phase: Real, _: Real) -> Real {
 
 impl Oscillator {
     pub fn new(tag: Tag, signal_fn: fn(Real, Real) -> Real) -> Self {
-        Self { tag, signal_fn }
+        Self {
+            tag,
+            phase: 0.into(),
+            signal_fn,
+        }
     }
-    pub fn phase(&self, table: &ModuleTable) -> Real {
-        let inp = table.inputs(self.tag)[0];
-        table.value(inp)
+    pub fn phase(&self, outputs: &Outputs) -> Real {
+        outputs.value(self.phase)
     }
-    pub fn set_phase(&self, table: &mut ModuleTable, value: In) {
-        table.inputs_mut(self.tag)[0] = value;
+    pub fn set_phase(&mut self, value: In) {
+        self.phase = value;
     }
-    pub fn hz(&self, table: &ModuleTable) -> Real {
-        let inp = table.inputs(self.tag)[1];
-        table.value(inp)
+    pub fn hz(&self, controls: &Controls, outputs: &Outputs) -> Real {
+        let inp = controls.controls(self.tag)[0];
+        outputs.value(inp)
     }
-    pub fn set_hz(&self, table: &mut ModuleTable, value: In) {
-        table.inputs_mut(self.tag)[1] = value;
+    pub fn set_hz(&self, controls: &mut Controls, value: In) {
+        controls.controls_mut(self.tag)[0] = value;
     }
-    pub fn amplitude(&self, table: &ModuleTable) -> Real {
-        let inp = table.inputs(self.tag)[2];
-        table.value(inp)
+    pub fn amplitude(&self, controls: &Controls, outputs: &Outputs) -> Real {
+        let inp = controls.controls(self.tag)[1];
+        outputs.value(inp)
     }
-    pub fn set_amplitude(&self, table: &mut ModuleTable, value: In) {
-        table.inputs_mut(self.tag)[2] = value;
+    pub fn set_amplitude(&self, controls: &mut Controls, value: In) {
+        controls.controls_mut(self.tag)[1] = value;
     }
-    pub fn arg(&self, table: &ModuleTable) -> Real {
-        let inp = table.inputs(self.tag)[3];
-        table.value(inp)
+    pub fn arg(&self, controls: &Controls, outputs: &Outputs) -> Real {
+        let inp = controls.controls(self.tag)[2];
+        outputs.value(inp)
     }
-    pub fn set_arg(&self, table: &mut ModuleTable, value: In) {
-        table.inputs_mut(self.tag)[3] = value;
+    pub fn set_arg(&self, controls: &mut Controls, value: In) {
+        controls.controls_mut(self.tag)[2] = value;
     }
 }
 
 impl Signal for Oscillator {
     tag!();
-    fn signal(&self, table: &mut ModuleTable, sample_rate: Real) {
-        let phase = self.phase(table);
-        let hz = self.hz(table);
-        let amp = self.amplitude(table);
-        let arg = self.arg(table);
-        let ins = table.inputs_mut(self.tag);
-        match ins[0] {
+    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, sample_rate: Real) {
+        let phase = outputs.value(self.phase);
+        let hz = self.hz(controls, outputs);
+        let amp = self.amplitude(controls, outputs);
+        let arg = self.arg(controls, outputs);
+        match self.phase {
             In::Fix(p) => {
                 let mut ph = p + hz / sample_rate;
                 while ph >= 1.0 {
@@ -136,11 +145,11 @@ impl Signal for Oscillator {
                 while ph <= -1.0 {
                     ph += 1.0
                 }
-                ins[0] = In::Fix(ph);
+                self.phase = In::Fix(ph);
             }
             In::Cv(_, _) => {}
         };
-        let outs = table.outputs_mut(self.tag);
+        let outs = outputs.outputs_mut(self.tag);
         outs[0] = amp * (self.signal_fn)(phase, arg);
     }
 }
@@ -150,34 +159,68 @@ pub struct ConstBuilder {
     value: Real,
 }
 
+/// An synth module that returns a constant In value. Useful for example to
+/// multiply or add constants to oscillators.
 #[derive(Debug, Copy, Clone)]
 pub struct Const {
     tag: Tag,
+    value: Real,
 }
 
 impl ConstBuilder {
     pub fn new(value: Real) -> Self {
         Self { value }
     }
-    pub fn rack<'a>(&self, rack: &'a mut Rack, table: &mut ModuleTable) -> Arc<Const> {
-        let tag = rack.0.len();
-        let outputs = vec![self.value];
-        let data = ModuleData::new(vec![], outputs);
-        table.push(data);
-        let out = Arc::new(Const::new(tag));
+    pub fn rack<'a>(&self, rack: &'a mut Rack, _controls: &mut Controls) -> Box<Const> {
+        let tag = rack.num_modules();
+        let out = Box::new(Const::new(tag, self.value));
         rack.0.push(out.clone());
         out
     }
 }
 
 impl Const {
-    pub fn new(tag: Tag) -> Self {
-        Self { tag }
+    pub fn new(tag: Tag, value: Real) -> Self {
+        Self { tag, value }
     }
 }
 
 impl Signal for Const {
     tag!();
-    fn signal(&self, _modules: &mut ModuleTable, _sample_rate: Real) {
+    fn signal(&mut self, _controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+        let tag = self.tag();
+        outputs.outputs_mut(tag)[0] = self.value;
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Mixer {
+    tag: Tag,
+    waves: Vec<Tag>,
+}
+
+impl Mixer {
+    pub fn new(tag: Tag, waves: Vec<Tag>) -> Self {
+        Self { tag, waves }
+    }
+    pub fn rack<'a>(
+        rack: &'a mut Rack,
+        waves: Vec<Tag>,
+    ) -> Box<Self> {
+        let tag = rack.num_modules();
+        let mix = Box::new(Self::new(tag, waves));
+        rack.0.push(mix.clone());
+        mix
+    }
+}
+
+impl Signal for Mixer {
+    tag!();
+    fn signal(&mut self, _controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+        let out = self
+            .waves
+            .iter()
+            .fold(0.0, |acc, n| acc + outputs.outputs(*n)[0]);
+        outputs.outputs_mut(self.tag)[0] = out;
     }
 }
