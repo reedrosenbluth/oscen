@@ -465,3 +465,64 @@ pub fn triangle_wave(n: u32) -> FourierOscBuilder {
     }
     FourierOscBuilder::new(coefficients)
 }
+
+/// A `SynthModule` that emits 1.0 every `interval` seconds otherwise it emits
+/// 0.0.
+#[derive(Copy, Clone)]
+pub struct Clock {
+    tag: Tag,
+    clock: u64,
+}
+
+#[derive(Copy, Clone)]
+pub struct ClockBuilder {
+    interval: In,
+}
+
+impl ClockBuilder {
+    pub fn new<T: Into<In>>(interval: T) -> Self {
+        Self { interval: interval.into() }
+    }
+    pub fn rack<'a>(&self, rack: &'a mut Rack, controls: &mut Controls) -> Box<Clock> {
+        let tag = rack.num_modules();
+        controls[(tag, 0)] = self.interval;
+        let clock = Box::new(Clock::new(tag));
+        rack.push(clock.clone());
+        clock
+    }
+}
+
+impl Clock {
+    pub fn new(tag: Tag) -> Self {
+        Self {
+            tag,
+            clock: 0,
+        }
+    }
+    pub fn interval(&self, controls: &Controls, outputs: &Outputs) -> Real {
+        let inp = controls[(self.tag, 0)];
+        outputs.value(inp)
+    }
+    pub fn set_intervale(&self, controls: &mut Controls, value: In) {
+        controls[(self.tag, 0)] = value;
+    }
+}
+
+impl Signal for Clock {
+    tag!();
+    fn signal(&mut self, controls: & Controls, outputs: &mut Outputs, sample_rate: Real) {
+        let interval = (self.interval(controls, outputs) * sample_rate) as u64;
+        let out;
+        if self.clock == 0 {
+            self.clock += 1;
+            out = 1.0;
+        } else {
+            self.clock += 1;
+            while self.clock >= interval {
+                self.clock -= interval;
+            }
+            out = 0.0;
+        }
+        outputs[(self.tag, 0)] = out;
+    }
+}
