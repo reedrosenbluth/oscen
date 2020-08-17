@@ -1,3 +1,5 @@
+use std::ops::{Index, IndexMut};
+
 /// Unique identifier for each Synth Module.
 pub type Tag = usize;
 pub type Real = f32;
@@ -35,10 +37,13 @@ impl Default for In {
 }
 
 #[derive(Copy, Clone)]
-pub struct Controls(pub [[In; MAX_CONTROLS]; MAX_MODULES]);
-pub struct Outputs(pub [[Real; MAX_OUTPUTS]; MAX_MODULES]);
+pub struct Controls([[In; MAX_CONTROLS]; MAX_MODULES]);
+pub struct Outputs([[Real; MAX_OUTPUTS]; MAX_MODULES]);
 
 impl Controls {
+    pub fn new() -> Self {
+        Controls([[0.into(); MAX_CONTROLS]; MAX_MODULES])
+    }
     pub fn controls(&self, tag: Tag) -> &[In] {
         self.0[tag].as_ref()
     }
@@ -47,7 +52,23 @@ impl Controls {
     }
 }
 
+impl Index<(Tag, usize)> for Controls {
+    type Output = In;
+    fn index(&self, index: (Tag, usize)) -> &Self::Output {
+        &self.controls(index.0)[index.1]
+    }
+}
+
+impl IndexMut<(Tag, usize)> for Controls {
+    fn index_mut(&mut self, index: (Tag, usize)) -> &mut Self::Output {
+        &mut self.controls_mut(index.0)[index.1]
+    }
+}
+
 impl Outputs {
+    pub fn new() -> Self {
+        Outputs([[0.0; MAX_OUTPUTS]; MAX_MODULES])
+    }
     pub fn outputs(&self, tag: Tag) -> &[Real] {
         self.0[tag].as_ref()
     }
@@ -59,6 +80,19 @@ impl Outputs {
             In::Fix(p) => p,
             In::Cv(n, i) => self.0[n][i],
         }
+    }
+}
+
+impl Index<(Tag, usize)> for Outputs {
+    type Output = Real;
+    fn index(&self, index: (Tag, usize)) -> &Self::Output {
+        &self.outputs(index.0)[index.1]
+    }
+}
+
+impl IndexMut<(Tag, usize)> for Outputs {
+    fn index_mut(&mut self, index: (Tag, usize)) -> &mut Self::Output {
+        &mut self.outputs_mut(index.0)[index.1]
     }
 }
 
@@ -90,11 +124,17 @@ macro_rules! tag {
 
 /// A Rack is a topologically sorted `Array` of Synth Modules. A synth is one or
 /// more racks.
-pub struct Rack(pub Vec<Box<dyn Signal + Send + Sync>>);
+pub struct Rack(Vec<Box<dyn Signal + Send + Sync>>);
 
 impl Rack {
+    pub fn new() -> Self {
+        Rack(vec![])
+    }
     pub fn num_modules(&self) -> usize {
         self.0.len()
+    }
+    pub fn push(&mut self, module: Box<dyn Signal + Send + Sync>) {
+        self.0.push(module);
     }
     /// Call the `signal` function for each module in turn returning the vector
     /// of outpts in the last module.

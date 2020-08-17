@@ -36,6 +36,7 @@ pub mod envelopes;
 pub mod signal;
 /// Syth modules for combining other sytn modules.
 pub mod operators;
+pub mod ops;
 /// Some common (and some less common) oscillators.
 pub mod oscillators;
 pub mod osc;

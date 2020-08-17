@@ -72,7 +72,7 @@ impl IdGen {
     }
 }
 
-/// Types that implement the gate type can be turned on and off from within a
+/// Types that implement the gate trait can be turned on and off from within a
 ///`Rack`, e.g. envelope generators.
 pub trait Gate {
     fn gate_on(rack: &Rack, n: Tag);

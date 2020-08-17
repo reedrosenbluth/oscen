@@ -1,9 +1,9 @@
 use anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-use oscen::rack::*;
+use oscen::ops::*;
 use oscen::osc::*;
-
+use oscen::rack::*;
 
 fn main() -> Result<(), anyhow::Error> {
     let host = cpal::default_host();
@@ -28,18 +28,24 @@ where
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
 
-    let mut rack = Rack(vec![]);
-    let mut controls = Controls([[0.into(); MAX_CONTROLS]; MAX_MODULES]);
-    let mut outputs = Outputs([[0.0; MAX_OUTPUTS]; MAX_MODULES]);
-    let num_oscillators = 1000;
+    let mut rack = Rack::new();
+    let mut controls = Controls::new();
+    let mut outputs = Outputs::new();
+    let num_oscillators = 1;
     let amp = 1.0 / num_oscillators as f32;
     let mut oscs = vec![];
+    // for _ in 0..num_oscillators {
+    //     let sine = OscBuilder::new(sine_osc)
+    //         .hz(440)
+    //         .amplitude(amp)
+    //         .rack(&mut rack, &mut controls);
+    //     oscs.push(sine.tag());
+    // }
     for _ in 0..num_oscillators {
-        let sine = OscBuilder::new(sine_osc)
-            .hz(In::Fix(440.0))
-            .amp(In::Fix(amp))
-            .rack(&mut rack, &mut controls);
-        oscs.push(sine.tag());
+        let mut builder = triangle_wave(32);
+        builder.amplitude(amp).hz(440).lanczos(false);
+        let osc = builder.rack(&mut rack, &mut controls);
+        oscs.push(osc.tag());
     }
 
     let _mixer = Mixer::rack(&mut rack, oscs);
