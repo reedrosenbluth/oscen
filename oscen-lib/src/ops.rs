@@ -1,5 +1,5 @@
 use crate::rack::*;
-use crate::tag;
+use crate::{build, props, tag};
 #[derive(Debug, Clone)]
 pub struct Mixer {
     tag: Tag,
@@ -15,7 +15,7 @@ impl MixerBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack<'a>(&self, rack: &'a mut Rack) -> Box<Mixer> {
+    pub fn rack(&self, rack: &mut Rack) -> Box<Mixer> {
         let tag = rack.num_modules();
         let mix = Box::new(Mixer::new(tag, self.waves.clone()));
         rack.push(mix.clone());
@@ -32,10 +32,7 @@ impl Mixer {
 impl Signal for Mixer {
     tag!();
     fn signal(&mut self, _controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
-        let out = self
-            .waves
-            .iter()
-            .fold(0.0, |acc, n| acc + outputs.outputs(*n)[0]);
+        let out = self.waves.iter().fold(0.0, |acc, n| acc + outputs[(*n, 0)]);
         outputs[(self.tag, 0)] = out;
     }
 }
@@ -59,11 +56,8 @@ impl UnionBuilder {
             active: Control::I(0),
         }
     }
-    pub fn active(&mut self, value: usize) -> &mut Self {
-        self.active = Control::I(value);
-        self
-    }
-    pub fn rack<'a>(&self, rack: &'a mut Rack, controls: &mut Controls) -> Box<Union> {
+    build!(active);
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Union> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.active;
         let u = Box::new(Union::new(tag, self.waves.clone()));
@@ -90,7 +84,7 @@ impl Signal for Union {
     fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
         let idx = self.active(controls, outputs);
         let wave = self.waves[idx];
-        outputs[(self.tag, 0)] = outputs.outputs(wave)[0];
+        outputs[(self.tag, 0)] = outputs[(wave, 0)];
     }
 }
 
@@ -109,7 +103,7 @@ impl ProductBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack<'a>(&self, rack: &'a mut Rack) -> Box<Product> {
+    pub fn rack(&self, rack: &mut Rack) -> Box<Product> {
         let tag = rack.num_modules();
         let p = Box::new(Product::new(tag, self.waves.clone()));
         rack.push(p.clone());
@@ -126,10 +120,98 @@ impl Product {
 impl Signal for Product {
     tag!();
     fn signal(&mut self, _controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
-        let out = self
-            .waves
-            .iter()
-            .fold(1.0, |acc, n| acc * outputs.outputs(*n)[0]);
+        let out = self.waves.iter().fold(1.0, |acc, n| acc * outputs[(*n, 0)]);
         outputs[(self.tag, 0)] = out;
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Vca {
+    tag: Tag,
+    wave: Tag,
+}
+
+impl Vca {
+    pub fn new(tag: Tag, wave: Tag) -> Self {
+        Self { tag, wave }
+    }
+    props!(level, set_level, 0);
+}
+
+impl Signal for Vca {
+    tag!();
+    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+        outputs[(self.tag, 0)] = self.level(controls, outputs) * outputs[(self.wave, 0)];
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct VcaBuilder {
+    wave: Tag,
+    level: Control,
+}
+
+impl VcaBuilder {
+    pub fn new(wave: Tag) -> Self {
+        Self {
+            wave,
+            level: 1.into(),
+        }
+    }
+    build!(level);
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Vca> {
+        let tag = rack.num_modules();
+        controls[(tag, 0)] = self.level;
+        let vca = Box::new(Vca::new(tag, self.wave));
+        rack.push(vca.clone());
+        vca
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct CrossFade {
+    tag: Tag,
+    wave1: Tag,
+    wave2: Tag,
+}
+
+impl CrossFade {
+    pub fn new(tag: Tag, wave1: Tag, wave2: Tag) -> Self {
+        Self { tag, wave1, wave2 }
+    }
+    props!(alpha, set_alpha, 0);
+}
+
+impl Signal for CrossFade {
+    tag!();
+    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, sample_rate: Real) {
+        let alpha = self.alpha(controls, outputs);
+        outputs[(self.tag, 0)] =
+            alpha * outputs[(self.wave2, 0)] + (1.0 - alpha) * outputs[(self.wave1, 0)];
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct CrossFadeBuilder {
+    wave1: Tag,
+    wave2: Tag,
+    alpha: Control,
+}
+
+impl CrossFadeBuilder {
+    pub fn new(wave1: Tag, wave2: Tag) -> Self {
+        Self {
+            wave1,
+            wave2,
+            alpha: 0.5.into(),
+        }
+    }
+    build!(alpha);
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<CrossFade> {
+        let tag = rack.num_modules();
+        controls[(tag, 0)] = self.alpha;
+        let cf = Box::new(CrossFade::new(tag, self.wave1, self.wave2));
+        rack.push(cf.clone());
+        cf
     }
 }

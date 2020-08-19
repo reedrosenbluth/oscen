@@ -36,7 +36,7 @@ impl Default for In {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Control {
     V(In),
     B(bool),
@@ -187,5 +187,28 @@ impl Rack {
     /// Like play but only returns the sample in `outputs[0].
     pub fn mono(&mut self, controls: &Controls, outpus: &mut Outputs, sample_rate: Real) -> Real {
         self.play(controls, outpus, sample_rate)[0]
+    }
+}
+
+#[macro_export]
+macro_rules! build {
+    ($field:ident) => { 
+        pub fn $field<T: Into<Control>>(&mut self, value: T) -> &mut Self {
+            self.$field = value.into();
+            self
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! props {
+    ($field:ident, $set:ident, $n:expr) => {
+        pub fn $field(&self, controls: &Controls, outputs: &Outputs) -> Real {
+            let inp = controls[(self.tag, $n)];
+            outputs.value(inp).unwrap()
+        }
+        pub fn $set(&self, controls: &mut Controls, value: Control) {
+            controls[(self.tag, $n)] = value;
+        }
     }
 }

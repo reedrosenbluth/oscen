@@ -1,5 +1,5 @@
 use crate::rack::*;
-use crate::tag;
+use crate::{tag, build, props};
 use math::round::floor;
 use rand::prelude::*;
 use rand_distr::{StandardNormal, Uniform};
@@ -34,23 +34,11 @@ impl OscBuilder {
             arg: 0.5.into(),
         }
     }
-    pub fn phase<T: Into<Control>>(&mut self, value: T) -> &mut Self {
-        self.phase = value.into();
-        self
-    }
-    pub fn hz<T: Into<Control>>(&mut self, value: T) -> &mut Self {
-        self.hz = value.into();
-        self
-    }
-    pub fn amplitude<T: Into<Control>>(&mut self, value: T) -> &mut Self {
-        self.amplitude = value.into();
-        self
-    }
-    pub fn arg<T: Into<Control>>(&mut self, value: T) -> &mut Self {
-        self.arg = value.into();
-        self
-    }
-    pub fn rack<'a>(&self, rack: &'a mut Rack, controls: &mut Controls) -> Box<Oscillator> {
+    build!(phase);
+    build!(hz);
+    build!(amplitude);
+    build!(arg);
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Oscillator> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.hz;
         controls[(tag, 1)] = self.amplitude;
@@ -104,27 +92,9 @@ impl Oscillator {
     pub fn set_phase(&mut self, value: Control) {
         self.phase = value;
     }
-    pub fn hz(&self, controls: &Controls, outputs: &Outputs) -> Real {
-        let inp = controls[(self.tag, 0)];
-        outputs.value(inp).expect("hz must be Control")
-    }
-    pub fn set_hz(&self, controls: &mut Controls, value: Control) {
-        controls[(self.tag, 0)] = value;
-    }
-    pub fn amplitude(&self, controls: &Controls, outputs: &Outputs) -> Real {
-        let inp = controls[(self.tag, 1)];
-        outputs.value(inp).expect("amplitude must be In")
-    }
-    pub fn set_amplitude(&self, controls: &mut Controls, value: Control) {
-        controls[(self.tag, 1)] = value;
-    }
-    pub fn arg(&self, controls: &Controls, outputs: &Outputs) -> Real {
-        let inp = controls[(self.tag, 2)];
-        outputs.value(inp).expect("arg must be In")
-    }
-    pub fn set_arg(&self, controls: &mut Controls, value: Control) {
-        controls[(self.tag, 2)] = value;
-    }
+    props!(hz, set_hz, 0);
+    props!(amplitude, set_amplitude, 1);
+    props!(arg, set_arg, 2);
 }
 
 impl Signal for Oscillator {
@@ -168,7 +138,7 @@ impl ConstBuilder {
     pub fn new(value: Real) -> Self {
         Self { value }
     }
-    pub fn rack<'a>(&self, rack: &'a mut Rack, _controls: &mut Controls) -> Box<Const> {
+    pub fn rack(&self, rack: &mut Rack, _controls: &mut Controls) -> Box<Const> {
         let tag = rack.num_modules();
         let out = Box::new(Const::new(tag, self.value));
         rack.push(out.clone());
@@ -219,11 +189,8 @@ impl WhiteNoiseBuilder {
         self.dist = arg;
         self
     }
-    pub fn amplitude<T: Into<Control>>(&mut self, value: T) -> &mut Self {
-        self.amplitude = value.into();
-        self
-    }
-    pub fn rack<'a>(&self, rack: &'a mut Rack, controls: &mut Controls) -> Box<WhiteNoise> {
+    build!(amplitude);
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<WhiteNoise> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.amplitude;
         let noise = Box::new(WhiteNoise::new(tag, self.dist));
@@ -236,13 +203,7 @@ impl WhiteNoise {
     pub fn new(tag: Tag, dist: NoiseDistribution) -> Self {
         Self { tag, dist }
     }
-    pub fn amplitude(&self, controls: &Controls, outputs: &Outputs) -> Real {
-        let inp = controls[(self.tag, 0)];
-        outputs.value(inp).expect("amplitude must be In")
-    }
-    pub fn set_amplitude(&self, controls: &mut Controls, value: Control) {
-        controls[(self.tag, 0)] = value;
-    }
+    props!(amplitude, set_amplitude, 0);
 }
 
 impl Signal for WhiteNoise {
@@ -276,13 +237,7 @@ impl PinkNoise {
     pub fn new(tag: Tag) -> Self {
         Self { tag, b: [0.0; 7] }
     }
-    pub fn amplitude(&self, controls: &Controls, outputs: &Outputs) -> Real {
-        let inp = controls[(self.tag, 0)];
-        outputs.value(inp).expect("amplitude must be In")
-    }
-    pub fn set_amplitude(&self, controls: &mut Controls, value: Control) {
-        controls[(self.tag, 0)] = value;
-    }
+    props!(amplitude, set_amplitude, 0);
 }
 
 impl PinkNoiseBuilder {
@@ -291,11 +246,8 @@ impl PinkNoiseBuilder {
             amplitude: 1.into(),
         }
     }
-    pub fn amplitude<T: Into<Control>>(&mut self, value: T) -> &mut Self {
-        self.amplitude = value.into();
-        self
-    }
-    pub fn rack<'a>(&self, rack: &'a mut Rack, controls: &mut Controls) -> Box<PinkNoise> {
+    build!(amplitude);
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<PinkNoise> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.amplitude;
         let noise = Box::new(PinkNoise::new(tag));
@@ -355,20 +307,8 @@ impl FourierOsc {
             lanczos,
         }
     }
-    pub fn hz(&self, controls: &Controls, outputs: &Outputs) -> Real {
-        let inp = controls[(self.tag, 0)];
-        outputs.value(inp).expect("hz must be In")
-    }
-    pub fn set_hz(&self, controls: &mut Controls, value: Control) {
-        controls[(self.tag, 0)] = value;
-    }
-    pub fn amplitude(&self, controls: &Controls, outputs: &Outputs) -> Real {
-        let inp = controls[(self.tag, 1)];
-        outputs.value(inp).expect("amplitude must be In")
-    }
-    pub fn set_amplitude(&self, controls: &mut Controls, value: Control) {
-        controls[(self.tag, 1)] = value;
-    }
+    props!(hz, set_hz, 0);
+    props!(amplitude, set_amplitude, 1);
     pub fn lanczos(&self) -> bool {
         self.lanczos
     }
@@ -386,19 +326,13 @@ impl FourierOscBuilder {
             lanczos: true,
         }
     }
-    pub fn hz<T: Into<Control>>(&mut self, value: T) -> &mut Self {
-        self.hz = value.into();
-        self
-    }
-    pub fn amplitude<T: Into<Control>>(&mut self, value: T) -> &mut Self {
-        self.amplitude = value.into();
-        self
-    }
+    build!(hz);
+    build!(amplitude);
     pub fn lanczos(&mut self, value: bool) -> &mut Self {
         self.lanczos = value;
         self
     }
-    pub fn rack<'a>(&self, rack: &'a mut Rack, controls: &mut Controls) -> Box<FourierOsc> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<FourierOsc> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.hz;
         controls[(tag, 1)] = self.amplitude;
@@ -483,7 +417,7 @@ impl ClockBuilder {
     pub fn new<T: Into<Control>>(interval: T) -> Self {
         Self { interval: interval.into() }
     }
-    pub fn rack<'a>(&self, rack: &'a mut Rack, controls: &mut Controls) -> Box<Clock> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Clock> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.interval;
         let clock = Box::new(Clock::new(tag));
@@ -499,13 +433,7 @@ impl Clock {
             clock: 0,
         }
     }
-    pub fn interval(&self, controls: &Controls, outputs: &Outputs) -> Real {
-        let inp = controls[(self.tag, 0)];
-        outputs.value(inp).expect("interval must be In")
-    }
-    pub fn set_intervale(&self, controls: &mut Controls, value: Control) {
-        controls[(self.tag, 0)] = value;
-    }
+    props!(interval, set_interval, 0)
 }
 
 impl Signal for Clock {
