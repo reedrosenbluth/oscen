@@ -37,23 +37,50 @@ impl Default for In {
 }
 
 #[derive(Copy, Clone)]
-pub struct Controls([[In; MAX_CONTROLS]; MAX_MODULES]);
+pub enum Control {
+    V(In),
+    B(bool),
+    I(usize),
+}
+
+impl From<Real> for Control {
+    fn from(x: Real) -> Self {
+       Control::V(In::Fix(x)) 
+    }
+}
+
+impl From<usize> for Control {
+    fn from(u: usize) -> Self {
+        Control::V(In::Fix(u as Real))
+    }
+}
+
+impl From<bool> for Control {
+    fn from(b: bool) -> Self {
+        Control::B(b)
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct Controls([[Control; MAX_CONTROLS]; MAX_MODULES]);
+
+#[derive(Copy, Clone)]
 pub struct Outputs([[Real; MAX_OUTPUTS]; MAX_MODULES]);
 
 impl Controls {
     pub fn new() -> Self {
         Controls([[0.into(); MAX_CONTROLS]; MAX_MODULES])
     }
-    pub fn controls(&self, tag: Tag) -> &[In] {
+    pub fn controls(&self, tag: Tag) -> &[Control] {
         self.0[tag].as_ref()
     }
-    pub fn controls_mut(&mut self, tag: Tag) -> &mut [In] {
+    pub fn controls_mut(&mut self, tag: Tag) -> &mut [Control] {
         self.0[tag].as_mut()
     }
 }
 
 impl Index<(Tag, usize)> for Controls {
-    type Output = In;
+    type Output = Control;
     fn index(&self, index: (Tag, usize)) -> &Self::Output {
         &self.controls(index.0)[index.1]
     }
@@ -75,10 +102,17 @@ impl Outputs {
     pub fn outputs_mut(&mut self, tag: Tag) -> &mut [Real] {
         self.0[tag].as_mut()
     }
-    pub fn value(&self, inp: In) -> Real {
-        match inp {
-            In::Fix(p) => p,
-            In::Cv(n, i) => self.0[n][i],
+    pub fn value(&self, ctrl: Control) -> Option<Real> {
+        match ctrl {
+            Control::V(In::Fix(p)) => Some(p),
+            Control::V(In::Cv(n, i)) => Some(self.0[n][i]),
+            _ => None,
+        }
+    }
+    pub fn integer(&self, ctrl: Control) -> Option<usize> {
+        match ctrl {
+            Control::I(n) => Some(n),
+            _ => None,
         }
     }
 }

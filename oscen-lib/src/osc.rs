@@ -9,10 +9,10 @@ const TAU: f32 = 2.0 * consts::PI;
 
 pub struct OscBuilder {
     signal_fn: fn(Real, Real) -> Real,
-    phase: In,
-    hz: In,
-    amplitude: In,
-    arg: In,
+    phase: Control,
+    hz: Control,
+    amplitude: Control,
+    arg: Control,
 }
 
 /// A standard oscillator that has phase, hz, and amp. Pass in a signal function
@@ -20,7 +20,7 @@ pub struct OscBuilder {
 #[derive(Clone)]
 pub struct Oscillator {
     tag: Tag,
-    phase: In,
+    phase: Control,
     signal_fn: fn(Real, Real) -> Real,
 }
 
@@ -34,19 +34,19 @@ impl OscBuilder {
             arg: 0.5.into(),
         }
     }
-    pub fn phase<T: Into<In>>(&mut self, value: T) -> &mut Self {
+    pub fn phase<T: Into<Control>>(&mut self, value: T) -> &mut Self {
         self.phase = value.into();
         self
     }
-    pub fn hz<T: Into<In>>(&mut self, value: T) -> &mut Self {
+    pub fn hz<T: Into<Control>>(&mut self, value: T) -> &mut Self {
         self.hz = value.into();
         self
     }
-    pub fn amplitude<T: Into<In>>(&mut self, value: T) -> &mut Self {
+    pub fn amplitude<T: Into<Control>>(&mut self, value: T) -> &mut Self {
         self.amplitude = value.into();
         self
     }
-    pub fn arg<T: Into<In>>(&mut self, value: T) -> &mut Self {
+    pub fn arg<T: Into<Control>>(&mut self, value: T) -> &mut Self {
         self.arg = value.into();
         self
     }
@@ -99,30 +99,30 @@ impl Oscillator {
         }
     }
     pub fn phase(&self, outputs: &Outputs) -> Real {
-        outputs.value(self.phase)
+        outputs.value(self.phase).expect("phase must be Control")
     }
-    pub fn set_phase(&mut self, value: In) {
+    pub fn set_phase(&mut self, value: Control) {
         self.phase = value;
     }
     pub fn hz(&self, controls: &Controls, outputs: &Outputs) -> Real {
         let inp = controls[(self.tag, 0)];
-        outputs.value(inp)
+        outputs.value(inp).expect("hz must be Control")
     }
-    pub fn set_hz(&self, controls: &mut Controls, value: In) {
+    pub fn set_hz(&self, controls: &mut Controls, value: Control) {
         controls[(self.tag, 0)] = value;
     }
     pub fn amplitude(&self, controls: &Controls, outputs: &Outputs) -> Real {
         let inp = controls[(self.tag, 1)];
-        outputs.value(inp)
+        outputs.value(inp).expect("amplitude must be In")
     }
-    pub fn set_amplitude(&self, controls: &mut Controls, value: In) {
+    pub fn set_amplitude(&self, controls: &mut Controls, value: Control) {
         controls[(self.tag, 1)] = value;
     }
     pub fn arg(&self, controls: &Controls, outputs: &Outputs) -> Real {
         let inp = controls[(self.tag, 2)];
-        outputs.value(inp)
+        outputs.value(inp).expect("arg must be In")
     }
-    pub fn set_arg(&self, controls: &mut Controls, value: In) {
+    pub fn set_arg(&self, controls: &mut Controls, value: Control) {
         controls[(self.tag, 2)] = value;
     }
 }
@@ -130,12 +130,12 @@ impl Oscillator {
 impl Signal for Oscillator {
     tag!();
     fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, sample_rate: Real) {
-        let phase = outputs.value(self.phase);
+        let phase = outputs.value(self.phase).expect("phase must be In");
         let hz = self.hz(controls, outputs);
         let amp = self.amplitude(controls, outputs);
         let arg = self.arg(controls, outputs);
         match self.phase {
-            In::Fix(p) => {
+            Control::V(In::Fix(p)) => {
                 let mut ph = p + hz / sample_rate;
                 while ph >= 1.0 {
                     ph -= 1.0
@@ -143,9 +143,9 @@ impl Signal for Oscillator {
                 while ph <= -1.0 {
                     ph += 1.0
                 }
-                self.phase = In::Fix(ph);
+                self.phase = Control::V(In::Fix(ph));
             }
-            In::Cv(_, _) => {}
+            _ => {}
         };
         outputs[(self.tag, 0)] = amp * (self.signal_fn)(phase, arg);
     }
@@ -156,7 +156,7 @@ pub struct ConstBuilder {
     value: Real,
 }
 
-/// An synth module that returns a constant In value. Useful for example to
+/// An synth module that returns a constant Control value. Useful for example to
 /// multiply or add constants to oscillators.
 #[derive(Debug, Copy, Clone)]
 pub struct Const {
@@ -204,7 +204,7 @@ pub struct WhiteNoise {
 
 #[derive(Copy, Clone)]
 pub struct WhiteNoiseBuilder {
-    amplitude: In,
+    amplitude: Control,
     dist: NoiseDistribution,
 }
 
@@ -219,7 +219,7 @@ impl WhiteNoiseBuilder {
         self.dist = arg;
         self
     }
-    pub fn amplitude<T: Into<In>>(&mut self, value: T) -> &mut Self {
+    pub fn amplitude<T: Into<Control>>(&mut self, value: T) -> &mut Self {
         self.amplitude = value.into();
         self
     }
@@ -238,9 +238,9 @@ impl WhiteNoise {
     }
     pub fn amplitude(&self, controls: &Controls, outputs: &Outputs) -> Real {
         let inp = controls[(self.tag, 0)];
-        outputs.value(inp)
+        outputs.value(inp).expect("amplitude must be In")
     }
-    pub fn set_amplitude(&self, controls: &mut Controls, value: In) {
+    pub fn set_amplitude(&self, controls: &mut Controls, value: Control) {
         controls[(self.tag, 0)] = value;
     }
 }
@@ -269,7 +269,7 @@ pub struct PinkNoise {
 
 #[derive(Copy, Clone)]
 pub struct PinkNoiseBuilder {
-    amplitude: In,
+    amplitude: Control,
 }
 
 impl PinkNoise {
@@ -278,9 +278,9 @@ impl PinkNoise {
     }
     pub fn amplitude(&self, controls: &Controls, outputs: &Outputs) -> Real {
         let inp = controls[(self.tag, 0)];
-        outputs.value(inp)
+        outputs.value(inp).expect("amplitude must be In")
     }
-    pub fn set_amplitude(&self, controls: &mut Controls, value: In) {
+    pub fn set_amplitude(&self, controls: &mut Controls, value: Control) {
         controls[(self.tag, 0)] = value;
     }
 }
@@ -291,7 +291,7 @@ impl PinkNoiseBuilder {
             amplitude: 1.into(),
         }
     }
-    pub fn amplitude<T: Into<In>>(&mut self, value: T) -> &mut Self {
+    pub fn amplitude<T: Into<Control>>(&mut self, value: T) -> &mut Self {
         self.amplitude = value.into();
         self
     }
@@ -339,8 +339,8 @@ pub struct FourierOsc {
 
 #[derive(Clone)]
 pub struct FourierOscBuilder {
-    hz: In,
-    amplitude: In,
+    hz: Control,
+    amplitude: Control,
     coefficients: Vec<Real>,
     lanczos: bool,
 }
@@ -357,16 +357,16 @@ impl FourierOsc {
     }
     pub fn hz(&self, controls: &Controls, outputs: &Outputs) -> Real {
         let inp = controls[(self.tag, 0)];
-        outputs.value(inp)
+        outputs.value(inp).expect("hz must be In")
     }
-    pub fn set_hz(&self, controls: &mut Controls, value: In) {
+    pub fn set_hz(&self, controls: &mut Controls, value: Control) {
         controls[(self.tag, 0)] = value;
     }
     pub fn amplitude(&self, controls: &Controls, outputs: &Outputs) -> Real {
         let inp = controls[(self.tag, 1)];
-        outputs.value(inp)
+        outputs.value(inp).expect("amplitude must be In")
     }
-    pub fn set_amplitude(&self, controls: &mut Controls, value: In) {
+    pub fn set_amplitude(&self, controls: &mut Controls, value: Control) {
         controls[(self.tag, 1)] = value;
     }
     pub fn lanczos(&self) -> bool {
@@ -386,11 +386,11 @@ impl FourierOscBuilder {
             lanczos: true,
         }
     }
-    pub fn hz<T: Into<In>>(&mut self, value: T) -> &mut Self {
+    pub fn hz<T: Into<Control>>(&mut self, value: T) -> &mut Self {
         self.hz = value.into();
         self
     }
-    pub fn amplitude<T: Into<In>>(&mut self, value: T) -> &mut Self {
+    pub fn amplitude<T: Into<Control>>(&mut self, value: T) -> &mut Self {
         self.amplitude = value.into();
         self
     }
@@ -476,11 +476,11 @@ pub struct Clock {
 
 #[derive(Copy, Clone)]
 pub struct ClockBuilder {
-    interval: In,
+    interval: Control,
 }
 
 impl ClockBuilder {
-    pub fn new<T: Into<In>>(interval: T) -> Self {
+    pub fn new<T: Into<Control>>(interval: T) -> Self {
         Self { interval: interval.into() }
     }
     pub fn rack<'a>(&self, rack: &'a mut Rack, controls: &mut Controls) -> Box<Clock> {
@@ -501,9 +501,9 @@ impl Clock {
     }
     pub fn interval(&self, controls: &Controls, outputs: &Outputs) -> Real {
         let inp = controls[(self.tag, 0)];
-        outputs.value(inp)
+        outputs.value(inp).expect("interval must be In")
     }
-    pub fn set_intervale(&self, controls: &mut Controls, value: In) {
+    pub fn set_intervale(&self, controls: &mut Controls, value: Control) {
         controls[(self.tag, 0)] = value;
     }
 }
