@@ -433,7 +433,7 @@ impl Clock {
             clock: 0,
         }
     }
-    props!(interval, set_interval, 0)
+    props!(interval, set_interval, 0);
 }
 
 impl Signal for Clock {

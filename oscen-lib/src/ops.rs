@@ -1,3 +1,4 @@
+use crate::osc::Oscillator;
 use crate::rack::*;
 use crate::{build, props, tag};
 #[derive(Debug, Clone)]
@@ -161,6 +162,7 @@ impl VcaBuilder {
     build!(level);
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Vca> {
         let tag = rack.num_modules();
+        println!("{:?}", self.level);
         controls[(tag, 0)] = self.level;
         let vca = Box::new(Vca::new(tag, self.wave));
         rack.push(vca.clone());
@@ -184,7 +186,7 @@ impl CrossFade {
 
 impl Signal for CrossFade {
     tag!();
-    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, sample_rate: Real) {
+    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
         let alpha = self.alpha(controls, outputs);
         outputs[(self.tag, 0)] =
             alpha * outputs[(self.wave2, 0)] + (1.0 - alpha) * outputs[(self.wave1, 0)];
@@ -213,5 +215,47 @@ impl CrossFadeBuilder {
         let cf = Box::new(CrossFade::new(tag, self.wave1, self.wave2));
         rack.push(cf.clone());
         cf
+    }
+}
+
+#[derive(Clone)]
+pub struct Modulator {
+    tag: Tag,
+    wave: Box<Oscillator>,
+    hz_tag: Tag,
+    ratio_tag: Tag,
+    index_tag: Tag,
+}
+
+impl Modulator {
+    pub fn new(
+        tag: Tag,
+        wave: Box<Oscillator>,
+        hz_tag: Tag,
+        ratio_tag: Tag,
+        index_tag: Tag,
+    ) -> Self {
+        Self {
+            tag,
+            wave,
+            hz_tag,
+            ratio_tag,
+            index_tag,
+        }
+    }
+    props!(hz, set_hz, 0);
+    props!(ratio, set_ratio, 1);
+    props!(index, set_index, 2);
+}
+
+impl Signal for Modulator {
+    tag!();
+    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+        let _hz = self.hz(controls, outputs);
+        // let ratio = self.ratio(controls, outputs);
+        // let index = self.index(controls, outputs);
+        // let mod_hz = ratio * hz;
+        // let amp_factor = index * mod_hz;
+        // let mod_amp = hz + amp_factor;
     }
 }

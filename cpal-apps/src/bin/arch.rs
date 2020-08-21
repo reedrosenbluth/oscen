@@ -31,24 +31,17 @@ where
     let mut rack = Rack::new();
     let mut controls = Controls::new();
     let mut outputs = Outputs::new();
-    let num_oscillators = 1023;
-    let amp = 1.0 / num_oscillators as f32;
     let mut oscs = vec![];
-    for _ in 0..num_oscillators {
-        let sine = OscBuilder::new(square_osc)
+    let osc = OscBuilder::new(square_osc)
             .hz(440)
-            .amplitude(amp)
             .rack(&mut rack, &mut controls);
-        oscs.push(sine.tag());
-    }
-    // for _ in 0..num_oscillators {
-    //     let mut builder = triangle_wave(32);
-    //     builder.amplitude(amp).hz(440).lanczos(false);
-    //     let osc = builder.rack(&mut rack, &mut controls);
-    //     oscs.push(osc.tag());
-    // }
+    oscs.push(osc.tag());
+    let mut builder = triangle_wave(32);
+    builder.hz(220).lanczos(false);
+    let osc = builder.rack(&mut rack, &mut controls);
+    oscs.push(osc.tag());
 
-    let _mixer = MixerBuilder::new(oscs).rack(&mut rack);
+    let union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
 
     // Produce a sinusoid of maximum amplitude.
     let mut next_value = move || rack.mono(&controls, &mut outputs, sample_rate);
@@ -63,7 +56,6 @@ where
         err_fn,
     )?;
     stream.play()?;
-
     std::thread::sleep(std::time::Duration::from_millis(1000));
 
     Ok(())
