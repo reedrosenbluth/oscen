@@ -102,7 +102,7 @@ impl Oscillator {
             hz: 0.into(),
             amplitude: 1.into(),
             phase: 0.into(),
-            arg: 0.into(),
+            arg: 0.5.into(),
             signal_fn,
             out: 0.0,
         }

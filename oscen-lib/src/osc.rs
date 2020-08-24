@@ -1,5 +1,5 @@
 use crate::rack::*;
-use crate::{tag, build, props};
+use crate::{build, props, tag};
 use math::round::floor;
 use rand::prelude::*;
 use rand_distr::{StandardNormal, Uniform};
@@ -9,7 +9,7 @@ const TAU: f32 = 2.0 * consts::PI;
 
 pub struct OscBuilder {
     signal_fn: fn(Real, Real) -> Real,
-    phase: Control,
+    phase: Real,
     hz: Control,
     amplitude: Control,
     arg: Control,
@@ -20,7 +20,6 @@ pub struct OscBuilder {
 #[derive(Clone)]
 pub struct Oscillator {
     tag: Tag,
-    phase: Control,
     signal_fn: fn(Real, Real) -> Real,
 }
 
@@ -28,21 +27,31 @@ impl OscBuilder {
     pub fn new(signal_fn: fn(Real, Real) -> Real) -> Self {
         Self {
             signal_fn,
-            phase: 0.into(),
+            phase: 0.0,
             hz: 0.into(),
             amplitude: 1.into(),
             arg: 0.5.into(),
         }
     }
-    build!(phase);
+    pub fn phase(&mut self, value: Real) -> &mut Self {
+        self.phase = value;
+        self
+    }
     build!(hz);
     build!(amplitude);
     build!(arg);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Oscillator> {
+
+    pub fn rack(
+        &self,
+        rack: &mut Rack,
+        controls: &mut Controls,
+        state: &mut State,
+    ) -> Box<Oscillator> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.hz;
         controls[(tag, 1)] = self.amplitude;
         controls[(tag, 2)] = self.arg;
+        state[(tag, 0)] = self.phase;
         let osc = Box::new(Oscillator::new(tag, self.signal_fn));
         rack.push(osc.clone());
         osc
@@ -80,17 +89,13 @@ pub fn triangle_osc(phase: Real, _: Real) -> Real {
 
 impl Oscillator {
     pub fn new(tag: Tag, signal_fn: fn(Real, Real) -> Real) -> Self {
-        Self {
-            tag,
-            phase: 0.into(),
-            signal_fn,
-        }
+        Self { tag, signal_fn }
     }
-    pub fn phase(&self, outputs: &Outputs) -> Real {
-        outputs.value(self.phase).expect("phase must be Control")
+    pub fn phase(&self, state: &State) -> Real {
+        state[(self.tag, 0)]
     }
-    pub fn set_phase(&mut self, value: Control) {
-        self.phase = value;
+    pub fn set_phase(&mut self, state: &mut State, value: Real) {
+        state[(self.tag, 0)] = value;
     }
     props!(hz, set_hz, 0);
     props!(amplitude, set_amplitude, 1);
@@ -99,24 +104,25 @@ impl Oscillator {
 
 impl Signal for Oscillator {
     tag!();
-    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, sample_rate: Real) {
-        let phase = outputs.value(self.phase).expect("phase must be In");
+    fn signal(
+        &mut self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        sample_rate: Real,
+    ) {
+        let phase = self.phase(state);
         let hz = self.hz(controls, outputs);
         let amp = self.amplitude(controls, outputs);
         let arg = self.arg(controls, outputs);
-        match self.phase {
-            Control::V(In::Fix(p)) => {
-                let mut ph = p + hz / sample_rate;
-                while ph >= 1.0 {
-                    ph -= 1.0
-                }
-                while ph <= -1.0 {
-                    ph += 1.0
-                }
-                self.phase = Control::V(In::Fix(ph));
-            }
-            _ => {}
-        };
+        let mut ph = phase + hz / sample_rate;
+        while ph >= 1.0 {
+            ph -= 1.0
+        }
+        while ph <= -1.0 {
+            ph += 1.0
+        }
+        self.set_phase(state, ph);
         outputs[(self.tag, 0)] = amp * (self.signal_fn)(phase, arg);
     }
 }
@@ -154,7 +160,13 @@ impl Const {
 
 impl Signal for Const {
     tag!();
-    fn signal(&mut self, _controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+    fn signal(
+        &mut self,
+        _controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: Real,
+    ) {
         outputs[(self.tag, 0)] = self.value;
     }
 }
@@ -208,7 +220,13 @@ impl WhiteNoise {
 
 impl Signal for WhiteNoise {
     tag!();
-    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+    fn signal(
+        &mut self,
+        controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: Real,
+    ) {
         let amplitude = self.amplitude(controls, outputs);
         let mut rng = thread_rng();
         let out: Real;
@@ -225,7 +243,6 @@ impl Signal for WhiteNoise {
 #[derive(Copy, Clone)]
 pub struct PinkNoise {
     tag: Tag,
-    b: [Real; 7],
 }
 
 #[derive(Copy, Clone)]
@@ -235,7 +252,7 @@ pub struct PinkNoiseBuilder {
 
 impl PinkNoise {
     pub fn new(tag: Tag) -> Self {
-        Self { tag, b: [0.0; 7] }
+        Self { tag }
     }
     props!(amplitude, set_amplitude, 0);
 }
@@ -258,25 +275,32 @@ impl PinkNoiseBuilder {
 
 impl Signal for PinkNoise {
     tag!();
-    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+    fn signal(
+        &mut self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: Real,
+    ) {
+        let tag = self.tag;
         let amplitude = self.amplitude(controls, outputs);
         let mut rng = thread_rng();
         let white = Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng);
-        self.b[0] = 0.99886 * self.b[0] + white * 0.0555179;
-        self.b[1] = 0.99332 * self.b[1] + white * 0.0750759;
-        self.b[2] = 0.96900 * self.b[2] + white * 0.1538520;
-        self.b[3] = 0.86650 * self.b[3] + white * 0.3104856;
-        self.b[4] = 0.55000 * self.b[4] + white * 0.5329522;
-        self.b[5] = -0.7616 * self.b[5] - white * 0.0168980;
-        let pink = self.b[0]
-            + self.b[1]
-            + self.b[2]
-            + self.b[3]
-            + self.b[4]
-            + self.b[5]
-            + self.b[6]
+        state[(tag, 0)] = 0.99886 * state[(tag, 0)] + white * 0.0555179;
+        state[(tag, 1)] = 0.99332 * state[(tag, 1)] + white * 0.0750759;
+        state[(tag, 2)] = 0.96900 * state[(tag, 2)] + white * 0.1538520;
+        state[(tag, 3)] = 0.86650 * state[(tag, 3)] + white * 0.3104856;
+        state[(tag, 4)] = 0.55000 * state[(tag, 4)] + white * 0.5329522;
+        state[(tag, 5)] = -0.7616 * state[(tag, 5)] - white * 0.0168980;
+        let pink = state[(tag, 0)]
+            + state[(tag, 1)]
+            + state[(tag, 2)]
+            + state[(tag, 3)]
+            + state[(tag, 4)]
+            + state[(tag, 5)]
+            + state[(tag, 6)]
             + white * 0.5362;
-        self.b[6] = white * 0.115926;
+        state[(tag, 6)] = white * 0.115926;
         outputs[(self.tag, 0)] = pink * amplitude;
     }
 }
@@ -355,7 +379,13 @@ fn sinc(x: Real) -> Real {
 
 impl Signal for FourierOsc {
     tag!();
-    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, sample_rate: Real) {
+    fn signal(
+        &mut self,
+        controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        sample_rate: Real,
+    ) {
         let hz = self.hz(controls, outputs);
         let sigma = self.lanczos as i32;
         let mut out = 0.0;
@@ -415,7 +445,9 @@ pub struct ClockBuilder {
 
 impl ClockBuilder {
     pub fn new<T: Into<Control>>(interval: T) -> Self {
-        Self { interval: interval.into() }
+        Self {
+            interval: interval.into(),
+        }
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Clock> {
         let tag = rack.num_modules();
@@ -428,17 +460,20 @@ impl ClockBuilder {
 
 impl Clock {
     pub fn new(tag: Tag) -> Self {
-        Self {
-            tag,
-            clock: 0,
-        }
+        Self { tag, clock: 0 }
     }
     props!(interval, set_interval, 0);
 }
 
 impl Signal for Clock {
     tag!();
-    fn signal(&mut self, controls: & Controls, outputs: &mut Outputs, sample_rate: Real) {
+    fn signal(
+        &mut self,
+        controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        sample_rate: Real,
+    ) {
         let interval = (self.interval(controls, outputs) * sample_rate) as u64;
         let out;
         if self.clock == 0 {

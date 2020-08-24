@@ -143,9 +143,9 @@ impl Signal for Adsr {
         let s = In::val(rack, self.sustain);
         self.d_interp.update(1.0, s + self.d_param * (1.0 - s), s);
         self.r_interp.update(s, self.r_param * s, 0.0);
-        self.out = self.calc_level(rack);
+        self.level = self.calc_level(rack);
         self.clock += 1. / sample_rate;
-        self.out
+        self.level
     }
 }
 

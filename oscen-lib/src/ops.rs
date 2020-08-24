@@ -32,7 +32,13 @@ impl Mixer {
 
 impl Signal for Mixer {
     tag!();
-    fn signal(&mut self, _controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+    fn signal(
+        &mut self,
+        _controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: Real,
+    ) {
         let out = self.waves.iter().fold(0.0, |acc, n| acc + outputs[(*n, 0)]);
         outputs[(self.tag, 0)] = out;
     }
@@ -82,7 +88,13 @@ impl Union {
 
 impl Signal for Union {
     tag!();
-    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+    fn signal(
+        &mut self,
+        controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: Real,
+    ) {
         let idx = self.active(controls, outputs);
         let wave = self.waves[idx];
         outputs[(self.tag, 0)] = outputs[(wave, 0)];
@@ -120,7 +132,13 @@ impl Product {
 
 impl Signal for Product {
     tag!();
-    fn signal(&mut self, _controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+    fn signal(
+        &mut self,
+        _controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: Real,
+    ) {
         let out = self.waves.iter().fold(1.0, |acc, n| acc * outputs[(*n, 0)]);
         outputs[(self.tag, 0)] = out;
     }
@@ -141,7 +159,13 @@ impl Vca {
 
 impl Signal for Vca {
     tag!();
-    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+    fn signal(
+        &mut self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: Real,
+    ) {
         outputs[(self.tag, 0)] = self.level(controls, outputs) * outputs[(self.wave, 0)];
     }
 }
@@ -162,7 +186,6 @@ impl VcaBuilder {
     build!(level);
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Vca> {
         let tag = rack.num_modules();
-        println!("{:?}", self.level);
         controls[(tag, 0)] = self.level;
         let vca = Box::new(Vca::new(tag, self.wave));
         rack.push(vca.clone());
@@ -186,7 +209,13 @@ impl CrossFade {
 
 impl Signal for CrossFade {
     tag!();
-    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+    fn signal(
+        &mut self,
+        controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: Real,
+    ) {
         let alpha = self.alpha(controls, outputs);
         outputs[(self.tag, 0)] =
             alpha * outputs[(self.wave2, 0)] + (1.0 - alpha) * outputs[(self.wave1, 0)];
@@ -250,7 +279,7 @@ impl Modulator {
 
 impl Signal for Modulator {
     tag!();
-    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, _sample_rate: Real) {
+    fn signal(&mut self, controls: &Controls, _state: &mut State, outputs: &mut Outputs, _sample_rate: Real) {
         let _hz = self.hz(controls, outputs);
         // let ratio = self.ratio(controls, outputs);
         // let index = self.index(controls, outputs);

@@ -7,6 +7,7 @@ pub type SignalFn = fn(Real, Real) -> Real;
 
 pub const MAX_CONTROLS: usize = 32;
 pub const MAX_OUTPUTS: usize = 32;
+pub const MAX_STATE: usize = 32;
 pub const MAX_MODULES: usize = 1024;
 
 /// Inputs to Synth Modules can either be constant (`Fix`) or a control voltage
@@ -45,7 +46,7 @@ pub enum Control {
 
 impl From<Real> for Control {
     fn from(x: Real) -> Self {
-       Control::V(In::Fix(x)) 
+        Control::V(In::Fix(x))
     }
 }
 
@@ -63,9 +64,6 @@ impl From<bool> for Control {
 
 #[derive(Copy, Clone)]
 pub struct Controls([[Control; MAX_CONTROLS]; MAX_MODULES]);
-
-#[derive(Copy, Clone)]
-pub struct Outputs([[Real; MAX_OUTPUTS]; MAX_MODULES]);
 
 impl Controls {
     pub fn new() -> Self {
@@ -91,6 +89,9 @@ impl IndexMut<(Tag, usize)> for Controls {
         &mut self.controls_mut(index.0)[index.1]
     }
 }
+
+#[derive(Copy, Clone)]
+pub struct Outputs([[Real; MAX_OUTPUTS]; MAX_MODULES]);
 
 impl Outputs {
     pub fn new() -> Self {
@@ -130,6 +131,34 @@ impl IndexMut<(Tag, usize)> for Outputs {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct State([[Real; MAX_STATE]; MAX_MODULES]);
+
+impl State {
+    pub fn new() -> Self {
+        State([[0.0; MAX_STATE]; MAX_MODULES])
+    }
+    pub fn state(&self, tag: Tag) -> &[Real] {
+        self.0[tag].as_ref()
+    }
+    pub fn state_mut(&mut self, tag: Tag) -> &mut [Real] {
+        self.0[tag].as_mut()
+    }
+}
+
+impl Index<(Tag, usize)> for State {
+    type Output = Real;
+    fn index(&self, index: (Tag, usize)) -> &Self::Output {
+        &self.state(index.0)[index.1]
+    }
+}
+
+impl IndexMut<(Tag, usize)> for State {
+    fn index_mut(&mut self, index: (Tag, usize)) -> &mut Self::Output {
+        &mut self.state_mut(index.0)[index.1]
+    }
+}
+
 /// Synth modules must implement the Signal trait. In fact one could define a
 /// synth module as a struct that implements `Signal`.
 pub trait Signal {
@@ -137,9 +166,16 @@ pub trait Signal {
     /// modules.
     fn tag(&self) -> Tag;
     fn modify_tag(&mut self, f: fn(Tag) -> Tag);
+    fn cv(&self) -> Control;
     /// Responsible for updating the any inputs including `phase` and returning the next signal
     /// output.
-    fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, sample_rate: Real);
+    fn signal(
+        &mut self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        sample_rate: Real,
+    );
 }
 
 /// A macro to reduce the boiler plate of creating a Synth Module by implementing
@@ -152,6 +188,9 @@ macro_rules! tag {
         }
         fn modify_tag(&mut self, f: fn(Tag) -> Tag) {
             self.tag = f(self.tag);
+        }
+        fn cv(&self) -> Control {
+            Control::V(In::Cv(self.tag, 0))
         }
     };
 }
@@ -175,24 +214,31 @@ impl Rack {
     pub fn play(
         &mut self,
         controls: &Controls,
+        state: &mut State,
         outputs: &mut Outputs,
         sample_rate: Real,
     ) -> [Real; MAX_OUTPUTS] {
         let n = self.0.len() - 1;
         for module in self.0.iter_mut() {
-            module.signal(controls, outputs, sample_rate);
+            module.signal(controls, state, outputs, sample_rate);
         }
         outputs.0[n]
     }
     /// Like play but only returns the sample in `outputs[0].
-    pub fn mono(&mut self, controls: &Controls, outpus: &mut Outputs, sample_rate: Real) -> Real {
-        self.play(controls, outpus, sample_rate)[0]
+    pub fn mono(
+        &mut self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        sample_rate: Real,
+    ) -> Real {
+        self.play(controls, state, outputs, sample_rate)[0]
     }
 }
 
 #[macro_export]
 macro_rules! build {
-    ($field:ident) => { 
+    ($field:ident) => {
         pub fn $field<T: Into<Control>>(&mut self, value: T) -> &mut Self {
             self.$field = value.into();
             self

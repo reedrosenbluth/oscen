@@ -30,21 +30,22 @@ where
 
     let mut rack = Rack::new();
     let mut controls = Controls::new();
+    let mut state = State::new();
     let mut outputs = Outputs::new();
     let mut oscs = vec![];
     let osc = OscBuilder::new(square_osc)
-            .hz(440)
-            .rack(&mut rack, &mut controls);
+        .hz(440)
+        .rack(&mut rack, &mut controls, &mut state);
     oscs.push(osc.tag());
     let mut builder = triangle_wave(32);
     builder.hz(220).lanczos(false);
     let osc = builder.rack(&mut rack, &mut controls);
     oscs.push(osc.tag());
 
-    let union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
+    let _union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
 
     // Produce a sinusoid of maximum amplitude.
-    let mut next_value = move || rack.mono(&controls, &mut outputs, sample_rate);
+    let mut next_value = move || rack.mono(&controls, &mut state, &mut outputs, sample_rate);
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 

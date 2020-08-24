@@ -32,6 +32,7 @@ pub mod filters;
 pub mod reverb;
 /// Envelope generators.
 pub mod envelopes;
+pub mod env;
 /// Core Oscen types and traits.
 pub mod signal;
 /// Syth modules for combining other sytn modules.
@@ -46,6 +47,7 @@ pub mod shaping;
 pub mod midi;
 /// Utilites.
 pub mod utils;
+pub mod uti;
 /// Instruments.
 pub mod instruments;
 /// Sequencer

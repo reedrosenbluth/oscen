@@ -2,6 +2,7 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
+use oscen::env::*;
 use oscen::ops::*;
 use oscen::osc::*;
 use oscen::rack::*;
@@ -20,8 +21,10 @@ struct Synth {
     sender: Sender<f32>,
     rack: Rack,
     controls: Box<Controls>,
+    state: Box<State>,
     outputs: Box<Outputs>,
     union: Box<Union>,
+    adsr: Box<Adsr>,
     names: Vec<&'static str>,
 }
 
@@ -40,6 +43,7 @@ fn model(app: &App) -> Model {
     // A Rack is a collection of synth modules.
     let mut rack = Rack::new();
     let mut controls = Controls::new();
+    let mut state = State::new();
     let outputs = Outputs::new();
     let mut oscs = vec![];
     let freq = 220;
@@ -47,28 +51,28 @@ fn model(app: &App) -> Model {
     // Sine
     let sine = OscBuilder::new(sine_osc)
         .hz(freq)
-        .rack(&mut rack, &mut controls);
+        .rack(&mut rack, &mut controls, &mut state);
     oscs.push(sine.tag());
     names.push("Sine");
 
     // Square
     let square = OscBuilder::new(square_osc)
         .hz(freq)
-        .rack(&mut rack, &mut controls);
+        .rack(&mut rack, &mut controls, &mut state);
     oscs.push(square.tag());
     names.push("Square");
 
     // Saw
     let saw = OscBuilder::new(saw_osc)
         .hz(freq)
-        .rack(&mut rack, &mut controls);
+        .rack(&mut rack, &mut controls, &mut state);
     oscs.push(saw.tag());
     names.push("Saw");
 
     // Triangle
     let tri = OscBuilder::new(triangle_osc)
         .hz(freq)
-        .rack(&mut rack, &mut controls);
+        .rack(&mut rack, &mut controls, &mut state);
     oscs.push(tri.tag());
     names.push("Triangle");
 
@@ -112,14 +116,12 @@ fn model(app: &App) -> Model {
 
     // LFO
     let lfo = OscBuilder::new(sine_osc)
-        .hz(1)
-        .rack(&mut rack, &mut controls);
-    oscs.push(lfo.tag());
-    names.push("LFO sine");
+        .hz(2)
+        .rack(&mut rack, &mut controls, &mut state);
 
     // Vca
     let vca = VcaBuilder::new(sine.tag())
-        .level(Control::V(In::Cv(lfo.tag(), 0)))
+        .level(lfo.cv())
         .rack(&mut rack, &mut controls);
     oscs.push(vca.tag());
     names.push("Vca amp contolled by sine");
@@ -127,8 +129,21 @@ fn model(app: &App) -> Model {
     // CrossFade
     let cf = CrossFadeBuilder::new(sine.tag(), square.tag()).rack(&mut rack, &mut controls);
     cf.set_alpha(&mut controls, Control::V(In::Cv(lfo.tag(), 0)));
+    cf.set_alpha(&mut controls, lfo.cv());
     oscs.push(cf.tag());
     names.push("CrossFade Sine & Square, alpha is sine lfo");
+
+    // Adsr
+    let adsr = AdsrBuilder::linear()
+        .attack(0.5)
+        .decay(0.5)
+        .release(1.0)
+        .rack(&mut rack, &mut controls);
+    let adsr_vca = VcaBuilder::new(sine.tag())
+        .level(adsr.cv())
+        .rack(&mut rack, &mut controls);
+    oscs.push(adsr_vca.tag());
+    names.push("Adsr");
 
     let union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
 
@@ -136,8 +151,10 @@ fn model(app: &App) -> Model {
         sender,
         rack,
         controls: Box::new(controls),
+        state: Box::new(state),
         outputs: Box::new(outputs),
         union,
+        adsr,
         names,
     };
 
@@ -157,9 +174,12 @@ fn model(app: &App) -> Model {
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as Real;
     for frame in buffer.frames_mut() {
-        let amp = synth
-            .rack
-            .mono(&mut synth.controls, &mut synth.outputs, sample_rate);
+        let amp = synth.rack.mono(
+            &mut synth.controls,
+            &mut synth.state,
+            &mut synth.outputs,
+            sample_rate,
+        );
 
         for channel in frame {
             *channel = amp;
@@ -189,7 +209,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 .stream
                 .send(|synth| {
                     let active = synth.union.active(&synth.controls, &synth.outputs);
-                    let n = synth.rack.num_modules() - 1;
+                    let n = synth.names.len();
                     println!(
                         "Active module: {} - {}",
                         (active + 1) % n,
@@ -198,6 +218,22 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                     synth
                         .union
                         .set_active(&mut synth.controls, Control::I((active + 1) % n));
+                })
+                .unwrap();
+        }
+        Key::Period => {
+            model
+                .stream
+                .send(|synth| {
+                    synth.adsr.on(&mut synth.controls, &mut synth.state);
+                })
+                .unwrap();
+        }
+        Key::Comma => {
+            model
+                .stream
+                .send(|synth| {
+                    synth.adsr.off(&mut synth.controls);
                 })
                 .unwrap();
         }
