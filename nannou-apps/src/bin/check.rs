@@ -2,6 +2,7 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
+use oscen::env::*;
 use oscen::ops::*;
 use oscen::osc::*;
 use oscen::rack::*;
@@ -22,6 +23,7 @@ struct Synth {
     controls: Box<Controls>,
     outputs: Box<Outputs>,
     union: Box<Union>,
+    adsr: Box<Adsr>,
     names: Vec<&'static str>,
 }
 
@@ -30,7 +32,7 @@ fn model(app: &App) -> Model {
     let mut names = vec![];
     app.new_window()
         .key_pressed(key_pressed)
-        .size(700, 500)
+        .size(700, 350)
         .view(view)
         .build()
         .unwrap();
@@ -48,89 +50,102 @@ fn model(app: &App) -> Model {
     let sine = OscBuilder::new(sine_osc)
         .hz(freq)
         .rack(&mut rack, &mut controls);
-    oscs.push(sine.tag());
+    oscs.push(sine);
     names.push("Sine");
 
     // Square
     let square = OscBuilder::new(square_osc)
         .hz(freq)
         .rack(&mut rack, &mut controls);
-    oscs.push(square.tag());
+    oscs.push(square);
     names.push("Square");
 
     // Saw
     let saw = OscBuilder::new(saw_osc)
         .hz(freq)
         .rack(&mut rack, &mut controls);
-    oscs.push(saw.tag());
+    oscs.push(saw);
     names.push("Saw");
 
     // Triangle
     let tri = OscBuilder::new(triangle_osc)
         .hz(freq)
         .rack(&mut rack, &mut controls);
-    oscs.push(tri.tag());
+    oscs.push(tri);
     names.push("Triangle");
 
     // Fourier Square 8.
     let mut builder = square_wave(8);
     builder.hz(freq);
     let sq8 = builder.rack(&mut rack, &mut controls);
-    oscs.push(sq8.tag());
+    oscs.push(sq8);
     names.push("Fourier Square 8");
 
     // Fourier tri 8.
     let mut builder = triangle_wave(8);
     builder.hz(freq);
     let tri8 = builder.rack(&mut rack, &mut controls);
-    oscs.push(tri8.tag());
+    oscs.push(tri8);
     names.push("Fourier Triangle 8");
 
     // WhiteNoise
     let wn = WhiteNoiseBuilder::new()
         .amplitude(0.5)
         .rack(&mut rack, &mut controls);
-    oscs.push(wn.tag());
+    oscs.push(wn);
     names.push("White Noise");
 
     // PinkNoise
     let pn = PinkNoiseBuilder::new()
         .amplitude(0.5)
         .rack(&mut rack, &mut controls);
-    oscs.push(pn.tag());
+    oscs.push(pn);
     names.push("Pink Noise");
 
     // Mixer
-    let mix = MixerBuilder::new(vec![sine.tag(), square.tag()]).rack(&mut rack);
-    oscs.push(mix.tag());
+    let mix = MixerBuilder::new(vec![sine, square]).rack(&mut rack);
+    oscs.push(mix);
     names.push("Mixer Sine & Square");
 
     // Product
-    let prod = ProductBuilder::new(vec![sine.tag(), pn.tag()]).rack(&mut rack);
-    oscs.push(prod.tag());
+    let prod = ProductBuilder::new(vec![sine, pn]).rack(&mut rack);
+    oscs.push(prod);
     names.push("Product Sine & Square");
 
     // LFO
     let lfo = OscBuilder::new(sine_osc)
-        .hz(1)
+        .hz(2)
         .rack(&mut rack, &mut controls);
-    oscs.push(lfo.tag());
-    names.push("LFO sine");
 
     // Vca
-    let vca = VcaBuilder::new(sine.tag())
-        .level(Control::V(In::Cv(lfo.tag(), 0)))
+    let vca = VcaBuilder::new(sine)
+        .level(lfo.cv())
         .rack(&mut rack, &mut controls);
-    oscs.push(vca.tag());
+    oscs.push(vca);
     names.push("Vca amp contolled by sine");
 
     // CrossFade
-    let cf = CrossFadeBuilder::new(sine.tag(), square.tag()).rack(&mut rack, &mut controls);
-    cf.set_alpha(&mut controls, Control::V(In::Cv(lfo.tag(), 0)));
-    oscs.push(cf.tag());
+    let cf = CrossFadeBuilder::new(sine, square).rack(&mut rack, &mut controls);
+    cf.set_alpha(&mut controls, Control::V(In::Cv(lfo, 0)));
+    cf.set_alpha(&mut controls, lfo);
+    oscs.push(cf);
     names.push("CrossFade Sine & Square, alpha is sine lfo");
 
+    // Adsr
+    let adsr = AdsrBuilder::linear()
+        .attack(0.5)
+        .decay(0.5)
+        .sustain(0.75)
+        .release(1.0)
+        .rack(&mut rack, &mut controls);
+    let adsr_vca = VcaBuilder::new(sine.tag())
+        .level(adsr.cv())
+        .rack(&mut rack, &mut controls);
+    oscs.push(adsr_vca.tag());
+    names.push("Adsr - . = on , = off");
+
     let union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
+    let _out = VcaBuilder::new(union.tag()).level(0.35).rack(&mut rack, &mut controls);
 
     let synth = Synth {
         sender,
@@ -138,6 +153,7 @@ fn model(app: &App) -> Model {
         controls: Box::new(controls),
         outputs: Box::new(outputs),
         union,
+        adsr,
         names,
     };
 
@@ -157,9 +173,11 @@ fn model(app: &App) -> Model {
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as Real;
     for frame in buffer.frames_mut() {
-        let amp = synth
-            .rack
-            .mono(&mut synth.controls, &mut synth.outputs, sample_rate);
+        let amp = synth.rack.mono(
+            &mut synth.controls,
+            &mut synth.outputs,
+            sample_rate,
+        );
 
         for channel in frame {
             *channel = amp;
@@ -189,7 +207,7 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                 .stream
                 .send(|synth| {
                     let active = synth.union.active(&synth.controls, &synth.outputs);
-                    let n = synth.rack.num_modules() - 1;
+                    let n = synth.names.len();
                     println!(
                         "Active module: {} - {}",
                         (active + 1) % n,
@@ -198,6 +216,22 @@ fn key_pressed(_app: &App, model: &mut Model, key: Key) {
                     synth
                         .union
                         .set_active(&mut synth.controls, Control::I((active + 1) % n));
+                })
+                .unwrap();
+        }
+        Key::Period => {
+            model
+                .stream
+                .send(|synth| {
+                    synth.adsr.on(&mut synth.controls);
+                })
+                .unwrap();
+        }
+        Key::Comma => {
+            model
+                .stream
+                .send(|synth| {
+                    synth.adsr.off(&mut synth.controls);
                 })
                 .unwrap();
         }

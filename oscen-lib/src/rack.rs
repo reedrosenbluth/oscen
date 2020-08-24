@@ -137,6 +137,7 @@ pub trait Signal {
     /// modules.
     fn tag(&self) -> Tag;
     fn modify_tag(&mut self, f: fn(Tag) -> Tag);
+    fn cv(&self) -> Control;
     /// Responsible for updating the any inputs including `phase` and returning the next signal
     /// output.
     fn signal(&mut self, controls: &Controls, outputs: &mut Outputs, sample_rate: Real);
@@ -152,6 +153,9 @@ macro_rules! tag {
         }
         fn modify_tag(&mut self, f: fn(Tag) -> Tag) {
             self.tag = f(self.tag);
+        }
+        fn cv(&self) -> Control {
+            Control::V(In::Cv(self.tag, 0))
         }
     };
 }

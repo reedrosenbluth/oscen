@@ -16,11 +16,11 @@ impl MixerBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack) -> Box<Mixer> {
+    pub fn rack(&self, rack: &mut Rack) -> Tag {
         let tag = rack.num_modules();
         let mix = Box::new(Mixer::new(tag, self.waves.clone()));
-        rack.push(mix.clone());
-        mix
+        rack.push(mix);
+        tag
     }
 }
 
@@ -58,12 +58,12 @@ impl UnionBuilder {
         }
     }
     build!(active);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Union> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Tag {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.active;
         let u = Box::new(Union::new(tag, self.waves.clone()));
-        rack.push(u.clone());
-        u
+        rack.push(u);
+        tag
     }
 }
 
@@ -104,11 +104,11 @@ impl ProductBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack) -> Box<Product> {
+    pub fn rack(&self, rack: &mut Rack) -> Tag {
         let tag = rack.num_modules();
         let p = Box::new(Product::new(tag, self.waves.clone()));
-        rack.push(p.clone());
-        p
+        rack.push(p);
+        tag
     }
 }
 
@@ -160,13 +160,13 @@ impl VcaBuilder {
         }
     }
     build!(level);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Vca> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Tag {
         let tag = rack.num_modules();
         println!("{:?}", self.level);
         controls[(tag, 0)] = self.level;
         let vca = Box::new(Vca::new(tag, self.wave));
-        rack.push(vca.clone());
-        vca
+        rack.push(vca);
+        tag
     }
 }
 
@@ -209,12 +209,12 @@ impl CrossFadeBuilder {
         }
     }
     build!(alpha);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<CrossFade> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Tag {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.alpha;
         let cf = Box::new(CrossFade::new(tag, self.wave1, self.wave2));
-        rack.push(cf.clone());
-        cf
+        rack.push(cf);
+        tag
     }
 }
 

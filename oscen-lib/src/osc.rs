@@ -38,14 +38,14 @@ impl OscBuilder {
     build!(hz);
     build!(amplitude);
     build!(arg);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Oscillator> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Tag {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.hz;
         controls[(tag, 1)] = self.amplitude;
         controls[(tag, 2)] = self.arg;
         let osc = Box::new(Oscillator::new(tag, self.signal_fn));
-        rack.push(osc.clone());
-        osc
+        rack.push(osc);
+        tag
     }
 }
 
@@ -138,11 +138,11 @@ impl ConstBuilder {
     pub fn new(value: Real) -> Self {
         Self { value }
     }
-    pub fn rack(&self, rack: &mut Rack, _controls: &mut Controls) -> Box<Const> {
+    pub fn rack(&self, rack: &mut Rack, _controls: &mut Controls) -> Tag {
         let tag = rack.num_modules();
         let out = Box::new(Const::new(tag, self.value));
-        rack.push(out.clone());
-        out
+        rack.push(out);
+        tag
     }
 }
 
@@ -190,12 +190,12 @@ impl WhiteNoiseBuilder {
         self
     }
     build!(amplitude);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<WhiteNoise> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Tag {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.amplitude;
         let noise = Box::new(WhiteNoise::new(tag, self.dist));
-        rack.push(noise.clone());
-        noise
+        rack.push(noise);
+        tag
     }
 }
 
@@ -247,12 +247,12 @@ impl PinkNoiseBuilder {
         }
     }
     build!(amplitude);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<PinkNoise> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Tag {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.amplitude;
         let noise = Box::new(PinkNoise::new(tag));
-        rack.push(noise.clone());
-        noise
+        rack.push(noise);
+        tag
     }
 }
 
@@ -332,7 +332,7 @@ impl FourierOscBuilder {
         self.lanczos = value;
         self
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<FourierOsc> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Tag {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.hz;
         controls[(tag, 1)] = self.amplitude;
@@ -341,8 +341,8 @@ impl FourierOscBuilder {
             self.coefficients.clone(),
             self.lanczos,
         ));
-        rack.push(osc.clone());
-        osc
+        rack.push(osc);
+        tag
     }
 }
 
@@ -417,12 +417,12 @@ impl ClockBuilder {
     pub fn new<T: Into<Control>>(interval: T) -> Self {
         Self { interval: interval.into() }
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Clock> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Tag {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.interval;
         let clock = Box::new(Clock::new(tag));
-        rack.push(clock.clone());
-        clock
+        rack.push(clock);
+        tag
     }
 }
 
