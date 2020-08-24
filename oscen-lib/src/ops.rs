@@ -162,7 +162,7 @@ impl Signal for Vca {
     fn signal(
         &mut self,
         controls: &Controls,
-        state: &mut State,
+        _state: &mut State,
         outputs: &mut Outputs,
         _sample_rate: Real,
     ) {

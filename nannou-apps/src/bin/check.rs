@@ -33,7 +33,7 @@ fn model(app: &App) -> Model {
     let mut names = vec![];
     app.new_window()
         .key_pressed(key_pressed)
-        .size(700, 500)
+        .size(700, 350)
         .view(view)
         .build()
         .unwrap();
@@ -137,15 +137,17 @@ fn model(app: &App) -> Model {
     let adsr = AdsrBuilder::linear()
         .attack(0.5)
         .decay(0.5)
+        .sustain(0.75)
         .release(1.0)
         .rack(&mut rack, &mut controls);
     let adsr_vca = VcaBuilder::new(sine.tag())
         .level(adsr.cv())
         .rack(&mut rack, &mut controls);
     oscs.push(adsr_vca.tag());
-    names.push("Adsr");
+    names.push("Adsr - . = on , = off");
 
     let union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
+    let _out = VcaBuilder::new(union.tag()).level(0.35).rack(&mut rack, &mut controls);
 
     let synth = Synth {
         sender,

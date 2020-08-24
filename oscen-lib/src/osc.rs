@@ -260,7 +260,7 @@ impl PinkNoise {
 impl PinkNoiseBuilder {
     pub fn new() -> Self {
         Self {
-            amplitude: 1.into(),
+            amplitude: 0.25.into(),
         }
     }
     build!(amplitude);
