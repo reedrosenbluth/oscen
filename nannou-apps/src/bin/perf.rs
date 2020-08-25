@@ -37,7 +37,7 @@ fn model(app: &App) -> Model {
     let osc = builder.rack(&mut rack, &mut controls);
     oscs.push(osc.tag());
 
-    let union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
+    let _union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
 
     let synth = Synth {
         rack,

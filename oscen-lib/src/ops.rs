@@ -1,4 +1,4 @@
-use crate::osc::Oscillator;
+use crate::osc::{ConstBuilder, OscBuilder};
 use crate::rack::*;
 use crate::{build, props, tag};
 #[derive(Debug, Clone)]
@@ -250,41 +250,97 @@ impl CrossFadeBuilder {
 #[derive(Clone)]
 pub struct Modulator {
     tag: Tag,
-    wave: Box<Oscillator>,
     hz_tag: Tag,
     ratio_tag: Tag,
     index_tag: Tag,
 }
 
 impl Modulator {
-    pub fn new(
-        tag: Tag,
-        wave: Box<Oscillator>,
-        hz_tag: Tag,
-        ratio_tag: Tag,
-        index_tag: Tag,
-    ) -> Self {
+    pub fn new(tag: Tag, hz_tag: Tag, ratio_tag: Tag, index_tag: Tag) -> Self {
         Self {
             tag,
-            wave,
             hz_tag,
             ratio_tag,
             index_tag,
         }
     }
-    props!(hz, set_hz, 0);
-    props!(ratio, set_ratio, 1);
-    props!(index, set_index, 2);
+    pub fn hz(&self, controls: &Controls, outputs: &Outputs) -> Real {
+        let inp = controls[(self.hz_tag, 0)];
+        outputs.value(inp).unwrap()
+    }
+    pub fn set_hz(&self, controls: &mut Controls, value: Control) {
+        controls[(self.hz_tag, 0)] = value;
+    }
+    pub fn ratio(&self, controls: &Controls, outputs: &Outputs) -> Real {
+        let inp = controls[(self.ratio_tag, 0)];
+        outputs.value(inp).unwrap()
+    }
+    pub fn set_ratio(&self, controls: &mut Controls, value: Control) {
+        controls[(self.ratio_tag, 0)] = value;
+    }
+    pub fn index(&self, controls: &Controls, outputs: &Outputs) -> Real {
+        let inp = controls[(self.index_tag, 0)];
+        outputs.value(inp).unwrap()
+    }
+    pub fn set_index(&self, controls: &mut Controls, value: Control) {
+        controls[(self.index_tag, 0)] = value;
+    }
 }
 
 impl Signal for Modulator {
     tag!();
-    fn signal(&mut self, controls: &Controls, _state: &mut State, outputs: &mut Outputs, _sample_rate: Real) {
-        let _hz = self.hz(controls, outputs);
-        // let ratio = self.ratio(controls, outputs);
-        // let index = self.index(controls, outputs);
-        // let mod_hz = ratio * hz;
-        // let amp_factor = index * mod_hz;
-        // let mod_amp = hz + amp_factor;
+    fn signal(
+        &mut self,
+        _controls: &Controls,
+        _state: &mut State,
+        _outputs: &mut Outputs,
+        _sample_rate: Real,
+    ) {
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ModulatorBuilder {
+    hz: Control,
+    ratio: Control,
+    index: Control,
+    signal_fn: SignalFn,
+}
+
+impl ModulatorBuilder {
+    pub fn new(signal_fn: SignalFn) -> Self {
+        Self {
+            hz: 0.into(),
+            ratio: 1.into(),
+            index: 0.into(),
+            signal_fn,
+        }
+    }
+    build!(hz);
+    build!(ratio);
+    build!(index);
+    pub fn rack(
+        &self,
+        rack: &mut Rack,
+        controls: &mut Controls,
+        state: &mut State,
+    ) -> Box<Modulator> {
+        let hz = ConstBuilder::new(self.hz).rack(rack, controls);
+        let ratio = ConstBuilder::new(self.ratio).rack(rack, controls);
+        let index = ConstBuilder::new(self.index).rack(rack, controls);
+        let mod_hz = ProductBuilder::new(vec![hz.tag(), ratio.tag()]).rack(rack);
+        let mod_amp = ProductBuilder::new(vec![hz.tag(), ratio.tag(), index.tag()]).rack(rack);
+        // let mod_amp = MixerBuilder::new(vec![hz.tag(), amp_factor.tag()]).rack(rack);
+        let modulator = OscBuilder::new(self.signal_fn)
+            .amplitude(mod_amp.cv())
+            .hz(mod_hz.cv())
+            .rack(rack, controls, state);
+        let carrier_hz = MixerBuilder::new(vec![modulator.tag(), hz.tag()]).rack(rack);
+        Box::new(Modulator::new(
+            carrier_hz.tag(),
+            hz.tag(),
+            ratio.tag(),
+            index.tag(),
+        ))
     }
 }

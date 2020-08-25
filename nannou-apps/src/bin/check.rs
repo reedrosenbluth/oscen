@@ -146,8 +146,22 @@ fn model(app: &App) -> Model {
     oscs.push(adsr_vca.tag());
     names.push("Adsr - . = on , = off");
 
+    // FM
+    let modulator = ModulatorBuilder::new(sine_osc)
+        .hz(220)
+        .ratio(4)
+        .index(2)
+        .rack(&mut rack, &mut controls, &mut state);
+    let fm = OscBuilder::new(triangle_osc)
+        .hz(modulator.cv())
+        .rack(&mut rack, &mut controls, &mut state);
+    oscs.push(fm.tag());
+    names.push("FM synthesis");
+
     let union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
-    let _out = VcaBuilder::new(union.tag()).level(0.35).rack(&mut rack, &mut controls);
+    let _out = VcaBuilder::new(union.tag())
+        .level(0.25)
+        .rack(&mut rack, &mut controls);
 
     let synth = Synth {
         sender,

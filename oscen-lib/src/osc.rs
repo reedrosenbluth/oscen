@@ -129,7 +129,7 @@ impl Signal for Oscillator {
 
 #[derive(Debug, Copy, Clone)]
 pub struct ConstBuilder {
-    value: Real,
+    value: Control,
 }
 
 /// An synth module that returns a constant Control value. Useful for example to
@@ -137,37 +137,38 @@ pub struct ConstBuilder {
 #[derive(Debug, Copy, Clone)]
 pub struct Const {
     tag: Tag,
-    value: Real,
 }
 
 impl ConstBuilder {
-    pub fn new(value: Real) -> Self {
+    pub fn new(value: Control) -> Self {
         Self { value }
     }
-    pub fn rack(&self, rack: &mut Rack, _controls: &mut Controls) -> Box<Const> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Const> {
         let tag = rack.num_modules();
-        let out = Box::new(Const::new(tag, self.value));
+        controls[(tag, 0)] = self.value;
+        let out = Box::new(Const::new(tag));
         rack.push(out.clone());
         out
     }
 }
 
 impl Const {
-    pub fn new(tag: Tag, value: Real) -> Self {
-        Self { tag, value }
+    pub fn new(tag: Tag) -> Self {
+        Self { tag }
     }
+    props!(value, set_value, 0);
 }
 
 impl Signal for Const {
     tag!();
     fn signal(
         &mut self,
-        _controls: &Controls,
+        controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
         _sample_rate: Real,
     ) {
-        outputs[(self.tag, 0)] = self.value;
+        outputs[(self.tag, 0)] = self.value(controls, outputs);
     }
 }
 
@@ -308,7 +309,6 @@ impl Signal for PinkNoise {
 #[derive(Clone)]
 pub struct FourierOsc {
     tag: Tag,
-    phases: Vec<Real>,
     coefficients: Vec<Real>,
     lanczos: bool,
 }
@@ -323,10 +323,9 @@ pub struct FourierOscBuilder {
 
 impl FourierOsc {
     pub fn new(tag: Tag, coefficients: Vec<Real>, lanczos: bool) -> Self {
-        let n = coefficients.len();
+        assert!(coefficients.len() <= 64, "Max size of fourier osc is 64");
         FourierOsc {
             tag,
-            phases: vec![0.0; n],
             coefficients,
             lanczos,
         }
@@ -382,23 +381,24 @@ impl Signal for FourierOsc {
     fn signal(
         &mut self,
         controls: &Controls,
-        _state: &mut State,
+        state: &mut State,
         outputs: &mut Outputs,
         sample_rate: Real,
     ) {
+        let tag = self.tag;
         let hz = self.hz(controls, outputs);
         let sigma = self.lanczos as i32;
         let mut out = 0.0;
         for (i, c) in self.coefficients.iter().enumerate() {
             out += c
                 * sinc(sigma as Real * i as Real / self.coefficients.len() as Real)
-                * (self.phases[i] * TAU).sin();
-            self.phases[i] += hz * i as Real / sample_rate;
-            while self.phases[i] >= 1.0 {
-                self.phases[i] -= 1.0;
+                * (state[(tag, i)] * TAU).sin();
+            state[(tag, i)] += hz * i as Real / sample_rate;
+            while state[(tag, i)] >= 1.0 {
+                state[(tag, i)] -= 1.0;
             }
-            while self.phases[i] <= -1.0 {
-                self.phases[i] += 1.0;
+            while state[(tag, i)] <= -1.0 {
+                state[(tag, i)] += 1.0;
             }
         }
         outputs[(self.tag, 0)] = out * self.amplitude(controls, outputs);
@@ -435,7 +435,6 @@ pub fn triangle_wave(n: u32) -> FourierOscBuilder {
 #[derive(Copy, Clone)]
 pub struct Clock {
     tag: Tag,
-    clock: u64,
 }
 
 #[derive(Copy, Clone)]
@@ -460,7 +459,7 @@ impl ClockBuilder {
 
 impl Clock {
     pub fn new(tag: Tag) -> Self {
-        Self { tag, clock: 0 }
+        Self { tag, }
     }
     props!(interval, set_interval, 0);
 }
@@ -470,19 +469,20 @@ impl Signal for Clock {
     fn signal(
         &mut self,
         controls: &Controls,
-        _state: &mut State,
+        state: &mut State,
         outputs: &mut Outputs,
         sample_rate: Real,
     ) {
-        let interval = (self.interval(controls, outputs) * sample_rate) as u64;
+        let tag = self.tag;
+        let interval = self.interval(controls, outputs) * sample_rate;
         let out;
-        if self.clock == 0 {
-            self.clock += 1;
+        if state[(tag, 0)] == 0.0 {
+            state[(tag, 0)] += 1.0;
             out = 1.0;
         } else {
-            self.clock += 1;
-            while self.clock >= interval {
-                self.clock -= interval;
+            state[(tag, 0)] += 1.0;
+            while state[(tag, 0)] >= interval {
+                state[(tag, 0)] -= interval;
             }
             out = 0.0;
         }

@@ -7,7 +7,7 @@ pub type SignalFn = fn(Real, Real) -> Real;
 
 pub const MAX_CONTROLS: usize = 32;
 pub const MAX_OUTPUTS: usize = 32;
-pub const MAX_STATE: usize = 32;
+pub const MAX_STATE: usize = 64;
 pub const MAX_MODULES: usize = 1024;
 
 /// Inputs to Synth Modules can either be constant (`Fix`) or a control voltage
