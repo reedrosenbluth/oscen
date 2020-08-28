@@ -1,4 +1,4 @@
-use crate::rack::Real;
+use crate::rack::*;
 use approx::relative_eq;
 
 /// Given f(0) = low, f(1/2) = mid, and f(1) = high, let f(x) = a + b*exp(cs).
@@ -67,41 +67,43 @@ impl ExpInterp {
     }
 }
 
-// pub fn signals<T>(module: &mut T, start: u32, end: u32, sample_rate: Real) -> Vec<(f32, f32)>
-// where
-//     T: Signal,
-// {
-//     let rack = Rack::new();
-//     let mut result = vec![];
-//     for i in start..=end {
-//         result.push((
-//             i as f32 / sample_rate as f32,
-//             module.signal(&rack, sample_rate)[0] as f32,
-//         ));
-//     }
-//     result
-// }
+pub fn signals<T>(rack: &mut Rack, start: u32, end: u32, sample_rate: Real) -> Vec<(f32, f32)> {
+    let controls = Controls::new();
+    let mut state = State::new();
+    let mut outputs = Outputs::new();
+    let mut result = vec![];
+    for i in start..=end {
+        result.push((
+            i as f32 / sample_rate as f32,
+            rack.mono(&controls, &mut state, &mut outputs, sample_rate),
+        ));
+    }
+    result
+}
 
 /// Variable length circular buffer.
-#[derive(Clone)]
-pub struct RingBuffer<T> {
-    buffer: Vec<T>,
+pub struct RingBuffer<'a, T> {
+    buffer: &'a mut [T],
     pub read_pos: Real,
     pub write_pos: usize,
 }
 
-impl<T> RingBuffer<T>
+impl<'a, T> RingBuffer<'a, T>
 where
     T: Clone + Default,
 {
-    pub fn new(read_pos: Real, write_pos: usize) -> Self {
+    pub fn new(buffer: &'a mut [T], read_pos: Real, write_pos: usize) -> Self {
         assert!(
             read_pos.trunc() as usize <= write_pos,
             "Read position must be <= write postion"
         );
+        assert!(
+            write_pos < buffer.len(),
+            "Write postion is >= to buffer length"
+        );
         RingBuffer {
             // +3 is to give room for cubic interpolation
-            buffer: vec![Default::default(); write_pos + 3],
+            buffer,
             read_pos,
             write_pos,
         }
@@ -118,10 +120,6 @@ where
         self.buffer.len()
     }
 
-    pub fn resize(&mut self, size: usize) {
-        self.buffer.resize_with(size, Default::default);
-    }
-
     pub fn set_read_pos(&mut self, rp: Real) {
         self.read_pos = rp % self.buffer.len() as Real;
     }
@@ -131,7 +129,7 @@ where
     }
 }
 
-impl<T> RingBuffer<T>
+impl<'a, T> RingBuffer<'a, T>
 where
     T: Copy + Default,
 {
@@ -150,7 +148,7 @@ where
     }
 }
 
-impl RingBuffer<Real> {
+impl<'a> RingBuffer<'a, Real> {
     pub fn get_linear(&self) -> Real {
         let f = self.read_pos - self.read_pos.trunc();
         (1.0 - f) * self.get() + f * self.get_offset(1)
@@ -229,7 +227,8 @@ mod tests {
 
     #[test]
     fn ring_buffer() {
-        let mut rb = RingBuffer::<Real>::new(0.5, 5);
+        let buffer = &mut vec![0.0; 10];
+        let mut rb = RingBuffer::<Real>::new(buffer, 0.5, 5);
         let result = rb.get();
         assert_eq!(result, 0.0, "get returned {}, expected 0.0", result);
         for i in 0..=6 {
@@ -237,19 +236,6 @@ mod tests {
         }
         let result = rb.get();
         assert_eq!(result, 1.0, "get returned {}, expected 0.0", result);
-        let result = rb.get_linear();
-        assert_eq!(result, 1.5, "get_linear returned {}, expected 0.0", result);
-        let result = rb.get_cubic();
-        assert_eq!(result, 1.5, "get_cubic returned {}, expected 0.0", result);
-    }
-
-    #[test]
-    fn ring_buffer_resize() {
-        let mut rb = RingBuffer::<Real>::new(0.5, 5);
-        rb.resize(10);
-        for i in 0..=6 {
-            rb.push(i as Real);
-        }
         let result = rb.get_linear();
         assert_eq!(result, 1.5, "get_linear returned {}, expected 0.0", result);
         let result = rb.get_cubic();
