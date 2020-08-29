@@ -18,9 +18,9 @@ impl MixerBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack) -> Box<Mixer> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Mixer> {
         let tag = rack.num_modules();
-        let mix = Box::new(Mixer::new(tag, self.waves.clone()));
+        let mix = Arc::new(Mixer::new(tag, self.waves.clone()));
         rack.push(mix.clone());
         mix
     }
@@ -35,7 +35,7 @@ impl Mixer {
 impl Signal for Mixer {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         _controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
@@ -66,10 +66,10 @@ impl UnionBuilder {
         }
     }
     build!(active);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Union> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Union> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.active;
-        let u = Box::new(Union::new(tag, self.waves.clone()));
+        let u = Arc::new(Union::new(tag, self.waves.clone()));
         rack.push(u.clone());
         u
     }
@@ -91,7 +91,7 @@ impl Union {
 impl Signal for Union {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
@@ -118,9 +118,9 @@ impl ProductBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack) -> Box<Product> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Product> {
         let tag = rack.num_modules();
-        let p = Box::new(Product::new(tag, self.waves.clone()));
+        let p = Arc::new(Product::new(tag, self.waves.clone()));
         rack.push(p.clone());
         p
     }
@@ -135,7 +135,7 @@ impl Product {
 impl Signal for Product {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         _controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
@@ -162,7 +162,7 @@ impl Vca {
 impl Signal for Vca {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
@@ -186,10 +186,10 @@ impl VcaBuilder {
         }
     }
     build!(level);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Vca> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Vca> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.level;
-        let vca = Box::new(Vca::new(tag, self.wave));
+        let vca = Arc::new(Vca::new(tag, self.wave));
         rack.push(vca.clone());
         vca
     }
@@ -212,7 +212,7 @@ impl CrossFade {
 impl Signal for CrossFade {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
@@ -240,10 +240,10 @@ impl CrossFadeBuilder {
         }
     }
     build!(alpha);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<CrossFade> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<CrossFade> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.alpha;
-        let cf = Box::new(CrossFade::new(tag, self.wave1, self.wave2));
+        let cf = Arc::new(CrossFade::new(tag, self.wave1, self.wave2));
         rack.push(cf.clone());
         cf
     }
@@ -292,7 +292,7 @@ impl Modulator {
 impl Signal for Modulator {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         _controls: &Controls,
         _state: &mut State,
         _outputs: &mut Outputs,
@@ -326,7 +326,7 @@ impl ModulatorBuilder {
         rack: &mut Rack,
         controls: &mut Controls,
         state: &mut State,
-    ) -> Box<Modulator> {
+    ) -> Arc<Modulator> {
         let hz = ConstBuilder::new(self.hz).rack(rack, controls);
         let ratio = ConstBuilder::new(self.ratio).rack(rack, controls);
         let index = ConstBuilder::new(self.index).rack(rack, controls);
@@ -338,7 +338,7 @@ impl ModulatorBuilder {
             .hz(mod_hz.cv())
             .rack(rack, controls, state);
         let carrier_hz = MixerBuilder::new(vec![modulator.tag(), hz.tag()]).rack(rack);
-        Box::new(Modulator::new(
+        Arc::new(Modulator::new(
             carrier_hz.tag(),
             hz.tag(),
             ratio.tag(),
@@ -364,28 +364,28 @@ impl<'a> Delay<'a> {
     props!(delay_time, set_delay_time, 0);
 }
 
-impl<'a> Signal for Delay<'a> {
-    tag!();
-    fn signal(
-        &mut self,
-        controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        sample_rate: Real,
-    ) {
-        let delay = self.delay_time(controls, outputs) * sample_rate;
-        let rp = self.ring_buffer.read_pos;
-        let wp = (delay + rp).ceil();
-        self.ring_buffer.set_write_pos(wp as usize);
-        self.ring_buffer.set_read_pos(rp - delay);
-        if delay > self.ring_buffer.len() as Real - 3.0 {
-            panic!("Ring buffer too small for dalay {}", delay);
-        }
-        let val = outputs[(self.wave, 0)];
-        self.ring_buffer.push(val);
-        outputs[(self.tag, 0)] = self.ring_buffer.get_cubic();
-    }
-}
+// impl<'a> Signal for Delay<'a> {
+//     tag!();
+//     fn signal(
+//         &self,
+//         controls: &Controls,
+//         _state: &mut State,
+//         outputs: &mut Outputs,
+//         sample_rate: Real,
+//     ) {
+//         let delay = self.delay_time(controls, outputs) * sample_rate;
+//         let rp = self.ring_buffer.read_pos;
+//         let wp = (delay + rp).ceil();
+//         self.ring_buffer.set_write_pos(wp as usize);
+//         self.ring_buffer.set_read_pos(rp - delay);
+//         if delay > self.ring_buffer.len() as Real - 3.0 {
+//             panic!("Ring buffer too small for dalay {}", delay);
+//         }
+//         let val = outputs[(self.wave, 0)];
+//         self.ring_buffer.push(val);
+//         outputs[(self.tag, 0)] = self.ring_buffer.get_cubic();
+//     }
+// }
 
 pub struct DelayBuilder<'a> {
     wave: Tag,
@@ -402,14 +402,14 @@ impl<'a> DelayBuilder<'a> {
         }
     }
     build!(delay_time);
-    pub fn rack(&'static mut self, rack: &mut Rack, controls: &mut Controls) -> Arc<Delay<'a>> {
-        let tag = rack.num_modules();
-        controls[(tag, 0)] = self.delay_time;
-        let wave = self.wave;
-        // let mut ring_buffer = &*self.ring_buffer;
-        let ring_buffer = &mut *self.ring_buffer;
-        let delay = Arc::new(Delay::new(tag, wave, ring_buffer));
-        rack.push(delay);
-        delay
-    }
+    // pub fn rack(&'static mut self, rack: &mut Rack, controls: &mut Controls) -> Arc<Delay<'a>> {
+    //     let tag = rack.num_modules();
+    //     controls[(tag, 0)] = self.delay_time;
+    //     let wave = self.wave;
+    //     // let mut ring_buffer = &*self.ring_buffer;
+    //     let ring_buffer = &mut *self.ring_buffer;
+    //     let delay = Arc::new(Delay::new(tag, wave, ring_buffer));
+    //     rack.push(delay);
+    //     delay
+    // }
 }

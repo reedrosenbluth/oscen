@@ -1,6 +1,7 @@
 use crate::rack::*;
-use crate::uti::ExpInterp;
+use crate::uti::{interp, interp_inv};
 use crate::{build, props, tag};
+use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Adsr {
@@ -8,24 +9,15 @@ pub struct Adsr {
     a_param: Real,
     d_param: Real,
     r_param: Real,
-    a_interp: ExpInterp,
-    d_interp: ExpInterp,
-    r_interp: ExpInterp,
 }
 
 impl Adsr {
     pub fn new(tag: Tag, a_param: Real, d_param: Real, r_param: Real) -> Self {
-        let a_interp = ExpInterp::new(0.0, 0.5, 1.0);
-        let d_interp = ExpInterp::new(0.0, 0.5, 1.0);
-        let r_interp = ExpInterp::new(0.0, 0.5, 1.0);
         Self {
             tag,
             a_param,
             d_param,
             r_param,
-            a_interp,
-            d_interp,
-            r_interp,
         }
     }
     props!(attack, set_attack, 0);
@@ -44,12 +36,26 @@ impl Adsr {
         controls[(self.tag, 4)] = value.into();
     }
 
-    pub fn calc_level(
-        &mut self,
+    pub fn on(&self, controls: &mut Controls, state: &mut State) {
+        self.set_triggered(controls, true);
+        state[(self.tag, 1)] = 0.0;
+        let x = state[(self.tag, 2)];
+        state[(self.tag, 0)] = interp_inv(0.0, 1.0 - self.a_param, 1.0, x);
+    }
+    pub fn off(&self, controls: &mut Controls) {
+        self.set_triggered(controls, false);
+    }
+}
+
+impl Signal for Adsr {
+    tag!();
+    fn signal(
+        &self,
         controls: &Controls,
         state: &mut State,
-        outputs: &Outputs,
-    ) -> Real {
+        outputs: &mut Outputs,
+        sample_rate: Real,
+    ) {
         fn max01(a: Real) -> Real {
             if a > 0.01 {
                 a
@@ -63,11 +69,11 @@ impl Adsr {
         let r = max01(self.release(controls, outputs));
         let triggered = self.triggered(controls);
         if triggered {
-            match state[(self.tag, 0)] {
+            state[(self.tag, 2)] = match state[(self.tag, 0)] {
                 // Attack
-                t if t < a => self.a_interp.interp(t / a),
+                t if t < a => interp(0.0, 1.0 - self.a_param, 1.0, t / a),
                 // Decay
-                t if t < a + d => self.d_interp.interp((t - a) / d),
+                t if t < a + d => interp(1.0, s + self.d_param * (1.0 - s), s, (t - a) / d),
                 // Sustain
                 t => {
                     state[(self.tag, 1)] = t - a - d;
@@ -75,38 +81,22 @@ impl Adsr {
                 }
             }
         } else {
-            match state[(self.tag, 0)] {
+            state[(self.tag, 2)] = match state[(self.tag, 0)] {
                 // Attack
-                t if t < a => self.a_interp.interp(t / a),
+                t if t < a => interp(0.0, 1.0 - self.a_param, 1.0, t / a),
                 // Decay
-                t if t < a + d => self.d_interp.interp((t - a) / d),
+                t if t < a + d => interp(1.0, s + self.d_param * (1.0 - s), s, (t - a) / d),
                 // Release
-                t if t < a + d + r + state[(self.tag, 1)] => {
-                    self.r_interp.interp(t - a - d - state[(self.tag, 1)] / r)
-                }
+                t if t < a + d + r + state[(self.tag, 1)] => interp(
+                    s,
+                    self.r_param * s,
+                    0.0,
+                    t - a - d - state[(self.tag, 1)] / r,
+                ),
                 // Off
                 _ => 0.0,
             }
         }
-    }
-    pub fn on(&mut self, controls: &mut Controls, state: &mut State) {
-        self.set_triggered(controls, true);
-        state[(self.tag, 1)] = 0.0;
-        state[(self.tag, 0)] = self.a_interp.interp_inv(state[(self.tag, 2)]);
-    }
-    pub fn off(&self, controls: &mut Controls) {
-        self.set_triggered(controls, false);
-    }
-}
-
-impl Signal for Adsr {
-    tag!();
-    fn signal(&mut self, controls: &Controls, state: &mut State, outputs: &mut Outputs, sample_rate: Real) {
-        self.a_interp.update(0.0, 1.0 - self.a_param, 1.0);
-        let s = self.sustain(controls, outputs);
-        self.d_interp.update(1.0, s + self.d_param * (1.0 - s), s);
-        self.r_interp.update(s, self.r_param * s, 0.0);
-        state[(self.tag, 2)] = self.calc_level(controls, state, outputs);
         outputs[(self.tag, 0)] = state[(self.tag, 2)];
         state[(self.tag, 0)] += 1.0 / sample_rate;
     }
@@ -177,14 +167,14 @@ impl AdsrBuilder {
         self.triggered = t.into();
         self
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Adsr> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Adsr> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.attack;
         controls[(tag, 1)] = self.decay;
         controls[(tag, 2)] = self.sustain;
         controls[(tag, 3)] = self.release;
         controls[(tag, 4)] = self.triggered;
-        let adsr = Box::new(Adsr::new(tag, self.a_param, self.d_param, self.r_param));
+        let adsr = Arc::new(Adsr::new(tag, self.a_param, self.d_param, self.r_param));
         rack.push(adsr.clone());
         adsr
     }

@@ -4,6 +4,7 @@ use math::round::floor;
 use rand::prelude::*;
 use rand_distr::{StandardNormal, Uniform};
 use std::f32::consts;
+use std::sync::Arc;
 
 const TAU: f32 = 2.0 * consts::PI;
 
@@ -46,13 +47,13 @@ impl OscBuilder {
         rack: &mut Rack,
         controls: &mut Controls,
         state: &mut State,
-    ) -> Box<Oscillator> {
+    ) -> Arc<Oscillator> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.hz;
         controls[(tag, 1)] = self.amplitude;
         controls[(tag, 2)] = self.arg;
         state[(tag, 0)] = self.phase;
-        let osc = Box::new(Oscillator::new(tag, self.signal_fn));
+        let osc = Arc::new(Oscillator::new(tag, self.signal_fn));
         rack.push(osc.clone());
         osc
     }
@@ -94,7 +95,7 @@ impl Oscillator {
     pub fn phase(&self, state: &State) -> Real {
         state[(self.tag, 0)]
     }
-    pub fn set_phase(&mut self, state: &mut State, value: Real) {
+    pub fn set_phase(&self, state: &mut State, value: Real) {
         state[(self.tag, 0)] = value;
     }
     props!(hz, set_hz, 0);
@@ -105,7 +106,7 @@ impl Oscillator {
 impl Signal for Oscillator {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
@@ -143,10 +144,10 @@ impl ConstBuilder {
     pub fn new(value: Control) -> Self {
         Self { value }
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Const> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Const> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.value;
-        let out = Box::new(Const::new(tag));
+        let out = Arc::new(Const::new(tag));
         rack.push(out.clone());
         out
     }
@@ -162,7 +163,7 @@ impl Const {
 impl Signal for Const {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
@@ -203,10 +204,10 @@ impl WhiteNoiseBuilder {
         self
     }
     build!(amplitude);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<WhiteNoise> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<WhiteNoise> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.amplitude;
-        let noise = Box::new(WhiteNoise::new(tag, self.dist));
+        let noise = Arc::new(WhiteNoise::new(tag, self.dist));
         rack.push(noise.clone());
         noise
     }
@@ -222,7 +223,7 @@ impl WhiteNoise {
 impl Signal for WhiteNoise {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
@@ -265,10 +266,10 @@ impl PinkNoiseBuilder {
         }
     }
     build!(amplitude);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<PinkNoise> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<PinkNoise> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.amplitude;
-        let noise = Box::new(PinkNoise::new(tag));
+        let noise = Arc::new(PinkNoise::new(tag));
         rack.push(noise.clone());
         noise
     }
@@ -277,7 +278,7 @@ impl PinkNoiseBuilder {
 impl Signal for PinkNoise {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
@@ -355,11 +356,11 @@ impl FourierOscBuilder {
         self.lanczos = value;
         self
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<FourierOsc> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<FourierOsc> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.hz;
         controls[(tag, 1)] = self.amplitude;
-        let osc = Box::new(FourierOsc::new(
+        let osc = Arc::new(FourierOsc::new(
             tag,
             self.coefficients.clone(),
             self.lanczos,
@@ -379,7 +380,7 @@ fn sinc(x: Real) -> Real {
 impl Signal for FourierOsc {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
@@ -448,10 +449,10 @@ impl ClockBuilder {
             interval: interval.into(),
         }
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Box<Clock> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Clock> {
         let tag = rack.num_modules();
         controls[(tag, 0)] = self.interval;
-        let clock = Box::new(Clock::new(tag));
+        let clock = Arc::new(Clock::new(tag));
         rack.push(clock.clone());
         clock
     }
@@ -459,7 +460,7 @@ impl ClockBuilder {
 
 impl Clock {
     pub fn new(tag: Tag) -> Self {
-        Self { tag, }
+        Self { tag }
     }
     props!(interval, set_interval, 0);
 }
@@ -467,7 +468,7 @@ impl Clock {
 impl Signal for Clock {
     tag!();
     fn signal(
-        &mut self,
+        &self,
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,

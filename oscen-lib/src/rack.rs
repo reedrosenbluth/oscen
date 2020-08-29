@@ -1,4 +1,5 @@
 use std::ops::{Index, IndexMut};
+use std::sync::Arc;
 
 /// Unique identifier for each Synth Module.
 pub type Tag = usize;
@@ -170,7 +171,7 @@ pub trait Signal {
     /// Responsible for updating the any inputs including `phase` and returning the next signal
     /// output.
     fn signal(
-        &mut self,
+        &self,
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
@@ -197,7 +198,7 @@ macro_rules! tag {
 
 /// A Rack is a topologically sorted `Array` of Synth Modules. A synth is one or
 /// more racks.
-pub struct Rack(Vec<Box<dyn Signal + Send + Sync>>);
+pub struct Rack(Vec<Arc<dyn Signal + Send + Sync>>);
 
 impl Rack {
     pub fn new() -> Self {
@@ -206,7 +207,7 @@ impl Rack {
     pub fn num_modules(&self) -> usize {
         self.0.len()
     }
-    pub fn push(&mut self, module: Box<dyn Signal + Send + Sync>) {
+    pub fn push(&mut self, module: Arc<dyn Signal + Send + Sync>) {
         self.0.push(module);
     }
     /// Call the `signal` function for each module in turn returning the vector
@@ -219,7 +220,7 @@ impl Rack {
         sample_rate: Real,
     ) -> [Real; MAX_OUTPUTS] {
         let n = self.0.len() - 1;
-        for module in self.0.iter_mut() {
+        for module in self.0.iter() {
             module.signal(controls, state, outputs, sample_rate);
         }
         outputs.0[n]

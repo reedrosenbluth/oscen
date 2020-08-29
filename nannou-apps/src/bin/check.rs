@@ -6,6 +6,7 @@ use oscen::env::*;
 use oscen::ops::*;
 use oscen::osc::*;
 use oscen::rack::*;
+use std::sync::Arc;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -23,8 +24,8 @@ struct Synth {
     controls: Box<Controls>,
     state: Box<State>,
     outputs: Box<Outputs>,
-    union: Box<Union>,
-    adsr: Box<Adsr>,
+    union: Arc<Union>,
+    adsr: Arc<Adsr>,
     names: Vec<&'static str>,
 }
 
