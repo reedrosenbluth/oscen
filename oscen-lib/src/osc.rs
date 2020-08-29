@@ -53,7 +53,7 @@ impl OscBuilder {
         controls[(n, 1)] = self.amplitude;
         controls[(n, 2)] = self.arg;
         state[(n, 0)] = self.phase;
-        let osc = Arc::new(Oscillator::new(n.into(), self.signal_fn));
+        let osc = Arc::new(Oscillator::new(n, self.signal_fn));
         rack.push(osc.clone());
         osc
     }
@@ -89,8 +89,8 @@ pub fn triangle_osc(phase: Real, _: Real) -> Real {
 }
 
 impl Oscillator {
-    pub fn new(tag: Tag, signal_fn: fn(Real, Real) -> Real) -> Self {
-        Self { tag, signal_fn }
+    pub fn new<T: Into<Tag>>(tag: T, signal_fn: fn(Real, Real) -> Real) -> Self {
+        Self { tag: tag.into(), signal_fn }
     }
     pub fn phase(&self, state: &State) -> Real {
         state[(self.tag, 0)]
@@ -145,17 +145,17 @@ impl ConstBuilder {
         Self { value }
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Const> {
-        let tag = rack.num_modules();
-        controls[(tag, 0)] = self.value;
-        let out = Arc::new(Const::new(tag.into()));
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.value;
+        let out = Arc::new(Const::new(n));
         rack.push(out.clone());
         out
     }
 }
 
 impl Const {
-    pub fn new(tag: Tag) -> Self {
-        Self { tag }
+    pub fn new<T: Into<Tag>>(tag: T) -> Self {
+        Self { tag: tag.into() }
     }
     props!(value, set_value, 0);
 }
@@ -205,17 +205,17 @@ impl WhiteNoiseBuilder {
     }
     build!(amplitude);
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<WhiteNoise> {
-        let tag = rack.num_modules();
-        controls[(tag, 0)] = self.amplitude;
-        let noise = Arc::new(WhiteNoise::new(tag.into(), self.dist));
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.amplitude;
+        let noise = Arc::new(WhiteNoise::new(n, self.dist));
         rack.push(noise.clone());
         noise
     }
 }
 
 impl WhiteNoise {
-    pub fn new(tag: Tag, dist: NoiseDistribution) -> Self {
-        Self { tag, dist }
+    pub fn new<T: Into<Tag>>(tag: T, dist: NoiseDistribution) -> Self {
+        Self { tag: tag.into(), dist }
     }
     props!(amplitude, set_amplitude, 0);
 }
@@ -253,8 +253,8 @@ pub struct PinkNoiseBuilder {
 }
 
 impl PinkNoise {
-    pub fn new(tag: Tag) -> Self {
-        Self { tag }
+    pub fn new<T: Into<Tag>>(tag: T) -> Self {
+        Self { tag: tag.into() }
     }
     props!(amplitude, set_amplitude, 0);
 }
@@ -267,9 +267,9 @@ impl PinkNoiseBuilder {
     }
     build!(amplitude);
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<PinkNoise> {
-        let tag = rack.num_modules();
-        controls[(tag, 0)] = self.amplitude;
-        let noise = Arc::new(PinkNoise::new(tag.into()));
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.amplitude;
+        let noise = Arc::new(PinkNoise::new(n));
         rack.push(noise.clone());
         noise
     }
@@ -323,10 +323,10 @@ pub struct FourierOscBuilder {
 }
 
 impl FourierOsc {
-    pub fn new(tag: Tag, coefficients: Vec<Real>, lanczos: bool) -> Self {
+    pub fn new<T: Into<Tag>>(tag: T, coefficients: Vec<Real>, lanczos: bool) -> Self {
         assert!(coefficients.len() <= 64, "Max size of fourier osc is 64");
         FourierOsc {
-            tag,
+            tag: tag.into(),
             coefficients,
             lanczos,
         }
@@ -357,11 +357,11 @@ impl FourierOscBuilder {
         self
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<FourierOsc> {
-        let tag = rack.num_modules();
-        controls[(tag, 0)] = self.hz;
-        controls[(tag, 1)] = self.amplitude;
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.hz;
+        controls[(n, 1)] = self.amplitude;
         let osc = Arc::new(FourierOsc::new(
-            tag.into(),
+            n,
             self.coefficients.clone(),
             self.lanczos,
         ));
@@ -450,17 +450,17 @@ impl ClockBuilder {
         }
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Clock> {
-        let tag = rack.num_modules();
-        controls[(tag, 0)] = self.interval;
-        let clock = Arc::new(Clock::new(tag.into()));
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.interval;
+        let clock = Arc::new(Clock::new(n));
         rack.push(clock.clone());
         clock
     }
 }
 
 impl Clock {
-    pub fn new(tag: Tag) -> Self {
-        Self { tag }
+    pub fn new<T: Into<Tag>>(tag: T) -> Self {
+        Self { tag: tag.into() }
     }
     props!(interval, set_interval, 0);
 }

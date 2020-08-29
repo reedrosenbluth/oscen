@@ -12,9 +12,9 @@ pub struct Adsr {
 }
 
 impl Adsr {
-    pub fn new(tag: Tag, a_param: Real, d_param: Real, r_param: Real) -> Self {
+    pub fn new<T: Into<Tag>>(tag: T, a_param: Real, d_param: Real, r_param: Real) -> Self {
         Self {
-            tag,
+            tag: tag.into(),
             a_param,
             d_param,
             r_param,

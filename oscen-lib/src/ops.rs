@@ -19,8 +19,8 @@ impl MixerBuilder {
         Self { waves }
     }
     pub fn rack(&self, rack: &mut Rack) -> Arc<Mixer> {
-        let tag = rack.num_modules();
-        let mix = Arc::new(Mixer::new(tag.into(), self.waves.clone()));
+        let n = rack.num_modules();
+        let mix = Arc::new(Mixer::new(n.into(), self.waves.clone()));
         rack.push(mix.clone());
         mix
     }
@@ -67,9 +67,9 @@ impl UnionBuilder {
     }
     build!(active);
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Union> {
-        let tag = rack.num_modules();
-        controls[(tag, 0)] = self.active;
-        let u = Arc::new(Union::new(tag.into(), self.waves.clone()));
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.active;
+        let u = Arc::new(Union::new(n.into(), self.waves.clone()));
         rack.push(u.clone());
         u
     }
@@ -119,8 +119,8 @@ impl ProductBuilder {
         Self { waves }
     }
     pub fn rack(&self, rack: &mut Rack) -> Arc<Product> {
-        let tag = rack.num_modules();
-        let p = Arc::new(Product::new(tag.into(), self.waves.clone()));
+        let n = rack.num_modules();
+        let p = Arc::new(Product::new(n.into(), self.waves.clone()));
         rack.push(p.clone());
         p
     }
@@ -187,9 +187,9 @@ impl VcaBuilder {
     }
     build!(level);
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Vca> {
-        let tag = rack.num_modules();
-        controls[(tag, 0)] = self.level;
-        let vca = Arc::new(Vca::new(tag.into(), self.wave));
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.level;
+        let vca = Arc::new(Vca::new(n.into(), self.wave));
         rack.push(vca.clone());
         vca
     }
@@ -241,9 +241,9 @@ impl CrossFadeBuilder {
     }
     build!(alpha);
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<CrossFade> {
-        let tag = rack.num_modules();
-        controls[(tag, 0)] = self.alpha;
-        let cf = Arc::new(CrossFade::new(tag.into(), self.wave1, self.wave2));
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.alpha;
+        let cf = Arc::new(CrossFade::new(n.into(), self.wave1, self.wave2));
         rack.push(cf.clone());
         cf
     }
@@ -403,12 +403,12 @@ impl<'a> DelayBuilder<'a> {
     }
     build!(delay_time);
     // pub fn rack(&'static mut self, rack: &mut Rack, controls: &mut Controls) -> Arc<Delay<'a>> {
-    //     let tag = rack.num_modules();
-    //     controls[(tag, 0)] = self.delay_time;
+    //     let n = rack.num_modules();
+    //     controls[(n, 0)] = self.delay_time;
     //     let wave = self.wave;
     //     // let mut ring_buffer = &*self.ring_buffer;
     //     let ring_buffer = &mut *self.ring_buffer;
-    //     let delay = Arc::new(Delay::new(tag, wave, ring_buffer));
+    //     let delay = Arc::new(Delay::new(n, wave, ring_buffer));
     //     rack.push(delay);
     //     delay
     // }
