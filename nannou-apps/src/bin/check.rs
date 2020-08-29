@@ -122,7 +122,7 @@ fn model(app: &App) -> Model {
 
     // Vca
     let vca = VcaBuilder::new(sine.tag())
-        .level(lfo.cv())
+        .level(lfo.tag())
         .rack(&mut rack, &mut controls);
     oscs.push(vca.tag());
     names.push("Vca amp contolled by sine");
@@ -130,7 +130,6 @@ fn model(app: &App) -> Model {
     // CrossFade
     let cf = CrossFadeBuilder::new(sine.tag(), square.tag()).rack(&mut rack, &mut controls);
     cf.set_alpha(&mut controls, Control::V(In::Cv(lfo.tag(), 0)));
-    cf.set_alpha(&mut controls, lfo.cv());
     oscs.push(cf.tag());
     names.push("CrossFade Sine & Square, alpha is sine lfo");
 
@@ -142,7 +141,7 @@ fn model(app: &App) -> Model {
         .release(1.0)
         .rack(&mut rack, &mut controls);
     let adsr_vca = VcaBuilder::new(sine.tag())
-        .level(adsr.cv())
+        .level(adsr.tag())
         .rack(&mut rack, &mut controls);
     oscs.push(adsr_vca.tag());
     names.push("Adsr - . = on , = off");
@@ -154,7 +153,7 @@ fn model(app: &App) -> Model {
         .index(2)
         .rack(&mut rack, &mut controls, &mut state);
     let fm = OscBuilder::new(triangle_osc)
-        .hz(modulator.cv())
+        .hz(modulator.tag())
         .rack(&mut rack, &mut controls, &mut state);
     oscs.push(fm.tag());
     names.push("FM synthesis");

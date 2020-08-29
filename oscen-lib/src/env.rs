@@ -168,7 +168,7 @@ impl AdsrBuilder {
         self
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Adsr> {
-        let tag = rack.num_modules();
+        let tag = Tag(rack.num_modules());
         controls[(tag, 0)] = self.attack;
         controls[(tag, 1)] = self.decay;
         controls[(tag, 2)] = self.sustain;

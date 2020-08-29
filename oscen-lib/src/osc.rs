@@ -48,7 +48,7 @@ impl OscBuilder {
         controls: &mut Controls,
         state: &mut State,
     ) -> Arc<Oscillator> {
-        let tag = rack.num_modules();
+        let tag = Tag(rack.num_modules());
         controls[(tag, 0)] = self.hz;
         controls[(tag, 1)] = self.amplitude;
         controls[(tag, 2)] = self.arg;
@@ -145,7 +145,7 @@ impl ConstBuilder {
         Self { value }
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Const> {
-        let tag = rack.num_modules();
+        let tag = Tag(rack.num_modules());
         controls[(tag, 0)] = self.value;
         let out = Arc::new(Const::new(tag));
         rack.push(out.clone());
@@ -205,7 +205,7 @@ impl WhiteNoiseBuilder {
     }
     build!(amplitude);
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<WhiteNoise> {
-        let tag = rack.num_modules();
+        let tag = Tag(rack.num_modules());
         controls[(tag, 0)] = self.amplitude;
         let noise = Arc::new(WhiteNoise::new(tag, self.dist));
         rack.push(noise.clone());
@@ -267,7 +267,7 @@ impl PinkNoiseBuilder {
     }
     build!(amplitude);
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<PinkNoise> {
-        let tag = rack.num_modules();
+        let tag = Tag(rack.num_modules());
         controls[(tag, 0)] = self.amplitude;
         let noise = Arc::new(PinkNoise::new(tag));
         rack.push(noise.clone());
@@ -357,7 +357,7 @@ impl FourierOscBuilder {
         self
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<FourierOsc> {
-        let tag = rack.num_modules();
+        let tag = Tag(rack.num_modules());
         controls[(tag, 0)] = self.hz;
         controls[(tag, 1)] = self.amplitude;
         let osc = Arc::new(FourierOsc::new(
@@ -450,7 +450,7 @@ impl ClockBuilder {
         }
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Clock> {
-        let tag = rack.num_modules();
+        let tag = Tag(rack.num_modules());
         controls[(tag, 0)] = self.interval;
         let clock = Arc::new(Clock::new(tag));
         rack.push(clock.clone());

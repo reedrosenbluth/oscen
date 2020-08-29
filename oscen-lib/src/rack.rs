@@ -2,7 +2,7 @@ use std::ops::{Index, IndexMut};
 use std::sync::Arc;
 
 /// Unique identifier for each Synth Module.
-pub type Tag = usize;
+// pub type Tag = usize;
 pub type Real = f32;
 pub type SignalFn = fn(Real, Real) -> Real;
 
@@ -11,25 +11,34 @@ pub const MAX_OUTPUTS: usize = 32;
 pub const MAX_STATE: usize = 64;
 pub const MAX_MODULES: usize = 1024;
 
-/// Inputs to Synth Modules can either be constant (`Fix`) or a control voltage
-/// from another synth module (`Cv`). The tag is the unique id of the module and
-/// the usize is the index of the output vector.
+#[derive(Copy, Clone, Debug)]
+pub struct Tag(pub usize);
+
+impl Tag {
+   pub fn new(t: usize) -> Self {
+       Self(t)
+   } 
+   fn get(&self) -> usize {
+       self.0
+   }
+}
+
+impl From<Tag> for usize {
+    fn from(t: Tag) -> Self {
+        t.get()
+    }
+}
+
+impl From<usize> for Tag {
+    fn from(u: usize) -> Self {
+        Self(u)
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum In {
     Cv(Tag, usize),
     Fix(Real),
-}
-
-impl From<Real> for In {
-    fn from(x: Real) -> Self {
-        In::Fix(x)
-    }
-}
-
-impl From<i32> for In {
-    fn from(i: i32) -> Self {
-        In::Fix(i as Real)
-    }
 }
 
 impl Default for In {
@@ -63,6 +72,12 @@ impl From<bool> for Control {
     }
 }
 
+impl From<Tag> for Control {
+    fn from(t: Tag) -> Self {
+        Control::V(In::Cv(t, 0))
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct Controls([[Control; MAX_CONTROLS]; MAX_MODULES]);
 
@@ -70,11 +85,11 @@ impl Controls {
     pub fn new() -> Self {
         Controls([[0.into(); MAX_CONTROLS]; MAX_MODULES])
     }
-    pub fn controls(&self, tag: Tag) -> &[Control] {
-        self.0[tag].as_ref()
+    pub fn controls<T: Into<usize>>(&self, tag: T) -> &[Control] {
+        self.0[tag.into()].as_ref()
     }
-    pub fn controls_mut(&mut self, tag: Tag) -> &mut [Control] {
-        self.0[tag].as_mut()
+    pub fn controls_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [Control] {
+        self.0[tag.into()].as_mut()
     }
 }
 
@@ -99,15 +114,15 @@ impl Outputs {
         Outputs([[0.0; MAX_OUTPUTS]; MAX_MODULES])
     }
     pub fn outputs(&self, tag: Tag) -> &[Real] {
-        self.0[tag].as_ref()
+        self.0[tag.get()].as_ref()
     }
     pub fn outputs_mut(&mut self, tag: Tag) -> &mut [Real] {
-        self.0[tag].as_mut()
+        self.0[tag.get()].as_mut()
     }
     pub fn value(&self, ctrl: Control) -> Option<Real> {
         match ctrl {
             Control::V(In::Fix(p)) => Some(p),
-            Control::V(In::Cv(n, i)) => Some(self.0[n][i]),
+            Control::V(In::Cv(n, i)) => Some(self.0[n.get()][i]),
             _ => None,
         }
     }
@@ -140,10 +155,10 @@ impl State {
         State([[0.0; MAX_STATE]; MAX_MODULES])
     }
     pub fn state(&self, tag: Tag) -> &[Real] {
-        self.0[tag].as_ref()
+        self.0[tag.get()].as_ref()
     }
     pub fn state_mut(&mut self, tag: Tag) -> &mut [Real] {
-        self.0[tag].as_mut()
+        self.0[tag.get()].as_mut()
     }
 }
 
@@ -167,7 +182,6 @@ pub trait Signal {
     /// modules.
     fn tag(&self) -> Tag;
     fn modify_tag(&mut self, f: fn(Tag) -> Tag);
-    fn cv(&self) -> Control;
     /// Responsible for updating the any inputs including `phase` and returning the next signal
     /// output.
     fn signal(
@@ -189,9 +203,6 @@ macro_rules! tag {
         }
         fn modify_tag(&mut self, f: fn(Tag) -> Tag) {
             self.tag = f(self.tag);
-        }
-        fn cv(&self) -> Control {
-            Control::V(In::Cv(self.tag, 0))
         }
     };
 }
