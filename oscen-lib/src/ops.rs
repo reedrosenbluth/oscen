@@ -39,7 +39,7 @@ impl Signal for Mixer {
         _controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
-        _sample_rate: Real,
+        _sample_rate: f32,
     ) {
         let out = self.waves.iter().fold(0.0, |acc, n| acc + outputs[(*n, 0)]);
         outputs[(self.tag, 0)] = out;
@@ -95,7 +95,7 @@ impl Signal for Union {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
-        _sample_rate: Real,
+        _sample_rate: f32,
     ) {
         let idx = self.active(controls, outputs);
         let wave = self.waves[idx];
@@ -139,7 +139,7 @@ impl Signal for Product {
         _controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
-        _sample_rate: Real,
+        _sample_rate: f32,
     ) {
         let out = self.waves.iter().fold(1.0, |acc, n| acc * outputs[(*n, 0)]);
         outputs[(self.tag, 0)] = out;
@@ -166,7 +166,7 @@ impl Signal for Vca {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
-        _sample_rate: Real,
+        _sample_rate: f32,
     ) {
         outputs[(self.tag, 0)] = self.level(controls, outputs) * outputs[(self.wave, 0)];
     }
@@ -216,7 +216,7 @@ impl Signal for CrossFade {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
-        _sample_rate: Real,
+        _sample_rate: f32,
     ) {
         let alpha = self.alpha(controls, outputs);
         outputs[(self.tag, 0)] =
@@ -266,21 +266,21 @@ impl Modulator {
             index_tag,
         }
     }
-    pub fn hz(&self, controls: &Controls, outputs: &Outputs) -> Real {
+    pub fn hz(&self, controls: &Controls, outputs: &Outputs) -> f32 {
         let inp = controls[(self.hz_tag, 0)];
         outputs.value(inp).unwrap()
     }
     pub fn set_hz(&self, controls: &mut Controls, value: Control) {
         controls[(self.hz_tag, 0)] = value;
     }
-    pub fn ratio(&self, controls: &Controls, outputs: &Outputs) -> Real {
+    pub fn ratio(&self, controls: &Controls, outputs: &Outputs) -> f32 {
         let inp = controls[(self.ratio_tag, 0)];
         outputs.value(inp).unwrap()
     }
     pub fn set_ratio(&self, controls: &mut Controls, value: Control) {
         controls[(self.ratio_tag, 0)] = value;
     }
-    pub fn index(&self, controls: &Controls, outputs: &Outputs) -> Real {
+    pub fn index(&self, controls: &Controls, outputs: &Outputs) -> f32 {
         let inp = controls[(self.index_tag, 0)];
         outputs.value(inp).unwrap()
     }
@@ -296,7 +296,7 @@ impl Signal for Modulator {
         _controls: &Controls,
         _state: &mut State,
         _outputs: &mut Outputs,
-        _sample_rate: Real,
+        _sample_rate: f32,
     ) {
     }
 }
@@ -350,11 +350,11 @@ impl ModulatorBuilder {
 pub struct Delay<'a> {
     tag: Tag,
     wave: Tag,
-    ring_buffer: &'a mut RingBuffer<'a, Real>,
+    ring_buffer: &'a mut RingBuffer<'a, f32>,
 }
 
 impl<'a> Delay<'a> {
-    pub fn new(tag: Tag, wave: Tag, ring_buffer: &'a mut RingBuffer<'a, Real>) -> Self {
+    pub fn new(tag: Tag, wave: Tag, ring_buffer: &'a mut RingBuffer<'a, f32>) -> Self {
         Delay {
             tag,
             wave,
@@ -389,12 +389,12 @@ impl<'a> Delay<'a> {
 
 pub struct DelayBuilder<'a> {
     wave: Tag,
-    ring_buffer: &'a mut RingBuffer<'a, Real>,
+    ring_buffer: &'a mut RingBuffer<'a, f32>,
     delay_time: Control,
 }
 
 impl<'a> DelayBuilder<'a> {
-    pub fn new(wave: Tag, ring_buffer: &'a mut RingBuffer<'a, Real>, delay_time: Control) -> Self {
+    pub fn new(wave: Tag, ring_buffer: &'a mut RingBuffer<'a, f32>, delay_time: Control) -> Self {
         Self {
             wave,
             ring_buffer,

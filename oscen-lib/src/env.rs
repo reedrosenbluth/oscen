@@ -6,18 +6,18 @@ use std::sync::Arc;
 #[derive(Copy, Clone, Debug)]
 pub struct Adsr {
     tag: Tag,
-    a_param: Real,
-    d_param: Real,
-    r_param: Real,
+    ax: f32,
+    dx: f32,
+    rx: f32,
 }
 
 impl Adsr {
-    pub fn new<T: Into<Tag>>(tag: T, a_param: Real, d_param: Real, r_param: Real) -> Self {
+    pub fn new<T: Into<Tag>>(tag: T, ax: f32, dx: f32, rx: f32) -> Self {
         Self {
             tag: tag.into(),
-            a_param,
-            d_param,
-            r_param,
+            ax,
+            dx,
+            rx,
         }
     }
     props!(attack, set_attack, 0);
@@ -40,7 +40,7 @@ impl Adsr {
         self.set_triggered(controls, true);
         state[(self.tag, 1)] = 0.0;
         let x = state[(self.tag, 2)];
-        state[(self.tag, 0)] = interp_inv(0.0, 1.0 - self.a_param, 1.0, x);
+        state[(self.tag, 0)] = interp_inv(0.0, 1.0 - self.ax, 1.0, x);
     }
     pub fn off(&self, controls: &mut Controls) {
         self.set_triggered(controls, false);
@@ -54,49 +54,25 @@ impl Signal for Adsr {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
-        sample_rate: Real,
+        sample_rate: f32,
     ) {
-        fn max01(a: Real) -> Real {
-            if a > 0.01 {
-                a
-            } else {
-                0.01
-            }
-        }
-        let a = max01(self.attack(controls, outputs));
-        let d = max01(self.decay(controls, outputs));
+        let a = self.attack(controls, outputs).max(0.005);
+        let d = self.decay(controls, outputs).max(0.005);
         let s = self.sustain(controls, outputs);
-        let r = max01(self.release(controls, outputs));
+        let r = self.release(controls, outputs).max(0.005);
         let triggered = self.triggered(controls);
-        if triggered {
-            state[(self.tag, 2)] = match state[(self.tag, 0)] {
-                // Attack
-                t if t < a => interp(0.0, 1.0 - self.a_param, 1.0, t / a),
-                // Decay
-                t if t < a + d => interp(1.0, s + self.d_param * (1.0 - s), s, (t - a) / d),
-                // Sustain
-                t => {
-                    state[(self.tag, 1)] = t - a - d;
-                    s
-                }
+        state[(self.tag, 2)] = match (triggered, state[(self.tag, 0)]) {
+            (_, t) if t < a => interp(0.0, 1.0 - self.ax, 1.0, t / a),
+            (_, t) if t < a + d => interp(1.0, s + self.dx * (1.0 - s), s, (t - a) / d),
+            (true, t) => {
+                state[(self.tag, 1)] = t - a - d;
+                s
             }
-        } else {
-            state[(self.tag, 2)] = match state[(self.tag, 0)] {
-                // Attack
-                t if t < a => interp(0.0, 1.0 - self.a_param, 1.0, t / a),
-                // Decay
-                t if t < a + d => interp(1.0, s + self.d_param * (1.0 - s), s, (t - a) / d),
-                // Release
-                t if t < a + d + r + state[(self.tag, 1)] => interp(
-                    s,
-                    self.r_param * s,
-                    0.0,
-                    t - a - d - state[(self.tag, 1)] / r,
-                ),
-                // Off
-                _ => 0.0,
+            (false, t) if t < a + d + r + state[(self.tag, 1)] => {
+                interp(s, self.rx * s, 0.0, t - a - d - state[(self.tag, 1)] / r)
             }
-        }
+            (false, _) => 0.0,
+        };
         outputs[(self.tag, 0)] = state[(self.tag, 2)];
         state[(self.tag, 0)] += 1.0 / sample_rate;
     }
@@ -104,9 +80,9 @@ impl Signal for Adsr {
 
 #[derive(Copy, Clone, Debug)]
 pub struct AdsrBuilder {
-    a_param: Real,
-    d_param: Real,
-    r_param: Real,
+    ax: f32,
+    dx: f32,
+    rx: f32,
     attack: Control,
     decay: Control,
     sustain: Control,
@@ -122,9 +98,9 @@ impl AdsrBuilder {
         let release = 0.1.into();
         let triggered = false.into();
         Self {
-            a_param: 0.5,
-            d_param: 0.5,
-            r_param: 0.5,
+            ax: 0.5,
+            dx: 0.5,
+            rx: 0.5,
             attack,
             decay,
             sustain,
@@ -134,16 +110,16 @@ impl AdsrBuilder {
     }
     pub fn linear() -> Self {
         let mut ab = Self::new();
-        ab.a_param = 0.5;
-        ab.d_param = 0.5;
-        ab.r_param = 0.5;
+        ab.ax = 0.5;
+        ab.dx = 0.5;
+        ab.rx = 0.5;
         ab
     }
     pub fn exp_20() -> Self {
         let mut ab = Self::new();
-        ab.a_param = 0.2;
-        ab.d_param = 0.2;
-        ab.r_param = 0.2;
+        ab.ax = 0.2;
+        ab.dx = 0.2;
+        ab.rx = 0.2;
         ab
     }
     build!(attack);
@@ -151,16 +127,16 @@ impl AdsrBuilder {
     build!(sustain);
     build!(release);
 
-    pub fn a_param(&mut self, value: Real) -> &mut Self {
-        self.a_param = value;
+    pub fn ax(&mut self, value: f32) -> &mut Self {
+        self.ax = value;
         self
     }
-    pub fn d_param(&mut self, value: Real) -> &mut Self {
-        self.d_param = value;
+    pub fn dx(&mut self, value: f32) -> &mut Self {
+        self.dx = value;
         self
     }
-    pub fn r_param(&mut self, value: Real) -> &mut Self {
-        self.r_param = value;
+    pub fn rx(&mut self, value: f32) -> &mut Self {
+        self.rx = value;
         self
     }
     pub fn triggered(&mut self, t: bool) -> &mut Self {
@@ -168,13 +144,13 @@ impl AdsrBuilder {
         self
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Adsr> {
-        let tag = Tag(rack.num_modules());
-        controls[(tag, 0)] = self.attack;
-        controls[(tag, 1)] = self.decay;
-        controls[(tag, 2)] = self.sustain;
-        controls[(tag, 3)] = self.release;
-        controls[(tag, 4)] = self.triggered;
-        let adsr = Arc::new(Adsr::new(tag, self.a_param, self.d_param, self.r_param));
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.attack;
+        controls[(n, 1)] = self.decay;
+        controls[(n, 2)] = self.sustain;
+        controls[(n, 3)] = self.release;
+        controls[(n, 4)] = self.triggered;
+        let adsr = Arc::new(Adsr::new(n, self.ax, self.dx, self.rx));
         rack.push(adsr.clone());
         adsr
     }

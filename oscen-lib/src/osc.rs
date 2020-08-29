@@ -9,8 +9,8 @@ use std::sync::Arc;
 const TAU: f32 = 2.0 * consts::PI;
 
 pub struct OscBuilder {
-    signal_fn: fn(Real, Real) -> Real,
-    phase: Real,
+    signal_fn: fn(f32, f32) -> f32,
+    phase: f32,
     hz: Control,
     amplitude: Control,
     arg: Control,
@@ -21,11 +21,11 @@ pub struct OscBuilder {
 #[derive(Clone)]
 pub struct Oscillator {
     tag: Tag,
-    signal_fn: fn(Real, Real) -> Real,
+    signal_fn: fn(f32, f32) -> f32,
 }
 
 impl OscBuilder {
-    pub fn new(signal_fn: fn(Real, Real) -> Real) -> Self {
+    pub fn new(signal_fn: fn(f32, f32) -> f32) -> Self {
         Self {
             signal_fn,
             phase: 0.0,
@@ -34,7 +34,7 @@ impl OscBuilder {
             arg: 0.5.into(),
         }
     }
-    pub fn phase(&mut self, value: Real) -> &mut Self {
+    pub fn phase(&mut self, value: f32) -> &mut Self {
         self.phase = value;
         self
     }
@@ -59,11 +59,11 @@ impl OscBuilder {
     }
 }
 
-pub fn sine_osc(phase: Real, _: Real) -> Real {
+pub fn sine_osc(phase: f32, _: f32) -> f32 {
     (phase * TAU).sin()
 }
 
-pub fn square_osc(phase: Real, duty_cycle: Real) -> Real {
+pub fn square_osc(phase: f32, duty_cycle: f32) -> f32 {
     let t = phase - phase.floor();
     if t <= duty_cycle {
         1.0
@@ -72,7 +72,7 @@ pub fn square_osc(phase: Real, duty_cycle: Real) -> Real {
     }
 }
 
-pub fn saw_osc(phase: Real, _: Real) -> Real {
+pub fn saw_osc(phase: f32, _: f32) -> f32 {
     let t = phase - 0.5;
     let s = -t - floor(0.5 - t as f64, 0) as f32;
     if s < -0.5 {
@@ -82,20 +82,23 @@ pub fn saw_osc(phase: Real, _: Real) -> Real {
     }
 }
 
-pub fn triangle_osc(phase: Real, _: Real) -> Real {
+pub fn triangle_osc(phase: f32, _: f32) -> f32 {
     let t = phase - 0.75;
     let saw_amp = 2. * (-t - floor(0.5 - t as f64, 0) as f32);
     2.0 * saw_amp.abs() - 1.0
 }
 
 impl Oscillator {
-    pub fn new<T: Into<Tag>>(tag: T, signal_fn: fn(Real, Real) -> Real) -> Self {
-        Self { tag: tag.into(), signal_fn }
+    pub fn new<T: Into<Tag>>(tag: T, signal_fn: fn(f32, f32) -> f32) -> Self {
+        Self {
+            tag: tag.into(),
+            signal_fn,
+        }
     }
-    pub fn phase(&self, state: &State) -> Real {
+    pub fn phase(&self, state: &State) -> f32 {
         state[(self.tag, 0)]
     }
-    pub fn set_phase(&self, state: &mut State, value: Real) {
+    pub fn set_phase(&self, state: &mut State, value: f32) {
         state[(self.tag, 0)] = value;
     }
     props!(hz, set_hz, 0);
@@ -110,7 +113,7 @@ impl Signal for Oscillator {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
-        sample_rate: Real,
+        sample_rate: f32,
     ) {
         let phase = self.phase(state);
         let hz = self.hz(controls, outputs);
@@ -167,7 +170,7 @@ impl Signal for Const {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
-        _sample_rate: Real,
+        _sample_rate: f32,
     ) {
         outputs[(self.tag, 0)] = self.value(controls, outputs);
     }
@@ -215,7 +218,10 @@ impl WhiteNoiseBuilder {
 
 impl WhiteNoise {
     pub fn new<T: Into<Tag>>(tag: T, dist: NoiseDistribution) -> Self {
-        Self { tag: tag.into(), dist }
+        Self {
+            tag: tag.into(),
+            dist,
+        }
     }
     props!(amplitude, set_amplitude, 0);
 }
@@ -227,16 +233,16 @@ impl Signal for WhiteNoise {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
-        _sample_rate: Real,
+        _sample_rate: f32,
     ) {
         let amplitude = self.amplitude(controls, outputs);
         let mut rng = thread_rng();
-        let out: Real;
+        let out: f32;
         match self.dist {
             NoiseDistribution::Uni => {
                 out = amplitude * Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng)
             }
-            NoiseDistribution::StdNormal => out = amplitude * rng.sample::<Real, _>(StandardNormal),
+            NoiseDistribution::StdNormal => out = amplitude * rng.sample::<f32, _>(StandardNormal),
         }
         outputs[(self.tag, 0)] = out;
     }
@@ -282,7 +288,7 @@ impl Signal for PinkNoise {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
-        _sample_rate: Real,
+        _sample_rate: f32,
     ) {
         let tag = self.tag;
         let amplitude = self.amplitude(controls, outputs);
@@ -310,7 +316,7 @@ impl Signal for PinkNoise {
 #[derive(Clone)]
 pub struct FourierOsc {
     tag: Tag,
-    coefficients: Vec<Real>,
+    coefficients: Vec<f32>,
     lanczos: bool,
 }
 
@@ -318,12 +324,12 @@ pub struct FourierOsc {
 pub struct FourierOscBuilder {
     hz: Control,
     amplitude: Control,
-    coefficients: Vec<Real>,
+    coefficients: Vec<f32>,
     lanczos: bool,
 }
 
 impl FourierOsc {
-    pub fn new<T: Into<Tag>>(tag: T, coefficients: Vec<Real>, lanczos: bool) -> Self {
+    pub fn new<T: Into<Tag>>(tag: T, coefficients: Vec<f32>, lanczos: bool) -> Self {
         assert!(coefficients.len() <= 64, "Max size of fourier osc is 64");
         FourierOsc {
             tag: tag.into(),
@@ -342,7 +348,7 @@ impl FourierOsc {
 }
 
 impl FourierOscBuilder {
-    pub fn new(coefficients: Vec<Real>) -> Self {
+    pub fn new(coefficients: Vec<f32>) -> Self {
         Self {
             hz: 0.into(),
             amplitude: 1.into(),
@@ -360,17 +366,13 @@ impl FourierOscBuilder {
         let n = rack.num_modules();
         controls[(n, 0)] = self.hz;
         controls[(n, 1)] = self.amplitude;
-        let osc = Arc::new(FourierOsc::new(
-            n,
-            self.coefficients.clone(),
-            self.lanczos,
-        ));
+        let osc = Arc::new(FourierOsc::new(n, self.coefficients.clone(), self.lanczos));
         rack.push(osc.clone());
         osc
     }
 }
 
-fn sinc(x: Real) -> Real {
+fn sinc(x: f32) -> f32 {
     if x == 0.0 {
         return 1.0;
     }
@@ -384,7 +386,7 @@ impl Signal for FourierOsc {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
-        sample_rate: Real,
+        sample_rate: f32,
     ) {
         let tag = self.tag;
         let hz = self.hz(controls, outputs);
@@ -392,9 +394,9 @@ impl Signal for FourierOsc {
         let mut out = 0.0;
         for (i, c) in self.coefficients.iter().enumerate() {
             out += c
-                * sinc(sigma as Real * i as Real / self.coefficients.len() as Real)
+                * sinc(sigma as f32 * i as f32 / self.coefficients.len() as f32)
                 * (state[(tag, i)] * TAU).sin();
-            state[(tag, i)] += hz * i as Real / sample_rate;
+            state[(tag, i)] += hz * i as f32 / sample_rate;
             while state[(tag, i)] >= 1.0 {
                 state[(tag, i)] -= 1.0;
             }
@@ -407,10 +409,10 @@ impl Signal for FourierOsc {
 }
 
 pub fn square_wave(n: u32) -> FourierOscBuilder {
-    let mut coefficients: Vec<Real> = Vec::new();
+    let mut coefficients: Vec<f32> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {
-            coefficients.push(1. / i as Real);
+            coefficients.push(1. / i as f32);
         } else {
             coefficients.push(0.);
         }
@@ -419,11 +421,11 @@ pub fn square_wave(n: u32) -> FourierOscBuilder {
 }
 
 pub fn triangle_wave(n: u32) -> FourierOscBuilder {
-    let mut coefficients: Vec<Real> = Vec::new();
+    let mut coefficients: Vec<f32> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {
             let sgn = if i % 4 == 1 { -1.0 } else { 1.0 };
-            coefficients.push(sgn / (i * i) as Real);
+            coefficients.push(sgn / (i * i) as f32);
         } else {
             coefficients.push(0.0);
         }
@@ -472,7 +474,7 @@ impl Signal for Clock {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
-        sample_rate: Real,
+        sample_rate: f32,
     ) {
         let tag = self.tag;
         let interval = self.interval(controls, outputs) * sample_rate;

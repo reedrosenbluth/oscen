@@ -4,7 +4,7 @@ use approx::relative_eq;
 /// Given f(0) = low, f(1/2) = mid, and f(1) = high, let f(x) = a + b*exp(cs).
 /// Fit a, b, and c so to match the above. If mid < 1/2(high + low) then f is
 /// convex, if equal f is linear, if greater then f is concave.
-pub fn interp(low: Real, mid: Real, high: Real, x: Real) -> Real {
+pub fn interp(low: f32, mid: f32, high: f32, x: f32) -> f32 {
     if relative_eq!(high - mid, mid - low) {
         low + (high - low) * x
     } else {
@@ -15,7 +15,7 @@ pub fn interp(low: Real, mid: Real, high: Real, x: Real) -> Real {
     }
 }
 
-pub fn interp_inv(low: Real, mid: Real, high: Real, y: Real) -> Real {
+pub fn interp_inv(low: f32, mid: f32, high: f32, y: f32) -> f32 {
     if relative_eq!(high - mid, mid - low) {
         (y - low) / (high - low)
     } else {
@@ -26,7 +26,7 @@ pub fn interp_inv(low: Real, mid: Real, high: Real, y: Real) -> Real {
     }
 }
 
-pub fn signals<T>(rack: &mut Rack, start: u32, end: u32, sample_rate: Real) -> Vec<(f32, f32)> {
+pub fn signals<T>(rack: &mut Rack, start: u32, end: u32, sample_rate: f32) -> Vec<(f32, f32)> {
     let controls = Controls::new();
     let mut state = State::new();
     let mut outputs = Outputs::new();
@@ -43,7 +43,7 @@ pub fn signals<T>(rack: &mut Rack, start: u32, end: u32, sample_rate: Real) -> V
 /// Variable length circular buffer.
 pub struct RingBuffer<'a, T> {
     buffer: &'a mut [T],
-    pub read_pos: Real,
+    pub read_pos: f32,
     pub write_pos: usize,
 }
 
@@ -51,7 +51,7 @@ impl<'a, T> RingBuffer<'a, T>
 where
     T: Clone + Default,
 {
-    pub fn new(buffer: &'a mut [T], read_pos: Real, write_pos: usize) -> Self {
+    pub fn new(buffer: &'a mut [T], read_pos: f32, write_pos: usize) -> Self {
         assert!(
             read_pos.trunc() as usize <= write_pos,
             "Read position must be <= write postion"
@@ -71,7 +71,7 @@ where
     pub fn push(&mut self, v: T) {
         let n = self.buffer.len();
         self.write_pos = (self.write_pos + 1) % n;
-        self.read_pos = (self.read_pos + 1.0) % n as Real;
+        self.read_pos = (self.read_pos + 1.0) % n as f32;
         self.buffer[self.write_pos] = v;
     }
 
@@ -79,8 +79,8 @@ where
         self.buffer.len()
     }
 
-    pub fn set_read_pos(&mut self, rp: Real) {
-        self.read_pos = rp % self.buffer.len() as Real;
+    pub fn set_read_pos(&mut self, rp: f32) {
+        self.read_pos = rp % self.buffer.len() as f32;
     }
 
     pub fn set_write_pos(&mut self, wp: usize) {
@@ -107,14 +107,14 @@ where
     }
 }
 
-impl<'a> RingBuffer<'a, Real> {
-    pub fn get_linear(&self) -> Real {
+impl<'a> RingBuffer<'a, f32> {
+    pub fn get_linear(&self) -> f32 {
         let f = self.read_pos - self.read_pos.trunc();
         (1.0 - f) * self.get() + f * self.get_offset(1)
     }
 
     /// Hermite cubic polynomial interpolation.
-    pub fn get_cubic(&self) -> Real {
+    pub fn get_cubic(&self) -> f32 {
         let v0 = self.get_offset(-1);
         let v1 = self.get();
         let v2 = self.get_offset(1);
@@ -132,12 +132,12 @@ mod tests {
     use super::*;
     use approx::relative_eq;
 
-    fn trunc4(x: Real) -> i32 {
+    fn trunc4(x: f32) -> i32 {
         (10_000.0 * x + 0.5) as i32
     }
     #[test]
     fn linear_interp() {
-        fn ie(x: Real) -> Real {
+        fn ie(x: f32) -> f32 {
             interp(0.0, 0.5, 1.0, x)
         }
         assert!(relative_eq!(ie(0.0), 0.0));
@@ -147,7 +147,7 @@ mod tests {
     }
     #[test]
     fn exp_interp() {
-        fn ie(x: Real) -> Real {
+        fn ie(x: f32) -> f32 {
             interp(0.0, 0.4, 1.0, x)
         }
         let result = trunc4(ie(0.0));
@@ -165,7 +165,7 @@ mod tests {
     }
     #[test]
     fn linear_interp_inv() {
-        fn ie_inv(x: Real) -> Real {
+        fn ie_inv(x: f32) -> f32 {
             interp_inv(0.0, 0.5, 1.0, x)
         }
         assert!(relative_eq!(ie_inv(0.0), 0.0));
@@ -175,7 +175,7 @@ mod tests {
     }
     #[test]
     fn exp_interp_inv() {
-        fn ie_inv(x: Real) -> Real {
+        fn ie_inv(x: f32) -> f32 {
             interp_inv(0.0, 0.4, 1.0, x)
         }
         let result = trunc4(ie_inv(0.0));
@@ -195,11 +195,11 @@ mod tests {
     #[test]
     fn ring_buffer() {
         let buffer = &mut vec![0.0; 10];
-        let mut rb = RingBuffer::<Real>::new(buffer, 0.5, 5);
+        let mut rb = RingBuffer::<f32>::new(buffer, 0.5, 5);
         let result = rb.get();
         assert_eq!(result, 0.0, "get returned {}, expected 0.0", result);
         for i in 0..=6 {
-            rb.push(i as Real);
+            rb.push(i as f32);
         }
         let result = rb.get();
         assert_eq!(result, 1.0, "get returned {}, expected 0.0", result);

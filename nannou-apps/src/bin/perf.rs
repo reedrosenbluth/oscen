@@ -54,7 +54,7 @@ fn model(app: &App) -> Model {
 }
 
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
-    let sample_rate = buffer.sample_rate() as Real;
+    let sample_rate = buffer.sample_rate() as f32;
     for frame in buffer.frames_mut() {
         let amp = synth.rack.mono(
             &mut synth.controls,

@@ -1,16 +1,14 @@
 use std::ops::{Index, IndexMut};
 use std::sync::Arc;
 
-/// Unique identifier for each Synth Module.
-// pub type Tag = usize;
-pub type Real = f32;
-pub type SignalFn = fn(Real, Real) -> Real;
+pub type SignalFn = fn(f32, f32) -> f32;
 
 pub const MAX_CONTROLS: usize = 32;
 pub const MAX_OUTPUTS: usize = 32;
 pub const MAX_STATE: usize = 64;
 pub const MAX_MODULES: usize = 1024;
 
+/// Unique identifier for each Synth Module.
 #[derive(Copy, Clone, Debug)]
 pub struct Tag(pub usize);
 
@@ -25,7 +23,7 @@ impl Tag {
 
 impl From<Tag> for usize {
     fn from(t: Tag) -> Self {
-        t.get()
+        t.0
     }
 }
 
@@ -38,7 +36,7 @@ impl From<usize> for Tag {
 #[derive(Copy, Clone, Debug)]
 pub enum In {
     Cv(Tag, usize),
-    Fix(Real),
+    Fix(f32),
 }
 
 impl Default for In {
@@ -54,15 +52,15 @@ pub enum Control {
     I(usize),
 }
 
-impl From<Real> for Control {
-    fn from(x: Real) -> Self {
+impl From<f32> for Control {
+    fn from(x: f32) -> Self {
         Control::V(In::Fix(x))
     }
 }
 
 impl From<usize> for Control {
     fn from(u: usize) -> Self {
-        Control::V(In::Fix(u as Real))
+        Control::V(In::Fix(u as f32))
     }
 }
 
@@ -113,19 +111,19 @@ where
 }
 
 #[derive(Copy, Clone)]
-pub struct Outputs([[Real; MAX_OUTPUTS]; MAX_MODULES]);
+pub struct Outputs([[f32; MAX_OUTPUTS]; MAX_MODULES]);
 
 impl Outputs {
     pub fn new() -> Self {
         Outputs([[0.0; MAX_OUTPUTS]; MAX_MODULES])
     }
-    pub fn outputs<T: Into<usize>>(&self, tag: T) -> &[Real] {
+    pub fn outputs<T: Into<usize>>(&self, tag: T) -> &[f32] {
         self.0[tag.into()].as_ref()
     }
-    pub fn outputs_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [Real] {
+    pub fn outputs_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [f32] {
         self.0[tag.into()].as_mut()
     }
-    pub fn value(&self, ctrl: Control) -> Option<Real> {
+    pub fn value(&self, ctrl: Control) -> Option<f32> {
         match ctrl {
             Control::V(In::Fix(p)) => Some(p),
             Control::V(In::Cv(n, i)) => Some(self.0[n.get()][i]),
@@ -144,7 +142,7 @@ impl<T> Index<(T, usize)> for Outputs
 where
     T: Into<Tag>,
 {
-    type Output = Real;
+    type Output = f32;
     fn index(&self, index: (T, usize)) -> &Self::Output {
         &self.outputs(index.0.into())[index.1]
     }
@@ -160,16 +158,16 @@ where
 }
 
 #[derive(Copy, Clone)]
-pub struct State([[Real; MAX_STATE]; MAX_MODULES]);
+pub struct State([[f32; MAX_STATE]; MAX_MODULES]);
 
 impl State {
     pub fn new() -> Self {
         State([[0.0; MAX_STATE]; MAX_MODULES])
     }
-    pub fn state<T: Into<usize>>(&self, tag: T) -> &[Real] {
+    pub fn state<T: Into<usize>>(&self, tag: T) -> &[f32] {
         self.0[tag.into()].as_ref()
     }
-    pub fn state_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [Real] {
+    pub fn state_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [f32] {
         self.0[tag.into()].as_mut()
     }
 }
@@ -178,7 +176,7 @@ impl<T> Index<(T, usize)> for State
 where
     T: Into<Tag>,
 {
-    type Output = Real;
+    type Output = f32;
     fn index(&self, index: (T, usize)) -> &Self::Output {
         &self.state(index.0.into())[index.1]
     }
@@ -207,7 +205,7 @@ pub trait Signal {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
-        sample_rate: Real,
+        sample_rate: f32,
     );
 }
 
@@ -246,8 +244,8 @@ impl Rack {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
-        sample_rate: Real,
-    ) -> [Real; MAX_OUTPUTS] {
+        sample_rate: f32,
+    ) -> [f32; MAX_OUTPUTS] {
         let n = self.0.len() - 1;
         for module in self.0.iter() {
             module.signal(controls, state, outputs, sample_rate);
@@ -260,8 +258,8 @@ impl Rack {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
-        sample_rate: Real,
-    ) -> Real {
+        sample_rate: f32,
+    ) -> f32 {
         self.play(controls, state, outputs, sample_rate)[0]
     }
 }
@@ -279,7 +277,7 @@ macro_rules! build {
 #[macro_export]
 macro_rules! props {
     ($field:ident, $set:ident, $n:expr) => {
-        pub fn $field(&self, controls: &Controls, outputs: &Outputs) -> Real {
+        pub fn $field(&self, controls: &Controls, outputs: &Outputs) -> f32 {
             let inp = controls[(self.tag, $n)];
             outputs.value(inp).unwrap()
         }
