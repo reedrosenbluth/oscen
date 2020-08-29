@@ -106,6 +106,19 @@ impl IndexMut<(Tag, usize)> for Controls {
     }
 }
 
+impl Index<(usize, usize)> for Controls {
+    type Output = Control;
+    fn index(&self, index: (usize, usize)) -> &Self::Output {
+        &self.controls(index.0)[index.1]
+    }
+}
+
+impl IndexMut<(usize, usize)> for Controls {
+    fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
+        &mut self.controls_mut(index.0)[index.1]
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct Outputs([[Real; MAX_OUTPUTS]; MAX_MODULES]);
 
@@ -113,11 +126,11 @@ impl Outputs {
     pub fn new() -> Self {
         Outputs([[0.0; MAX_OUTPUTS]; MAX_MODULES])
     }
-    pub fn outputs(&self, tag: Tag) -> &[Real] {
-        self.0[tag.get()].as_ref()
+    pub fn outputs<T: Into<usize>>(&self, tag: T) -> &[Real] {
+        self.0[tag.into()].as_ref()
     }
-    pub fn outputs_mut(&mut self, tag: Tag) -> &mut [Real] {
-        self.0[tag.get()].as_mut()
+    pub fn outputs_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [Real] {
+        self.0[tag.into()].as_mut()
     }
     pub fn value(&self, ctrl: Control) -> Option<Real> {
         match ctrl {
@@ -147,6 +160,19 @@ impl IndexMut<(Tag, usize)> for Outputs {
     }
 }
 
+impl Index<(usize, usize)> for Outputs {
+    type Output = Real;
+    fn index(&self, index: (usize, usize)) -> &Self::Output {
+        &self.outputs(index.0)[index.1]
+    }
+}
+
+impl IndexMut<(usize, usize)> for Outputs {
+    fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
+        &mut self.outputs_mut(index.0)[index.1]
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct State([[Real; MAX_STATE]; MAX_MODULES]);
 
@@ -154,11 +180,11 @@ impl State {
     pub fn new() -> Self {
         State([[0.0; MAX_STATE]; MAX_MODULES])
     }
-    pub fn state(&self, tag: Tag) -> &[Real] {
-        self.0[tag.get()].as_ref()
+    pub fn state<T: Into<usize>>(&self, tag: T) -> &[Real] {
+        self.0[tag.into()].as_ref()
     }
-    pub fn state_mut(&mut self, tag: Tag) -> &mut [Real] {
-        self.0[tag.get()].as_mut()
+    pub fn state_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [Real] {
+        self.0[tag.into()].as_mut()
     }
 }
 
@@ -171,6 +197,19 @@ impl Index<(Tag, usize)> for State {
 
 impl IndexMut<(Tag, usize)> for State {
     fn index_mut(&mut self, index: (Tag, usize)) -> &mut Self::Output {
+        &mut self.state_mut(index.0)[index.1]
+    }
+}
+
+impl Index<(usize, usize)> for State {
+    type Output = Real;
+    fn index(&self, index: (usize, usize)) -> &Self::Output {
+        &self.state(index.0)[index.1]
+    }
+}
+
+impl IndexMut<(usize, usize)> for State {
+    fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
         &mut self.state_mut(index.0)[index.1]
     }
 }

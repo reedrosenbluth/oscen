@@ -48,12 +48,12 @@ impl OscBuilder {
         controls: &mut Controls,
         state: &mut State,
     ) -> Arc<Oscillator> {
-        let tag = Tag(rack.num_modules());
-        controls[(tag, 0)] = self.hz;
-        controls[(tag, 1)] = self.amplitude;
-        controls[(tag, 2)] = self.arg;
-        state[(tag, 0)] = self.phase;
-        let osc = Arc::new(Oscillator::new(tag, self.signal_fn));
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.hz;
+        controls[(n, 1)] = self.amplitude;
+        controls[(n, 2)] = self.arg;
+        state[(n, 0)] = self.phase;
+        let osc = Arc::new(Oscillator::new(n.into(), self.signal_fn));
         rack.push(osc.clone());
         osc
     }
@@ -145,9 +145,9 @@ impl ConstBuilder {
         Self { value }
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Const> {
-        let tag = Tag(rack.num_modules());
+        let tag = rack.num_modules();
         controls[(tag, 0)] = self.value;
-        let out = Arc::new(Const::new(tag));
+        let out = Arc::new(Const::new(tag.into()));
         rack.push(out.clone());
         out
     }
@@ -205,9 +205,9 @@ impl WhiteNoiseBuilder {
     }
     build!(amplitude);
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<WhiteNoise> {
-        let tag = Tag(rack.num_modules());
+        let tag = rack.num_modules();
         controls[(tag, 0)] = self.amplitude;
-        let noise = Arc::new(WhiteNoise::new(tag, self.dist));
+        let noise = Arc::new(WhiteNoise::new(tag.into(), self.dist));
         rack.push(noise.clone());
         noise
     }
@@ -267,9 +267,9 @@ impl PinkNoiseBuilder {
     }
     build!(amplitude);
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<PinkNoise> {
-        let tag = Tag(rack.num_modules());
+        let tag = rack.num_modules();
         controls[(tag, 0)] = self.amplitude;
-        let noise = Arc::new(PinkNoise::new(tag));
+        let noise = Arc::new(PinkNoise::new(tag.into()));
         rack.push(noise.clone());
         noise
     }
@@ -357,11 +357,11 @@ impl FourierOscBuilder {
         self
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<FourierOsc> {
-        let tag = Tag(rack.num_modules());
+        let tag = rack.num_modules();
         controls[(tag, 0)] = self.hz;
         controls[(tag, 1)] = self.amplitude;
         let osc = Arc::new(FourierOsc::new(
-            tag,
+            tag.into(),
             self.coefficients.clone(),
             self.lanczos,
         ));
@@ -450,9 +450,9 @@ impl ClockBuilder {
         }
     }
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Clock> {
-        let tag = Tag(rack.num_modules());
+        let tag = rack.num_modules();
         controls[(tag, 0)] = self.interval;
-        let clock = Arc::new(Clock::new(tag));
+        let clock = Arc::new(Clock::new(tag.into()));
         rack.push(clock.clone());
         clock
     }
