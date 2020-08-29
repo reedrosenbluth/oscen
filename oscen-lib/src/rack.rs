@@ -15,12 +15,12 @@ pub const MAX_MODULES: usize = 1024;
 pub struct Tag(pub usize);
 
 impl Tag {
-   pub fn new(t: usize) -> Self {
-       Self(t)
-   } 
-   fn get(&self) -> usize {
-       self.0
-   }
+    pub fn new(t: usize) -> Self {
+        Self(t)
+    }
+    fn get(&self) -> usize {
+        self.0
+    }
 }
 
 impl From<Tag> for usize {
@@ -93,29 +93,22 @@ impl Controls {
     }
 }
 
-impl Index<(Tag, usize)> for Controls {
+impl<T> Index<(T, usize)> for Controls
+where
+    T: Into<Tag>,
+{
     type Output = Control;
-    fn index(&self, index: (Tag, usize)) -> &Self::Output {
-        &self.controls(index.0)[index.1]
+    fn index(&self, index: (T, usize)) -> &Self::Output {
+        &self.controls(index.0.into())[index.1]
     }
 }
 
-impl IndexMut<(Tag, usize)> for Controls {
-    fn index_mut(&mut self, index: (Tag, usize)) -> &mut Self::Output {
-        &mut self.controls_mut(index.0)[index.1]
-    }
-}
-
-impl Index<(usize, usize)> for Controls {
-    type Output = Control;
-    fn index(&self, index: (usize, usize)) -> &Self::Output {
-        &self.controls(index.0)[index.1]
-    }
-}
-
-impl IndexMut<(usize, usize)> for Controls {
-    fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
-        &mut self.controls_mut(index.0)[index.1]
+impl<T> IndexMut<(T, usize)> for Controls
+where
+    T: Into<Tag>,
+{
+    fn index_mut(&mut self, index: (T, usize)) -> &mut Self::Output {
+        &mut self.controls_mut(index.0.into())[index.1]
     }
 }
 
@@ -147,29 +140,22 @@ impl Outputs {
     }
 }
 
-impl Index<(Tag, usize)> for Outputs {
+impl<T> Index<(T, usize)> for Outputs
+where
+    T: Into<Tag>,
+{
     type Output = Real;
-    fn index(&self, index: (Tag, usize)) -> &Self::Output {
-        &self.outputs(index.0)[index.1]
+    fn index(&self, index: (T, usize)) -> &Self::Output {
+        &self.outputs(index.0.into())[index.1]
     }
 }
 
-impl IndexMut<(Tag, usize)> for Outputs {
-    fn index_mut(&mut self, index: (Tag, usize)) -> &mut Self::Output {
-        &mut self.outputs_mut(index.0)[index.1]
-    }
-}
-
-impl Index<(usize, usize)> for Outputs {
-    type Output = Real;
-    fn index(&self, index: (usize, usize)) -> &Self::Output {
-        &self.outputs(index.0)[index.1]
-    }
-}
-
-impl IndexMut<(usize, usize)> for Outputs {
-    fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
-        &mut self.outputs_mut(index.0)[index.1]
+impl<T> IndexMut<(T, usize)> for Outputs
+where
+    T: Into<Tag>,
+{
+    fn index_mut(&mut self, index: (T, usize)) -> &mut Self::Output {
+        &mut self.outputs_mut(index.0.into())[index.1]
     }
 }
 
@@ -188,29 +174,22 @@ impl State {
     }
 }
 
-impl Index<(Tag, usize)> for State {
+impl<T> Index<(T, usize)> for State
+where
+    T: Into<Tag>,
+{
     type Output = Real;
-    fn index(&self, index: (Tag, usize)) -> &Self::Output {
-        &self.state(index.0)[index.1]
+    fn index(&self, index: (T, usize)) -> &Self::Output {
+        &self.state(index.0.into())[index.1]
     }
 }
 
-impl IndexMut<(Tag, usize)> for State {
-    fn index_mut(&mut self, index: (Tag, usize)) -> &mut Self::Output {
-        &mut self.state_mut(index.0)[index.1]
-    }
-}
-
-impl Index<(usize, usize)> for State {
-    type Output = Real;
-    fn index(&self, index: (usize, usize)) -> &Self::Output {
-        &self.state(index.0)[index.1]
-    }
-}
-
-impl IndexMut<(usize, usize)> for State {
-    fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
-        &mut self.state_mut(index.0)[index.1]
+impl<T> IndexMut<(T, usize)> for State
+where
+    T: Into<Tag>,
+{
+    fn index_mut(&mut self, index: (T, usize)) -> &mut Self::Output {
+        &mut self.state_mut(index.0.into())[index.1]
     }
 }
 
