@@ -347,45 +347,44 @@ impl ModulatorBuilder {
     }
 }
 
-pub struct Delay<'a> {
+/*
+pub struct Delay {
     tag: Tag,
     wave: Tag,
-    ring_buffer: &'a mut RingBuffer<'a, f32>,
 }
 
-impl<'a> Delay<'a> {
-    pub fn new(tag: Tag, wave: Tag, ring_buffer: &'a mut RingBuffer<'a, f32>) -> Self {
+impl Delay {
+    pub fn new<T: Into<Tag>>(tag: T, wave: Tag) -> Self {
         Delay {
-            tag,
+            tag: tag.into(),
             wave,
-            ring_buffer,
         }
     }
     props!(delay_time, set_delay_time, 0);
 }
 
-// impl<'a> Signal for Delay<'a> {
-//     tag!();
-//     fn signal(
-//         &self,
-//         controls: &Controls,
-//         _state: &mut State,
-//         outputs: &mut Outputs,
-//         sample_rate: Real,
-//     ) {
-//         let delay = self.delay_time(controls, outputs) * sample_rate;
-//         let rp = self.ring_buffer.read_pos;
-//         let wp = (delay + rp).ceil();
-//         self.ring_buffer.set_write_pos(wp as usize);
-//         self.ring_buffer.set_read_pos(rp - delay);
-//         if delay > self.ring_buffer.len() as Real - 3.0 {
-//             panic!("Ring buffer too small for dalay {}", delay);
-//         }
-//         let val = outputs[(self.wave, 0)];
-//         self.ring_buffer.push(val);
-//         outputs[(self.tag, 0)] = self.ring_buffer.get_cubic();
-//     }
-// }
+impl Signal for Delay {
+    tag!();
+    fn signal(
+        &self,
+        controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        sample_rate: f32,
+    ) {
+        let delay = self.delay_time(controls, outputs) * sample_rate;
+        let rp = self.ring_buffer.read_pos;
+        let wp = (delay + rp).ceil();
+        self.ring_buffer.set_write_pos(wp as usize);
+        self.ring_buffer.set_read_pos(rp - delay);
+        if delay > self.ring_buffer.len() as f32 - 3.0 {
+            panic!("Ring buffer too small for dalay {}", delay);
+        }
+        let val = outputs[(self.wave, 0)];
+        self.ring_buffer.push(val);
+        outputs[(self.tag, 0)] = self.ring_buffer.get_cubic();
+    }
+}
 
 pub struct DelayBuilder<'a> {
     wave: Tag,
@@ -402,14 +401,15 @@ impl<'a> DelayBuilder<'a> {
         }
     }
     build!(delay_time);
-    // pub fn rack(&'static mut self, rack: &mut Rack, controls: &mut Controls) -> Arc<Delay<'a>> {
-    //     let n = rack.num_modules();
-    //     controls[(n, 0)] = self.delay_time;
-    //     let wave = self.wave;
-    //     // let mut ring_buffer = &*self.ring_buffer;
-    //     let ring_buffer = &mut *self.ring_buffer;
-    //     let delay = Arc::new(Delay::new(n, wave, ring_buffer));
-    //     rack.push(delay);
-    //     delay
-    // }
+    pub fn rack(&'static mut self, rack: &mut Rack, controls: &mut Controls) -> Arc<Delay> {
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.delay_time;
+        let wave = self.wave;
+        // let mut ring_buffer = &*self.ring_buffer;
+        let ring_buffer = &mut *self.ring_buffer;
+        let delay = Arc::new(Delay::new(n, wave));
+        rack.push(delay);
+        delay
+    }
 }
+*/

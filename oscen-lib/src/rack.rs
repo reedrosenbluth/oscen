@@ -191,6 +191,7 @@ where
     }
 }
 
+
 /// Synth modules must implement the Signal trait. In fact one could define a
 /// synth module as a struct that implements `Signal`.
 pub trait Signal {

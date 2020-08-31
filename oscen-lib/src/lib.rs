@@ -28,6 +28,7 @@
 pub mod rack;
 /// A collection of some basic audio filters.
 pub mod filters;
+pub mod fil;
 /// An implementation of *freeverb*.
 pub mod reverb;
 /// Envelope generators.

@@ -3,6 +3,7 @@ use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use oscen::env::*;
+use oscen::fil::*;
 use oscen::ops::*;
 use oscen::osc::*;
 use oscen::rack::*;
@@ -152,11 +153,20 @@ fn model(app: &App) -> Model {
         .ratio(4)
         .index(2)
         .rack(&mut rack, &mut controls, &mut state);
-    let fm = OscBuilder::new(triangle_osc)
-        .hz(modulator.tag())
-        .rack(&mut rack, &mut controls, &mut state);
+    let fm = OscBuilder::new(triangle_osc).hz(modulator.tag()).rack(
+        &mut rack,
+        &mut controls,
+        &mut state,
+    );
     oscs.push(fm.tag());
     names.push("FM synthesis");
+
+    // LPF
+    let lpf = LpfBuilder::new(square.tag())
+        .cut_off(440)
+        .rack(&mut rack, &mut controls);
+    oscs.push(lpf.tag());
+    names.push("Low Pass Filter");
 
     let union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
     let _out = VcaBuilder::new(union.tag())
@@ -191,7 +201,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let sample_rate = buffer.sample_rate() as f32;
     for frame in buffer.frames_mut() {
         let amp = synth.rack.mono(
-            &mut synth.controls,
+            &synth.controls,
             &mut synth.state,
             &mut synth.outputs,
             sample_rate,
