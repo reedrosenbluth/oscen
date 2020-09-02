@@ -1,8 +1,6 @@
 use anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-
-use oscen::ops::*;
-use oscen::osc::*;
+use oscen::oscillators::{sine_osc, OscBuilder};
 use oscen::rack::*;
 
 fn main() -> Result<(), anyhow::Error> {
@@ -31,21 +29,17 @@ where
     let mut rack = Rack::new();
     let mut controls = Controls::new();
     let mut state = State::new();
-    let mut outputs = Outputs::new();
-    let mut oscs = vec![];
-    let osc = OscBuilder::new(square_osc)
-        .hz(440)
+    let outputs = Outputs::new();
+
+    OscBuilder::new(sine_osc)
+        .hz(330)
         .rack(&mut rack, &mut controls, &mut state);
-    oscs.push(osc.tag());
-    let mut builder = triangle_wave(32);
-    builder.hz(220).lanczos(false);
-    let osc = builder.rack(&mut rack, &mut controls);
-    oscs.push(osc.tag());
 
-    let _union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
-
-    // Produce a sinusoid of maximum amplitude.
-    let mut next_value = move || rack.mono(&controls, &mut state, &mut outputs, sample_rate);
+    // Must box to avoid blowing the stack.
+    let c = Box::new(controls);
+    let mut s = Box::new(state);
+    let mut o = Box::new(outputs);
+    let mut next_value = move || rack.mono(&c, &mut s, &mut o, sample_rate);
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
@@ -57,7 +51,8 @@ where
         err_fn,
     )?;
     stream.play()?;
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    std::thread::sleep(std::time::Duration::from_millis(100000));
 
     Ok(())
 }

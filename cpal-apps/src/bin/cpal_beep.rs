@@ -1,8 +1,5 @@
 use anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::signal::*;
-use oscen::oscillators::{Oscillator, sine_osc};
-
 
 fn main() -> Result<(), anyhow::Error> {
     let host = cpal::default_host();
@@ -27,14 +24,11 @@ where
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
 
-    let mut rack = Rack::new();
-    let mut id_gen = IdGen::new();
-    
-    Oscillator::new(&mut id_gen, sine_osc).hz(440.0).rack(&mut rack);
-
     // Produce a sinusoid of maximum amplitude.
+    let mut sample_clock = 0f32;
     let mut next_value = move || {
-        rack.signal(sample_rate as f64) as f32
+        sample_clock = (sample_clock + 1.0) % sample_rate;
+        (sample_clock * 440.0 * 2.0 * 3.141592 / sample_rate).sin()
     };
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
@@ -48,7 +42,7 @@ where
     )?;
     stream.play()?;
 
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+    std::thread::sleep(std::time::Duration::from_millis(100000));
 
     Ok(())
 }

@@ -7,6 +7,7 @@ authors = [
     "Satya Bodduluri  <skbodduluri@gmail.com >",
 ]
 edition = "2018"
+autobins = false
 
 [dependencies]
 oscen = { path = "../oscen-lib" }
@@ -16,3 +17,15 @@ midir = "0.5"
 crossbeam = "0.7"
 pitch_calc = "0.12.0"
 rand = "0.7"
+
+[[bin]]
+name = "check"
+path = "src/bin/check.rs"
+
+[[bin]]
+name = "fm"
+path = "src/bin/fm.rs"
+
+[[bin]]
+name = "perf"
+path = "src/bin/perf.rs"

@@ -1,8 +1,8 @@
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use oscen::ops::*;
-use oscen::osc::*;
+use oscen::operators::*;
+use oscen::oscillators::*;
 use oscen::rack::*;
 
 fn main() {

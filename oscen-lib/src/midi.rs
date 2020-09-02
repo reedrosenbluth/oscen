@@ -1,111 +1,195 @@
-use super::signal::*;
-use super::utils::ExpInterp;
-use crate::{as_any_mut, std_signal};
+use crate::rack::*;
+use crate::utils::interp;
+use crate::{build, props, tag};
 use crossbeam::crossbeam_channel::Sender;
 use midir::{Ignore, MidiInput};
 use pitch_calc::calc::hz_from_step;
-use std::any::Any;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
+use std::sync::Arc;
 
-/// The most recent note received from the midi source.
-#[derive(Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct MidiPitch {
     tag: Tag,
-    step: f32,
-    offset: f32, // In semitones
-    factor: f32,
-    out: Real,
 }
 
 impl MidiPitch {
-    pub fn new(id_gen: &mut IdGen) -> Self {
-        MidiPitch {
-            tag: id_gen.id(),
-            step: 0.0,
-            offset: 0.0,
-            factor: 1.0,
-            out: 0.0,
+    pub fn new(tag: Tag) -> Self {
+        Self { tag }
+    }
+
+    props!(step, set_step, 0);
+    props!(offset, set_offset, 1);
+    props!(factor, set_factor, 2);
+}
+
+impl Signal for MidiPitch {
+    tag!();
+
+    fn signal(
+        &self,
+        controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: f32,
+    ) {
+        outputs[(self.tag, 0)] = hz_from_step(
+            self.factor(controls, outputs) * self.step(controls, outputs)
+                + self.offset(controls, outputs),
+        );
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct MidiPitchBuilder {
+    step: Control,
+    offset: Control,
+    factor: Control,
+}
+
+impl MidiPitchBuilder {
+    pub fn new() -> Self {
+        Self {
+            step: 0.into(),
+            offset: 0.into(),
+            factor: 1.into(),
         }
     }
 
-    pub fn step(&mut self, arg: f32) -> &mut Self {
-        self.step = arg;
-        self
-    }
+    build!(step);
+    build!(offset);
+    build!(factor);
 
-    pub fn offset(&mut self, arg: f32) -> &mut Self {
-        self.offset = arg;
-        self
-    }
-
-    pub fn factor(&mut self, arg: f32) -> &mut Self {
-        self.factor = arg;
-        self
-    }
-}
-
-impl Builder for MidiPitch {}
-
-impl Signal for MidiPitch {
-    std_signal!();
-    fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
-        self.out = hz_from_step(self.factor * self.step + self.offset) as Real;
-        self.out
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<MidiPitch> {
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.step;
+        controls[(n, 1)] = self.offset;
+        controls[(n, 2)] = self.factor;
+        let mp = Arc::new(MidiPitch::new(n.into()));
+        rack.push(mp.clone());
+        mp
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct MidiControl {
     tag: Tag,
-    pub controller: u8,
-    value: u8,
-    exp_interp: ExpInterp,
-    out: Real,
+    controller: u8,
+    low: f32,
+    mid: f32,
+    high: f32,
 }
 
 impl MidiControl {
-    pub fn new(
-        id_gen: &mut IdGen,
-        controller: u8,
-        value: u8,
-        low: Real,
-        mid: Real,
-        high: Real,
-    ) -> Self {
+    pub fn new(tag: Tag, controller: u8, low: f32, mid: f32, high: f32) -> Self {
         Self {
-            tag: id_gen.id(),
+            tag,
             controller,
-            value,
-            exp_interp: ExpInterp::new(low, mid, high),
-            out: 0.0,
+            low,
+            mid,
+            high,
         }
     }
 
-    fn map_range(&self, input: Real) -> Real {
+    pub fn low(&self) -> f32 {
+        self.low
+    }
+
+    pub fn set_low(&mut self, value: f32) {
+        self.low = value;
+    }
+
+    pub fn mid(&self) -> f32 {
+        self.mid
+    }
+
+    pub fn set_mid(&mut self, value: f32) {
+        self.mid = value;
+    }
+
+    pub fn high(&self) -> f32 {
+        self.high
+    }
+
+    pub fn set_high(&mut self, value: f32) {
+        self.high = value;
+    }
+
+    pub fn value(&self, controls: &Controls) -> usize {
+        match controls[(self.tag, 0)] {
+            Control::I(u) => u,
+            c => panic!("Control must be I(usized) not {:?}", c),
+        }
+    }
+
+    pub fn set_value(&self, controls: &mut Controls, value: usize) {
+        controls[(self.tag, 0)] = value.into();
+    }
+
+    pub fn map_range(&self, input: f32) -> f32 {
         let x = input / 127.0;
-        self.exp_interp.interp(x)
-    }
-
-    pub fn controller(&mut self, arg: u8) -> &mut Self {
-        self.controller = arg;
-        self
-    }
-
-    pub fn value(&mut self, arg: u8) -> &mut Self {
-        self.value = arg;
-        self
+        interp(self.low, self.mid, self.high, x)
     }
 }
 
-impl Builder for MidiControl {}
-
 impl Signal for MidiControl {
-    std_signal!();
+    tag!();
 
-    fn signal(&mut self, _rack: &Rack, _sample_rate: Real) -> Real {
-        self.out = self.map_range(self.value as Real);
-        self.out
+    fn signal(
+        &self,
+        controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: f32,
+    ) {
+        let value = self.value(controls);
+        outputs[(self.tag, 0)] = self.map_range(value as f32);
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct MidiControlBuilder {
+    controller: u8,
+    low: f32,
+    mid: f32,
+    high: f32,
+    value: Control,
+}
+
+impl MidiControlBuilder {
+    pub fn new(controller: u8) -> Self {
+        Self {
+            controller,
+            low: 0.5.into(),
+            mid: 0.5.into(),
+            high: 0.5.into(),
+            value: 0.into(),
+        }
+    }
+
+    build!(value);
+
+    pub fn low(&mut self, value: f32) -> &mut Self {
+        self.low = value;
+        self
+    }
+
+    pub fn mid(&mut self, value: f32) -> &mut Self {
+        self.mid = value;
+        self
+    }
+
+    pub fn high(&mut self, value: f32) -> &mut Self {
+        self.high = value;
+        self
+    }
+
+    pub fn rack(&self, rack: &mut Rack, controlls: &mut Controls) -> Arc<MidiControl> {
+        let n = rack.num_modules();
+        controlls[(n, 0)] = self.value;
+        let mc = Arc::new(MidiControl::new(n.into(), self.controller, self.low, self.mid, self.high));
+        rack.push(mc.clone());
+        mc
     }
 }
 
@@ -140,8 +224,7 @@ pub fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
 
     println!("\nOpening connection");
 
-    // _conn_in needs to be a named parameter, because it needs to be kept alive
-    // until the end of the scope
+    // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
     let _conn_in = midi_in.connect(
         in_port,
         "midir-read-input",
@@ -151,8 +234,7 @@ pub fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
         (),
     )?;
 
-    // println!("Connection open, reading input from '{}' (press enter to exit)
-    // ...", in_port_name);
+    // println!("Connection open, reading input from '{}' (press enter to exit) ...", in_port_name);
 
     input.clear();
     stdin().read_line(&mut input)?; // wait for next enter key press

@@ -1,21 +1,25 @@
-use plotters::prelude::*;
 use oscen::envelopes;
-use oscen::signal::*;
+use oscen::rack::*;
 use oscen::utils::signals;
+use plotters::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut id_gen = IdGen::new();
-    let mut adsr = envelopes::Adsr::new(&mut id_gen, 0.2, 0.2, 0.2)
+    let mut rack = Rack::new();
+    let mut controls = Controls::new();
+    let mut state = State::new();
+    let adsr = envelopes::AdsrBuilder::new()
         .attack(1)
         .decay(1)
         .release(1)
         .sustain(0.8)
-        .build();
+        .ax(0.2)
+        .dx(0.2)
+        .rx(0.2).rack(&mut rack, &mut controls);
 
-    adsr.on();
-    let mut ad = signals(&mut adsr, 0, 4000, 1000.0);
-    adsr.off();
-    let released = signals(&mut adsr, 4001, 5000, 1000.0);
+    adsr.on(&mut controls, &mut state);
+    let mut ad = signals(&mut rack, 0, 4000, 1000.0);
+    adsr.off(&mut controls);
+    let released = signals(&mut rack, 4001, 5000, 1000.0);
     ad.extend(released);
     let root = SVGBackend::new("adsr.svg", (800, 600)).into_drawing_area();
     root.fill(&BLACK)?;

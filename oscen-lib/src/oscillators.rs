@@ -1,198 +1,70 @@
-use super::signal::*;
-use crate::{as_any_mut, std_signal};
+use crate::rack::*;
+use crate::{build, props, tag};
 use math::round::floor;
 use rand::prelude::*;
 use rand_distr::{StandardNormal, Uniform};
-use std::any::Any;
-use std::{
-    f64::consts::PI,
-    ops::{Index, IndexMut},
-};
+use std::f32::consts;
+use std::sync::Arc;
 
-/// An synth module that returns a constant In value. Useful for example to
-/// multiply or add constants to oscillators.
-#[derive(Copy, Clone)]
-pub struct ConstOsc {
-    tag: Tag,
-    value: In,
-    out: Real,
+const TAU: f32 = 2.0 * consts::PI;
+
+pub struct OscBuilder {
+    signal_fn: fn(f32, f32) -> f32,
+    phase: f32,
+    hz: Control,
+    amplitude: Control,
+    arg: Control,
 }
 
-impl ConstOsc {
-    pub fn new(id_gen: &mut IdGen, value: In) -> Self {
-        Self {
-            tag: id_gen.id(),
-            value,
-            out: 0.0,
-        }
-    }
-
-    pub fn value<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.value = arg.into();
-        self
-    }
-}
-
-impl Builder for ConstOsc {}
-
-impl Signal for ConstOsc {
-    std_signal!();
-    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        self.out = In::val(rack, self.value);
-        self.out
-    }
-}
-
-/// A `SynthModule` that emits 1.0 every `interval` seconds otherwise it emits
-/// 0.0.
-#[derive(Copy, Clone)]
-pub struct Clock {
-    tag: Tag,
-    clock: u64,
-    interval: Real,
-    out: Real,
-}
-
-impl Clock {
-    pub fn new(id_gen: &mut IdGen, interval: Real) -> Self {
-        Self {
-            tag: id_gen.id(),
-            clock: 0,
-            interval,
-            out: 0.0,
-        }
-    }
-}
-
-impl Signal for Clock {
-    std_signal!();
-    fn signal(&mut self, _rack: &Rack, sample_rate: Real) -> Real {
-        let interval = (self.interval * sample_rate) as u64;
-        if self.clock == 0 {
-            self.clock += 1;
-            self.out = 1.0;
-        } else {
-            self.clock += 1;
-            while self.clock >= interval {
-                self.clock -= interval;
-            }
-            self.out = 0.0;
-        }
-        self.out
-    }
-}
-
-pub type SignalFn = fn(Real, Real) -> Real;
-
-#[derive(Copy, Clone)]
+/// A standard oscillator that has phase, hz, and amp. Pass in a signal function
+/// to operate on the phase and an optional extra argument.
+#[derive(Clone)]
 pub struct Oscillator {
     tag: Tag,
-    hz: In,
-    amplitude: In,
-    phase: In,
-    arg: In,
-    signal_fn: fn(Real, Real) -> Real,
-    out: Real,
+    signal_fn: fn(f32, f32) -> f32,
 }
 
-impl Oscillator {
-    pub fn new(id_gen: &mut IdGen, signal_fn: SignalFn) -> Self {
+impl OscBuilder {
+    pub fn new(signal_fn: fn(f32, f32) -> f32) -> Self {
         Self {
-            tag: id_gen.id(),
+            signal_fn,
+            phase: 0.0,
             hz: 0.into(),
             amplitude: 1.into(),
-            phase: 0.into(),
             arg: 0.5.into(),
-            signal_fn,
-            out: 0.0,
         }
     }
-
-    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.hz = arg.into();
+    pub fn phase(&mut self, value: f32) -> &mut Self {
+        self.phase = value;
         self
     }
+    build!(hz);
+    build!(amplitude);
+    build!(arg);
 
-    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.amplitude = arg.into();
-        self
-    }
-
-    pub fn phase<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.phase = arg.into();
-        self
-    }
-
-    pub fn arg<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.arg = arg.into();
-        self
+    pub fn rack(
+        &self,
+        rack: &mut Rack,
+        controls: &mut Controls,
+        state: &mut State,
+    ) -> Arc<Oscillator> {
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.hz;
+        controls[(n, 1)] = self.amplitude;
+        controls[(n, 2)] = self.arg;
+        state[(n, 0)] = self.phase;
+        let osc = Arc::new(Oscillator::new(n, self.signal_fn));
+        rack.push(osc.clone());
+        osc
     }
 }
 
-impl Builder for Oscillator {}
-
-impl Signal for Oscillator {
-    std_signal!();
-    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
-        let hz = In::val(rack, self.hz);
-        let amplitude = In::val(rack, self.amplitude);
-        if hz == 0.0 {
-            self.out = amplitude;
-            return self.out;
-        }
-        let phase = In::val(rack, self.phase);
-        let arg = In::val(rack, self.arg);
-        match &self.phase {
-            In::Fix(p) => {
-                let mut ph = *p + hz / sample_rate;
-                // This is faster than using the modulo operator (%)
-                while ph >= 1.0 {
-                    ph -= 1.0;
-                }
-                while ph <= -1.0 {
-                    ph += 1.0;
-                }
-                self.phase = In::Fix(ph);
-            }
-            In::Cv(_) => {}
-        };
-        self.out = amplitude * (self.signal_fn)(phase, arg);
-        self.out
-    }
-}
-
-impl Index<&str> for Oscillator {
-    type Output = In;
-
-    fn index(&self, index: &str) -> &Self::Output {
-        match index {
-            "hz" => &self.hz,
-            "amp" => &self.amplitude,
-            "phase" => &self.phase,
-            "arg" => &self.arg,
-            _ => panic!("StandardOsc does not have a field named:  {}", index),
-        }
-    }
-}
-
-impl IndexMut<&str> for Oscillator {
-    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
-        match index {
-            "hz" => &mut self.hz,
-            "amp" => &mut self.amplitude,
-            "phase" => &mut self.phase,
-            "arg" => &mut self.arg,
-            _ => panic!("StandardOsc does not have a field named:  {}", index),
-        }
-    }
-}
-
-pub fn sine_osc(phase: Real, _: Real) -> Real {
+pub fn sine_osc(phase: f32, _: f32) -> f32 {
     (phase * TAU).sin()
 }
 
-pub fn square_osc(phase: Real, duty_cycle: Real) -> Real {
-    let t = phase - floor(phase, 0);
+pub fn square_osc(phase: f32, duty_cycle: f32) -> f32 {
+    let t = phase - phase.floor();
     if t <= duty_cycle {
         1.0
     } else {
@@ -200,9 +72,9 @@ pub fn square_osc(phase: Real, duty_cycle: Real) -> Real {
     }
 }
 
-pub fn saw_osc(phase: Real, _: Real) -> Real {
+pub fn saw_osc(phase: f32, _: f32) -> f32 {
     let t = phase - 0.5;
-    let s = -t - floor(0.5 - t, 0);
+    let s = -t - floor(0.5 - t as f64, 0) as f32;
     if s < -0.5 {
         0.0
     } else {
@@ -210,13 +82,100 @@ pub fn saw_osc(phase: Real, _: Real) -> Real {
     }
 }
 
-pub fn triangle_osc(phase: Real, _: Real) -> Real {
+pub fn triangle_osc(phase: f32, _: f32) -> f32 {
     let t = phase - 0.75;
-    let saw_amp = 2. * (-t - floor(0.5 - t, 0));
-    2. * saw_amp.abs() - 1.0
+    let saw_amp = 2. * (-t - floor(0.5 - t as f64, 0) as f32);
+    2.0 * saw_amp.abs() - 1.0
 }
 
-/// Choose between Normal(0,1) and Uniforem distributions for `WhiteNoise`.
+impl Oscillator {
+    pub fn new<T: Into<Tag>>(tag: T, signal_fn: fn(f32, f32) -> f32) -> Self {
+        Self {
+            tag: tag.into(),
+            signal_fn,
+        }
+    }
+    pub fn phase(&self, state: &State) -> f32 {
+        state[(self.tag, 0)]
+    }
+    pub fn set_phase(&self, state: &mut State, value: f32) {
+        state[(self.tag, 0)] = value;
+    }
+    props!(hz, set_hz, 0);
+    props!(amplitude, set_amplitude, 1);
+    props!(arg, set_arg, 2);
+}
+
+impl Signal for Oscillator {
+    tag!();
+    fn signal(
+        &self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        sample_rate: f32,
+    ) {
+        let phase = self.phase(state);
+        let hz = self.hz(controls, outputs);
+        let amp = self.amplitude(controls, outputs);
+        let arg = self.arg(controls, outputs);
+        let mut ph = phase + hz / sample_rate;
+        while ph >= 1.0 {
+            ph -= 1.0
+        }
+        while ph <= -1.0 {
+            ph += 1.0
+        }
+        self.set_phase(state, ph);
+        outputs[(self.tag, 0)] = amp * (self.signal_fn)(phase, arg);
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct ConstBuilder {
+    value: Control,
+}
+
+/// An synth module that returns a constant Control value. Useful for example to
+/// multiply or add constants to oscillators.
+#[derive(Debug, Copy, Clone)]
+pub struct Const {
+    tag: Tag,
+}
+
+impl ConstBuilder {
+    pub fn new(value: Control) -> Self {
+        Self { value }
+    }
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Const> {
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.value;
+        let out = Arc::new(Const::new(n));
+        rack.push(out.clone());
+        out
+    }
+}
+
+impl Const {
+    pub fn new<T: Into<Tag>>(tag: T) -> Self {
+        Self { tag: tag.into() }
+    }
+    props!(value, set_value, 0);
+}
+
+impl Signal for Const {
+    tag!();
+    fn signal(
+        &self,
+        controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: f32,
+    ) {
+        outputs[(self.tag, 0)] = self.value(controls, outputs);
+    }
+}
+
 #[derive(Copy, Clone)]
 pub enum NoiseDistribution {
     StdNormal,
@@ -227,343 +186,309 @@ pub enum NoiseDistribution {
 #[derive(Copy, Clone)]
 pub struct WhiteNoise {
     tag: Tag,
-    amplitude: In,
     dist: NoiseDistribution,
-    out: Real,
 }
 
-impl WhiteNoise {
-    pub fn new(id_gen: &mut IdGen) -> Self {
+#[derive(Copy, Clone)]
+pub struct WhiteNoiseBuilder {
+    amplitude: Control,
+    dist: NoiseDistribution,
+}
+
+impl WhiteNoiseBuilder {
+    pub fn new() -> Self {
         Self {
-            tag: id_gen.id(),
             amplitude: 1.into(),
             dist: NoiseDistribution::StdNormal,
-            out: 0.0,
         }
     }
-
-    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.amplitude = arg.into();
-        self
-    }
-
     pub fn dist(&mut self, arg: NoiseDistribution) -> &mut Self {
         self.dist = arg;
         self
     }
+    build!(amplitude);
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<WhiteNoise> {
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.amplitude;
+        let noise = Arc::new(WhiteNoise::new(n, self.dist));
+        rack.push(noise.clone());
+        noise
+    }
 }
 
-impl Builder for WhiteNoise {}
+impl WhiteNoise {
+    pub fn new<T: Into<Tag>>(tag: T, dist: NoiseDistribution) -> Self {
+        Self {
+            tag: tag.into(),
+            dist,
+        }
+    }
+    props!(amplitude, set_amplitude, 0);
+}
 
 impl Signal for WhiteNoise {
-    std_signal!();
-    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        let amplitude = In::val(rack, self.amplitude);
+    tag!();
+    fn signal(
+        &self,
+        controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: f32,
+    ) {
+        let amplitude = self.amplitude(controls, outputs);
         let mut rng = thread_rng();
+        let out: f32;
         match self.dist {
             NoiseDistribution::Uni => {
-                self.out = amplitude * Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng)
+                out = amplitude * Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng)
             }
-            NoiseDistribution::StdNormal => {
-                self.out = amplitude * rng.sample::<f64, _>(StandardNormal)
-            }
+            NoiseDistribution::StdNormal => out = amplitude * rng.sample::<f32, _>(StandardNormal),
         }
-        self.out
+        outputs[(self.tag, 0)] = out;
     }
 }
 
-impl Index<&str> for WhiteNoise {
-    type Output = In;
-
-    fn index(&self, index: &str) -> &Self::Output {
-        match index {
-            "amp" => &self.amplitude,
-            _ => panic!("WhiteNoise does not have a field named:  {}", index),
-        }
-    }
-}
-
-impl IndexMut<&str> for WhiteNoise {
-    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
-        match index {
-            "amp" => &mut self.amplitude,
-            _ => panic!("WhiteNoise does not have a field named:  {}", index),
-        }
-    }
-}
-
-/// Pink noise oscillator.
-// Paul Kellet's pk3 as in:
-// paul.kellett@maxim.abel.co.uk, http://www.abel.co.uk/~maxim/
 #[derive(Copy, Clone)]
 pub struct PinkNoise {
     tag: Tag,
-    b: [Real; 7],
-    amplitude: In,
-    out: Real,
+}
+
+#[derive(Copy, Clone)]
+pub struct PinkNoiseBuilder {
+    amplitude: Control,
 }
 
 impl PinkNoise {
-    pub fn new(id_gen: &mut IdGen) -> Self {
-        Self {
-            tag: id_gen.id(),
-            b: [0.0; 7],
-            amplitude: 1.into(),
-            out: 0.0,
-        }
+    pub fn new<T: Into<Tag>>(tag: T) -> Self {
+        Self { tag: tag.into() }
     }
-
-    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.amplitude = arg.into();
-        self
-    }
+    props!(amplitude, set_amplitude, 0);
 }
 
-impl Builder for PinkNoise {}
+impl PinkNoiseBuilder {
+    pub fn new() -> Self {
+        Self {
+            amplitude: 0.25.into(),
+        }
+    }
+    build!(amplitude);
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<PinkNoise> {
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.amplitude;
+        let noise = Arc::new(PinkNoise::new(n));
+        rack.push(noise.clone());
+        noise
+    }
+}
 
 impl Signal for PinkNoise {
-    std_signal!();
-    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
+    tag!();
+    fn signal(
+        &self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: f32,
+    ) {
+        let tag = self.tag;
+        let amplitude = self.amplitude(controls, outputs);
         let mut rng = thread_rng();
         let white = Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng);
-        self.b[0] = 0.99886 * self.b[0] + white * 0.0555179;
-        self.b[1] = 0.99332 * self.b[1] + white * 0.0750759;
-        self.b[2] = 0.96900 * self.b[2] + white * 0.1538520;
-        self.b[3] = 0.86650 * self.b[3] + white * 0.3104856;
-        self.b[4] = 0.55000 * self.b[4] + white * 0.5329522;
-        self.b[5] = -0.7616 * self.b[5] - white * 0.0168980;
-        let pink = self.b[0]
-            + self.b[1]
-            + self.b[2]
-            + self.b[3]
-            + self.b[4]
-            + self.b[5]
-            + self.b[6]
+        state[(tag, 0)] = 0.99886 * state[(tag, 0)] + white * 0.0555179;
+        state[(tag, 1)] = 0.99332 * state[(tag, 1)] + white * 0.0750759;
+        state[(tag, 2)] = 0.96900 * state[(tag, 2)] + white * 0.1538520;
+        state[(tag, 3)] = 0.86650 * state[(tag, 3)] + white * 0.3104856;
+        state[(tag, 4)] = 0.55000 * state[(tag, 4)] + white * 0.5329522;
+        state[(tag, 5)] = -0.7616 * state[(tag, 5)] - white * 0.0168980;
+        let pink = state[(tag, 0)]
+            + state[(tag, 1)]
+            + state[(tag, 2)]
+            + state[(tag, 3)]
+            + state[(tag, 4)]
+            + state[(tag, 5)]
+            + state[(tag, 6)]
             + white * 0.5362;
-        self.b[6] = white * 0.115926;
-        self.out = pink * In::val(rack, self.amplitude);
-        self.out
+        state[(tag, 6)] = white * 0.115926;
+        outputs[(self.tag, 0)] = pink * amplitude;
     }
 }
 
-impl Index<&str> for PinkNoise {
-    type Output = In;
-
-    fn index(&self, index: &str) -> &Self::Output {
-        match index {
-            "amp" => &self.amplitude,
-            _ => panic!("PinkNoise does not have a field names: {}", index),
-        }
-    }
-}
-
-impl IndexMut<&str> for PinkNoise {
-    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
-        match index {
-            "amp" => &mut self.amplitude,
-            _ => panic!("PinkNoise does not have a field named:  {}", index),
-        }
-    }
-}
-
-/// An oscillator used to modulate parameters that take values between 0 and 1,
-/// based on a sinusoid.
-#[derive(Copy, Clone)]
-pub struct Osc01 {
-    tag: Tag,
-    hz: In,
-    phase: In,
-    out: Real,
-}
-
-impl Osc01 {
-    pub fn new(id_gen: &mut IdGen) -> Self {
-        Self {
-            tag: id_gen.id(),
-            hz: 0.into(),
-            phase: 0.into(),
-            out: 0.0,
-        }
-    }
-
-    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.hz = arg.into();
-        self
-    }
-
-    pub fn phase<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.phase = arg.into();
-        self
-    }
-}
-
-impl Builder for Osc01 {}
-
-impl Signal for Osc01 {
-    std_signal!();
-    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
-        let hz = In::val(rack, self.hz);
-        let phase = In::val(rack, self.phase);
-        match &self.phase {
-            In::Fix(p) => {
-                let mut ph = *p + hz / sample_rate;
-                while ph >= 1.0 {
-                    ph -= 1.0
-                }
-                while ph < -1.0 {
-                    ph += 1.0
-                }
-                self.phase = In::Fix(ph);
-            }
-            In::Cv(_) => {}
-        };
-        self.out = 0.5 * ((TAU * phase).sin() + 1.0);
-        self.out
-    }
-}
-
-impl Index<&str> for Osc01 {
-    type Output = In;
-
-    fn index(&self, index: &str) -> &Self::Output {
-        match index {
-            "hz" => &self.hz,
-            "phase" => &self.phase,
-            _ => panic!("Osc01 does not have a field named:  {}", index),
-        }
-    }
-}
-
-impl IndexMut<&str> for Osc01 {
-    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
-        match index {
-            "hz" => &mut self.hz,
-            "phase" => &mut self.phase,
-            _ => panic!("Osc01 does not have a field named:  {}", index),
-        }
-    }
-}
-
-fn sinc(x: Real) -> Real {
-    if x == 0.0 {
-        return 1.0;
-    }
-    (PI * x).sin() / (PI * x)
-}
-
-/// Fourier series approximation for an oscillator. Optionally applies Lanczos Sigma
-/// factor to eliminate ringing due to Gibbs phenomenon.
 #[derive(Clone)]
 pub struct FourierOsc {
     tag: Tag,
-    hz: In,
-    amplitude: In,
-    sines: Rack,
+    coefficients: Vec<f32>,
     lanczos: bool,
-    out: Real,
+}
+
+#[derive(Clone)]
+pub struct FourierOscBuilder {
+    hz: Control,
+    amplitude: Control,
+    coefficients: Vec<f32>,
+    lanczos: bool,
 }
 
 impl FourierOsc {
-    pub fn new(id_gen: &mut IdGen, coefficients: &[Real], lanczos: bool) -> Self {
-        let sigma = lanczos as i32;
-        let mut wwaves: Vec<ArcMutex<Sig>> = Vec::new();
-        let mut id = IdGen::new();
-        for (n, c) in coefficients.iter().enumerate() {
-            let mut s = Oscillator::new(&mut id, sine_osc);
-            s.amplitude =
-                (*c * sinc(sigma as Real * n as Real / coefficients.len() as Real)).into();
-            wwaves.push(arc(s));
-        }
+    pub fn new<T: Into<Tag>>(tag: T, coefficients: Vec<f32>, lanczos: bool) -> Self {
+        assert!(coefficients.len() <= 64, "Max size of fourier osc is 64");
         FourierOsc {
-            tag: id_gen.id(),
+            tag: tag.into(),
+            coefficients,
+            lanczos,
+        }
+    }
+    props!(hz, set_hz, 0);
+    props!(amplitude, set_amplitude, 1);
+    pub fn lanczos(&self) -> bool {
+        self.lanczos
+    }
+    pub fn set_lacnzos(&mut self, value: bool) {
+        self.lanczos = value;
+    }
+}
+
+impl FourierOscBuilder {
+    pub fn new(coefficients: Vec<f32>) -> Self {
+        Self {
             hz: 0.into(),
             amplitude: 1.into(),
-            sines: Rack::new().modules(wwaves).build(),
-            lanczos,
-            out: 0.0,
+            coefficients,
+            lanczos: true,
         }
     }
-
-    pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.hz = arg.into();
+    build!(hz);
+    build!(amplitude);
+    pub fn lanczos(&mut self, value: bool) -> &mut Self {
+        self.lanczos = value;
         self
     }
-
-    pub fn amplitude<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.amplitude = arg.into();
-        self
-    }
-
-    pub fn lanczos(&mut self, arg: bool) -> &mut Self {
-        self.lanczos = arg;
-        self
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<FourierOsc> {
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.hz;
+        controls[(n, 1)] = self.amplitude;
+        let osc = Arc::new(FourierOsc::new(n, self.coefficients.clone(), self.lanczos));
+        rack.push(osc.clone());
+        osc
     }
 }
 
-impl Builder for FourierOsc {}
+fn sinc(x: f32) -> f32 {
+    if x == 0.0 {
+        return 1.0;
+    }
+    (consts::PI * x).sin() / (consts::PI * x)
+}
 
 impl Signal for FourierOsc {
-    std_signal!();
-    fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
-        let hz = In::val(rack, self.hz);
-        let amp = In::val(rack, self.amplitude);
-        for (n, node) in self.sines.iter().enumerate() {
-            if let Some(v) = node.lock().as_any_mut().downcast_mut::<Oscillator>() {
-                v.hz = (hz * n as Real).into();
+    tag!();
+    fn signal(
+        &self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        sample_rate: f32,
+    ) {
+        let tag = self.tag;
+        let hz = self.hz(controls, outputs);
+        let sigma = self.lanczos as i32;
+        let mut out = 0.0;
+        for (i, c) in self.coefficients.iter().enumerate() {
+            out += c
+                * sinc(sigma as f32 * i as f32 / self.coefficients.len() as f32)
+                * (state[(tag, i)] * TAU).sin();
+            state[(tag, i)] += hz * i as f32 / sample_rate;
+            while state[(tag, i)] >= 1.0 {
+                state[(tag, i)] -= 1.0;
+            }
+            while state[(tag, i)] <= -1.0 {
+                state[(tag, i)] += 1.0;
             }
         }
-        self.sines.signal(sample_rate);
-        let out = self.sines.0.iter().fold(0., |acc, x| acc + x.out());
-        self.out = amp * out;
-        self.out
+        outputs[(self.tag, 0)] = out * self.amplitude(controls, outputs);
     }
 }
 
-impl Index<&str> for FourierOsc {
-    type Output = In;
-
-    fn index(&self, index: &str) -> &Self::Output {
-        match index {
-            "hz" => &self.hz,
-            "amp" => &self.amplitude,
-            _ => panic!("FourierOsc does not have a field named:  {}", index),
-        }
-    }
-}
-
-impl IndexMut<&str> for FourierOsc {
-    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
-        match index {
-            "hz" => &mut self.hz,
-            "amp" => &mut self.amplitude,
-            _ => panic!("FourierOsc does not have a field named:  {}", index),
-        }
-    }
-}
-
-/// Square wave oscillator implemented as a fourier approximation.
-pub fn square_wave(id_gen: &mut IdGen, n: u32, lanczos: bool) -> FourierOsc {
-    let mut coefficients: Vec<Real> = Vec::new();
+pub fn square_wave(n: u32) -> FourierOscBuilder {
+    let mut coefficients: Vec<f32> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {
-            coefficients.push(1. / i as Real);
+            coefficients.push(1. / i as f32);
         } else {
             coefficients.push(0.);
         }
     }
-    FourierOsc::new(id_gen, coefficients.as_ref(), lanczos)
+    FourierOscBuilder::new(coefficients)
 }
 
-/// Triangle wave oscillator implemented as a fourier approximation.
-pub fn triangle_wave(id_gen: &mut IdGen, n: u32, lanczos: bool) -> FourierOsc {
-    let mut coefficients: Vec<Real> = Vec::new();
+pub fn triangle_wave(n: u32) -> FourierOscBuilder {
+    let mut coefficients: Vec<f32> = Vec::new();
     for i in 0..=n {
         if i % 2 == 1 {
             let sgn = if i % 4 == 1 { -1.0 } else { 1.0 };
-            coefficients.push(sgn / (i * i) as Real);
+            coefficients.push(sgn / (i * i) as f32);
         } else {
-            coefficients.push(0.);
+            coefficients.push(0.0);
         }
     }
-    FourierOsc::new(id_gen, coefficients.as_ref(), lanczos)
+    FourierOscBuilder::new(coefficients)
+}
+
+/// A `SynthModule` that emits 1.0 every `interval` seconds otherwise it emits
+/// 0.0.
+#[derive(Copy, Clone)]
+pub struct Clock {
+    tag: Tag,
+}
+
+#[derive(Copy, Clone)]
+pub struct ClockBuilder {
+    interval: Control,
+}
+
+impl ClockBuilder {
+    pub fn new<T: Into<Control>>(interval: T) -> Self {
+        Self {
+            interval: interval.into(),
+        }
+    }
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Clock> {
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.interval;
+        let clock = Arc::new(Clock::new(n));
+        rack.push(clock.clone());
+        clock
+    }
+}
+
+impl Clock {
+    pub fn new<T: Into<Tag>>(tag: T) -> Self {
+        Self { tag: tag.into() }
+    }
+    props!(interval, set_interval, 0);
+}
+
+impl Signal for Clock {
+    tag!();
+    fn signal(
+        &self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        sample_rate: f32,
+    ) {
+        let tag = self.tag;
+        let interval = self.interval(controls, outputs) * sample_rate;
+        let out;
+        if state[(tag, 0)] == 0.0 {
+            state[(tag, 0)] += 1.0;
+            out = 1.0;
+        } else {
+            state[(tag, 0)] += 1.0;
+            while state[(tag, 0)] >= interval {
+                state[(tag, 0)] -= interval;
+            }
+            out = 0.0;
+        }
+        outputs[(self.tag, 0)] = out;
+    }
 }

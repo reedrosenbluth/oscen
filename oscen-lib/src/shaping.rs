@@ -1,6 +1,5 @@
 use crate::rack::*;
-use crate::{as_any_mut, std_signal};
-use crate::{build, props, tag};
+use crate::{props, tag};
 use std::f32::consts::PI;
 use std::sync::Arc;
 
@@ -47,8 +46,8 @@ impl SineFoldBuilder {
 
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<SineFold> {
         let n = rack.num_modules();
-        controls[(n.into(), 0)] = self.fold_param;
-        let sf = Arc::new(SineFold::new(n, self.wave));
+        controls[(n, 0)] = self.fold_param;
+        let sf = Arc::new(SineFold::new(n.into(), self.wave));
         rack.push(sf.clone());
         sf
     }
@@ -71,10 +70,10 @@ impl Signal for Tanh {
 
     fn signal(
         &self,
-        controls: &Controls,
-        state: &mut State,
+        _controls: &Controls,
+        _state: &mut State,
         outputs: &mut Outputs,
-        sample_rate: f32,
+        _sample_rate: f32,
     ) {
         outputs[(self.tag, 0)] = (outputs[(self.wave, 0)] * 2.0 * PI).tanh();
     }

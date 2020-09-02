@@ -2,10 +2,10 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use oscen::env::*;
-use oscen::fil::*;
-use oscen::ops::*;
-use oscen::osc::*;
+use oscen::envelopes::*;
+use oscen::filters::*;
+use oscen::operators::*;
+use oscen::oscillators::*;
 use oscen::rack::*;
 use std::sync::Arc;
 

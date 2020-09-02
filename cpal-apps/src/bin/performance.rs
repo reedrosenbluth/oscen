@@ -1,9 +1,8 @@
 use anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::signal::*;
+use oscen::operators::MixerBuilder;
 use oscen::oscillators::*;
-use oscen::operators::Mixer;
-
+use oscen::rack::*;
 
 fn main() -> Result<(), anyhow::Error> {
     let host = cpal::default_host();
@@ -29,24 +28,27 @@ where
     let channels = config.channels as usize;
 
     let mut rack = Rack::new();
-    let mut id_gen = IdGen::new();
-    let num_oscillators = 300;
-    let amp = 1.0 / num_oscillators as f64;
+    let mut controls = Controls::new();
+    let mut state = State::new();
+    let outputs = Outputs::new();
+
+    let num_oscillators = 400;
+    let amp = 1.0 / num_oscillators as f32;
     let mut oscs = vec![];
     for _ in 0..num_oscillators {
-        let osc = Oscillator::new(&mut id_gen, sine_osc)
-            .amplitude(amp)
-            .hz(200)
-            .arg(0.5)
-            .rack(&mut rack);
+        let osc = OscBuilder::new(sine_osc).amplitude(amp).hz(220).rack(
+            &mut rack,
+            &mut controls,
+            &mut state,
+        );
         oscs.push(osc.tag());
     }
-    Mixer::new(&mut id_gen, oscs).level(0.2).rack(&mut rack);
+    MixerBuilder::new(oscs).rack(&mut rack);
 
-    // Produce a sinusoid of maximum amplitude.
-    let mut next_value = move || {
-        rack.signal(sample_rate as f64) as f32
-    };
+    let c = Box::new(controls);
+    let mut s = Box::new(state);
+    let mut o = Box::new(outputs);
+    let mut next_value = move || rack.mono(&c, &mut s, &mut o, sample_rate);
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
@@ -59,7 +61,7 @@ where
     )?;
     stream.play()?;
 
-    std::thread::sleep(std::time::Duration::from_millis(3000));
+    std::thread::sleep(std::time::Duration::from_millis(100000));
 
     Ok(())
 }
