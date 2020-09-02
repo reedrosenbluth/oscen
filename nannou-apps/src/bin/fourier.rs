@@ -22,19 +22,17 @@ struct Synth {
 fn model(app: &App) -> Model {
     app.new_window().size(250, 250).build().unwrap();
     let audio_host = audio::Host::new();
-    let mut rack = Rack::new();
-    let mut controls = Controls::new();
-    let state = State::new();
-    let outputs = Outputs::new();
+    let (mut rack, mut controls, state, outputs) = tables();
+
     let mut builder = triangle_wave(32);
     builder.hz(220).lanczos(false);
     builder.rack(&mut rack, &mut controls);
 
     let synth = Synth {
         rack,
-        controls: Box::new(controls),
-        state: Box::new(state),
-        outputs: Box::new(outputs),
+        controls,
+        state,
+        outputs,
     };
     let stream = audio_host
         .new_output_stream(synth)

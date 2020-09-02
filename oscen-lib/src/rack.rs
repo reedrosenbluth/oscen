@@ -191,7 +191,6 @@ where
     }
 }
 
-
 /// Synth modules must implement the Signal trait. In fact one could define a
 /// synth module as a struct that implements `Signal`.
 pub trait Signal {
@@ -263,6 +262,15 @@ impl Rack {
     ) -> f32 {
         self.play(controls, state, outputs, sample_rate)[0]
     }
+}
+
+pub fn tables() -> (Rack, Box<Controls>, Box<State>, Box<Outputs>) {
+    (
+        Rack::new(),
+        Box::new(Controls::new()),
+        Box::new(State::new()),
+        Box::new(Outputs::new()),
+    )
 }
 
 #[macro_export]

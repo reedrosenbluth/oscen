@@ -26,20 +26,14 @@ where
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
 
-    let mut rack = Rack::new();
-    let mut controls = Controls::new();
-    let mut state = State::new();
-    let outputs = Outputs::new();
+    let (mut rack, mut controls, mut state, mut outputs) = tables();
 
     OscBuilder::new(sine_osc)
         .hz(330)
         .rack(&mut rack, &mut controls, &mut state);
 
-    // Must box to avoid blowing the stack.
-    let c = Box::new(controls);
-    let mut s = Box::new(state);
-    let mut o = Box::new(outputs);
-    let mut next_value = move || rack.mono(&c, &mut s, &mut o, sample_rate);
+    // let c = Box::new(controls);
+    let mut next_value = move || rack.mono(&controls, &mut state, &mut outputs, sample_rate);
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 

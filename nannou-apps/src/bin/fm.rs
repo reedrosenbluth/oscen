@@ -29,12 +29,7 @@ fn model(app: &App) -> Model {
     app.new_window().size(700, 360).view(view).build().unwrap();
     let audio_host = audio::Host::new();
 
-    // Build the Synth.
-    // A Rack is a collection of synth modules.
-    let mut rack = Rack::new();
-    let mut controls = Controls::new();
-    let mut state = State::new();
-    let outputs = Outputs::new();
+    let (mut rack, mut controls, mut state, outputs) = tables();
 
     let modulator = ModulatorBuilder::new(sine_osc)
         .hz(220)
@@ -52,9 +47,9 @@ fn model(app: &App) -> Model {
     let synth = Synth {
         sender,
         rack,
-        controls: Box::new(controls),
-        state: Box::new(state),
-        outputs: Box::new(outputs),
+        controls,
+        state,
+        outputs,
     };
     let stream = audio_host
         .new_output_stream(synth)
