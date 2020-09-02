@@ -1,75 +1,99 @@
-use super::signal::*;
+use crate::rack::*;
 use crate::{as_any_mut, std_signal};
-use std::any::Any;
+use crate::{build, props, tag};
+use std::f32::consts::PI;
+use std::sync::Arc;
 
+#[derive(Debug, Copy, Clone)]
 pub struct SineFold {
     tag: Tag,
     wave: Tag,
-    fold_param: In,
-    out: Real,
+    // fold_param: In,
 }
 
 impl SineFold {
-    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
-        Self {
-            tag: id_gen.id(),
-            wave,
-            fold_param: TAU.into(),
-            out: 0.0,
-        }
+    pub fn new(tag: Tag, wave: Tag) -> Self {
+        Self { tag, wave }
     }
 
-    pub fn wave(&mut self, arg: Tag) -> &mut Self {
-        self.wave = arg;
-        self
-    }
-
-    pub fn fold_param<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-        self.fold_param = arg.into();
-        self
-    }
+    props!(fold_param, set_fold_param, 0);
 }
-
-impl Builder for SineFold {}
 
 impl Signal for SineFold {
-    std_signal!();
-    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        let a = rack.output(self.wave);
-        let fold_param = In::val(rack, self.fold_param);
-        self.out = (a * TAU / fold_param).sin();
-        self.out
+    tag!();
+
+    fn signal(
+        &self,
+        controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _sample_rate: f32,
+    ) {
+        let fold_param = self.fold_param(controls, outputs);
+        outputs[(self.tag, 0)] = (outputs[(self.wave, 0)] * 2.0 * PI / fold_param).sin();
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct SineFoldBuilder {
+    wave: Tag,
+    fold_param: Control,
+}
+
+impl SineFoldBuilder {
+    pub fn new(wave: Tag, fold_param: Control) -> Self {
+        Self { wave, fold_param }
+    }
+
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<SineFold> {
+        let n = rack.num_modules();
+        controls[(n.into(), 0)] = self.fold_param;
+        let sf = Arc::new(SineFold::new(n, self.wave));
+        rack.push(sf.clone());
+        sf
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct Tanh {
     tag: Tag,
     wave: Tag,
-    out: Real,
 }
 
 impl Tanh {
-    pub fn new(id_gen: &mut IdGen, wave: Tag) -> Self {
-        Self {
-            tag: id_gen.id(),
-            wave,
-            out: 0.0,
-        }
-    }
-
-    pub fn wave(&mut self, arg: Tag) -> &mut Self {
-        self.wave = arg;
-        self
+    pub fn new(tag: Tag, wave: Tag) -> Self {
+        Self { tag, wave }
     }
 }
 
-impl Builder for Tanh {}
-
 impl Signal for Tanh {
-    std_signal!();
-    fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-        let a = rack.output(self.wave);
-        self.out = (a * TAU).tanh();
-        self.out
+    tag!();
+
+    fn signal(
+        &self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        sample_rate: f32,
+    ) {
+        outputs[(self.tag, 0)] = (outputs[(self.wave, 0)] * 2.0 * PI).tanh();
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct TanhBuilder {
+    wave: Tag,
+}
+
+impl TanhBuilder {
+    pub fn new(wave: Tag) -> Self {
+        Self { wave }
+    }
+
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Tanh> {
+        let n = rack.num_modules();
+        let t = Arc::new(Tanh::new(n.into(), self.wave));
+        rack.push(t.clone());
+        t
     }
 }
