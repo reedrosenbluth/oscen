@@ -65,7 +65,14 @@ pub struct MidiControl {
 }
 
 impl MidiControl {
-    pub fn new(id_gen: &mut IdGen, controller: u8, value: u8, low: Real, mid: Real, high: Real) -> Self {
+    pub fn new(
+        id_gen: &mut IdGen,
+        controller: u8,
+        value: u8,
+        low: Real,
+        mid: Real,
+        high: Real,
+    ) -> Self {
         Self {
             tag: id_gen.id(),
             controller,
@@ -133,7 +140,8 @@ pub fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
 
     println!("\nOpening connection");
 
-    // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
+    // _conn_in needs to be a named parameter, because it needs to be kept alive
+    // until the end of the scope
     let _conn_in = midi_in.connect(
         in_port,
         "midir-read-input",
@@ -143,7 +151,8 @@ pub fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
         (),
     )?;
 
-    // println!("Connection open, reading input from '{}' (press enter to exit) ...", in_port_name);
+    // println!("Connection open, reading input from '{}' (press enter to exit)
+    // ...", in_port_name);
 
     input.clear();
     stdin().read_line(&mut input)?; // wait for next enter key press

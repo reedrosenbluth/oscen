@@ -46,6 +46,7 @@ pub mod osc;
 pub mod shaping;
 /// Midi interface nodes.
 pub mod midi;
+pub mod mid;
 /// Utilites.
 pub mod utils;
 pub mod uti;
