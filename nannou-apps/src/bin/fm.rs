@@ -2,7 +2,6 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use oscen::filters::Lpf;
 use oscen::operators::ModulatorBuilder;
 use oscen::oscillators::{sine_osc, triangle_osc, OscBuilder};
 use oscen::rack::*;
@@ -37,12 +36,11 @@ fn model(app: &App) -> Model {
     let mut state = State::new();
     let outputs = Outputs::new();
 
-    let modulator =
-        ModulatorBuilder::new(sine_osc)
-            .hz(220)
-            .ratio(0.1)
-            .index(2)
-            .rack(&mut rack, &mut controls, &mut state);
+    let modulator = ModulatorBuilder::new(sine_osc)
+        .hz(220)
+        .ratio(0.1)
+        .index(2)
+        .rack(&mut rack, &mut controls, &mut state);
 
     // Create a square wave oscillator and add it the the rack.
     let _triangle = OscBuilder::new(triangle_osc).hz(modulator.tag()).rack(
@@ -76,7 +74,12 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     for frame in buffer.frames_mut() {
         // The signal method returns the sample of the last synth module in
         // the rack.
-        let amp = synth.rack.mono(&synth.controls, &mut synth.state, &mut synth.outputs, sample_rate);
+        let amp = synth.rack.mono(
+            &synth.controls,
+            &mut synth.state,
+            &mut synth.outputs,
+            sample_rate,
+        );
 
         for channel in frame {
             *channel = amp;

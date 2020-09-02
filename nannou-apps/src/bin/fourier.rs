@@ -1,7 +1,6 @@
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use oscen::operators::*;
 use oscen::oscillators::*;
 use oscen::rack::*;
 
@@ -25,19 +24,11 @@ fn model(app: &App) -> Model {
     let audio_host = audio::Host::new();
     let mut rack = Rack::new();
     let mut controls = Controls::new();
-    let mut state = State::new();
+    let state = State::new();
     let outputs = Outputs::new();
-    let mut oscs = vec![];
-    let osc = OscBuilder::new(square_osc)
-        .hz(440)
-        .rack(&mut rack, &mut controls, &mut state);
-    oscs.push(osc.tag());
     let mut builder = triangle_wave(32);
     builder.hz(220).lanczos(false);
-    let osc = builder.rack(&mut rack, &mut controls);
-    oscs.push(osc.tag());
-
-    let _union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
+    builder.rack(&mut rack, &mut controls);
 
     let synth = Synth {
         rack,

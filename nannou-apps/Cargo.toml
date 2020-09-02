@@ -27,5 +27,5 @@ name = "fm"
 path = "src/bin/fm.rs"
 
 [[bin]]
-name = "perf"
-path = "src/bin/perf.rs"
+name = "fourier"
+path = "src/bin/fourier.rs"
