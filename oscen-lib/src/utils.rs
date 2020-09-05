@@ -40,93 +40,6 @@ pub fn signals(rack: &mut Rack, start: u32, end: u32, sample_rate: f32) -> Vec<(
     result
 }
 
-/// Variable length circular buffer.
-pub struct RingBuffer<'a, T> {
-    buffer: &'a mut [T],
-    pub read_pos: f32,
-    pub write_pos: usize,
-}
-
-impl<'a, T> RingBuffer<'a, T>
-where
-    T: Clone + Default,
-{
-    pub fn new(buffer: &'a mut [T], read_pos: f32, write_pos: usize) -> Self {
-        assert!(
-            read_pos.trunc() as usize <= write_pos,
-            "Read position must be <= write postion"
-        );
-        assert!(
-            write_pos < buffer.len(),
-            "Write postion is >= to buffer length"
-        );
-        RingBuffer {
-            // +3 is to give room for cubic interpolation
-            buffer,
-            read_pos,
-            write_pos,
-        }
-    }
-
-    pub fn push(&mut self, v: T) {
-        let n = self.buffer.len();
-        self.write_pos = (self.write_pos + 1) % n;
-        self.read_pos = (self.read_pos + 1.0) % n as f32;
-        self.buffer[self.write_pos] = v;
-    }
-
-    pub fn len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    pub fn set_read_pos(&mut self, rp: f32) {
-        self.read_pos = rp % self.buffer.len() as f32;
-    }
-
-    pub fn set_write_pos(&mut self, wp: usize) {
-        self.write_pos = wp % self.buffer.len();
-    }
-}
-
-impl<'a, T> RingBuffer<'a, T>
-where
-    T: Copy + Default,
-{
-    pub fn get(&self) -> T {
-        self.buffer[self.read_pos.trunc() as usize]
-    }
-
-    pub fn get_offset(&self, offset: i32) -> T {
-        let n = self.buffer.len() as i32;
-        let mut offset = offset;
-        while offset < 0 {
-            offset += n;
-        }
-        let i = (self.read_pos.trunc() as usize + offset as usize) % n as usize;
-        self.buffer[i]
-    }
-}
-
-impl<'a> RingBuffer<'a, f32> {
-    pub fn get_linear(&self) -> f32 {
-        let f = self.read_pos - self.read_pos.trunc();
-        (1.0 - f) * self.get() + f * self.get_offset(1)
-    }
-
-    /// Hermite cubic polynomial interpolation.
-    pub fn get_cubic(&self) -> f32 {
-        let v0 = self.get_offset(-1);
-        let v1 = self.get();
-        let v2 = self.get_offset(1);
-        let v3 = self.get_offset(2);
-        let f = self.read_pos - self.read_pos.trunc();
-        let a1 = 0.5 * (v2 - v0);
-        let a2 = v0 - 2.5 * v1 + 2.0 * v2 - 0.5 * v3;
-        let a3 = 0.5 * (v3 - v0) + 1.5 * (v1 - v2);
-        a3 * f * f * f + a2 * f * f + a1 * f + v1
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,22 +103,5 @@ mod tests {
             "interp returned {}, epxected 10,1000",
             result
         );
-    }
-
-    #[test]
-    fn ring_buffer() {
-        let buffer = &mut vec![0.0; 10];
-        let mut rb = RingBuffer::<f32>::new(buffer, 0.5, 5);
-        let result = rb.get();
-        assert_eq!(result, 0.0, "get returned {}, expected 0.0", result);
-        for i in 0..=6 {
-            rb.push(i as f32);
-        }
-        let result = rb.get();
-        assert_eq!(result, 1.0, "get returned {}, expected 0.0", result);
-        let result = rb.get_linear();
-        assert_eq!(result, 1.5, "get_linear returned {}, expected 0.0", result);
-        let result = rb.get_cubic();
-        assert_eq!(result, 1.5, "get_cubic returned {}, expected 0.0", result);
     }
 }

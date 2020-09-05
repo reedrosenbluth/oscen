@@ -163,6 +163,10 @@ fn model(app: &App) -> Model {
     oscs.push(lpf.tag());
     names.push("Low Pass Filter");
 
+    // Delay
+    let ring_buffer = RingBuffer::new32(1.0, 44_100.0);
+    let delay = DelayBuilder::new(sine.tag());
+
     let union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
     let _out = VcaBuilder::new(union.tag())
         .level(0.25)

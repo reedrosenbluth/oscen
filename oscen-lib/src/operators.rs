@@ -1,6 +1,5 @@
 use crate::oscillators::{ConstBuilder, OscBuilder};
 use crate::rack::*;
-// use crate::utils::RingBuffer;
 use crate::{build, props, tag};
 use std::sync::Arc;
 #[derive(Debug, Clone)]
@@ -347,7 +346,6 @@ impl ModulatorBuilder {
     }
 }
 
-/*
 pub struct Delay {
     tag: Tag,
     wave: Tag,
@@ -367,49 +365,42 @@ impl Signal for Delay {
     tag!();
     fn signal(
         &self,
-        controls: &Controls,
+        _controls: &Controls,
+        _state: &mut State,
+        _outputs: &mut Outputs,
+        _sample_rate: f32,
+    ) {
+    }
+
+    fn signal_buf(
+        &self,
+        _controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
-        sample_rate: f32,
+        _sample_rate: f32,
+        buffer: &mut RingBuffer<f32>,
     ) {
-        let delay = self.delay_time(controls, outputs) * sample_rate;
-        let rp = self.ring_buffer.read_pos;
-        let wp = (delay + rp).ceil();
-        self.ring_buffer.set_write_pos(wp as usize);
-        self.ring_buffer.set_read_pos(rp - delay);
-        if delay > self.ring_buffer.len() as f32 - 3.0 {
-            panic!("Ring buffer too small for dalay {}", delay);
-        }
         let val = outputs[(self.wave, 0)];
-        self.ring_buffer.push(val);
-        outputs[(self.tag, 0)] = self.ring_buffer.get_cubic();
+        buffer.push(val);
+        outputs[(self.tag, 0)] = buffer.get_cubic();
     }
 }
 
-pub struct DelayBuilder<'a> {
+pub struct DelayBuilder {
     wave: Tag,
-    ring_buffer: &'a mut RingBuffer<'a, f32>,
-    delay_time: Control,
 }
 
-impl<'a> DelayBuilder<'a> {
-    pub fn new(wave: Tag, ring_buffer: &'a mut RingBuffer<'a, f32>, delay_time: Control) -> Self {
+impl DelayBuilder {
+    pub fn new(wave: Tag) -> Self {
         Self {
             wave,
-            ring_buffer,
-            delay_time,
         }
     }
-    build!(delay_time);
-    pub fn rack(&'static mut self, rack: &mut Rack, controls: &mut Controls) -> Arc<Delay> {
+    pub fn rack(&'static mut self, rack: &mut Rack) -> Arc<Delay> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.delay_time;
         let wave = self.wave;
-        // let mut ring_buffer = &*self.ring_buffer;
-        let ring_buffer = &mut *self.ring_buffer;
         let delay = Arc::new(Delay::new(n, wave));
-        rack.push(delay);
+        rack.push(delay.clone());
         delay
     }
 }
-*/
