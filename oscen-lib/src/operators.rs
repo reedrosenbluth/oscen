@@ -398,8 +398,7 @@ impl DelayBuilder {
     }
     pub fn rack(&mut self, rack: &mut Rack, buffers: &mut Buffers) -> Arc<Delay> {
         let n = rack.num_modules();
-        let wave = self.wave;
-        let delay = Arc::new(Delay::new(n, wave));
+        let delay = Arc::new(Delay::new(n, self.wave));
         buffers.set_buffer(delay.tag(), self.buffer.clone());
         rack.push(delay.clone());
         delay

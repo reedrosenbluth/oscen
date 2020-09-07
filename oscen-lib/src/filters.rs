@@ -189,7 +189,6 @@ impl HpfBuilder {
     }
 }
 
-
 pub struct Bpf {
     tag: Tag,
     wave: Tag,
@@ -445,70 +444,69 @@ impl NotchBuilder {
 //     }
 // }
 
-// impl Index<&str> for Comb {
-//     type Output = In;
+#[derive(Debug, Copy, Clone)]
+pub struct AllPass {
+    tag: Tag,
+    wave: Tag,
+}
 
-//     fn index(&self, index: &str) -> &Self::Output {
-//         match index {
-//             "feedback" => &self.feedback,
-//             "damping" => &self.dampening,
-//             "damping_inverse" => &self.dampening_inverse,
-//             _ => panic!("Comb does not have a field named: {}", index),
-//         }
-//     }
-// }
+impl AllPass {
+    pub fn new<T: Into<Tag>>(tag: T, wave: Tag) -> Self {
+        Self {
+            tag: tag.into(),
+            wave,
+        }
+    }
+}
 
-// impl IndexMut<&str> for Comb {
-//     fn index_mut(&mut self, index: &str) -> &mut Self::Output {
-//         match index {
-//             "feedback" => &mut self.feedback,
-//             "damping" => &mut self.dampening,
-//             "damping_inverse" => &mut self.dampening_inverse,
-//             _ => panic!("Comb does not have a field named: {}", index),
-//         }
-//     }
-// }
+impl Signal for AllPass {
+    tag!();
+    fn signal(
+        &self,
+        _controls: &Controls,
+        _state: &mut State,
+        _outputs: &mut Outputs,
+        _sample_rate: f32,
+    ) {
+    }
 
-// #[derive(Clone)]
-// pub struct AllPass {
-//     tag: Tag,
-//     wave: Tag,
-//     buffer: Vec<Real>,
-//     index: usize,
-//     out: Real,
-// }
+    fn signal_buf(
+        &self,
+        _controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        buffers: &mut Buffers,
+        _sample_rate: f32,
+    ) {
+        let input = outputs[(self.wave, 0)];
+        let delayed = buffers.buffers(self.tag).get();
+        outputs[(self.tag, 0)] = delayed - input;
+        buffers.buffers_mut(self.tag).push(input + 0.5 * delayed);
+    }
+}
 
-// impl AllPass {
-//     pub fn new(id_gen: &mut IdGen, wave: Tag, length: usize) -> Self {
-//         Self {
-//             tag: id_gen.id(),
-//             wave,
-//             buffer: vec![0.0; length],
-//             index: 0,
-//             out: 0.0,
-//         }
-//     }
+#[derive(Clone)]
+pub struct AllPassBuilder {
+    wave: Tag,
+    buffer: RingBuffer,
+    length: usize,
+}
 
-//     pub fn wave(&mut self, arg: Tag) -> &mut Self {
-//         self.wave = arg;
-//         self
-//     }
-// }
-
-// impl Builder for AllPass {}
-
-// impl Signal for AllPass {
-//     std_signal!();
-//     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-//         let input = rack.output(self.wave);
-//         let delayed = self.buffer[self.index];
-//         let output = delayed - input;
-//         self.buffer[self.index] = input + (0.5 * delayed) as Real;
-//         self.index += 1;
-//         if self.index == self.buffer.len() {
-//             self.index = 0
-//         }
-//         self.out = output as Real;
-//         self.out
-//     }
-// }
+impl AllPassBuilder {
+    pub fn new(wave: Tag, buffer: RingBuffer, length: usize) -> Self {
+        Self {
+            wave,
+            buffer,
+            length,
+        }
+    }
+    pub fn rack(&mut self, rack: &mut Rack, buffers: &mut Buffers) -> Arc<AllPass> {
+        let n = rack.num_modules();
+        let allpass = Arc::new(AllPass::new(n, self.wave));
+        self.buffer.resize(self.length);
+        self.buffer.set_read_pos(0.0);
+        self.buffer.set_write_pos(1);
+        buffers.set_buffer(allpass.tag, self.buffer.clone());
+        allpass
+    }
+}

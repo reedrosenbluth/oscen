@@ -255,6 +255,10 @@ where
         let i = (self.read_pos.trunc() as usize + offset as usize) % n as usize;
         self.buffer[i]
     }
+
+    pub fn resize(&mut self, n: usize) {
+        self.buffer.resize_with(n, Default::default);
+    }
 }
 
 impl RingBuffer {
