@@ -22,6 +22,7 @@ struct Synth {
     controls: Box<Controls>,
     state: Box<State>,
     outputs: Box<Outputs>,
+    buffers: Box<Buffers>,
 }
 
 fn model(app: &App) -> Model {
@@ -29,7 +30,7 @@ fn model(app: &App) -> Model {
     app.new_window().size(700, 360).view(view).build().unwrap();
     let audio_host = audio::Host::new();
 
-    let (mut rack, mut controls, mut state, outputs) = tables();
+    let (mut rack, mut controls, mut state, outputs, buffers) = tables();
 
     let modulator = ModulatorBuilder::new(sine_osc)
         .hz(220)
@@ -50,6 +51,7 @@ fn model(app: &App) -> Model {
         controls,
         state,
         outputs,
+        buffers,
     };
     let stream = audio_host
         .new_output_stream(synth)
@@ -73,6 +75,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
             &synth.controls,
             &mut synth.state,
             &mut synth.outputs,
+            &mut synth.buffers,
             sample_rate,
         );
 

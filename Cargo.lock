@@ -101,6 +101,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "arr_macro"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a105bfda48707cf19220129e78fca01e9639433ffaef4163546ed8fb04120a5"
+dependencies = [
+ "arr_macro_impl",
+ "proc-macro-hack",
+]
+
+[[package]]
+name = "arr_macro_impl"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0609c78bd572f4edc74310dfb63a01f5609d53fa8b4dd7c4d98aef3b3e8d72d1"
+dependencies = [
+ "proc-macro-hack",
+ "quote 1.0.7",
+ "syn 1.0.39",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -533,6 +554,18 @@ name = "coremidi"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ae2b8d4679b3a2a92b843d4c8e4a721be038ce49fce701c46296b2713f24c814"
+dependencies = [
+ "core-foundation 0.2.3",
+ "core-foundation-sys 0.2.3",
+ "coremidi-sys",
+ "time",
+]
+
+[[package]]
+name = "coremidi"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99f92de5534f182bad5f91cad85611ab222cb6e237a0555e06c65a24936c3173"
 dependencies = [
  "core-foundation 0.2.3",
  "core-foundation-sys 0.2.3",
@@ -1270,6 +1303,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
+
+[[package]]
 name = "libmath"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1455,12 +1494,30 @@ checksum = "e653b919aca8b5f2697854f1819b33bfe49bcb3378abb0dbd834ce43ede9c7b1"
 dependencies = [
  "alsa 0.2.2",
  "bitflags 0.3.3",
- "coremidi",
+ "coremidi 0.3.1",
  "libc",
  "memalloc",
  "nix 0.9.0",
  "winapi 0.2.8",
  "winmm-sys",
+]
+
+[[package]]
+name = "midir"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25df1e7836ca65078a121efed77049084a434838562b9892d0401bdfb59244cc"
+dependencies = [
+ "alsa 0.4.2",
+ "bitflags 1.2.1",
+ "coremidi 0.4.0",
+ "js-sys",
+ "libc",
+ "memalloc",
+ "nix 0.15.0",
+ "wasm-bindgen",
+ "web-sys",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -1559,7 +1616,7 @@ name = "nannou_apps"
 version = "0.1.0"
 dependencies = [
  "crossbeam",
- "midir",
+ "midir 0.5.0",
  "nannou",
  "nannou_audio",
  "oscen",
@@ -1713,6 +1770,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "num"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab3e176191bc4faad357e3122c4747aa098ac880e88b168f106386128736cf4a"
+dependencies = [
+ "num-bigint 0.3.0",
+ "num-complex 0.3.0",
+ "num-integer",
+ "num-iter",
+ "num-rational 0.3.0",
+ "num-traits 0.2.12",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1736,6 +1807,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7f3fc75e3697059fb1bc465e3d8cca6cf92f56854f201158b3f9c77d5a3cfa0"
+dependencies = [
+ "autocfg 1.0.1",
+ "num-integer",
+ "num-traits 0.2.12",
+]
+
+[[package]]
 name = "num-complex"
 version = "0.1.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1752,6 +1834,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6b19411a9719e753aff12e5187b74d60d3dc449ec3f4dc21e3989c3f554bc95"
 dependencies = [
  "autocfg 1.0.1",
+ "num-traits 0.2.12",
+]
+
+[[package]]
+name = "num-complex"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b05ad05bd8977050b171b3f6b48175fea6e0565b7981059b486075e1026a9fb5"
+dependencies = [
  "num-traits 0.2.12",
 ]
 
@@ -1807,6 +1898,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a5b4d7360f362cfb50dde8143501e6940b22f644be75a4cc90b2d81968908138"
 dependencies = [
  "autocfg 1.0.1",
+ "num-bigint 0.3.0",
  "num-integer",
  "num-traits 0.2.12",
 ]
@@ -1827,6 +1919,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac267bcc07f48ee5f8935ab0d24f316fb722d7a1292e2913f0cc196b29ffd611"
 dependencies = [
  "autocfg 1.0.1",
+ "libm",
 ]
 
 [[package]]
@@ -1920,10 +2013,11 @@ name = "oscen"
 version = "0.1.4"
 dependencies = [
  "approx",
+ "arr_macro",
  "crossbeam",
  "libmath",
- "midir",
- "num 0.2.1",
+ "midir 0.7.0",
+ "num 0.3.0",
  "parking_lot 0.11.0",
  "pitch_calc",
  "rand 0.7.3",
@@ -2227,6 +2321,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "proc-macro-hack"
+version = "0.5.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99c605b9a0adc77b7211c6b1f722dcb613d68d66859a44f3d485a6da332b0598"
+
+[[package]]
 name = "proc-macro2"
 version = "0.4.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2377,10 +2477,11 @@ dependencies = [
 
 [[package]]
 name = "rand_distr"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96977acbdd3a6576fb1d27391900035bf3863d4a16422973a409b488cf29ffb2"
+checksum = "c9e9532ada3929fb8b2e9dbe28d1e06c9b2cc65813f074fcb6bd5fbefeff9d56"
 dependencies = [
+ "num-traits 0.2.12",
  "rand 0.7.3",
 ]
 

@@ -27,14 +27,12 @@ pub fn interp_inv(low: f32, mid: f32, high: f32, y: f32) -> f32 {
 }
 
 pub fn signals(rack: &mut Rack, start: u32, end: u32, sample_rate: f32) -> Vec<(f32, f32)> {
-    let controls = Controls::new();
-    let mut state = State::new();
-    let mut outputs = Outputs::new();
+    let (_, controls, mut state, mut outputs, mut buffers) = tables();
     let mut result = vec![];
     for i in start..=end {
         result.push((
             i as f32 / sample_rate as f32,
-            rack.mono(&controls, &mut state, &mut outputs, sample_rate),
+            rack.mono(&controls, &mut state, &mut outputs, &mut buffers, sample_rate),
         ));
     }
     result

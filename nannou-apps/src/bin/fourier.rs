@@ -17,12 +17,13 @@ struct Synth {
     controls: Box<Controls>,
     state: Box<State>,
     outputs: Box<Outputs>,
+    buffers: Box<Buffers>,
 }
 
 fn model(app: &App) -> Model {
     app.new_window().size(250, 250).build().unwrap();
     let audio_host = audio::Host::new();
-    let (mut rack, mut controls, state, outputs) = tables();
+    let (mut rack, mut controls, state, outputs, buffers) = tables();
 
     let mut builder = triangle_wave(32);
     builder.hz(220).lanczos(false);
@@ -33,6 +34,7 @@ fn model(app: &App) -> Model {
         controls,
         state,
         outputs,
+        buffers,
     };
     let stream = audio_host
         .new_output_stream(synth)
@@ -49,6 +51,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
             &mut synth.controls,
             &mut synth.state,
             &mut synth.outputs,
+            &mut synth.buffers,
             sample_rate,
         ) as f32;
         for channel in frame {

@@ -358,7 +358,6 @@ impl Delay {
             wave,
         }
     }
-    props!(delay_time, set_delay_time, 0);
 }
 
 impl Signal for Delay {
@@ -377,29 +376,32 @@ impl Signal for Delay {
         _controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        buffers: &mut Buffers,
         _sample_rate: f32,
-        buffer: &mut RingBuffer<f32>,
     ) {
         let val = outputs[(self.wave, 0)];
-        buffer.push(val);
-        outputs[(self.tag, 0)] = buffer.get_cubic();
+        buffers.buffers_mut(self.tag).push(val);
+        outputs[(self.tag, 0)] = buffers.buffers(self.tag).get_cubic();
     }
 }
 
 pub struct DelayBuilder {
     wave: Tag,
+    buffer: RingBuffer,
 }
 
 impl DelayBuilder {
-    pub fn new(wave: Tag) -> Self {
+    pub fn new(wave: Tag, buffer: RingBuffer) -> Self {
         Self {
             wave,
+            buffer,
         }
     }
-    pub fn rack(&'static mut self, rack: &mut Rack) -> Arc<Delay> {
+    pub fn rack(&mut self, rack: &mut Rack, buffers: &mut Buffers) -> Arc<Delay> {
         let n = rack.num_modules();
         let wave = self.wave;
         let delay = Arc::new(Delay::new(n, wave));
+        buffers.set_buffer(delay.tag(), self.buffer.clone());
         rack.push(delay.clone());
         delay
     }

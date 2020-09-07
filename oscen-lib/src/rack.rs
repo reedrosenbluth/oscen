@@ -1,11 +1,14 @@
 use std::ops::{Index, IndexMut};
 use std::sync::Arc;
+use arr_macro::arr;
+
 
 pub type SignalFn = fn(f32, f32) -> f32;
 
 pub const MAX_CONTROLS: usize = 32;
 pub const MAX_OUTPUTS: usize = 32;
 pub const MAX_STATE: usize = 64;
+// Must be changed by hand in Buffers due to limitaion of arr! marcro
 pub const MAX_MODULES: usize = 1024;
 
 /// Unique identifier for each Synth Module.
@@ -192,7 +195,7 @@ where
 }
 /// Variable length circular buffer.
 #[derive(Clone)]
-pub struct RingBuffer<T> {
+pub struct RingBuffer<T = f32> {
     buffer: Vec<T>,
     pub read_pos: f32,
     pub write_pos: usize,
@@ -254,7 +257,7 @@ where
     }
 }
 
-impl RingBuffer<f32> {
+impl RingBuffer {
     pub fn new32(delay: f32, sample_rate: f32) -> Self {
         let read_pos = 0.0;
         let write_pos = (delay * sample_rate).ceil() as usize;
@@ -286,7 +289,28 @@ where
     T: Default,
 {
     fn default() -> Self {
-        Self { buffer: Default::default(), read_pos: 0.0, write_pos: 0 }
+        Self {
+            buffer: Default::default(),
+            read_pos: 0.0,
+            write_pos: 0,
+        }
+    }
+}
+#[derive(Clone)]
+pub struct Buffers([RingBuffer; MAX_MODULES]);
+
+impl Buffers {
+    pub fn new() -> Self {
+        Buffers(arr![Default::default(); 1024])  
+    }
+    pub fn buffers<T: Into<usize>>(&self, tag: T) -> &RingBuffer {
+        &self.0[tag.into()]
+    }
+    pub fn set_buffer(&mut self, tag: Tag, buffer: RingBuffer) {
+        self.0[tag.get()] = buffer;
+    }
+    pub fn buffers_mut<T: Into<usize>>(&mut self, tag: T) -> &mut RingBuffer {
+        &mut self.0[tag.into()]
     }
 }
 
@@ -311,8 +335,8 @@ pub trait Signal {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         sample_rate: f32,
-        _buffer: &mut RingBuffer<f32>,
     ) {
         Self::signal(&self, controls, state, outputs, sample_rate);
     }
@@ -353,11 +377,18 @@ impl Rack {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        buffers: &mut Buffers,
         sample_rate: f32,
     ) -> [f32; MAX_OUTPUTS] {
         let n = self.0.len() - 1;
         for module in self.0.iter() {
-            module.signal_buf(controls, state, outputs, sample_rate, &mut Default::default());
+            module.signal_buf(
+                controls,
+                state,
+                outputs,
+                buffers,
+                sample_rate,
+            );
         }
         outputs.0[n]
     }
@@ -367,19 +398,21 @@ impl Rack {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        buffers: &mut Buffers,
         sample_rate: f32,
     ) -> f32 {
-        self.play(controls, state, outputs, sample_rate)[0]
+        self.play(controls, state, outputs, buffers, sample_rate)[0]
     }
 }
 
 /// Generate the Environment variables needed for the synth.
-pub fn tables() -> (Rack, Box<Controls>, Box<State>, Box<Outputs>) {
+pub fn tables() -> (Rack, Box<Controls>, Box<State>, Box<Outputs>, Box<Buffers>) {
     (
         Rack::new(),
         Box::new(Controls::new()),
         Box::new(State::new()),
         Box::new(Outputs::new()),
+        Box::new(Buffers::new()),
     )
 }
 

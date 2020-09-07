@@ -27,7 +27,7 @@ where
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
 
-    let (mut rack, mut controls, mut state, mut outputs) = tables();
+    let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
 
     let num_oscillators = 400;
     let amp = 1.0 / num_oscillators as f32;
@@ -42,7 +42,15 @@ where
     }
     MixerBuilder::new(oscs).rack(&mut rack);
 
-    let mut next_value = move || rack.mono(&controls, &mut state, &mut outputs, sample_rate);
+    let mut next_value = move || {
+        rack.mono(
+            &controls,
+            &mut state,
+            &mut outputs,
+            &mut buffers,
+            sample_rate,
+        )
+    };
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 

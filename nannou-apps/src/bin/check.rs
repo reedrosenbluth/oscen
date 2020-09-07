@@ -25,6 +25,7 @@ struct Synth {
     controls: Box<Controls>,
     state: Box<State>,
     outputs: Box<Outputs>,
+    buffers: Box<Buffers>,
     union: Arc<Union>,
     adsr: Arc<Adsr>,
     names: Vec<&'static str>,
@@ -41,7 +42,7 @@ fn model(app: &App) -> Model {
         .unwrap();
     let audio_host = audio::Host::new();
 
-    let (mut rack, mut controls, mut state, outputs) = tables();
+    let (mut rack, mut controls, mut state, outputs, mut buffers) = tables();
     let mut oscs = vec![];
     let freq = 220;
 
@@ -164,8 +165,11 @@ fn model(app: &App) -> Model {
     names.push("Low Pass Filter");
 
     // Delay
-    let ring_buffer = RingBuffer::new32(1.0, 44_100.0);
-    let delay = DelayBuilder::new(sine.tag());
+    let ring_buffer = RingBuffer::new32(110.0/44_100.0, 44_100.0);
+    let delay = DelayBuilder::new(sine.tag(), ring_buffer).rack(&mut rack, &mut buffers);
+    let d = CrossFadeBuilder::new(sine.tag(), delay.tag()).rack(&mut rack, &mut controls);
+    oscs.push(d.tag());
+    names.push("Delay");
 
     let union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
     let _out = VcaBuilder::new(union.tag())
@@ -178,6 +182,7 @@ fn model(app: &App) -> Model {
         controls,
         state,
         outputs,
+        buffers,
         union,
         adsr,
         names,
@@ -203,6 +208,7 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
             &synth.controls,
             &mut synth.state,
             &mut synth.outputs,
+            &mut synth.buffers,
             sample_rate,
         );
 
