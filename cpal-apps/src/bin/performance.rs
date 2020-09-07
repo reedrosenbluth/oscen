@@ -29,7 +29,7 @@ where
 
     let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
 
-    let num_oscillators = 400;
+    let num_oscillators = 700;
     let amp = 1.0 / num_oscillators as f32;
     let mut oscs = vec![];
     for _ in 0..num_oscillators {

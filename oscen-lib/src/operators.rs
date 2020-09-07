@@ -331,7 +331,6 @@ impl ModulatorBuilder {
         let index = ConstBuilder::new(self.index).rack(rack, controls);
         let mod_hz = ProductBuilder::new(vec![hz.tag(), ratio.tag()]).rack(rack);
         let mod_amp = ProductBuilder::new(vec![hz.tag(), ratio.tag(), index.tag()]).rack(rack);
-        // let mod_amp = MixerBuilder::new(vec![hz.tag(), amp_factor.tag()]).rack(rack);
         let modulator = OscBuilder::new(self.signal_fn)
             .amplitude(mod_amp.tag())
             .hz(mod_hz.tag())
