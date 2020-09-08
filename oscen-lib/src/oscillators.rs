@@ -113,6 +113,7 @@ impl Signal for Oscillator {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         sample_rate: f32,
     ) {
         let phase = self.phase(state);
@@ -170,6 +171,7 @@ impl Signal for Const {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         outputs[(self.tag, 0)] = self.value(controls, outputs);
@@ -233,6 +235,7 @@ impl Signal for WhiteNoise {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         let amplitude = self.amplitude(controls, outputs);
@@ -288,6 +291,7 @@ impl Signal for PinkNoise {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         let tag = self.tag;
@@ -386,6 +390,7 @@ impl Signal for FourierOsc {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         sample_rate: f32,
     ) {
         let tag = self.tag;
@@ -474,6 +479,7 @@ impl Signal for Clock {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         sample_rate: f32,
     ) {
         let tag = self.tag;

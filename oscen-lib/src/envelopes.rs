@@ -54,6 +54,7 @@ impl Signal for Adsr {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         sample_rate: f32,
     ) {
         let a = self.attack(controls, outputs).max(0.005);

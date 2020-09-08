@@ -31,6 +31,7 @@ impl Signal for MidiPitch {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         outputs[(self.tag, 0)] = hz_from_step(
@@ -140,6 +141,7 @@ impl Signal for MidiControl {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         let value = self.value(controls);

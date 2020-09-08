@@ -38,6 +38,7 @@ impl Signal for Mixer {
         _controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         let out = self.waves.iter().fold(0.0, |acc, n| acc + outputs[(*n, 0)]);
@@ -94,6 +95,7 @@ impl Signal for Union {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         let idx = self.active(controls, outputs);
@@ -138,6 +140,7 @@ impl Signal for Product {
         _controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         let out = self.waves.iter().fold(1.0, |acc, n| acc * outputs[(*n, 0)]);
@@ -165,6 +168,7 @@ impl Signal for Vca {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         outputs[(self.tag, 0)] = self.level(controls, outputs) * outputs[(self.wave, 0)];
@@ -215,6 +219,7 @@ impl Signal for CrossFade {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         let alpha = self.alpha(controls, outputs);
@@ -295,6 +300,7 @@ impl Signal for Modulator {
         _controls: &Controls,
         _state: &mut State,
         _outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
     }
@@ -362,15 +368,6 @@ impl Delay {
 impl Signal for Delay {
     tag!();
     fn signal(
-        &self,
-        _controls: &Controls,
-        _state: &mut State,
-        _outputs: &mut Outputs,
-        _sample_rate: f32,
-    ) {
-    }
-
-    fn signal_buf(
         &self,
         _controls: &Controls,
         _state: &mut State,

@@ -34,6 +34,7 @@ impl Signal for Lpf {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         sample_rate: f32,
     ) {
         let x0 = outputs[(self.wave, 0)];
@@ -127,6 +128,7 @@ impl Signal for Hpf {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         sample_rate: f32,
     ) {
         let x0 = outputs[(self.wave, 0)];
@@ -219,6 +221,7 @@ impl Signal for Bpf {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         sample_rate: f32,
     ) {
         let x0 = outputs[(self.wave, 0)];
@@ -312,6 +315,7 @@ impl Signal for Notch {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         sample_rate: f32,
     ) {
         let x0 = outputs[(self.wave, 0)];
@@ -373,76 +377,91 @@ impl NotchBuilder {
         notch
     }
 }
-// Lowpass-Feedback Comb Filter
+/// Lowpass-Feedback Comb Filter
 // https://ccrma.stanford.edu/~jos/pasp/Lowpass_Feedback_Comb_Filter.html
-// #[derive(Clone)]
-// pub struct Comb {
-//     tag: Tag,
-//     wave: Tag,
-//     buffer: Vec<Real>,
-//     index: usize,
-//     feedback: In,
-//     filter_state: Real,
-//     dampening: In,
-//     dampening_inverse: In,
-//     out: Real,
-// }
+#[derive(Clone)]
+pub struct Comb {
+    tag: Tag,
+    wave: Tag,
+}
 
-// impl Comb {
-//     pub fn new(id_gen: &mut IdGen, wave: Tag, length: usize) -> Self {
-//         Self {
-//             tag: id_gen.id(),
-//             wave,
-//             buffer: vec![0.0; length],
-//             index: 0,
-//             feedback: (0.5).into(),
-//             filter_state: 0.0,
-//             dampening: (0.5).into(),
-//             dampening_inverse: (0.5).into(),
-//             out: 0.0,
-//         }
-//     }
+impl Comb {
+    pub fn new<T: Into<Tag>>(tag: T, wave: Tag) -> Self {
+        Self {
+            tag: tag.into(),
+            wave,
+        }
+    }
+    props!(feedback, set_feedback, 0);
+    props!(dampening, set_dampening, 1);
+    props!(dampening_inverse, set_dampening_inverse, 2);
+}
 
-//     pub fn wave(&mut self, arg: Tag) -> &mut Self {
-//         self.wave = arg;
-//         self
-//     }
+impl Signal for Comb {
+    tag!();
+    fn signal(
+        &self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        buffers: &mut Buffers,
+        _sample_rate: f32,
+    ) {
+        let out = buffers.buffers(self.tag).get();
+        state[(self.tag, 0)] = out * self.dampening_inverse(controls, outputs)
+            + state[(self.tag, 0)] * self.dampening(controls, outputs);
+        let input = outputs[(self.wave, 0)];
+        buffers
+            .buffers_mut(self.tag)
+            .push(input + state[(self.tag, 0)] * self.feedback(controls, outputs));
+    }
+}
 
-//     pub fn feedback<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-//         self.feedback = arg.into();
-//         self
-//     }
+#[derive(Clone)]
+pub struct CombBuilder {
+    wave: Tag,
+    buffer: RingBuffer,
+    length: usize,
+    feedback: Control,
+    dampening: Control,
+    dampening_inverse: Control,
+}
 
-//     pub fn dampening<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-//         self.dampening = arg.into();
-//         self
-//     }
+impl CombBuilder {
+    pub fn new(wave: Tag, buffer: RingBuffer, length: usize) -> Self {
+        Self {
+            wave,
+            buffer,
+            length,
+            feedback: 0.5.into(),
+            dampening: 0.5.into(),
+            dampening_inverse: 0.5.into(),
+        }
+    }
 
-//     pub fn dampening_inverse<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-//         self.dampening_inverse = arg.into();
-//         self
-//     }
-// }
+    build!(feedback);
+    build!(dampening);
+    build!(dampening_inverse);
 
-// impl Builder for Comb {}
-
-// impl Signal for Comb {
-//     std_signal!();
-//     fn signal(&mut self, rack: &Rack, _sample_rate: Real) -> Real {
-//         let feedback = In::val(rack, self.feedback);
-//         let dampening = In::val(rack, self.dampening);
-//         let dampening_inverse = In::val(rack, self.dampening_inverse);
-//         let input = rack.output(self.wave);
-//         self.out = self.buffer[self.index];
-//         self.filter_state = self.out * dampening_inverse + self.filter_state * dampening;
-//         self.buffer[self.index] = input + (self.filter_state * feedback);
-//         self.index += 1;
-//         if self.index == self.buffer.len() {
-//             self.index = 0
-//         }
-//         self.out
-//     }
-// }
+    pub fn rack(
+        &mut self,
+        rack: &mut Rack,
+        controls: &mut Controls,
+        buffers: &mut Buffers,
+    ) -> Arc<Comb> {
+        let n = rack.num_modules();
+        controls[(n, 0)] = self.feedback;
+        controls[(n, 1)] = self.dampening;
+        controls[(n, 2)] = self.dampening_inverse;
+        self.buffer.resize(self.length);
+        self.buffer.set_read_pos(0.0);
+        self.buffer.set_write_pos(1);
+        let comb = Arc::new(Comb::new(n, self.wave));
+        buffers.set_buffer(comb.tag, self.buffer.clone());
+        rack.push(comb.clone());
+        comb
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct AllPass {
@@ -462,15 +481,6 @@ impl AllPass {
 impl Signal for AllPass {
     tag!();
     fn signal(
-        &self,
-        _controls: &Controls,
-        _state: &mut State,
-        _outputs: &mut Outputs,
-        _sample_rate: f32,
-    ) {
-    }
-
-    fn signal_buf(
         &self,
         _controls: &Controls,
         _state: &mut State,
@@ -507,6 +517,7 @@ impl AllPassBuilder {
         self.buffer.set_read_pos(0.0);
         self.buffer.set_write_pos(1);
         buffers.set_buffer(allpass.tag, self.buffer.clone());
+        rack.push(allpass.clone());
         allpass
     }
 }

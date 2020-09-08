@@ -26,6 +26,7 @@ impl Signal for SineFold {
         controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         let fold_param = self.fold_param(controls, outputs);
@@ -73,6 +74,7 @@ impl Signal for Tanh {
         _controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
+        _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
         outputs[(self.tag, 0)] = (outputs[(self.wave, 0)] * 2.0 * PI).tanh();

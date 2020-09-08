@@ -332,18 +332,9 @@ pub trait Signal {
         controls: &Controls,
         state: &mut State,
         outputs: &mut Outputs,
+        buffers: &mut Buffers,
         sample_rate: f32,
-    );
-    fn signal_buf(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        sample_rate: f32,
-    ) {
-        Self::signal(&self, controls, state, outputs, sample_rate);
-    }
+    ); 
 }
 
 /// A macro to reduce the boiler plate of creating a Synth Module by implementing
@@ -386,7 +377,7 @@ impl Rack {
     ) -> [f32; MAX_OUTPUTS] {
         let n = self.0.len() - 1;
         for module in self.0.iter() {
-            module.signal_buf(
+            module.signal(
                 controls,
                 state,
                 outputs,
