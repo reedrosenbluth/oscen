@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = [
     "Reed Rosenbluth <reed.rosenbluth@gmail.com>", 
     "Jeffrey Rosenbluth <jeffrey.rosenbluth@gmail.com>",
-    "Satya Bodduluri  <skbodduluri@gmail.com >",
 ]
 edition = "2018"
 autobins = false
