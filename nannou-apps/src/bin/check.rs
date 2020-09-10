@@ -103,12 +103,12 @@ fn model(app: &App) -> Model {
     names.push("Pink Noise");
 
     // Mixer
-    let mix = MixerBuilder::new(vec![sine.tag(), square.tag()]).rack(&mut rack);
+    let mix = MixerBuilder::new(vec![sine.tag(), square.tag()]).rack(&mut rack, &mut controls);
     oscs.push(mix.tag());
     names.push("Mixer Sine & Square");
 
     // Product
-    let prod = ProductBuilder::new(vec![sine.tag(), pn.tag()]).rack(&mut rack);
+    let prod = ProductBuilder::new(vec![sine.tag(), pn.tag()]).rack(&mut rack, &mut controls);
     oscs.push(prod.tag());
     names.push("Product Sine & Square");
 
@@ -165,7 +165,7 @@ fn model(app: &App) -> Model {
     names.push("Low Pass Filter");
 
     // Delay
-    let ring_buffer = RingBuffer::new32(50.0/44_100.0, 44_100.0);
+    let ring_buffer = RingBuffer::new32(50.0 / 44_100.0, 44_100.0);
     let delay = DelayBuilder::new(sine.tag(), ring_buffer).rack(&mut rack, &mut buffers);
     let d = CrossFadeBuilder::new(sine.tag(), delay.tag()).rack(&mut rack, &mut controls);
     oscs.push(d.tag());

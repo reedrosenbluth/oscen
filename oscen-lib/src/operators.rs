@@ -5,7 +5,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct Mixer {
     tag: Tag,
-    waves: Vec<Tag>,
+    num_waves: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -17,17 +17,22 @@ impl MixerBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Mixer> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Mixer> {
         let n = rack.num_modules();
-        let mix = Arc::new(Mixer::new(n.into(), self.waves.clone()));
+        let cs = controls.controls_mut(n);
+        for (i, w) in self.waves.iter().enumerate() {
+            cs[i] = Control::I((*w).into());
+        }
+        let nw = self.waves.len() as u8;
+        let mix = Arc::new(Mixer::new(n.into(), nw));
         rack.push(mix.clone());
         mix
     }
 }
 
 impl Mixer {
-    fn new(tag: Tag, waves: Vec<Tag>) -> Self {
-        Self { tag, waves }
+    fn new(tag: Tag, num_waves: u8) -> Self {
+        Self { tag, num_waves }
     }
 }
 
@@ -35,21 +40,24 @@ impl Signal for Mixer {
     tag!();
     fn signal(
         &self,
-        _controls: &Controls,
+        controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
         _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
-        let out = self.waves.iter().fold(0.0, |acc, n| acc + outputs[(*n, 0)]);
-        outputs[(self.tag, 0)] = out;
+        let cs = &controls.controls(self.tag())[0..self.num_waves as usize];
+        outputs[(self.tag, 0)] = cs
+            .iter()
+            .map(|x| x.idx())
+            .fold(0.0, |acc, n| acc + outputs[(n, 0)]);
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Union {
     tag: Tag,
-    waves: Vec<Tag>,
+    num_waves: u8,
 }
 
 #[derive(Clone)]
@@ -69,15 +77,20 @@ impl UnionBuilder {
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Union> {
         let n = rack.num_modules();
         controls[(n, 0)] = self.active;
-        let u = Arc::new(Union::new(n.into(), self.waves.clone()));
+        let cs = controls.controls_mut(n);
+        for (i, w) in self.waves.iter().enumerate() {
+            cs[i + 1] = Control::I((*w).into());
+        }
+        let nw = self.waves.len() as u8;
+        let u = Arc::new(Union::new(n.into(), nw));
         rack.push(u.clone());
         u
     }
 }
 
 impl Union {
-    pub fn new(tag: Tag, waves: Vec<Tag>) -> Self {
-        Self { tag, waves }
+    pub fn new(tag: Tag, num_waves: u8) -> Self {
+        Self { tag, num_waves }
     }
     pub fn active(&self, controls: &Controls, outputs: &Outputs) -> usize {
         let inp = controls[(self.tag, 0)];
@@ -99,15 +112,16 @@ impl Signal for Union {
         _sample_rate: f32,
     ) {
         let idx = self.active(controls, outputs);
-        let wave = self.waves[idx];
-        outputs[(self.tag, 0)] = outputs[(wave, 0)];
+        let cs = &controls.controls(self.tag())[1..=self.num_waves as usize];
+        let c: Tag = cs[idx].idx().into();
+        outputs[(self.tag, 0)] = outputs[(c, 0)];
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Product {
     tag: Tag,
-    waves: Vec<Tag>,
+    num_waves: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -119,17 +133,22 @@ impl ProductBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Product> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Product> {
         let n = rack.num_modules();
-        let p = Arc::new(Product::new(n.into(), self.waves.clone()));
+        let cs = controls.controls_mut(n);
+        for (i, w) in self.waves.iter().enumerate() {
+            cs[i] = Control::I((*w).into());
+        }
+        let nw = self.waves.len() as u8;
+        let p = Arc::new(Product::new(n.into(), nw));
         rack.push(p.clone());
         p
     }
 }
 
 impl Product {
-    fn new(tag: Tag, waves: Vec<Tag>) -> Self {
-        Self { tag, waves }
+    fn new(tag: Tag, num_waves: u8) -> Self {
+        Self { tag, num_waves }
     }
 }
 
@@ -137,14 +156,17 @@ impl Signal for Product {
     tag!();
     fn signal(
         &self,
-        _controls: &Controls,
+        controls: &Controls,
         _state: &mut State,
         outputs: &mut Outputs,
         _buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
-        let out = self.waves.iter().fold(1.0, |acc, n| acc * outputs[(*n, 0)]);
-        outputs[(self.tag, 0)] = out;
+        let cs = &controls.controls(self.tag())[0..self.num_waves as usize];
+        outputs[(self.tag, 0)] = cs
+            .iter()
+            .map(|x| x.idx())
+            .fold(1.0, |acc, n| acc + outputs[(n, 0)]);
     }
 }
 
@@ -335,13 +357,14 @@ impl ModulatorBuilder {
         let hz = ConstBuilder::new(self.hz).rack(rack, controls);
         let ratio = ConstBuilder::new(self.ratio).rack(rack, controls);
         let index = ConstBuilder::new(self.index).rack(rack, controls);
-        let mod_hz = ProductBuilder::new(vec![hz.tag(), ratio.tag()]).rack(rack);
-        let mod_amp = ProductBuilder::new(vec![hz.tag(), ratio.tag(), index.tag()]).rack(rack);
+        let mod_hz = ProductBuilder::new(vec![hz.tag(), ratio.tag()]).rack(rack, controls);
+        let mod_amp =
+            ProductBuilder::new(vec![hz.tag(), ratio.tag(), index.tag()]).rack(rack, controls);
         let modulator = OscBuilder::new(self.signal_fn)
             .amplitude(mod_amp.tag())
             .hz(mod_hz.tag())
             .rack(rack, controls, state);
-        let carrier_hz = MixerBuilder::new(vec![modulator.tag(), hz.tag()]).rack(rack);
+        let carrier_hz = MixerBuilder::new(vec![modulator.tag(), hz.tag()]).rack(rack, controls);
         Arc::new(Modulator::new(
             carrier_hz.tag(),
             hz.tag(),
@@ -388,10 +411,7 @@ pub struct DelayBuilder {
 
 impl DelayBuilder {
     pub fn new(wave: Tag, buffer: RingBuffer) -> Self {
-        Self {
-            wave,
-            buffer,
-        }
+        Self { wave, buffer }
     }
     pub fn rack(&mut self, rack: &mut Rack, buffers: &mut Buffers) -> Arc<Delay> {
         let n = rack.num_modules();

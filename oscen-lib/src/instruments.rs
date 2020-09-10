@@ -172,11 +172,12 @@ impl WaveGuideBuilder {
             .sustain(0)
             .release(0.001)
             .rack(rack, controls);
-        let exciter = ProductBuilder::new(vec![self.burst, adsr.tag()]).rack(rack);
-        let mut mixer = MixerBuilder::new(vec![]).rack(rack);
+        let exciter = ProductBuilder::new(vec![self.burst, adsr.tag()]).rack(rack, controls);
+        let mixer = MixerBuilder::new(vec![0.into(), 0.into()]).rack(rack, controls);
         let delay = DelayBuilder::new(mixer.tag(), self.buffer.clone()).rack(rack, buffers);
         let lpf = LpfBuilder::new(delay.tag()).cut_off(self.cutoff).rack(rack, controls);
-        // mixer.set_waves(vec![exciter.tag(), lpf.tag()]);
+        controls[(mixer.tag(), 0)] = Control::I(exciter.tag().into());
+        controls[(mixer.tag(), 1)] = Control::I(lpf.tag().into());
     }
 }
 

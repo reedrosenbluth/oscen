@@ -55,6 +55,16 @@ pub enum Control {
     I(usize),
 }
 
+impl Control {
+    pub fn idx(&self) -> usize {
+        match self {
+            Control::I(u) => *u,
+            c => panic!("Expecting I variant, not {:?}", c),
+        }
+    }
+    
+}
+
 impl From<f32> for Control {
     fn from(x: f32) -> Self {
         Control::V(In::Fix(x))

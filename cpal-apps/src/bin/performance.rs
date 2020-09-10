@@ -40,7 +40,7 @@ where
         );
         oscs.push(osc.tag());
     }
-    MixerBuilder::new(oscs).rack(&mut rack);
+    MixerBuilder::new(oscs).rack(&mut rack, &mut controls);
 
     let mut next_value = move || {
         rack.mono(
