@@ -126,7 +126,7 @@ fn model(app: &App) -> Model {
 
     // CrossFade
     let cf = CrossFadeBuilder::new(sine.tag(), square.tag()).rack(&mut rack, &mut controls);
-    cf.set_alpha(&mut controls, Control::V(In::Cv(lfo.tag(), 0)));
+    cf.set_alpha(&mut controls, Control::V(lfo.tag(), 0));
     oscs.push(cf.tag());
     names.push("CrossFade Sine & Square, alpha is sine lfo");
 
@@ -165,11 +165,11 @@ fn model(app: &App) -> Model {
     names.push("Low Pass Filter");
 
     // Delay
-    let ring_buffer = RingBuffer::new32(50.0 / 44_100.0, 44_100.0);
-    let delay = DelayBuilder::new(sine.tag(), ring_buffer).rack(&mut rack, &mut buffers);
-    let d = CrossFadeBuilder::new(sine.tag(), delay.tag()).rack(&mut rack, &mut controls);
-    oscs.push(d.tag());
-    names.push("Delay Line");
+    // let ring_buffer = RingBuffer::new32(50.0 / 44_100.0, 44_100.0);
+    // let delay = DelayBuilder::new(sine.tag(), ring_buffer).rack(&mut rack, &mut buffers);
+    // let d = CrossFadeBuilder::new(sine.tag(), delay.tag()).rack(&mut rack, &mut controls);
+    // oscs.push(d.tag());
+    // names.push("Delay Line");
 
     let union = UnionBuilder::new(oscs).rack(&mut rack, &mut controls);
     let _out = VcaBuilder::new(union.tag())

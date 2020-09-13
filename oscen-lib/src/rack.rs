@@ -1,7 +1,6 @@
+use arr_macro::arr;
 use std::ops::{Index, IndexMut};
 use std::sync::Arc;
-use arr_macro::arr;
-
 
 pub type SignalFn = fn(f32, f32) -> f32;
 
@@ -36,21 +35,10 @@ impl From<usize> for Tag {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum In {
-    Cv(Tag, usize),
-    Fix(f32),
-}
-
-impl Default for In {
-    fn default() -> Self {
-        Self::Fix(0.0)
-    }
-}
-
 #[derive(Debug, Copy, Clone)]
 pub enum Control {
-    V(In),
+    V(Tag, usize),
+    F(f32),
     B(bool),
     I(usize),
 }
@@ -62,18 +50,17 @@ impl Control {
             c => panic!("Expecting I variant, not {:?}", c),
         }
     }
-    
 }
 
 impl From<f32> for Control {
     fn from(x: f32) -> Self {
-        Control::V(In::Fix(x))
+        Control::F(x)
     }
 }
 
 impl From<usize> for Control {
     fn from(u: usize) -> Self {
-        Control::V(In::Fix(u as f32))
+        Control::F(u as f32)
     }
 }
 
@@ -85,7 +72,7 @@ impl From<bool> for Control {
 
 impl From<Tag> for Control {
     fn from(t: Tag) -> Self {
-        Control::V(In::Cv(t, 0))
+        Control::V(t, 0)
     }
 }
 
@@ -138,8 +125,8 @@ impl Outputs {
     }
     pub fn value(&self, ctrl: Control) -> Option<f32> {
         match ctrl {
-            Control::V(In::Fix(p)) => Some(p),
-            Control::V(In::Cv(n, i)) => Some(self.0[n.get()][i]),
+            Control::F(p) => Some(p),
+            Control::V(n, i) => Some(self.0[n.get()][i]),
             _ => None,
         }
     }
@@ -246,6 +233,9 @@ where
     pub fn set_write_pos(&mut self, wp: usize) {
         self.write_pos = wp % self.buffer.len();
     }
+    pub fn delay(&mut self, delay: f32, sample_rate: f32) {
+        self.write_pos = (self.read_pos + (delay * sample_rate).ceil()) as usize;
+    }
 }
 
 impl<T> RingBuffer<T>
@@ -275,7 +265,7 @@ impl RingBuffer {
     pub fn new32(delay: f32, sample_rate: f32) -> Self {
         let read_pos = 0.0;
         let write_pos = (delay * sample_rate).ceil() as usize;
-        let buffer = vec![0.0; write_pos + 3];
+        let buffer = vec![0.0; sample_rate as usize];
         Self::new(read_pos, write_pos, buffer)
     }
 
@@ -315,7 +305,7 @@ pub struct Buffers([RingBuffer; MAX_MODULES]);
 
 impl Buffers {
     pub fn new() -> Self {
-        Buffers(arr![Default::default(); 1024])  
+        Buffers(arr![Default::default(); 1024])
     }
     pub fn buffers<T: Into<usize>>(&self, tag: T) -> &RingBuffer {
         &self.0[tag.into()]
@@ -344,7 +334,7 @@ pub trait Signal {
         outputs: &mut Outputs,
         buffers: &mut Buffers,
         sample_rate: f32,
-    ); 
+    );
 }
 
 /// A macro to reduce the boiler plate of creating a Synth Module by implementing
@@ -387,13 +377,7 @@ impl Rack {
     ) -> [f32; MAX_OUTPUTS] {
         let n = self.0.len() - 1;
         for module in self.0.iter() {
-            module.signal(
-                controls,
-                state,
-                outputs,
-                buffers,
-                sample_rate,
-            );
+            module.signal(controls, state, outputs, buffers, sample_rate);
         }
         outputs.0[n]
     }
