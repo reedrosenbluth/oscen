@@ -166,7 +166,7 @@ impl Signal for Product {
         outputs[(self.tag, 0)] = cs
             .iter()
             .map(|x| x.idx())
-            .fold(1.0, |acc, n| acc + outputs[(n, 0)]);
+            .fold(1.0, |acc, n| acc * outputs[(n, 0)]);
     }
 }
 
@@ -424,4 +424,24 @@ impl DelayBuilder {
         rack.push(delay.clone());
         delay
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::oscillators::*;
+    #[test]
+    fn prod() {
+        let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
+
+        let c2 = ConstBuilder::new(2.0.into()).rack(&mut rack, &mut controls);
+        let c3 = ConstBuilder::new(3.0.into()).rack(&mut rack, &mut controls);
+        ProductBuilder::new(vec![c2.tag(), c3.tag(), c2.tag()]).rack(&mut rack, &mut controls);
+        let r = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
+        assert_eq!(r, 12.0);
+        let r = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
+        assert_eq!(r, 12.0);
+    }
+
+    // #[test]
 }

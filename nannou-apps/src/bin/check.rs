@@ -146,8 +146,8 @@ fn model(app: &App) -> Model {
     // FM
     let modulator = ModulatorBuilder::new(sine_osc)
         .hz(220.0)
-        .ratio(4.0)
-        .index(2.0)
+        .ratio(2.0)
+        .index(4.0)
         .rack(&mut rack, &mut controls, &mut state);
     let fm = OscBuilder::new(triangle_osc).hz(modulator.tag()).rack(
         &mut rack,

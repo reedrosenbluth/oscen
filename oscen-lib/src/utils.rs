@@ -26,6 +26,7 @@ pub fn interp_inv(low: f32, mid: f32, high: f32, y: f32) -> f32 {
     }
 }
 
+
 pub fn signals(rack: &mut Rack, start: u32, end: u32, sample_rate: f32) -> Vec<(f32, f32)> {
     let (_, controls, mut state, mut outputs, mut buffers) = tables();
     let mut result = vec![];
