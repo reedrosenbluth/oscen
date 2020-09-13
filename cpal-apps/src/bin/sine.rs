@@ -29,7 +29,7 @@ where
     let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
 
     OscBuilder::new(sine_osc)
-        .hz(330)
+        .hz(330.0)
         .rack(&mut rack, &mut controls, &mut state);
 
     // let c = Box::new(controls);

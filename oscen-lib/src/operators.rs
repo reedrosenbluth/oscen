@@ -207,7 +207,7 @@ impl VcaBuilder {
     pub fn new(wave: Tag) -> Self {
         Self {
             wave,
-            level: 1.into(),
+            level: 1.0.into(),
         }
     }
     build!(level);
@@ -339,9 +339,9 @@ pub struct ModulatorBuilder {
 impl ModulatorBuilder {
     pub fn new(signal_fn: SignalFn) -> Self {
         Self {
-            hz: 0.into(),
-            ratio: 1.into(),
-            index: 0.into(),
+            hz: 0.0.into(),
+            ratio: 1.0.into(),
+            index: 0.0.into(),
             signal_fn,
         }
     }

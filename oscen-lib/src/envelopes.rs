@@ -94,8 +94,8 @@ pub struct AdsrBuilder {
 impl AdsrBuilder {
     pub fn new() -> Self {
         let attack = 0.01.into();
-        let decay = 0.into();
-        let sustain = 1.into();
+        let decay = 0.0.into();
+        let sustain = 1.0.into();
         let release = 0.1.into();
         let triggered = false.into();
         Self {

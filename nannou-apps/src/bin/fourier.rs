@@ -26,7 +26,7 @@ fn model(app: &App) -> Model {
     let (mut rack, mut controls, state, outputs, buffers) = tables();
 
     let mut builder = triangle_wave(32);
-    builder.hz(220).lanczos(false);
+    builder.hz(220.0).lanczos(false);
     builder.rack(&mut rack, &mut controls);
 
     let synth = Synth {

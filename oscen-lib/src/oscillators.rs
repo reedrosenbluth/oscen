@@ -29,8 +29,8 @@ impl OscBuilder {
         Self {
             signal_fn,
             phase: 0.0,
-            hz: 0.into(),
-            amplitude: 1.into(),
+            hz: 0.0.into(),
+            amplitude: 1.0.into(),
             arg: 0.5.into(),
         }
     }
@@ -200,7 +200,7 @@ pub struct WhiteNoiseBuilder {
 impl WhiteNoiseBuilder {
     pub fn new() -> Self {
         Self {
-            amplitude: 1.into(),
+            amplitude: 1.0.into(),
             dist: NoiseDistribution::StdNormal,
         }
     }
@@ -354,8 +354,8 @@ impl FourierOsc {
 impl FourierOscBuilder {
     pub fn new(coefficients: Vec<f32>) -> Self {
         Self {
-            hz: 0.into(),
-            amplitude: 1.into(),
+            hz: 0.0.into(),
+            amplitude: 1.0.into(),
             coefficients,
             lanczos: true,
         }

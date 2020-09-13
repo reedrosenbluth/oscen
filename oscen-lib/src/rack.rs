@@ -60,7 +60,7 @@ impl From<f32> for Control {
 
 impl From<usize> for Control {
     fn from(u: usize) -> Self {
-        Control::F(u as f32)
+        Control::I(u)
     }
 }
 
@@ -81,7 +81,7 @@ pub struct Controls([[Control; MAX_CONTROLS]; MAX_MODULES]);
 
 impl Controls {
     pub fn new() -> Self {
-        Controls([[0.into(); MAX_CONTROLS]; MAX_MODULES])
+        Controls([[0.0.into(); MAX_CONTROLS]; MAX_MODULES])
     }
     pub fn controls<T: Into<usize>>(&self, tag: T) -> &[Control] {
         self.0[tag.into()].as_ref()

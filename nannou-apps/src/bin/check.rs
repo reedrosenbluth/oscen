@@ -44,7 +44,7 @@ fn model(app: &App) -> Model {
 
     let (mut rack, mut controls, mut state, outputs, mut buffers) = tables();
     let mut oscs = vec![];
-    let freq = 220;
+    let freq = 220.0;
 
     // Sine
     let sine = OscBuilder::new(sine_osc)
@@ -114,7 +114,7 @@ fn model(app: &App) -> Model {
 
     // LFO
     let lfo = OscBuilder::new(sine_osc)
-        .hz(2)
+        .hz(2.0)
         .rack(&mut rack, &mut controls, &mut state);
 
     // Vca
@@ -145,9 +145,9 @@ fn model(app: &App) -> Model {
 
     // FM
     let modulator = ModulatorBuilder::new(sine_osc)
-        .hz(220)
-        .ratio(4)
-        .index(2)
+        .hz(220.0)
+        .ratio(4.0)
+        .index(2.0)
         .rack(&mut rack, &mut controls, &mut state);
     let fm = OscBuilder::new(triangle_osc).hz(modulator.tag()).rack(
         &mut rack,
@@ -159,7 +159,7 @@ fn model(app: &App) -> Model {
 
     // LPF
     let lpf = LpfBuilder::new(square.tag())
-        .cut_off(440)
+        .cut_off(440.0)
         .rack(&mut rack, &mut controls);
     oscs.push(lpf.tag());
     names.push("Low Pass Filter");

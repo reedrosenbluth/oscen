@@ -8,9 +8,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut controls = Controls::new();
     let mut state = State::new();
     let adsr = envelopes::AdsrBuilder::new()
-        .attack(1)
-        .decay(1)
-        .release(1)
+        .attack(1.0)
+        .decay(1.0)
+        .release(1.0)
         .sustain(0.8)
         .ax(0.2)
         .dx(0.2)

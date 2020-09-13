@@ -76,7 +76,7 @@ impl LpfBuilder {
     pub fn new(wave: Tag) -> Self {
         Self {
             wave,
-            cut_off: 25_000.into(),
+            cut_off: 25_000.0.into(),
             q: 0.707.into(),
             off: false.into(),
         }
@@ -170,7 +170,7 @@ impl HpfBuilder {
     pub fn new(wave: Tag) -> Self {
         Self {
             wave,
-            cut_off: 25_000.into(),
+            cut_off: 25_000.0.into(),
             q: 0.707.into(),
             off: false.into(),
         }
@@ -264,7 +264,7 @@ impl BpfBuilder {
     pub fn new(wave: Tag) -> Self {
         Self {
             wave,
-            cut_off: 25_000.into(),
+            cut_off: 25_000.0.into(),
             q: 0.707.into(),
             off: false.into(),
         }
@@ -357,7 +357,7 @@ impl NotchBuilder {
     pub fn new(wave: Tag) -> Self {
         Self {
             wave,
-            cut_off: 25_000.into(),
+            cut_off: 25_000.0.into(),
             q: 0.707.into(),
             off: false.into(),
         }

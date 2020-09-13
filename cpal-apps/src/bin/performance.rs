@@ -33,7 +33,7 @@ where
     let amp = 1.0 / num_oscillators as f32;
     let mut oscs = vec![];
     for _ in 0..num_oscillators {
-        let osc = OscBuilder::new(sine_osc).amplitude(amp).hz(220).rack(
+        let osc = OscBuilder::new(sine_osc).amplitude(amp).hz(220f32).rack(
             &mut rack,
             &mut controls,
             &mut state,

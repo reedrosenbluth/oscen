@@ -51,9 +51,9 @@ pub struct MidiPitchBuilder {
 impl MidiPitchBuilder {
     pub fn new() -> Self {
         Self {
-            step: 0.into(),
-            offset: 0.into(),
-            factor: 1.into(),
+            step: 0.0.into(),
+            offset: 0.0.into(),
+            factor: 1.0.into(),
         }
     }
 
@@ -124,7 +124,7 @@ impl MidiControl {
     }
 
     pub fn set_value(&self, controls: &mut Controls, value: usize) {
-        controls[(self.tag, 0)] = value.into();
+        controls[(self.tag, 0)] = (value as f32).into();
     }
 
     pub fn map_range(&self, input: f32) -> f32 {
@@ -165,7 +165,7 @@ impl MidiControlBuilder {
             low: 0.5.into(),
             mid: 0.5.into(),
             high: 0.5.into(),
-            value: 0.into(),
+            value: 0.0.into(),
         }
     }
 

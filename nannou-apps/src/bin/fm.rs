@@ -33,9 +33,9 @@ fn model(app: &App) -> Model {
     let (mut rack, mut controls, mut state, outputs, buffers) = tables();
 
     let modulator = ModulatorBuilder::new(sine_osc)
-        .hz(220)
+        .hz(220.0)
         .ratio(0.1)
-        .index(2)
+        .index(2.0)
         .rack(&mut rack, &mut controls, &mut state);
 
     // Create a square wave oscillator and add it the the rack.

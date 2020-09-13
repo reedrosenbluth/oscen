@@ -157,8 +157,8 @@ impl WaveGuideBuilder {
     pub fn new(burst: Tag, buffer: RingBuffer) -> Self {
         Self {
             burst,
-            hz: 440.into(),
-            cutoff: 2000.into(),
+            hz: 440.0.into(),
+            cutoff: 2000.0.into(),
             decay: 0.95.into(),
             delay: 0.02.into(),
         }
@@ -170,8 +170,8 @@ impl WaveGuideBuilder {
     pub fn rack(&self, rack: &mut Rack, controls: &mut Controls, buffers: &mut Buffers) {
         let adsr = AdsrBuilder::exp_20()
             .attack(0.001)
-            .decay(0)
-            .sustain(0)
+            .decay(0.0)
+            .sustain(0.0)
             .release(0.001)
             .rack(rack, controls);
         let exciter = ProductBuilder::new(vec![self.burst, adsr.tag()]).rack(rack, controls);
