@@ -428,18 +428,18 @@ macro_rules! props {
     }
 }
 
-#[test]
-fn ring_buffer() {
-    let mut rb = RingBuffer::new32(0.5, 10.0);
-    let result = rb.get();
-    assert_eq!(result, 0.0, "get returned {}, expected 0.0", result);
-    for i in 0..=6 {
-        rb.push(i as f32);
-    }
-    let result = rb.get();
-    assert_eq!(result, 1.0, "get returned {}, expected 0.0", result);
-    let result = rb.get_linear();
-    assert_eq!(result, 1.5, "get_linear returned {}, expected 0.0", result);
-    let result = rb.get_cubic();
-    assert_eq!(result, 1.5, "get_cubic returned {}, expected 0.0", result);
-}
+// #[test]
+// fn ring_buffer() {
+//     let mut rb = RingBuffer::new32(0.5, 10.0);
+//     let result = rb.get();
+//     assert_eq!(result, 0.0, "get returned {}, expected 0.0", result);
+//     for i in 0..=6 {
+//         rb.push(i as f32);
+//     }
+//     let result = rb.get();
+//     assert_eq!(result, 1.0, "get returned {}, expected 0.0", result);
+//     let result = rb.get_linear();
+//     assert_eq!(result, 1.5, "get_linear returned {}, expected 0.0", result);
+//     let result = rb.get_cubic();
+//     assert_eq!(result, 1.5, "get_cubic returned {}, expected 0.0", result);
+// }

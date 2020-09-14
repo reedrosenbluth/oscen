@@ -42,7 +42,7 @@ fn model(app: &App) -> Model {
         .unwrap();
     let audio_host = audio::Host::new();
 
-    let (mut rack, mut controls, mut state, outputs, mut buffers) = tables();
+    let (mut rack, mut controls, mut state, outputs, buffers) = tables();
     let mut oscs = vec![];
     let freq = 220.0;
 

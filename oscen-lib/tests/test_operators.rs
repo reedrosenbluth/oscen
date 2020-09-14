@@ -59,3 +59,15 @@ fn cross() {
     let r = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
     assert_eq!(r, 2.25);
 }
+
+#[test]
+fn modulator() {
+    let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
+    ModulatorBuilder::new(|_, _| 2.0)
+        .hz(220.0)
+        .ratio(2.0)
+        .index(4.0)
+        .rack(&mut rack, &mut controls, &mut state);
+    let r = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
+    assert_eq!(r, 3740.0);
+}
