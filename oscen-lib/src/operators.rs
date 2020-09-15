@@ -417,10 +417,19 @@ impl DelayBuilder {
     pub fn new(wave: Tag, delay: Control) -> Self {
         Self { wave, delay }
     }
-    pub fn rack(&mut self, rack: &mut Rack, buffers: &mut Buffers) -> Arc<Delay> {
+
+    build!(delay);
+
+    pub fn rack(
+        &mut self,
+        rack: &mut Rack,
+        controls: &mut Controls,
+        buffers: &mut Buffers,
+    ) -> Arc<Delay> {
         let n = rack.num_modules();
+        controls[(n, 0)] = self.delay;
         let delay = Arc::new(Delay::new(n, self.wave));
-        // buffers.set_buffer(delay.tag(), RingBuffer::new32(self.delay(), 44100.0));
+        buffers.set_buffer(delay.tag(), RingBuffer::new32(0.0, 44100.0));
         rack.push(delay.clone());
         delay
     }

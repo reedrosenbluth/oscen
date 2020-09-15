@@ -233,8 +233,11 @@ where
     pub fn set_write_pos(&mut self, wp: usize) {
         self.write_pos = wp % self.buffer.len();
     }
+
     pub fn delay(&mut self, delay: f32, sample_rate: f32) {
-        self.write_pos = (self.read_pos + (delay * sample_rate).ceil()) as usize;
+        let p = self.read_pos.trunc() as usize;
+        self.write_pos = p + (delay * sample_rate).ceil() as usize;
+        self.read_pos = self.write_pos as f32 - delay * sample_rate;
     }
 }
 
@@ -263,8 +266,8 @@ where
 
 impl RingBuffer {
     pub fn new32(delay: f32, sample_rate: f32) -> Self {
-        let read_pos = 0.0;
         let write_pos = (delay * sample_rate).ceil() as usize;
+        let read_pos = write_pos as f32 - delay * sample_rate;
         let buffer = vec![0.0; sample_rate as usize];
         Self::new(read_pos, write_pos, buffer)
     }
@@ -428,18 +431,22 @@ macro_rules! props {
     }
 }
 
-// #[test]
-// fn ring_buffer() {
-//     let mut rb = RingBuffer::new32(0.5, 10.0);
-//     let result = rb.get();
-//     assert_eq!(result, 0.0, "get returned {}, expected 0.0", result);
-//     for i in 0..=6 {
-//         rb.push(i as f32);
-//     }
-//     let result = rb.get();
-//     assert_eq!(result, 1.0, "get returned {}, expected 0.0", result);
-//     let result = rb.get_linear();
-//     assert_eq!(result, 1.5, "get_linear returned {}, expected 0.0", result);
-//     let result = rb.get_cubic();
-//     assert_eq!(result, 1.5, "get_cubic returned {}, expected 0.0", result);
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn ring_buffer() {
+        let mut rb = RingBuffer::new32(0.225, 10.0);
+        let result = rb.get();
+        assert_eq!(result, 0.0, "get returned {}, expected 0.0", result);
+        for i in 0..=6 {
+            rb.push(i as f32);
+        }
+        let result = rb.get();
+        assert_eq!(result, 3.0, "get returned {}, expected 3.0", result);
+        let result = rb.get_linear();
+        assert_eq!(result, 3.75, "get_linear returned {}, expected 3.5", result);
+        let result = rb.get_cubic();
+        assert_eq!(result, 3.75, "get_cubic returned {}, expected 3.75", result);
+    }
+}
