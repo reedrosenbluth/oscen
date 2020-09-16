@@ -194,7 +194,6 @@ where
 #[derive(Clone)]
 pub struct RingBuffer<T = f32> {
     buffer: Vec<T>,
-    pub read_pos: f32,
     pub write_pos: usize,
 }
 
@@ -202,15 +201,8 @@ impl<T> RingBuffer<T>
 where
     T: Clone + Default,
 {
-    pub fn new(read_pos: f32, write_pos: usize, buffer: Vec<T>) -> Self {
-        assert!(
-            read_pos.trunc() as usize <= write_pos,
-            "Read position must be <= write postion"
-        );
-        RingBuffer {
-            // +3 is to give room for cubic interpolation
+    pub fn new(write_pos: usize, buffer: Vec<T>) -> Self {
             buffer,
-            read_pos,
             write_pos,
         }
     }
@@ -218,7 +210,6 @@ where
     pub fn push(&mut self, v: T) {
         let n = self.buffer.len();
         self.write_pos = (self.write_pos + 1) % n;
-        self.read_pos = (self.read_pos + 1.0) % n as f32;
         self.buffer[self.write_pos] = v;
     }
 
@@ -226,18 +217,8 @@ where
         self.buffer.len()
     }
 
-    pub fn set_read_pos(&mut self, rp: f32) {
-        self.read_pos = rp % self.buffer.len() as f32;
-    }
-
     pub fn set_write_pos(&mut self, wp: usize) {
         self.write_pos = wp % self.buffer.len();
-    }
-
-    pub fn delay(&mut self, delay: f32, sample_rate: f32) {
-        let p = self.read_pos.trunc() as usize;
-        self.write_pos = p + (delay * sample_rate).ceil() as usize;
-        self.read_pos = self.write_pos as f32 - delay * sample_rate;
     }
 }
 
