@@ -400,11 +400,9 @@ impl Signal for Delay {
         sample_rate: f32,
     ) {
         let val = outputs[(self.wave, 0)];
-        buffers
-            .buffers_mut(self.tag)
-            .delay(self.delay(controls, outputs), sample_rate);
+        let d = self.delay(controls, outputs) * sample_rate;
         buffers.buffers_mut(self.tag).push(val);
-        outputs[(self.tag, 0)] = buffers.buffers(self.tag).get_cubic();
+        outputs[(self.tag, 0)] = buffers.buffers(self.tag).get_cubic(d);
     }
 }
 
@@ -429,7 +427,7 @@ impl DelayBuilder {
         let n = rack.num_modules();
         controls[(n, 0)] = self.delay;
         let delay = Arc::new(Delay::new(n, self.wave));
-        buffers.set_buffer(delay.tag(), RingBuffer::new32(0.0, 44100.0));
+        buffers.set_buffer(delay.tag(), RingBuffer::new32(44100.0));
         rack.push(delay.clone());
         delay
     }

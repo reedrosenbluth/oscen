@@ -194,7 +194,7 @@ where
 #[derive(Clone)]
 pub struct RingBuffer<T = f32> {
     buffer: Vec<T>,
-    pub write_pos: usize,
+    write_pos: usize,
 }
 
 impl<T> RingBuffer<T>
@@ -202,6 +202,7 @@ where
     T: Clone + Default,
 {
     pub fn new(write_pos: usize, buffer: Vec<T>) -> Self {
+        Self {
             buffer,
             write_pos,
         }
@@ -220,23 +221,29 @@ where
     pub fn set_write_pos(&mut self, wp: usize) {
         self.write_pos = wp % self.buffer.len();
     }
+
+    pub fn read_pos(&self, delay: f32) -> f32 {
+        self.write_pos as f32 - delay
+    }
 }
 
 impl<T> RingBuffer<T>
 where
     T: Copy + Default,
 {
-    pub fn get(&self) -> T {
-        self.buffer[self.read_pos.trunc() as usize]
+    pub fn get(&self, delay: f32) -> T {
+        let rp = self.read_pos(delay).trunc() as usize;
+        self.buffer[rp]
     }
 
-    pub fn get_offset(&self, offset: i32) -> T {
+    pub fn get_offset(&self, delay: f32, offset: i32) -> T {
         let n = self.buffer.len() as i32;
+        let rp = self.read_pos(delay).trunc() as usize;
         let mut offset = offset;
         while offset < 0 {
             offset += n;
         }
-        let i = (self.read_pos.trunc() as usize + offset as usize) % n as usize;
+        let i = (rp + offset as usize) % n as usize;
         self.buffer[i]
     }
 
@@ -246,25 +253,24 @@ where
 }
 
 impl RingBuffer {
-    pub fn new32(delay: f32, sample_rate: f32) -> Self {
-        let write_pos = (delay * sample_rate).ceil() as usize;
-        let read_pos = write_pos as f32 - delay * sample_rate;
+    pub fn new32(sample_rate: f32) -> Self {
         let buffer = vec![0.0; sample_rate as usize];
-        Self::new(read_pos, write_pos, buffer)
+        Self::new(0, buffer)
     }
 
-    pub fn get_linear(&self) -> f32 {
-        let f = self.read_pos - self.read_pos.trunc();
-        (1.0 - f) * self.get() + f * self.get_offset(1)
+    pub fn get_linear(&self, delay: f32) -> f32 {
+        let rp = self.read_pos(delay);
+        let f = rp - rp.trunc();
+        (1.0 - f) * self.get(delay) + f * self.get_offset(delay, 1)
     }
 
     /// Hermite cubic polynomial interpolation.
-    pub fn get_cubic(&self) -> f32 {
-        let v0 = self.get_offset(-1);
-        let v1 = self.get();
-        let v2 = self.get_offset(1);
-        let v3 = self.get_offset(2);
-        let f = self.read_pos - self.read_pos.trunc();
+    pub fn get_cubic(&self, delay: f32) -> f32 {
+        let v0 = self.get_offset(delay, -1);
+        let v1 = self.get(delay);
+        let v2 = self.get_offset(delay, 1);
+        let v3 = self.get_offset(delay, 2);
+        let f = self.read_pos(delay) - self.read_pos(delay).trunc();
         let a1 = 0.5 * (v2 - v0);
         let a2 = v0 - 2.5 * v1 + 2.0 * v2 - 0.5 * v3;
         let a3 = 0.5 * (v3 - v0) + 1.5 * (v1 - v2);
@@ -279,7 +285,6 @@ where
     fn default() -> Self {
         Self {
             buffer: Default::default(),
-            read_pos: 0.0,
             write_pos: 0,
         }
     }
@@ -417,17 +422,18 @@ mod tests {
     use super::*;
     #[test]
     fn ring_buffer() {
-        let mut rb = RingBuffer::new32(0.225, 10.0);
-        let result = rb.get();
+        let mut rb = RingBuffer::new32(10.0);
+        let delay = 2.25;
+        let result = rb.get(delay);
         assert_eq!(result, 0.0, "get returned {}, expected 0.0", result);
         for i in 0..=6 {
             rb.push(i as f32);
         }
-        let result = rb.get();
+        let result = rb.get(delay);
         assert_eq!(result, 3.0, "get returned {}, expected 3.0", result);
-        let result = rb.get_linear();
+        let result = rb.get_linear(delay);
         assert_eq!(result, 3.75, "get_linear returned {}, expected 3.5", result);
-        let result = rb.get_cubic();
+        let result = rb.get_cubic(delay);
         assert_eq!(result, 3.75, "get_cubic returned {}, expected 3.75", result);
     }
 }

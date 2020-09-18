@@ -11,122 +11,42 @@ use std::sync::Arc;
 pub struct WaveGuide {
     tag: Tag,
     burst: Tag,
-    // hz: In,
-    // cutoff_freq: In,
-    // wet_decay: In,
-    // input: ArcMutex<Link>,
-    // envelope: ArcMutex<Adsr>,
-    // lpf: ArcMutex<Lpf>,
-    // delay: ArcMutex<Delay>,
-    // mixer: ArcMutex<Mixer>,
+    adsr: Arc<Adsr>,
 }
 
 impl WaveGuide {
-    pub fn new(tag: Tag, burst: Tag) -> Self {
-        Self { tag, burst }
+    pub fn new<T: Into<Tag>>(tag: T, burst: Tag, adsr: Arc<Adsr>) -> Self {
+        Self { tag: tag.into(), burst, adsr }
     }
     props!(hz, set_hz, 0);
     props!(cutoff, set_cutoff, 1);
     props!(decay, set_decay, 2);
     props!(delay, set_delay, 3);
+
+    pub fn on(&self, controls: &mut Controls, state: &mut State) {
+        self.adsr.on(controls, state);
+    }
+
+    pub fn off(&self, controls: &mut Controls) {
+        self.adsr.off(controls);
+    }
+
+    pub fn set_adsr_attack(&self, controls: &mut Controls, value: Control) {
+        self.adsr.set_attack(controls, value);
+    }
+
+    pub fn set_adsr_decay(&self, controls: &mut Controls, value: Control) {
+        self.adsr.set_decay(controls, value);
+    }
+
+    pub fn set_adsr_sustain(&self, controls: &mut Controls, value: Control) {
+        self.adsr.set_sustain(controls, value);
+    }
+
+    pub fn set_adsr_release(&self, controls: &mut Controls, value: Control) {
+        self.adsr.set_release(controls, value);
+    }
 }
-
-// pub fn new(tag: Tag, burst: Tag) -> Self {
-
-// let input = Link::new(&mut id).wrap();
-// rack.append(input.clone());
-
-// Adsr
-//     let envelope = Adsr::new(&mut id, 0.2, 0.2, 0.2)
-//         .attack(0.001)
-//         .decay(0)
-//         .sustain(0)
-//         .release(0.001)
-//         .wrap();
-//     rack.append(envelope.clone());
-
-//     // Exciter: gated noise
-//     let exciter = Product::new(&mut id, vec![input.tag(), envelope.tag()]).wrap();
-//     rack.append(exciter.clone());
-
-//     // Feedback loopv
-//     let mut mixer = Mixer::new(&mut id, vec![]).build();
-//     let delay = Delay::new(&mut id, mixer.tag(), (0.02).into()).wrap();
-
-//     let cutoff_freq = 2000;
-//     let lpf = Lpf::new(&mut id, delay.tag())
-//         .cutoff_freq(cutoff_freq)
-//         .wrap();
-
-//     let wet_decay = 0.95;
-//     let mixer = mixer
-//         .waves(vec![exciter.tag(), lpf.tag()])
-//         .levels(vec![1.0, wet_decay])
-//         .wrap();
-
-//     rack.append(lpf.clone());
-//     rack.append(delay.clone());
-//     rack.append(mixer.clone());
-
-//     WaveGuide {
-//         tag: id_gen.id(),
-//         burst,
-//         hz: 440.into(),
-//         cutoff_freq: cutoff_freq.into(),
-//         wet_decay: wet_decay.into(),
-//         input,
-//         envelope,
-//         lpf,
-//         delay,
-//         mixer,
-//         rack,
-//         out: 0.0,
-//     }
-// }
-
-//     pub fn hz<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-//         self.hz = arg.into();
-//         self
-//     }
-
-//     pub fn on(&mut self) {
-//         self.envelope.lock().on();
-//     }
-
-//     pub fn off(&mut self) {
-//         self.envelope.lock().off();
-//     }
-
-//     pub fn attack<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-//         self.envelope.lock().attack(arg);
-//         self
-//     }
-
-//     pub fn decay<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-//         self.envelope.lock().decay(arg);
-//         self
-//     }
-
-//     pub fn sustain<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-//         self.envelope.lock().sustain(arg);
-//         self
-//     }
-
-//     pub fn release<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-//         self.envelope.lock().release(arg);
-//         self
-//     }
-
-//     pub fn cutoff_freq<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-//         self.lpf.lock().cutoff_freq(arg);
-//         self
-//     }
-
-//     pub fn wet_decay<T: Into<In>>(&mut self, arg: T) -> &mut Self {
-//         self.mixer.lock().level_nth(1, arg.into());
-//         self
-//     }
-// }
 
 impl Signal for WaveGuide {
     tag!();
@@ -154,7 +74,7 @@ pub struct WaveGuideBuilder {
 }
 
 impl WaveGuideBuilder {
-    pub fn new(burst: Tag, buffer: RingBuffer) -> Self {
+    pub fn new(burst: Tag) -> Self {
         Self {
             burst,
             hz: 440.0.into(),
@@ -167,7 +87,7 @@ impl WaveGuideBuilder {
     build!(cutoff);
     build!(decay);
     build!(delay);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls, buffers: &mut Buffers) {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls, buffers: &mut Buffers) -> Arc<WaveGuide> {
         let adsr = AdsrBuilder::exp_20()
             .attack(0.001)
             .decay(0.0)
@@ -176,11 +96,15 @@ impl WaveGuideBuilder {
             .rack(rack, controls);
         let exciter = ProductBuilder::new(vec![self.burst, adsr.tag()]).rack(rack, controls);
         let mixer = MixerBuilder::new(vec![0.into(), 0.into()]).rack(rack, controls);
-        // let delay = DelayBuilder::new(mixer.tag(), self.delay()).rack(rack, buffers);
-        // let lpf = LpfBuilder::new(delay.tag()).cut_off(self.cutoff).rack(rack, controls);
-        // let lpf_vca = VcaBuilder::new(lpf.tag()).level(self.decay).rack(rack, controls);
+        let delay = DelayBuilder::new(mixer.tag(), self.delay).rack(rack, controls, buffers);
+        let lpf = LpfBuilder::new(delay.tag()).cut_off(self.cutoff).rack(rack, controls);
+        let lpf_vca = VcaBuilder::new(lpf.tag()).level(self.decay).rack(rack, controls);
         controls[(mixer.tag(), 0)] = Control::I(exciter.tag().into());
-        // controls[(mixer.tag(), 1)] = Control::I(lpf_vca.tag().into());
+        controls[(mixer.tag(), 1)] = Control::I(lpf_vca.tag().into());
+        let n = rack.num_modules();
+        let wg = Arc::new(WaveGuide::new(n, self.burst, adsr));
+        rack.push(wg.clone());
+        wg
     }
 }
 

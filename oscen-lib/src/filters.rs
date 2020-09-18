@@ -407,7 +407,7 @@ impl Signal for Comb {
         buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
-        let out = buffers.buffers(self.tag).get();
+        let out = buffers.buffers(self.tag).get(0.0);
         state[(self.tag, 0)] = out * self.dampening_inverse(controls, outputs)
             + state[(self.tag, 0)] * self.dampening(controls, outputs);
         let input = outputs[(self.wave, 0)];
@@ -454,7 +454,6 @@ impl CombBuilder {
         controls[(n, 1)] = self.dampening;
         controls[(n, 2)] = self.dampening_inverse;
         self.buffer.resize(self.length);
-        self.buffer.set_read_pos(0.0);
         self.buffer.set_write_pos(1);
         let comb = Arc::new(Comb::new(n, self.wave));
         buffers.set_buffer(comb.tag, self.buffer.clone());
@@ -489,7 +488,7 @@ impl Signal for AllPass {
         _sample_rate: f32,
     ) {
         let input = outputs[(self.wave, 0)];
-        let delayed = buffers.buffers(self.tag).get();
+        let delayed = buffers.buffers(self.tag).get(0.0);
         outputs[(self.tag, 0)] = delayed - input;
         buffers.buffers_mut(self.tag).push(input + 0.5 * delayed);
     }
@@ -514,7 +513,6 @@ impl AllPassBuilder {
         let n = rack.num_modules();
         let allpass = Arc::new(AllPass::new(n, self.wave));
         self.buffer.resize(self.length);
-        self.buffer.set_read_pos(0.0);
         self.buffer.set_write_pos(1);
         buffers.set_buffer(allpass.tag, self.buffer.clone());
         rack.push(allpass.clone());
