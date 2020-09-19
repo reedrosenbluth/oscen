@@ -28,3 +28,7 @@ path = "src/bin/fm.rs"
 [[bin]]
 name = "fourier"
 path = "src/bin/fourier.rs"
+
+[[bin]]
+name = "pluck"
+path = "src/bin/pluck.rs"

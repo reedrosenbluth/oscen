@@ -162,9 +162,9 @@ impl MidiControlBuilder {
     pub fn new(controller: u8) -> Self {
         Self {
             controller,
-            low: 0.5.into(),
+            low: 0.0.into(),
             mid: 0.5.into(),
-            high: 0.5.into(),
+            high: 1.0.into(),
             value: 0.0.into(),
         }
     }

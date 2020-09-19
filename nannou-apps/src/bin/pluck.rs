@@ -3,10 +3,10 @@ use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use std::thread;
-use oscen::instruments::WaveGuide;
-use oscen::midi::{listen_midi, MidiControl, MidiPitch};
-use oscen::oscillators::{Oscillator, square_osc};
-use oscen::signal::{ArcMutex, Builder, IdGen, Rack, Real, Signal, Tag, Gate};
+use oscen::instruments::*;
+use oscen::midi::{listen_midi, MidiControlBuilder, MidiPitchBuilder};
+use oscen::oscillators::*;
+use oscen::rack::*;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -35,21 +35,19 @@ struct Synth {
 }
 
 fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
-    let mut rack = Rack::new();
-    let mut id_gen = IdGen::new();
+    let (mut rack, mut controls, mut state, outputs, mut buffers) = tables();
 
     //  Midi
-    let midi_pitch = MidiPitch::new(&mut id_gen).rack(&mut rack);
-    MidiControl::new(&mut id_gen, 1, 64, 0.0, 0.5, 1.0).rack(&mut rack);
+    let midi_pitch = MidiPitchBuilder::new().rack(&mut rack, &mut controls);
+    MidiControlBuilder::new(64).rack(&mut rack, &mut controls);
+    let excite = OscBuilder::new(square_osc).hz(110.0).rack(&mut rack, &mut controls, &mut state);
 
-    let excite = Oscillator::new(&mut id_gen, square_osc).hz(110).rack(&mut rack);
-
-    let karplus = WaveGuide::new(&mut id_gen, excite.tag())
+    let karplus = WaveGuideBuilder::new(excite.tag())
+    // let karplus = WaveGuide::new(&mut id_gen, excite.tag())
         .hz(midi_pitch.tag())
-        .wet_decay(0.95)
-        .attack(0.005)
-        .release(0.005)
-        .rack(&mut rack);
+        .decay(0.95).rack(&mut rack, &mut controls, &mut buffers);
+    karplus.set_adsr_attack(&mut controls, 0.005.into());
+    karplus.set_adsr_release(&mut controls, 0.005.into());
     let karplus_tag = karplus.tag();
 
     Synth {
