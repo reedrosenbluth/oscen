@@ -2,11 +2,11 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use std::thread;
 use oscen::instruments::*;
 use oscen::midi::{listen_midi, MidiControlBuilder, MidiPitchBuilder};
 use oscen::oscillators::*;
 use oscen::rack::*;
+use std::thread;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -40,12 +40,15 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     //  Midi
     let midi_pitch = MidiPitchBuilder::new().rack(&mut rack, &mut controls);
     MidiControlBuilder::new(64).rack(&mut rack, &mut controls);
-    let excite = OscBuilder::new(square_osc).hz(110.0).rack(&mut rack, &mut controls, &mut state);
+    let excite = OscBuilder::new(square_osc)
+        .hz(110.0)
+        .rack(&mut rack, &mut controls, &mut state);
 
     let karplus = WaveGuideBuilder::new(excite.tag())
-    // let karplus = WaveGuide::new(&mut id_gen, excite.tag())
+        // let karplus = WaveGuide::new(&mut id_gen, excite.tag())
         .hz(midi_pitch.tag())
-        .decay(0.95).rack(&mut rack, &mut controls, &mut buffers);
+        .decay(0.95)
+        .rack(&mut rack, &mut controls, &mut buffers);
     karplus.set_adsr_attack(&mut controls, 0.005.into());
     karplus.set_adsr_release(&mut controls, 0.005.into());
     let karplus_tag = karplus.tag();

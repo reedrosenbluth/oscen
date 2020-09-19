@@ -1,10 +1,5 @@
 use crate::{build, props, tag};
-use crate::{
-    envelopes::*,
-    filters::LpfBuilder,
-    operators::*,
-    rack::*,
-};
+use crate::{envelopes::*, filters::LpfBuilder, operators::*, rack::*};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -16,7 +11,11 @@ pub struct WaveGuide {
 
 impl WaveGuide {
     pub fn new<T: Into<Tag>>(tag: T, burst: Tag, adsr: Arc<Adsr>) -> Self {
-        Self { tag: tag.into(), burst, adsr }
+        Self {
+            tag: tag.into(),
+            burst,
+            adsr,
+        }
     }
     props!(hz, set_hz, 0);
     props!(cutoff, set_cutoff, 1);
@@ -87,7 +86,12 @@ impl WaveGuideBuilder {
     build!(cutoff);
     build!(decay);
     build!(delay);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls, buffers: &mut Buffers) -> Arc<WaveGuide> {
+    pub fn rack(
+        &self,
+        rack: &mut Rack,
+        controls: &mut Controls,
+        buffers: &mut Buffers,
+    ) -> Arc<WaveGuide> {
         let adsr = AdsrBuilder::exp_20()
             .attack(0.001)
             .decay(0.0)
@@ -97,8 +101,12 @@ impl WaveGuideBuilder {
         let exciter = ProductBuilder::new(vec![self.burst, adsr.tag()]).rack(rack, controls);
         let mixer = MixerBuilder::new(vec![0.into(), 0.into()]).rack(rack, controls);
         let delay = DelayBuilder::new(mixer.tag(), self.delay).rack(rack, controls, buffers);
-        let lpf = LpfBuilder::new(delay.tag()).cut_off(self.cutoff).rack(rack, controls);
-        let lpf_vca = VcaBuilder::new(lpf.tag()).level(self.decay).rack(rack, controls);
+        let lpf = LpfBuilder::new(delay.tag())
+            .cut_off(self.cutoff)
+            .rack(rack, controls);
+        let lpf_vca = VcaBuilder::new(lpf.tag())
+            .level(self.decay)
+            .rack(rack, controls);
         controls[(mixer.tag(), 0)] = Control::I(exciter.tag().into());
         controls[(mixer.tag(), 1)] = Control::I(lpf_vca.tag().into());
         let n = rack.num_modules();
@@ -107,15 +115,3 @@ impl WaveGuideBuilder {
         wg
     }
 }
-
-// impl Signal for WaveGuide {
-//     std_signal!();
-//     fn signal(&mut self, rack: &Rack, sample_rate: Real) -> Real {
-//         let input = rack.output(self.burst);
-//         self.input.lock().value(input);
-//         let dt = 1.0 / f64::max(1.0, In::val(&rack, self.hz));
-//         self.delay.lock().delay_time(dt);
-//         self.out = self.rack.signal(sample_rate);
-//         self.out
-//     }
-// }
