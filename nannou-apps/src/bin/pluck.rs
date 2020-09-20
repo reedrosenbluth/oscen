@@ -44,7 +44,7 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
 
     //  Midi
     let midi_pitch = MidiPitchBuilder::new().rack(&mut rack, &mut controls);
-    MidiControlBuilder::new(64).rack(&mut rack, &mut controls);
+    // MidiControlBuilder::new(64).rack(&mut rack, &mut controls);
     let excite = OscBuilder::new(square_osc)
         .hz(110.0)
         .rack(&mut rack, &mut controls, &mut state);

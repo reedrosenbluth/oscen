@@ -202,15 +202,11 @@ where
     T: Clone + Default,
 {
     pub fn new(write_pos: usize, buffer: Vec<T>) -> Self {
-        Self {
-            buffer,
-            write_pos,
-        }
+        Self { buffer, write_pos }
     }
 
     pub fn push(&mut self, v: T) {
-        let n = self.buffer.len();
-        self.write_pos = (self.write_pos + 1) % n;
+        self.write_pos = (self.write_pos + 1) % self.buffer.len();
         self.buffer[self.write_pos] = v;
     }
 
@@ -223,7 +219,15 @@ where
     }
 
     pub fn read_pos(&self, delay: f32) -> f32 {
-        self.write_pos as f32 - delay
+        let n = self.buffer.len() as f32;
+        let mut rp = self.write_pos as f32 - delay;
+        while rp >= n {
+            rp -= n;
+        }
+        while rp < 0.0 {
+            rp += n;
+        }
+        rp
     }
 }
 
