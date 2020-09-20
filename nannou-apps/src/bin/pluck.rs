@@ -3,10 +3,11 @@ use nannou::{prelude::*, ui::prelude::*};
 use nannou_audio as audio;
 use nannou_audio::Buffer;
 use oscen::instruments::*;
-use oscen::midi::{listen_midi, MidiControlBuilder, MidiPitchBuilder};
+use oscen::midi::*;
 use oscen::oscillators::*;
+use oscen::operators::*;
 use oscen::rack::*;
-use std::thread;
+use std::{thread, sync::Arc};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -23,14 +24,18 @@ struct Model {
 
 #[derive(Clone)]
 struct Midi {
-    midi_pitch: ArcMutex<MidiPitch>,
+    midi_pitch: Arc<MidiPitch>,
 }
 
 struct Synth {
     midi: Midi,
     midi_receiver: Receiver<Vec<u8>>,
     rack: Rack,
-    karplus_tag: Tag,
+    controls: Box<Controls>,
+    state: Box<State>,
+    outputs: Box<Outputs>,
+    buffers: Box<Buffers>,
+    karplus: Arc<WaveGuide>,
     sender: Sender<f32>,
 }
 
@@ -43,21 +48,25 @@ fn build_synth(midi_receiver: Receiver<Vec<u8>>, sender: Sender<f32>) -> Synth {
     let excite = OscBuilder::new(square_osc)
         .hz(110.0)
         .rack(&mut rack, &mut controls, &mut state);
+    let hz_inv = InverseBuilder::new(midi_pitch.tag()).rack(&mut rack);
 
     let karplus = WaveGuideBuilder::new(excite.tag())
         // let karplus = WaveGuide::new(&mut id_gen, excite.tag())
-        .hz(midi_pitch.tag())
+        .hz_inv(hz_inv.tag())
         .decay(0.95)
         .rack(&mut rack, &mut controls, &mut buffers);
     karplus.set_adsr_attack(&mut controls, 0.005.into());
     karplus.set_adsr_release(&mut controls, 0.005.into());
-    let karplus_tag = karplus.tag();
 
     Synth {
         midi: Midi { midi_pitch },
         midi_receiver,
         rack,
-        karplus_tag,
+        controls,
+        state,
+        outputs,
+        buffers,
+        karplus,
         sender,
     }
 }
@@ -95,22 +104,28 @@ fn model(app: &App) -> Model {
 // A function that renders the given `Audio` to the given `Buffer`.
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
     let midi_messages: Vec<Vec<u8>> = synth.midi_receiver.try_iter().collect();
-    let karplus_tag = synth.karplus_tag;
     for message in midi_messages {
         if message.len() == 3 {
             let step = message[1] as f32;
             if message[0] == 144 {
-                synth.midi.midi_pitch.lock().step(step);
-                WaveGuide::gate_on(&synth.rack, karplus_tag);
+                synth.midi.midi_pitch.set_step(&mut synth.controls, step.into());
+                synth.karplus.on(&mut synth.controls, &mut synth.state);
             } else if message[0] == 128 {
-                WaveGuide::gate_off(&synth.rack, karplus_tag);
+                synth.karplus.off(&mut synth.controls);
             }
         }
     }
 
-    let sample_rate = buffer.sample_rate() as Real;
+    let sample_rate = buffer.sample_rate() as f32;
     for frame in buffer.frames_mut() {
-        let amp = synth.rack.signal(sample_rate) as f32;
+        let amp = synth.rack.mono(
+            &synth.controls,
+            &mut synth.state,
+            &mut synth.outputs,
+            &mut synth.buffers,
+            sample_rate,
+        );
+
         for channel in frame {
             *channel = amp;
         }

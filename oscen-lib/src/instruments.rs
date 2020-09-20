@@ -7,20 +7,21 @@ pub struct WaveGuide {
     tag: Tag,
     burst: Tag,
     adsr: Arc<Adsr>,
+    mixer: Arc<Mixer>,
 }
 
 impl WaveGuide {
-    pub fn new<T: Into<Tag>>(tag: T, burst: Tag, adsr: Arc<Adsr>) -> Self {
+    pub fn new<T: Into<Tag>>(tag: T, burst: Tag, adsr: Arc<Adsr>, mixer: Arc<Mixer>) -> Self {
         Self {
             tag: tag.into(),
             burst,
             adsr,
+            mixer,
         }
     }
-    props!(hz, set_hz, 0);
+    props!(hz_inv, set_hz_inv, 0);
     props!(cutoff, set_cutoff, 1);
     props!(decay, set_decay, 2);
-    props!(delay, set_delay, 3);
 
     pub fn on(&self, controls: &mut Controls, state: &mut State) {
         self.adsr.on(controls, state);
@@ -52,40 +53,36 @@ impl Signal for WaveGuide {
 
     fn signal(
         &self,
-        controls: &Controls,
-        state: &mut State,
+        _controls: &Controls,
+        _state: &mut State,
         outputs: &mut Outputs,
-        buffers: &mut Buffers,
-        sample_rate: f32,
+        _buffers: &mut Buffers,
+        _sample_rate: f32,
     ) {
-        let input = outputs[(self.burst, 0)];
-        let dt = 1.0 / f32::max(1.0, self.hz(controls, outputs));
+        outputs[(self.tag, 0)] = outputs[(self.mixer.tag(), 0)];
     }
 }
 
 #[derive(Clone)]
 pub struct WaveGuideBuilder {
     burst: Tag,
-    hz: Control,
+    hz_inv: Control,
     cutoff: Control,
     decay: Control,
-    delay: Control,
 }
 
 impl WaveGuideBuilder {
     pub fn new(burst: Tag) -> Self {
         Self {
             burst,
-            hz: 440.0.into(),
+            hz_inv: (1.0 / 440.0).into(),
             cutoff: 2000.0.into(),
             decay: 0.95.into(),
-            delay: 0.02.into(),
         }
     }
-    build!(hz);
+    build!(hz_inv);
     build!(cutoff);
     build!(decay);
-    build!(delay);
     pub fn rack(
         &self,
         rack: &mut Rack,
@@ -100,7 +97,7 @@ impl WaveGuideBuilder {
             .rack(rack, controls);
         let exciter = ProductBuilder::new(vec![self.burst, adsr.tag()]).rack(rack, controls);
         let mixer = MixerBuilder::new(vec![0.into(), 0.into()]).rack(rack, controls);
-        let delay = DelayBuilder::new(mixer.tag(), self.delay).rack(rack, controls, buffers);
+        let delay = DelayBuilder::new(mixer.tag(), self.hz_inv).rack(rack, controls, buffers);
         let lpf = LpfBuilder::new(delay.tag())
             .cut_off(self.cutoff)
             .rack(rack, controls);
@@ -110,7 +107,10 @@ impl WaveGuideBuilder {
         controls[(mixer.tag(), 0)] = Control::I(exciter.tag().into());
         controls[(mixer.tag(), 1)] = Control::I(lpf_vca.tag().into());
         let n = rack.num_modules();
-        let wg = Arc::new(WaveGuide::new(n, self.burst, adsr));
+        controls[(n, 0)] = self.hz_inv;
+        controls[(n, 1)] = self.cutoff;
+        controls[(n, 2)] = self.decay;
+        let wg = Arc::new(WaveGuide::new(n, self.burst, adsr, mixer));
         rack.push(wg.clone());
         wg
     }

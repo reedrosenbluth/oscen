@@ -171,6 +171,48 @@ impl Signal for Product {
 }
 
 #[derive(Debug, Copy, Clone)]
+pub struct Inverse {
+    tag: Tag,
+    wave: Tag,
+}
+
+impl Inverse {
+    pub fn new(tag: Tag, wave: Tag) -> Self { Self { tag, wave } }
+}
+
+impl Signal for Inverse {
+    tag!();
+
+    fn signal(
+        &self,
+        _controls: &Controls,
+        _state: &mut State,
+        outputs: &mut Outputs,
+        _buffers: &mut Buffers,
+        _sample_rate: f32,
+    ) {
+        outputs[(self.tag, 0)] = 1.0 / outputs[(self.wave, 0)];
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct InverseBuilder {
+    wave: Tag,
+}
+
+impl InverseBuilder {
+    pub fn new(wave: Tag) -> Self { Self { wave } }
+
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Inverse> {
+        let n = rack.num_modules();
+        let inverse = Arc::new(Inverse::new(n.into(), self.wave));
+        rack.push(inverse.clone());
+        inverse
+    }
+
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct Vca {
     tag: Tag,
     wave: Tag,
