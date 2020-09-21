@@ -177,7 +177,9 @@ pub struct Inverse {
 }
 
 impl Inverse {
-    pub fn new(tag: Tag, wave: Tag) -> Self { Self { tag, wave } }
+    pub fn new(tag: Tag, wave: Tag) -> Self {
+        Self { tag, wave }
+    }
 }
 
 impl Signal for Inverse {
@@ -201,7 +203,9 @@ pub struct InverseBuilder {
 }
 
 impl InverseBuilder {
-    pub fn new(wave: Tag) -> Self { Self { wave } }
+    pub fn new(wave: Tag) -> Self {
+        Self { wave }
+    }
 
     pub fn rack(&self, rack: &mut Rack) -> Arc<Inverse> {
         let n = rack.num_modules();
@@ -209,7 +213,6 @@ impl InverseBuilder {
         rack.push(inverse.clone());
         inverse
     }
-
 }
 
 #[derive(Debug, Copy, Clone)]

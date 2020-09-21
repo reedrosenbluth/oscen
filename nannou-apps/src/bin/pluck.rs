@@ -4,10 +4,10 @@ use nannou_audio as audio;
 use nannou_audio::Buffer;
 use oscen::instruments::*;
 use oscen::midi::*;
-use oscen::oscillators::*;
 use oscen::operators::*;
+use oscen::oscillators::*;
 use oscen::rack::*;
-use std::{thread, sync::Arc};
+use std::{sync::Arc, thread};
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -108,7 +108,10 @@ fn audio(synth: &mut Synth, buffer: &mut Buffer) {
         if message.len() == 3 {
             let step = message[1] as f32;
             if message[0] == 144 {
-                synth.midi.midi_pitch.set_step(&mut synth.controls, step.into());
+                synth
+                    .midi
+                    .midi_pitch
+                    .set_step(&mut synth.controls, step.into());
                 synth.karplus.on(&mut synth.controls, &mut synth.state);
             } else if message[0] == 128 {
                 synth.karplus.off(&mut synth.controls);

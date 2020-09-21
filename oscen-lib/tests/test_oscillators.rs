@@ -31,4 +31,3 @@ fn clock() {
     let r4 = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
     assert_eq!((r1, r2, r3, r4), (1.0, 0.0, 0.0, 1.0));
 }
- 

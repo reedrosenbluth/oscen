@@ -189,7 +189,13 @@ impl MidiControlBuilder {
     pub fn rack(&self, rack: &mut Rack, controlls: &mut Controls) -> Arc<MidiControl> {
         let n = rack.num_modules();
         controlls[(n, 0)] = self.value;
-        let mc = Arc::new(MidiControl::new(n.into(), self.controller, self.low, self.mid, self.high));
+        let mc = Arc::new(MidiControl::new(
+            n.into(),
+            self.controller,
+            self.low,
+            self.mid,
+            self.high,
+        ));
         rack.push(mc.clone());
         mc
     }
@@ -215,13 +221,14 @@ pub fn listen_midi(midi_sender: Sender<Vec<u8>>) -> Result<(), Box<dyn Error>> {
             println!("\nAvailable input ports:");
             for (i, p) in in_ports.iter().enumerate() {
                 println!("{}: {}", i, midi_in.port_name(p).unwrap());
-            };
+            }
             print!("Please select input port: ");
             stdout().flush()?;
             let mut input = String::new();
             stdin().read_line(&mut input)?;
-            in_ports.get(input.trim().parse::<usize>()?)
-                     .ok_or("invalid input port selected")?
+            in_ports
+                .get(input.trim().parse::<usize>()?)
+                .ok_or("invalid input port selected")?
         }
     };
 

@@ -407,8 +407,8 @@ impl Signal for Comb {
         buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
-        let out = buffers.buffers(self.tag).get(0.0);
-        state[(self.tag, 0)] = out * self.dampening_inverse(controls, outputs)
+        outputs[(self.tag, 0)] = buffers.buffers(self.tag).get(0.0);
+        state[(self.tag, 0)] = outputs[(self.tag, 0)] * self.dampening_inverse(controls, outputs)
             + state[(self.tag, 0)] * self.dampening(controls, outputs);
         let input = outputs[(self.wave, 0)];
         buffers
