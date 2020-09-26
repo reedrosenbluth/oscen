@@ -26,7 +26,7 @@
 //! [`Rack`]: signal/struct.Rack.html
 
 /// An implementation of *freeverb*.
-// pub mod reverb;
+pub mod reverb;
 /// Envelope generators.
 pub mod envelopes;
 /// A collection of some basic audio filters.

@@ -117,12 +117,15 @@ impl Outputs {
     pub fn new() -> Self {
         Outputs([[0.0; MAX_OUTPUTS]; MAX_MODULES])
     }
+
     pub fn outputs<T: Into<usize>>(&self, tag: T) -> &[f32] {
         self.0[tag.into()].as_ref()
     }
+    
     pub fn outputs_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [f32] {
         self.0[tag.into()].as_mut()
     }
+
     pub fn value(&self, ctrl: Control) -> Option<f32> {
         match ctrl {
             Control::F(p) => Some(p),
@@ -130,9 +133,17 @@ impl Outputs {
             _ => None,
         }
     }
+
     pub fn integer(&self, ctrl: Control) -> Option<usize> {
         match ctrl {
             Control::I(n) => Some(n),
+            _ => None,
+        }
+    }
+
+    pub fn boolean(&self, ctrl: Control) -> Option<bool> {
+        match  ctrl {
+            Control::B(b) => Some(b),
             _ => None,
         }
     }
