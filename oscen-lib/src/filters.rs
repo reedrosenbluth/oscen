@@ -420,7 +420,6 @@ impl Signal for Comb {
 #[derive(Clone)]
 pub struct CombBuilder {
     wave: Tag,
-    buffer: RingBuffer,
     length: usize,
     feedback: Control,
     dampening: Control,
@@ -428,10 +427,9 @@ pub struct CombBuilder {
 }
 
 impl CombBuilder {
-    pub fn new(wave: Tag, buffer: RingBuffer, length: usize) -> Self {
+    pub fn new(wave: Tag, length: usize) -> Self {
         Self {
             wave,
-            buffer,
             length,
             feedback: 0.5.into(),
             dampening: 0.5.into(),
@@ -453,10 +451,8 @@ impl CombBuilder {
         controls[(n, 0)] = self.feedback;
         controls[(n, 1)] = self.dampening;
         controls[(n, 2)] = self.dampening_inverse;
-        self.buffer.resize(self.length);
-        self.buffer.set_write_pos(1);
         let comb = Arc::new(Comb::new(n, self.wave));
-        buffers.set_buffer(comb.tag, self.buffer.clone());
+        buffers.set_buffer(comb.tag, RingBuffer::new(1, vec![0.0; self.length]));
         rack.push(comb.clone());
         comb
     }
@@ -497,24 +493,20 @@ impl Signal for AllPass {
 #[derive(Clone)]
 pub struct AllPassBuilder {
     wave: Tag,
-    buffer: RingBuffer,
     length: usize,
 }
 
 impl AllPassBuilder {
-    pub fn new(wave: Tag, buffer: RingBuffer, length: usize) -> Self {
+    pub fn new(wave: Tag, length: usize) -> Self {
         Self {
             wave,
-            buffer,
             length,
         }
     }
     pub fn rack(&mut self, rack: &mut Rack, buffers: &mut Buffers) -> Arc<AllPass> {
         let n = rack.num_modules();
         let allpass = Arc::new(AllPass::new(n, self.wave));
-        self.buffer.resize(self.length);
-        self.buffer.set_write_pos(1);
-        buffers.set_buffer(allpass.tag, self.buffer.clone());
+        buffers.set_buffer(allpass.tag, RingBuffer::new(1, vec![0.0; self.length]));
         rack.push(allpass.clone());
         allpass
     }

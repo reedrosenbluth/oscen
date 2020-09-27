@@ -70,7 +70,20 @@ impl Freeverb {
     }
 }
 
-// impl Signal for Freeverb {
+impl Signal for Freeverb {
+    tag!();
+
+    fn signal(
+        &self,
+        controls: &Controls,
+        state: &mut State,
+        outputs: &mut Outputs,
+        buffers: &mut Buffers,
+        sample_rate: f32,
+    ) {
+        todo!();
+    }
+}
 //     std_signal!();
 //     fn signal(&mut self, rack: &Rack, sample_rate: f32) -> f32 {
 //         let inp = rack.output(self.wave);
@@ -119,7 +132,12 @@ impl FreeverbBuilder {
     build!(room_size);
     build!(frozen);
 
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls, buffers: &mut Buffers,) -> Arc<Freeverb> {
+    pub fn rack(
+        &self,
+        rack: &mut Rack,
+        controls: &mut Controls,
+        buffers: &mut Buffers,
+    ) -> Arc<Freeverb> {
         let n = rack.num_modules();
         controls[(n, 0)] = self.wet_gain_l;
         controls[(n, 1)] = self.wet_gain_r;
@@ -130,75 +148,58 @@ impl FreeverbBuilder {
         controls[(n, 6)] = self.dampening;
         controls[(n, 7)] = self.room_size;
         controls[(n, 8)] = self.frozen;
-        let comb1_l = CombBuilder::new(self.wave, buffer, COMB_TUNING_L1);
+
+        let comb1_l = CombBuilder::new(self.wave, COMB_TUNING_L1).rack(rack, controls, buffers);
+        let comb1_r = CombBuilder::new(self.wave, COMB_TUNING_R1).rack(rack, controls, buffers);
+        let comb2_l = CombBuilder::new(self.wave, COMB_TUNING_L2).rack(rack, controls, buffers);
+        let comb2_r = CombBuilder::new(self.wave, COMB_TUNING_R2).rack(rack, controls, buffers);
+        let comb3_l = CombBuilder::new(self.wave, COMB_TUNING_L3).rack(rack, controls, buffers);
+        let comb3_r = CombBuilder::new(self.wave, COMB_TUNING_R3).rack(rack, controls, buffers);
+        let comb4_l = CombBuilder::new(self.wave, COMB_TUNING_L4).rack(rack, controls, buffers);
+        let comb4_r = CombBuilder::new(self.wave, COMB_TUNING_R4).rack(rack, controls, buffers);
+        let comb5_l = CombBuilder::new(self.wave, COMB_TUNING_L5).rack(rack, controls, buffers);
+        let comb5_r = CombBuilder::new(self.wave, COMB_TUNING_R5).rack(rack, controls, buffers);
+        let comb6_l = CombBuilder::new(self.wave, COMB_TUNING_L6).rack(rack, controls, buffers);
+        let comb6_r = CombBuilder::new(self.wave, COMB_TUNING_R6).rack(rack, controls, buffers);
+        let comb7_l = CombBuilder::new(self.wave, COMB_TUNING_L7).rack(rack, controls, buffers);
+        let comb7_r = CombBuilder::new(self.wave, COMB_TUNING_R7).rack(rack, controls, buffers);
+        let comb8_l = CombBuilder::new(self.wave, COMB_TUNING_L8).rack(rack, controls, buffers);
+        let comb8_r = CombBuilder::new(self.wave, COMB_TUNING_R8).rack(rack, controls, buffers);
+        let combs_l = MixerBuilder::new(vec![
+            comb1_l.tag(),
+            comb2_l.tag(),
+            comb3_l.tag(),
+            comb4_l.tag(),
+            comb5_l.tag(),
+            comb6_l.tag(),
+            comb7_l.tag(),
+            comb8_l.tag(),
+        ])
+        .rack(rack, controls);
+        let combs_r = MixerBuilder::new(vec![
+            comb1_r.tag(),
+            comb2_r.tag(),
+            comb3_r.tag(),
+            comb4_r.tag(),
+            comb5_r.tag(),
+            comb6_r.tag(),
+            comb7_r.tag(),
+            comb8_r.tag(),
+        ])
+        .rack(rack, controls);
+        let all1_l = AllPassBuilder::new(combs_l.tag(), ALLPASS_TUNING_L1).rack(rack, buffers);
+        let all1_r = AllPassBuilder::new(combs_r.tag(), ALLPASS_TUNING_R1).rack(rack, buffers);
+        let all2_l = AllPassBuilder::new(all1_l.tag(), ALLPASS_TUNING_L2).rack(rack, buffers);
+        let all2_r = AllPassBuilder::new(all1_r.tag(), ALLPASS_TUNING_R2).rack(rack, buffers);
+        let all3_l = AllPassBuilder::new(all2_l.tag(), ALLPASS_TUNING_L3).rack(rack, buffers);
+        let all3_r = AllPassBuilder::new(all2_r.tag(), ALLPASS_TUNING_R3).rack(rack, buffers);
+        let all4_l = AllPassBuilder::new(all3_l.tag(), ALLPASS_TUNING_L4).rack(rack, buffers);
+        let all4_r = AllPassBuilder::new(all3_r.tag(), ALLPASS_TUNING_R4).rack(rack, buffers);
+        Arc::new(Freeverb::new(0.into(), 0.into()))
     }
 }
 
-impl Freeverb {
-    // pub fn new(tag: Tag, wave: Tag) -> Self {
-    //     let comb1 = Comb::new(&mut id, input.tag(), COMB_TUNING_1).wrap();
-    //     let comb2 = Comb::new(&mut id, input.tag(), COMB_TUNING_2).wrap();
-    //     let comb3 = Comb::new(&mut id, input.tag(), COMB_TUNING_3).wrap();
-    //     let comb4 = Comb::new(&mut id, input.tag(), COMB_TUNING_4).wrap();
-    //     let comb5 = Comb::new(&mut id, input.tag(), COMB_TUNING_5).wrap();
-    //     let comb6 = Comb::new(&mut id, input.tag(), COMB_TUNING_6).wrap();
-    //     let comb7 = Comb::new(&mut id, input.tag(), COMB_TUNING_7).wrap();
-    //     let comb8 = Comb::new(&mut id, input.tag(), COMB_TUNING_8).wrap();
-
-    //     let combs = Mixer::new(
-    //         &mut id,
-    //         vec![
-    //             comb1.tag(),
-    //             comb2.tag(),
-    //             comb3.tag(),
-    //             comb4.tag(),
-    //             comb5.tag(),
-    //             comb6.tag(),
-    //             comb7.tag(),
-    //             comb8.tag(),
-    //         ],
-    //     )
-    //     .wrap();
-
-    //     let all1 = AllPass::new(&mut id, combs.tag(), ALLPASS_TUNING_1).wrap();
-    //     let all2 = AllPass::new(&mut id, all1.tag(), ALLPASS_TUNING_2).wrap();
-    //     let all3 = AllPass::new(&mut id, all2.tag(), ALLPASS_TUNING_3).wrap();
-    //     let all4 = AllPass::new(&mut id, all3.tag(), ALLPASS_TUNING_4).wrap();
-    //     let rack = Rack::new()
-    //         .modules(vec![
-    //             input.clone(),
-    //             comb1,
-    //             comb2,
-    //             comb3,
-    //             comb4,
-    //             comb5,
-    //             comb6,
-    //             comb7,
-    //             comb8,
-    //             combs,
-    //             all1,
-    //             all2,
-    //             all3,
-    //             all4,
-    //         ])
-    //         .build();
-    //     Freeverb {
-    //         tag: id_gen.id(),
-    //         wave,
-    //         input,
-    //         rack,
-    //         wet_gain: 0.25,
-    //         wet: 1.0,
-    //         dry: 0.0,
-    //         input_gain: 0.5,
-    //         width: 0.5,
-    //         dampening: 0.5,
-    //         room_size: 0.5,
-    //         frozen: false,
-    //         out: 0.0,
-    //     }
-    // }
-
+// impl Freeverb {
     // pub fn wave(&mut self, arg: Tag) -> &mut Self {
     //     self.wave = arg;
     //     self
@@ -245,24 +246,23 @@ impl Freeverb {
     //     self
     // }
 
-    fn update_combs(&mut self) {
-        let (feedback, dampening) = if self.frozen {
-            (1.0, 0.0)
-        } else {
-            (self.room_size, self.dampening)
-        };
+    // fn update_combs(&mut self) {
+    //     let (feedback, dampening) = if self.frozen {
+    //         (1.0, 0.0)
+    //     } else {
+    //         (self.room_size, self.dampening)
+    //     };
 
-        for o in self.rack.0.clone().iter_mut() {
-            if let Some(v) = o.as_any_mut().downcast_mut::<Comb>() {
-                v.feedback(feedback);
-                v.dampening(dampening);
-            }
-        }
-    }
+    //     for o in self.rack.0.clone().iter_mut() {
+    //         if let Some(v) = o.as_any_mut().downcast_mut::<Comb>() {
+    //             v.feedback(feedback);
+    //             v.dampening(dampening);
+    //         }
+    //     }
+    // }
 
     // pub fn dry(&mut self, value: f32) -> &mut Self {
     //     self.dry = value;
     //     self
     // }
-}
-
+// }
