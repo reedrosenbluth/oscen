@@ -20,6 +20,7 @@ impl Adsr {
             rx,
         }
     }
+
     props!(attack, set_attack, 0);
     props!(decay, set_decay, 1);
     props!(sustain, set_sustain, 2);
@@ -32,6 +33,7 @@ impl Adsr {
             _ => panic!("triggered must be a bool, not {:?}", ctrl),
         }
     }
+
     pub fn set_triggered(&self, controls: &mut Controls, value: bool) {
         controls[(self.tag, 4)] = value.into();
     }
@@ -42,6 +44,7 @@ impl Adsr {
         let x = state[(self.tag, 2)];
         state[(self.tag, 0)] = interp_inv(0.0, 1.0 - self.ax, 1.0, x);
     }
+
     pub fn off(&self, controls: &mut Controls) {
         self.set_triggered(controls, false);
     }

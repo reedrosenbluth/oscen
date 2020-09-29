@@ -407,13 +407,12 @@ impl Signal for Comb {
         buffers: &mut Buffers,
         _sample_rate: f32,
     ) {
-        outputs[(self.tag, 0)] = buffers.buffers(self.tag).get(0.0);
+        outputs[(self.tag, 0)] = buffers.buffers(self.tag).get_max_delay();
         state[(self.tag, 0)] = outputs[(self.tag, 0)] * self.dampening_inverse(controls, outputs)
             + state[(self.tag, 0)] * self.dampening(controls, outputs);
-        let input = outputs[(self.wave, 0)];
-        buffers
-            .buffers_mut(self.tag)
-            .push(input + state[(self.tag, 0)] * self.feedback(controls, outputs));
+        buffers.buffers_mut(self.tag).push(
+            outputs[(self.wave, 0)] + state[(self.tag, 0)] * self.feedback(controls, outputs),
+        );
     }
 }
 
@@ -484,7 +483,7 @@ impl Signal for AllPass {
         _sample_rate: f32,
     ) {
         let input = outputs[(self.wave, 0)];
-        let delayed = buffers.buffers(self.tag).get(0.0);
+        let delayed = buffers.buffers(self.tag).get_max_delay();
         outputs[(self.tag, 0)] = delayed - input;
         buffers.buffers_mut(self.tag).push(input + 0.5 * delayed);
     }
@@ -498,10 +497,7 @@ pub struct AllPassBuilder {
 
 impl AllPassBuilder {
     pub fn new(wave: Tag, length: usize) -> Self {
-        Self {
-            wave,
-            length,
-        }
+        Self { wave, length }
     }
     pub fn rack(&mut self, rack: &mut Rack, buffers: &mut Buffers) -> Arc<AllPass> {
         let n = rack.num_modules();

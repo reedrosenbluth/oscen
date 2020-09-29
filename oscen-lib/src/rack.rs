@@ -201,7 +201,7 @@ where
         &mut self.state_mut(index.0.into())[index.1]
     }
 }
-/// Variable length circular buffer.
+/// Circular buffer
 #[derive(Clone)]
 pub struct RingBuffer<T = f32> {
     buffer: Vec<T>,
@@ -260,6 +260,10 @@ where
         }
         let i = (rp + offset as usize) % n as usize;
         self.buffer[i]
+    }
+
+    pub fn get_max_delay(&self) -> T {
+        self.get(self.buffer.len() as f32 - 1.0)
     }
 
     pub fn resize(&mut self, n: usize) {
