@@ -121,7 +121,7 @@ impl Outputs {
     pub fn outputs<T: Into<usize>>(&self, tag: T) -> &[f32] {
         self.0[tag.into()].as_ref()
     }
-    
+
     pub fn outputs_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [f32] {
         self.0[tag.into()].as_mut()
     }
@@ -142,7 +142,7 @@ impl Outputs {
     }
 
     pub fn boolean(&self, ctrl: Control) -> Option<bool> {
-        match  ctrl {
+        match ctrl {
             Control::B(b) => Some(b),
             _ => None,
         }
@@ -420,7 +420,7 @@ macro_rules! build {
             self.$field = value.into();
             self
         }
-    }
+    };
 }
 
 #[macro_export]
@@ -433,7 +433,7 @@ macro_rules! props {
         pub fn $set(&self, controls: &mut Controls, value: Control) {
             controls[(self.tag, $n)] = value;
         }
-    }
+    };
 }
 
 #[cfg(test)]

@@ -43,12 +43,27 @@ const ALLPASS_TUNING_R4: usize = 225 + STEREO_SPREAD;
 #[derive(Clone)]
 pub struct Freeverb {
     tag: Tag,
-    wave: Tag,
+    wave_l: Tag,
+    wave_r: Tag,
+    left: Arc<AllPass>,
+    right: Arc<AllPass>,
 }
 
 impl Freeverb {
-    pub fn new(tag: Tag, wave: Tag) -> Self {
-        Self { tag, wave }
+    pub fn new<T: Into<Tag>>(
+        tag: T,
+        wave_l: Tag,
+        wave_r: Tag,
+        left: Arc<AllPass>,
+        right: Arc<AllPass>,
+    ) -> Self {
+        Self {
+            tag: tag.into(),
+            wave_l,
+            wave_r,
+            left,
+            right,
+        }
     }
 
     props!(wet_gain_l, set_wet_gain_l, 0);
@@ -69,6 +84,26 @@ impl Freeverb {
         controls[(self.tag, 8)] = value;
     }
 }
+// pub fn tick(&mut self, input: (f64, f64)) -> (f64, f64) {
+//     let input_mixed = (input.0 + input.1) * FIXED_GAIN * self.input_gain;
+//
+//     let mut out = (0.0, 0.0);
+//
+//     for combs in self.combs.iter_mut() {
+//         out.0 += combs.0.tick(input_mixed);
+//         out.1 += combs.1.tick(input_mixed);
+//     }
+//
+//     for allpasses in self.allpasses.iter_mut() {
+//         out.0 = allpasses.0.tick(out.0);
+//         out.1 = allpasses.1.tick(out.1);
+//     }
+//
+//     (
+//         out.0 * self.wet_gains.0 + out.1 * self.wet_gains.1 + input.0 * self.dry,
+//         out.1 * self.wet_gains.0 + out.0 * self.wet_gains.1 + input.1 * self.dry,
+//     )
+// }
 
 impl Signal for Freeverb {
     tag!();
@@ -81,9 +116,21 @@ impl Signal for Freeverb {
         buffers: &mut Buffers,
         sample_rate: f32,
     ) {
-        todo!();
+        let input_l = outputs[(self.wave_l, 0)];
+        let input_r = outputs[(self.wave_r, 0)];
+        let mixed_input = (outputs[(self.wave_l, 0)] + outputs[(self.wave_r, 0)])
+            * FIXED_GAIN
+            * self.input_gain(controls, outputs);
+        outputs[(self.tag, 0)] =
+        outputs[(self.tag, 0)] =
+            self.wet_gain_l(controls, outputs) * outputs[(self.right.tag(), 0)];
+        outputs[(self.tag, 1)] =
+            self.wet_gain_r(controls, outputs) * outputs[(self.right.tag(), 0)];
     }
 }
+
+out.0 * self.wet_gains.0 + out.1 * self.wet_gains.1 + input.0 * self.dry,
+out.1 * self.wet_gains.0 + out.0 * self.wet_gains.1 + input.1 * self.dry,
 //     std_signal!();
 //     fn signal(&mut self, rack: &Rack, sample_rate: f32) -> f32 {
 //         let inp = rack.output(self.wave);
@@ -95,7 +142,8 @@ impl Signal for Freeverb {
 // }
 
 pub struct FreeverbBuilder {
-    wave: Tag,
+    wave_l: Tag,
+    wave_r: Tag,
     wet_gain_l: Control,
     wet_gain_r: Control,
     wet: Control,
@@ -108,9 +156,10 @@ pub struct FreeverbBuilder {
 }
 
 impl FreeverbBuilder {
-    pub fn new(wave: Tag) -> Self {
+    pub fn new(wave_l: Tag, wave_r: Tag) -> Self {
         Self {
-            wave,
+            wave_l,
+            wave_r,
             wet_gain_l: 0.0.into(),
             wet_gain_r: 0.0.into(),
             wet: 0.0.into(),
@@ -149,22 +198,25 @@ impl FreeverbBuilder {
         controls[(n, 7)] = self.room_size;
         controls[(n, 8)] = self.frozen;
 
-        let comb1_l = CombBuilder::new(self.wave, COMB_TUNING_L1).rack(rack, controls, buffers);
-        let comb1_r = CombBuilder::new(self.wave, COMB_TUNING_R1).rack(rack, controls, buffers);
-        let comb2_l = CombBuilder::new(self.wave, COMB_TUNING_L2).rack(rack, controls, buffers);
-        let comb2_r = CombBuilder::new(self.wave, COMB_TUNING_R2).rack(rack, controls, buffers);
-        let comb3_l = CombBuilder::new(self.wave, COMB_TUNING_L3).rack(rack, controls, buffers);
-        let comb3_r = CombBuilder::new(self.wave, COMB_TUNING_R3).rack(rack, controls, buffers);
-        let comb4_l = CombBuilder::new(self.wave, COMB_TUNING_L4).rack(rack, controls, buffers);
-        let comb4_r = CombBuilder::new(self.wave, COMB_TUNING_R4).rack(rack, controls, buffers);
-        let comb5_l = CombBuilder::new(self.wave, COMB_TUNING_L5).rack(rack, controls, buffers);
-        let comb5_r = CombBuilder::new(self.wave, COMB_TUNING_R5).rack(rack, controls, buffers);
-        let comb6_l = CombBuilder::new(self.wave, COMB_TUNING_L6).rack(rack, controls, buffers);
-        let comb6_r = CombBuilder::new(self.wave, COMB_TUNING_R6).rack(rack, controls, buffers);
-        let comb7_l = CombBuilder::new(self.wave, COMB_TUNING_L7).rack(rack, controls, buffers);
-        let comb7_r = CombBuilder::new(self.wave, COMB_TUNING_R7).rack(rack, controls, buffers);
-        let comb8_l = CombBuilder::new(self.wave, COMB_TUNING_L8).rack(rack, controls, buffers);
-        let comb8_r = CombBuilder::new(self.wave, COMB_TUNING_R8).rack(rack, controls, buffers);
+        let input = (outputs[(self.wave_l, 0)] + outputs[(self.wave_r, 0)])
+            * FIXED_GAIN
+            * self.input_gain(controls, outputs);
+        let comb1_l = CombBuilder::new(self.wave_l, COMB_TUNING_L1).rack(rack, controls, buffers);
+        let comb1_r = CombBuilder::new(self.wave_r, COMB_TUNING_R1).rack(rack, controls, buffers);
+        let comb2_l = CombBuilder::new(self.wave_l, COMB_TUNING_L2).rack(rack, controls, buffers);
+        let comb2_r = CombBuilder::new(self.wave_r, COMB_TUNING_R2).rack(rack, controls, buffers);
+        let comb3_l = CombBuilder::new(self.wave_l, COMB_TUNING_L3).rack(rack, controls, buffers);
+        let comb3_r = CombBuilder::new(self.wave_r, COMB_TUNING_R3).rack(rack, controls, buffers);
+        let comb4_l = CombBuilder::new(self.wave_l, COMB_TUNING_L4).rack(rack, controls, buffers);
+        let comb4_r = CombBuilder::new(self.wave_r, COMB_TUNING_R4).rack(rack, controls, buffers);
+        let comb5_l = CombBuilder::new(self.wave_l, COMB_TUNING_L5).rack(rack, controls, buffers);
+        let comb5_r = CombBuilder::new(self.wave_r, COMB_TUNING_R5).rack(rack, controls, buffers);
+        let comb6_l = CombBuilder::new(self.wave_l, COMB_TUNING_L6).rack(rack, controls, buffers);
+        let comb6_r = CombBuilder::new(self.wave_r, COMB_TUNING_R6).rack(rack, controls, buffers);
+        let comb7_l = CombBuilder::new(self.wave_l, COMB_TUNING_L7).rack(rack, controls, buffers);
+        let comb7_r = CombBuilder::new(self.wave_r, COMB_TUNING_R7).rack(rack, controls, buffers);
+        let comb8_l = CombBuilder::new(self.wave_l, COMB_TUNING_L8).rack(rack, controls, buffers);
+        let comb8_r = CombBuilder::new(self.wave_r, COMB_TUNING_R8).rack(rack, controls, buffers);
         let combs_l = MixerBuilder::new(vec![
             comb1_l.tag(),
             comb2_l.tag(),
@@ -195,74 +247,77 @@ impl FreeverbBuilder {
         let all3_r = AllPassBuilder::new(all2_r.tag(), ALLPASS_TUNING_R3).rack(rack, buffers);
         let all4_l = AllPassBuilder::new(all3_l.tag(), ALLPASS_TUNING_L4).rack(rack, buffers);
         let all4_r = AllPassBuilder::new(all3_r.tag(), ALLPASS_TUNING_R4).rack(rack, buffers);
-        Arc::new(Freeverb::new(0.into(), 0.into()))
+        let n = rack.num_modules();
+        let fv = Arc::new(Freeverb::new(n, self.wave_l, self.wave_r, all4_l, all4_r));
+        rack.push(fv.clone());
+        fv
     }
 }
 
 // impl Freeverb {
-    // pub fn wave(&mut self, arg: Tag) -> &mut Self {
-    //     self.wave = arg;
-    //     self
-    // }
+// pub fn wave(&mut self, arg: Tag) -> &mut Self {
+//     self.wave = arg;
+//     self
+// }
 
-    // pub fn dampening(&mut self, value: f32) -> &mut Self {
-    //     self.dampening = value * SCALE_DAMPENING;
-    //     self.update_combs();
-    //     self
-    // }
+// pub fn dampening(&mut self, value: f32) -> &mut Self {
+//     self.dampening = value * SCALE_DAMPENING;
+//     self.update_combs();
+//     self
+// }
 
-    // pub fn freeze(&mut self, frozen: bool) -> &mut Self {
-    //     self.frozen = frozen;
-    //     self.update_combs();
-    //     self
-    // }
+// pub fn freeze(&mut self, frozen: bool) -> &mut Self {
+//     self.frozen = frozen;
+//     self.update_combs();
+//     self
+// }
 
-    // pub fn wet(&mut self, value: f32) -> &mut Self {
-    //     self.wet = value * SCALE_WET;
-    //     self.update_wet_gains();
-    //     self
-    // }
+// pub fn wet(&mut self, value: f32) -> &mut Self {
+//     self.wet = value * SCALE_WET;
+//     self.update_wet_gains();
+//     self
+// }
 
-    // pub fn width(&mut self, value: f32) -> &mut Self {
-    //     self.width = value;
-    //     self.update_wet_gains();
-    //     self
-    // }
+// pub fn width(&mut self, value: f32) -> &mut Self {
+//     self.width = value;
+//     self.update_wet_gains();
+//     self
+// }
 
-    // fn update_wet_gains(&mut self) {
-    //     self.wet_gain = self.wet * (self.width / 2.0 + 0.5);
-    // }
+// fn update_wet_gains(&mut self) {
+//     self.wet_gain = self.wet * (self.width / 2.0 + 0.5);
+// }
 
-    // pub fn frozen(&mut self, frozen: bool) -> &mut Self {
-    //     self.frozen = frozen;
-    //     self.input_gain = if frozen { 0.0 } else { 1.0 };
-    //     self.update_combs();
-    //     self
-    // }
+// pub fn frozen(&mut self, frozen: bool) -> &mut Self {
+//     self.frozen = frozen;
+//     self.input_gain = if frozen { 0.0 } else { 1.0 };
+//     self.update_combs();
+//     self
+// }
 
-    // pub fn room_size(&mut self, value: f32) -> &mut Self {
-    //     self.room_size = value * SCALE_ROOM + OFFSET_ROOM;
-    //     self.update_combs();
-    //     self
-    // }
+// pub fn room_size(&mut self, value: f32) -> &mut Self {
+//     self.room_size = value * SCALE_ROOM + OFFSET_ROOM;
+//     self.update_combs();
+//     self
+// }
 
-    // fn update_combs(&mut self) {
-    //     let (feedback, dampening) = if self.frozen {
-    //         (1.0, 0.0)
-    //     } else {
-    //         (self.room_size, self.dampening)
-    //     };
+// fn update_combs(&mut self) {
+//     let (feedback, dampening) = if self.frozen {
+//         (1.0, 0.0)
+//     } else {
+//         (self.room_size, self.dampening)
+//     };
 
-    //     for o in self.rack.0.clone().iter_mut() {
-    //         if let Some(v) = o.as_any_mut().downcast_mut::<Comb>() {
-    //             v.feedback(feedback);
-    //             v.dampening(dampening);
-    //         }
-    //     }
-    // }
+//     for o in self.rack.0.clone().iter_mut() {
+//         if let Some(v) = o.as_any_mut().downcast_mut::<Comb>() {
+//             v.feedback(feedback);
+//             v.dampening(dampening);
+//         }
+//     }
+// }
 
-    // pub fn dry(&mut self, value: f32) -> &mut Self {
-    //     self.dry = value;
-    //     self
-    // }
+// pub fn dry(&mut self, value: f32) -> &mut Self {
+//     self.dry = value;
+//     self
+// }
 // }

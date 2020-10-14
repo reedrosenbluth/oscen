@@ -25,8 +25,6 @@
 //! [`Signal`]: signal/trait.Signal.html
 //! [`Rack`]: signal/struct.Rack.html
 
-/// An implementation of *freeverb*.
-pub mod reverb;
 /// Envelope generators.
 pub mod envelopes;
 /// A collection of some basic audio filters.
@@ -39,6 +37,8 @@ pub mod operators;
 pub mod oscillators;
 /// Core Oscen types and traits.
 pub mod rack;
+/// An implementation of *freeverb*.
+pub mod reverb;
 /// Wave shaping.
 pub mod shaping;
 /// Utilites.

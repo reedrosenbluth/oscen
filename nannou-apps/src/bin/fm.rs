@@ -48,7 +48,7 @@ fn model(app: &App) -> Model {
     let synth = Synth {
         sender,
         rack,
-        controls, 
+        controls,
         state,
         outputs,
         buffers,

@@ -40,13 +40,7 @@ pub fn signals(
     for i in start..=end {
         result.push((
             i as f32 / sample_rate as f32,
-            rack.mono(
-                controls,
-                state,
-                &mut outputs,
-                buffers,
-                sample_rate,
-            ),
+            rack.mono(controls, state, &mut outputs, buffers, sample_rate),
         ));
     }
     result
@@ -104,15 +98,15 @@ mod tests {
             interp_inv(0.0, 0.4, 1.0, x)
         }
         let result = trunc4(ie_inv(0.0));
-        assert_eq!(result, 0, "interp returned {}, epxected 0", result);
+        assert_eq!(result, 0, "interp returned {}, expected 0", result);
         let result = trunc4(ie_inv(0.4));
-        assert_eq!(result, 5_000, "interp returned {}, epxected 4,000", result);
+        assert_eq!(result, 5_000, "interp returned {}, expected 4,000", result);
         let result = trunc4(ie_inv(0.6697));
-        assert_eq!(result, 7_500, "interp returned {}, epxected 7,500", result);
+        assert_eq!(result, 7_500, "interp returned {}, expected 7,500", result);
         let result = trunc4(ie_inv(1.0));
         assert_eq!(
             result, 10_000,
-            "interp returned {}, epxected 10,1000",
+            "interp returned {}, expected 10,1000",
             result
         );
     }

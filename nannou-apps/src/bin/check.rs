@@ -122,7 +122,7 @@ fn model(app: &App) -> Model {
         .level(lfo.tag())
         .rack(&mut rack, &mut controls);
     oscs.push(vca.tag());
-    names.push("Vca amp contolled by sine");
+    names.push("Vca amp controlled by sine");
 
     // CrossFade
     let cf = CrossFadeBuilder::new(sine.tag(), square.tag()).rack(&mut rack, &mut controls);
