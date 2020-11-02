@@ -4,9 +4,9 @@ version = "0.1.0"
 authors = [
     "Reed Rosenbluth <reed.rosenbluth@gmail.com>", 
     "Jeffrey Rosenbluth <jeffrey.rosenbluth@gmail.com>",
-    "Satya Bodduluri  <skbodduluri@gmail.com >",
 ]
 edition = "2018"
+autobins = false
 
 [dependencies]
 oscen = { path = "../oscen-lib" }
@@ -16,3 +16,19 @@ midir = "0.5"
 crossbeam = "0.7"
 pitch_calc = "0.12.0"
 rand = "0.7"
+
+[[bin]]
+name = "check"
+path = "src/bin/check.rs"
+
+[[bin]]
+name = "fm"
+path = "src/bin/fm.rs"
+
+[[bin]]
+name = "fourier"
+path = "src/bin/fourier.rs"
+
+[[bin]]
+name = "pluck"
+path = "src/bin/pluck.rs"

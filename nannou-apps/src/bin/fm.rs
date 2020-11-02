@@ -2,10 +2,9 @@ use crossbeam::crossbeam_channel::{unbounded, Receiver, Sender};
 use nannou::prelude::*;
 use nannou_audio as audio;
 use nannou_audio::Buffer;
-use oscen::filters::Lpf;
-use oscen::operators::Modulator;
-use oscen::oscillators::{sine_osc, square_osc, Oscillator};
-use oscen::signal::*;
+use oscen::operators::ModulatorBuilder;
+use oscen::oscillators::{sine_osc, triangle_osc, OscBuilder};
+use oscen::rack::*;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -20,6 +19,10 @@ struct Model {
 struct Synth {
     sender: Sender<f32>,
     rack: Rack,
+    controls: Box<Controls>,
+    state: Box<State>,
+    outputs: Box<Outputs>,
+    buffers: Box<Buffers>,
 }
 
 fn model(app: &App) -> Model {
@@ -27,24 +30,29 @@ fn model(app: &App) -> Model {
     app.new_window().size(700, 360).view(view).build().unwrap();
     let audio_host = audio::Host::new();
 
-    // Build the Synth.
-    // A Rack is a collection of synth modules.
-    let mut rack = Rack::new();
-    let mut id_gen = IdGen::new();
+    let (mut rack, mut controls, mut state, outputs, buffers) = tables();
 
-    let modulator = Modulator::new(&mut id_gen, sine_osc, 440, 4, 2).rack(&mut rack);
+    let modulator = ModulatorBuilder::new(sine_osc)
+        .hz(220.0)
+        .ratio(0.1)
+        .index(2.0)
+        .rack(&mut rack, &mut controls, &mut state);
 
     // Create a square wave oscillator and add it the the rack.
-    // let square = SquareOsc::new().hz(modulator.tag()).rack(&mut rack);
-    let square = Oscillator::new(&mut id_gen, square_osc)
-        .hz(modulator.tag())
-        .arg(0.5)
-        .rack(&mut rack);
+    let _triangle = OscBuilder::new(triangle_osc).hz(modulator.tag()).rack(
+        &mut rack,
+        &mut controls,
+        &mut state,
+    );
 
-    // Create a low pass filter whose input is the square wave.
-    Lpf::new(&mut id_gen, square.tag()).cutoff_freq(440).rack(&mut rack);
-
-    let synth = Synth { sender, rack };
+    let synth = Synth {
+        sender,
+        rack,
+        controls,
+        state,
+        outputs,
+        buffers,
+    };
     let stream = audio_host
         .new_output_stream(synth)
         .render(audio)
@@ -59,11 +67,17 @@ fn model(app: &App) -> Model {
 }
 
 fn audio(synth: &mut Synth, buffer: &mut Buffer) {
-    let sample_rate = buffer.sample_rate() as Real;
+    let sample_rate = buffer.sample_rate() as f32;
     for frame in buffer.frames_mut() {
         // The signal method returns the sample of the last synth module in
         // the rack.
-        let amp = synth.rack.signal(sample_rate) as f32;
+        let amp = synth.rack.mono(
+            &synth.controls,
+            &mut synth.state,
+            &mut synth.outputs,
+            &mut synth.buffers,
+            sample_rate,
+        );
 
         for channel in frame {
             *channel = amp;

@@ -10,3 +10,4 @@ edition = "2018"
 oscen = { path = "../oscen-lib" }
 cpal = "0.12.1"
 anyhow = "1.0.32"
+libmath = "0.2.1"

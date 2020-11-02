@@ -1,8 +1,5 @@
 use anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::operators::MixerBuilder;
-use oscen::oscillators::*;
-use oscen::rack::*;
 
 fn main() -> Result<(), anyhow::Error> {
     let host = cpal::default_host();
@@ -27,29 +24,11 @@ where
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
 
-    let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
-
-    let num_oscillators = 700;
-    let amp = 1.0 / num_oscillators as f32;
-    let mut oscs = vec![];
-    for _ in 0..num_oscillators {
-        let osc = OscBuilder::new(sine_osc).amplitude(amp).hz(220f32).rack(
-            &mut rack,
-            &mut controls,
-            &mut state,
-        );
-        oscs.push(osc.tag());
-    }
-    MixerBuilder::new(oscs).rack(&mut rack, &mut controls);
-
+    // Produce a sinusoid of maximum amplitude.
+    let mut sample_clock = 0f32;
     let mut next_value = move || {
-        rack.mono(
-            &controls,
-            &mut state,
-            &mut outputs,
-            &mut buffers,
-            sample_rate,
-        )
+        sample_clock = (sample_clock + 1.0) % sample_rate;
+        (sample_clock * 440.0 * 2.0 * 3.141592 / sample_rate).sin()
     };
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
