@@ -122,7 +122,6 @@ impl Signal for Freeverb {
             * FIXED_GAIN
             * self.input_gain(controls, outputs);
         outputs[(self.tag, 0)] =
-        outputs[(self.tag, 0)] =
             self.wet_gain_l(controls, outputs) * outputs[(self.right.tag(), 0)];
         outputs[(self.tag, 1)] =
             self.wet_gain_r(controls, outputs) * outputs[(self.right.tag(), 0)];

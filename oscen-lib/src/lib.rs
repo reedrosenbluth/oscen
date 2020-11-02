@@ -38,7 +38,7 @@ pub mod oscillators;
 /// Core Oscen types and traits.
 pub mod rack;
 /// An implementation of *freeverb*.
-pub mod reverb;
+// pub mod reverb;
 /// Wave shaping.
 pub mod shaping;
 /// Utilites.
