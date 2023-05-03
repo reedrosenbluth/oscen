@@ -1,5 +1,6 @@
 use anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{FromSample, Sample, SizedSample};
 use oscen::operators::MixerBuilder;
 use oscen::oscillators::*;
 use oscen::rack::*;
@@ -15,21 +16,22 @@ fn main() -> Result<(), anyhow::Error> {
         cpal::SampleFormat::F32 => run::<f32>(&device, &config.into())?,
         cpal::SampleFormat::I16 => run::<i16>(&device, &config.into())?,
         cpal::SampleFormat::U16 => run::<u16>(&device, &config.into())?,
+        _ => panic!("Unsupported sample format "),
     }
 
     Ok(())
 }
 
-fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
+pub fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
 where
-    T: cpal::Sample,
+    T: SizedSample + FromSample<f32>,
 {
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
 
     let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
 
-    let num_oscillators = 700;
+    let num_oscillators = 25;
     let amp = 1.0 / num_oscillators as f32;
     let mut oscs = vec![];
     for _ in 0..num_oscillators {
@@ -60,6 +62,7 @@ where
             write_data(data, channels, &mut next_value)
         },
         err_fn,
+        None,
     )?;
     stream.play()?;
 
@@ -70,10 +73,10 @@ where
 
 fn write_data<T>(output: &mut [T], channels: usize, next_sample: &mut dyn FnMut() -> f32)
 where
-    T: cpal::Sample,
+    T: Sample + FromSample<f32>,
 {
     for frame in output.chunks_mut(channels) {
-        let value: T = cpal::Sample::from::<f32>(&next_sample());
+        let value: T = T::from_sample(next_sample());
         for sample in frame.iter_mut() {
             *sample = value;
         }

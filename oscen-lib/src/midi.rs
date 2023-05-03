@@ -1,7 +1,7 @@
 use crate::rack::*;
 use crate::utils::interp;
 use crate::{build, props, tag};
-use crossbeam::crossbeam_channel::Sender;
+use crossbeam::channel::Sender;
 use midir::{Ignore, MidiInput};
 use pitch_calc::calc::hz_from_step;
 use std::error::Error;
