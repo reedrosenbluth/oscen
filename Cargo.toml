@@ -1,8 +1,8 @@
 [workspace]
-
+resolver = "2"
 members = [
     "oscen-lib",
-    "nannou-apps",
-    "plot-apps",
+    # "nannou-apps",
+    # "plot-apps",
     "cpal-apps"
 ]

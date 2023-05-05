@@ -83,9 +83,11 @@ impl Controls {
     pub fn new() -> Self {
         Controls([[0.0.into(); MAX_CONTROLS]; MAX_MODULES])
     }
+
     pub fn controls<T: Into<usize>>(&self, tag: T) -> &[Control] {
         self.0[tag.into()].as_ref()
     }
+
     pub fn controls_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [Control] {
         self.0[tag.into()].as_mut()
     }

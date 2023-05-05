@@ -5,13 +5,13 @@ authors = [
     "Reed Rosenbluth <reed.rosenbluth@gmail.com>", 
     "Jeffrey Rosenbluth <jeffrey.rosenbluth@gmail.com>",
 ]
-edition = "2018"
+edition = "2021"
 autobins = false
 
 [dependencies]
 oscen = { path = "../oscen-lib" }
-nannou = "0.18.1"
-nannou_audio = "0.18"
+# # nannou = "0.18.1"
+# nannou_audio = "0.18"
 midir = "0.9.1"
 crossbeam = "0.8.2"
 pitch_calc = "0.12.0"
