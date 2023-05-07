@@ -128,8 +128,8 @@ impl Signal for Freeverb {
     }
 }
 
-out.0 * self.wet_gains.0 + out.1 * self.wet_gains.1 + input.0 * self.dry,
-out.1 * self.wet_gains.0 + out.0 * self.wet_gains.1 + input.1 * self.dry,
+// // out.0 * self.wet_gains.0 + out.1 * self.wet_gains.1 + input.0 * self.dry,
+// out.1 * self.wet_gains.0 + out.0 * self.wet_gains.1 + input.1 * self.dry,
 //     std_signal!();
 //     fn signal(&mut self, rack: &Rack, sample_rate: f32) -> f32 {
 //         let inp = rack.output(self.wave);

@@ -335,7 +335,7 @@ pub trait Signal {
     /// modules.
     fn tag(&self) -> Tag;
     fn modify_tag(&mut self, f: fn(Tag) -> Tag);
-    /// Responsible for updating the any inputs including `phase` and returning the next signal
+    /// Responsible for updating any inputs including `phase` and returning the next signal
     /// output.
     fn signal(
         &self,

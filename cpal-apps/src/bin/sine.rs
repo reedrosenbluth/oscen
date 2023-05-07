@@ -1,16 +1,17 @@
 use anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, Sample, SizedSample};
+use cpal::{Device, FromSample, Sample, SizedSample, StreamConfig};
 use iced::{
     widget::{button, column, text},
-    Alignment, Element, Sandbox, Settings,
+    Alignment, Application, Command, Element, Settings, Theme,
 };
 use oscen::oscillators::{sine_osc, OscBuilder};
 use oscen::rack::*;
+use std::sync::mpsc::*;
 use std::thread;
 
-// fn main() -> Result<(), anyhow::Error> {
 fn main() -> iced::Result {
+    let (tx, rx) = channel();
     thread::spawn(|| {
         let host = cpal::default_host();
         let device = host
@@ -19,31 +20,39 @@ fn main() -> iced::Result {
         let config = device.default_output_config()?;
 
         match config.sample_format() {
-            cpal::SampleFormat::F32 => run::<f32>(&device, &config.into())?,
-            cpal::SampleFormat::I16 => run::<i16>(&device, &config.into())?,
-            cpal::SampleFormat::U16 => run::<u16>(&device, &config.into())?,
+            cpal::SampleFormat::F32 => run::<f32>(&device, &config.into(), rx)?,
+            cpal::SampleFormat::I16 => run::<i16>(&device, &config.into(), rx)?,
+            cpal::SampleFormat::U16 => run::<u16>(&device, &config.into(), rx)?,
             _ => panic!("Unsupported sample format "),
         }
         Ok::<(), anyhow::Error>(())
     });
 
-    Counter::run(Settings::default())
+    Counter::run(Settings::with_flags(tx))
 }
 
-pub fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
+pub fn run<T>(
+    device: &Device,
+    config: &StreamConfig,
+    rx: Receiver<i32>,
+) -> Result<(), anyhow::Error>
 where
     T: SizedSample + FromSample<f32>,
 {
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
-
     let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
 
-    OscBuilder::new(sine_osc)
-        .hz(330.0)
-        .rack(&mut rack, &mut controls, &mut state);
+    let so = OscBuilder::new(sine_osc).hz(330.0).amplitude(0.25).rack(
+        &mut rack,
+        &mut controls,
+        &mut state,
+    );
 
     let mut next_value = move || {
+        if let Ok(r) = rx.try_recv() {
+            so.set_hz(&mut controls, (220.0 * (1.0 + r as f32 * 1.059)).into());
+        };
         rack.mono(
             &controls,
             &mut state,
@@ -82,6 +91,7 @@ where
 
 struct Counter {
     value: i32,
+    tx: Sender<i32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -90,18 +100,27 @@ enum Message {
     DecrementPressed,
 }
 
-impl Sandbox for Counter {
+impl Application for Counter {
     type Message = Message;
+    type Theme = Theme;
+    type Executor = iced::executor::Default;
+    type Flags = Sender<i32>;
 
-    fn new() -> Self {
-        Self { value: 0 }
+    fn new(flags: Sender<i32>) -> (Counter, Command<Message>) {
+        (
+            Self {
+                value: 0,
+                tx: flags,
+            },
+            Command::none(),
+        )
     }
 
     fn title(&self) -> String {
-        String::from("Counter - Iced")
+        String::from("Sine Wave")
     }
 
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::IncrementPressed => {
                 self.value += 1;
@@ -110,13 +129,15 @@ impl Sandbox for Counter {
                 self.value -= 1;
             }
         }
+        let _ = self.tx.send(self.value);
+        Command::none()
     }
 
     fn view(&self) -> Element<Message> {
         column![
-            button("Increment").on_press(Message::IncrementPressed),
+            button(text("Up").width(50)).on_press(Message::IncrementPressed),
             text(self.value).size(50),
-            button("Decrement").on_press(Message::DecrementPressed)
+            button(text("Down").width(50)).on_press(Message::DecrementPressed)
         ]
         .padding(20)
         .align_items(Alignment::Center)

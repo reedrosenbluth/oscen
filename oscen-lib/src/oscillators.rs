@@ -34,10 +34,12 @@ impl OscBuilder {
             arg: 0.5.into(),
         }
     }
+
     pub fn phase(&mut self, value: f32) -> &mut Self {
         self.phase = value;
         self
     }
+
     build!(hz);
     build!(amplitude);
     build!(arg);
