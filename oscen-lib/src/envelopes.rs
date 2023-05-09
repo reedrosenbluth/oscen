@@ -30,7 +30,7 @@ impl Adsr {
         let ctrl = controls[(self.tag, 4)];
         match ctrl {
             Control::B(b) => b,
-            _ => panic!("triggered must be a bool, not {:?}", ctrl),
+            _ => panic!("triggered must be a bool, not {ctrl:?}"),
         }
     }
 

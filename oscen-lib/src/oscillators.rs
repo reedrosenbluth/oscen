@@ -302,10 +302,10 @@ impl Signal for PinkNoise {
         let white = Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng);
         state[(tag, 0)] = 0.99886 * state[(tag, 0)] + white * 0.0555179;
         state[(tag, 1)] = 0.99332 * state[(tag, 1)] + white * 0.0750759;
-        state[(tag, 2)] = 0.96900 * state[(tag, 2)] + white * 0.1538520;
-        state[(tag, 3)] = 0.86650 * state[(tag, 3)] + white * 0.3104856;
-        state[(tag, 4)] = 0.55000 * state[(tag, 4)] + white * 0.5329522;
-        state[(tag, 5)] = -0.7616 * state[(tag, 5)] - white * 0.0168980;
+        state[(tag, 2)] = 0.969 * state[(tag, 2)] + white * 0.153852;
+        state[(tag, 3)] = 0.8665 * state[(tag, 3)] + white * 0.3104856;
+        state[(tag, 4)] = 0.55 * state[(tag, 4)] + white * 0.5329522;
+        state[(tag, 5)] = -0.7616 * state[(tag, 5)] - white * 0.016898;
         let pink = state[(tag, 0)]
             + state[(tag, 1)]
             + state[(tag, 2)]
@@ -486,17 +486,16 @@ impl Signal for Clock {
     ) {
         let tag = self.tag;
         let interval = self.interval(controls, outputs) * sample_rate;
-        let out;
-        if state[(tag, 0)] == 0.0 {
+        let out = if state[(tag, 0)] == 0.0 {
             state[(tag, 0)] += 1.0;
-            out = 1.0;
+            1.0
         } else {
             state[(tag, 0)] += 1.0;
             while state[(tag, 0)] >= interval {
                 state[(tag, 0)] -= interval;
             }
-            out = 0.0;
-        }
+            0.0
+        };
         outputs[(self.tag, 0)] = out;
     }
 }

@@ -19,7 +19,7 @@ impl Lpf {
         let ctrl = controls[(self.tag, 2)];
         match ctrl {
             Control::B(b) => b,
-            _ => panic!("off must be a bool, not {:?}", ctrl),
+            _ => panic!("off must be a bool, not {ctrl:?}"),
         }
     }
     pub fn set_off(&self, controls: &mut Controls, value: bool) {
@@ -113,7 +113,7 @@ impl Hpf {
         let ctrl = controls[(self.tag, 2)];
         match ctrl {
             Control::B(b) => b,
-            _ => panic!("off must be a bool, not {:?}", ctrl),
+            _ => panic!("off must be a bool, not {ctrl:?}"),
         }
     }
     pub fn set_off(&self, controls: &mut Controls, value: bool) {
@@ -206,7 +206,7 @@ impl Bpf {
         let ctrl = controls[(self.tag, 2)];
         match ctrl {
             Control::B(b) => b,
-            _ => panic!("off must be a bool, not {:?}", ctrl),
+            _ => panic!("off must be a bool, not {ctrl:?}"),
         }
     }
     pub fn set_off(&self, controls: &mut Controls, value: bool) {
@@ -300,7 +300,7 @@ impl Notch {
         let ctrl = controls[(self.tag, 2)];
         match ctrl {
             Control::B(b) => b,
-            _ => panic!("off must be a bool, not {:?}", ctrl),
+            _ => panic!("off must be a bool, not {ctrl:?}"),
         }
     }
     pub fn set_off(&self, controls: &mut Controls, value: bool) {

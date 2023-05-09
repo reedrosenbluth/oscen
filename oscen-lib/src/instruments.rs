@@ -5,7 +5,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct WaveGuide {
     tag: Tag,
-    burst: Tag,
+    _burst: Tag,
     adsr: Arc<Adsr>,
     mixer: Arc<Mixer>,
 }
@@ -14,7 +14,7 @@ impl WaveGuide {
     pub fn new<T: Into<Tag>>(tag: T, burst: Tag, adsr: Arc<Adsr>, mixer: Arc<Mixer>) -> Self {
         Self {
             tag: tag.into(),
-            burst,
+            _burst: burst,
             adsr,
             mixer,
         }

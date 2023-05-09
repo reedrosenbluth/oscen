@@ -1,7 +1,6 @@
 use nannou::prelude::*;
 
 pub fn scope_data(data: &[f32]) -> Vec<f32> {
-    // Draw Oscilloscope
     let mut scope_data = data.iter().peekable();
     let mut shifted_scope_data: Vec<f32> = vec![];
 

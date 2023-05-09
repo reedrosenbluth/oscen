@@ -1,4 +1,3 @@
-use anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SizedSample};
 use oscen::operators::*;

@@ -1,8 +1,9 @@
 use anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, FromSample, Sample, SizedSample, StreamConfig};
+use iced::widget::row;
 use iced::{
-    widget::{button, column, text},
+    widget::{button, column, text, Rule},
     Alignment, Application, Command, Element, Settings, Theme,
 };
 use oscen::oscillators::{sine_osc, OscBuilder};
@@ -28,7 +29,9 @@ fn main() -> iced::Result {
         Ok::<(), anyhow::Error>(())
     });
 
-    Counter::run(Settings::with_flags(tx))
+    let mut settings = Settings::with_flags(tx);
+    settings.window.size = (405, 200);
+    Model::run(settings)
 }
 
 pub fn run<T>(
@@ -43,7 +46,7 @@ where
     let channels = config.channels as usize;
     let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
 
-    let so = OscBuilder::new(sine_osc).hz(330.0).amplitude(0.25).rack(
+    let so = OscBuilder::new(sine_osc).hz(220.0).amplitude(0.25).rack(
         &mut rack,
         &mut controls,
         &mut state,
@@ -51,7 +54,7 @@ where
 
     let mut next_value = move || {
         if let Ok(r) = rx.try_recv() {
-            so.set_hz(&mut controls, (220.0 * (1.0 + r as f32 * 1.059)).into());
+            so.set_hz(&mut controls, (220.0 * 1.059463_f32.powf(r as f32)).into());
         };
         rack.mono(
             &controls,
@@ -89,7 +92,7 @@ where
     }
 }
 
-struct Counter {
+struct Model {
     value: i32,
     tx: Sender<i32>,
 }
@@ -100,13 +103,13 @@ enum Message {
     DecrementPressed,
 }
 
-impl Application for Counter {
+impl Application for Model {
     type Message = Message;
     type Theme = Theme;
     type Executor = iced::executor::Default;
     type Flags = Sender<i32>;
 
-    fn new(flags: Sender<i32>) -> (Counter, Command<Message>) {
+    fn new(flags: Sender<i32>) -> (Model, Command<Message>) {
         (
             Self {
                 value: 0,
@@ -134,13 +137,34 @@ impl Application for Counter {
     }
 
     fn view(&self) -> Element<Message> {
-        column![
-            button(text("Up").width(50)).on_press(Message::IncrementPressed),
+        let buttons = column![
+            button(
+                text("+")
+                    .width(50)
+                    .horizontal_alignment(iced::alignment::Horizontal::Center)
+            )
+            .on_press(Message::IncrementPressed),
             text(self.value).size(50),
-            button(text("Down").width(50)).on_press(Message::DecrementPressed)
+            button(
+                text("-")
+                    .width(50)
+                    .horizontal_alignment(iced::alignment::Horizontal::Center)
+            )
+            .on_press(Message::DecrementPressed)
         ]
-        .padding(20)
-        .align_items(Alignment::Center)
-        .into()
+        .padding(30)
+        .spacing(10)
+        .align_items(Alignment::Center);
+        let freq = column![text(format!(
+            "Frequency: {:.0}",
+            220.0 * 1.059463_f32.powf(self.value as f32)
+        ))
+        .size(35)]
+        .padding(30);
+        row![buttons, Rule::vertical(10), freq].into()
+    }
+
+    fn theme(&self) -> Theme {
+        Theme::Dark
     }
 }
