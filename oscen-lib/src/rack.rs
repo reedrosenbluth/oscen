@@ -79,9 +79,15 @@ impl From<Tag> for Control {
 #[derive(Copy, Clone)]
 pub struct Controls([[Control; MAX_CONTROLS]; MAX_MODULES]);
 
+impl Default for Controls {
+    fn default() -> Self {
+        Controls([[0.0.into(); MAX_CONTROLS]; MAX_MODULES])
+    }
+}
+
 impl Controls {
     pub fn new() -> Self {
-        Controls([[0.0.into(); MAX_CONTROLS]; MAX_MODULES])
+        Self::default()
     }
 
     pub fn controls<T: Into<usize>>(&self, tag: T) -> &[Control] {
@@ -115,9 +121,15 @@ where
 #[derive(Copy, Clone)]
 pub struct Outputs([[f32; MAX_OUTPUTS]; MAX_MODULES]);
 
+impl Default for Outputs {
+    fn default() -> Self {
+        Outputs([[0.0; MAX_OUTPUTS]; MAX_MODULES])
+    }
+}
+
 impl Outputs {
     pub fn new() -> Self {
-        Outputs([[0.0; MAX_OUTPUTS]; MAX_MODULES])
+        Self::default()
     }
 
     pub fn outputs<T: Into<usize>>(&self, tag: T) -> &[f32] {
@@ -173,9 +185,15 @@ where
 #[derive(Copy, Clone)]
 pub struct State([[f32; MAX_STATE]; MAX_MODULES]);
 
+impl Default for State {
+    fn default() -> Self {
+        State([[0.0; MAX_STATE]; MAX_MODULES])
+    }
+}
+
 impl State {
     pub fn new() -> Self {
-        State([[0.0; MAX_STATE]; MAX_MODULES])
+        Self::default()
     }
     pub fn state<T: Into<usize>>(&self, tag: T) -> &[f32] {
         self.0[tag.into()].as_ref()
@@ -313,9 +331,15 @@ where
 #[derive(Clone)]
 pub struct Buffers([RingBuffer; MAX_MODULES]);
 
+impl Default for Buffers {
+    fn default() -> Self {
+        Buffers(arr![Default::default(); 1024])
+    }
+}
+
 impl Buffers {
     pub fn new() -> Self {
-        Buffers(arr![Default::default(); 1024])
+        Self::default()
     }
     pub fn buffers<T: Into<usize>>(&self, tag: T) -> &RingBuffer {
         &self.0[tag.into()]
@@ -365,9 +389,15 @@ macro_rules! tag {
 /// more racks.
 pub struct Rack(Vec<Arc<dyn Signal + Send + Sync>>);
 
+impl Default for Rack {
+    fn default() -> Self {
+        Rack(vec![])
+    }
+}
+
 impl Rack {
     pub fn new() -> Self {
-        Rack(vec![])
+        Self::default()
     }
     pub fn num_modules(&self) -> usize {
         self.0.len()
@@ -404,7 +434,25 @@ impl Rack {
     }
 }
 
-/// Generate the Environment variables needed for the synth.
+#[derive(Clone)]
+pub struct Storage {
+    pub controls: Box<Controls>,
+    pub state: Box<State>,
+    pub outputs: Box<Outputs>,
+    pub buffers: Box<Buffers>,
+}
+
+impl Default for Storage {
+    fn default() -> Self {
+        Self {
+            controls: Default::default(),
+            state: Default::default(),
+            outputs: Default::default(),
+            buffers: Default::default(),
+        }
+    }
+}
+///  XXX deprecated, use Storage.
 pub fn tables() -> (Rack, Box<Controls>, Box<State>, Box<Outputs>, Box<Buffers>) {
     (
         Rack::new(),

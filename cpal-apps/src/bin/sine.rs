@@ -44,23 +44,27 @@ where
 {
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
-    let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
+    let mut rack = Rack::default();
+    let mut storage = Storage::default();
 
     let so = OscBuilder::new(sine_osc).hz(220.0).amplitude(0.25).rack(
         &mut rack,
-        &mut controls,
-        &mut state,
+        &mut storage.controls,
+        &mut storage.state,
     );
 
     let mut next_value = move || {
         if let Ok(r) = rx.try_recv() {
-            so.set_hz(&mut controls, (220.0 * 1.059463_f32.powf(r as f32)).into());
+            so.set_hz(
+                &mut storage.controls,
+                (220.0 * 1.059463_f32.powf(r as f32)).into(),
+            );
         };
         rack.mono(
-            &controls,
-            &mut state,
-            &mut outputs,
-            &mut buffers,
+            &storage.controls,
+            &mut storage.state,
+            &mut storage.outputs,
+            &mut storage.buffers,
             sample_rate,
         )
     };
