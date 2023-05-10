@@ -105,18 +105,11 @@ impl Oscillator {
 
 impl Signal for Oscillator {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        sample_rate: f32,
-    ) {
-        let phase = self.phase(state);
-        let hz = self.hz(controls, outputs);
-        let amp = self.amplitude(controls, outputs);
-        let arg = self.arg(controls, outputs);
+    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+        let phase = self.phase(&rack.state);
+        let hz = self.hz(&rack);
+        let amp = self.amplitude(&rack);
+        let arg = self.arg(&rack);
         let mut ph = phase + hz / sample_rate;
         while ph >= 1.0 {
             ph -= 1.0
@@ -124,8 +117,8 @@ impl Signal for Oscillator {
         while ph <= -1.0 {
             ph += 1.0
         }
-        self.set_phase(state, ph);
-        outputs[(self.tag, 0)] = amp * (self.signal_fn)(phase, arg);
+        self.set_phase(&mut rack.state, ph);
+        rack.outputs[(self.tag, 0)] = amp * (self.signal_fn)(phase, arg);
     }
 }
 
@@ -163,15 +156,8 @@ impl Const {
 
 impl Signal for Const {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        outputs[(self.tag, 0)] = self.value(controls, outputs);
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        rack.outputs[(self.tag, 0)] = self.value(rack);
     }
 }
 
@@ -227,15 +213,8 @@ impl WhiteNoise {
 
 impl Signal for WhiteNoise {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        let amplitude = self.amplitude(controls, outputs);
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        let amplitude = self.amplitude(rack);
         let mut rng = thread_rng();
         let out: f32;
         match self.dist {
@@ -244,7 +223,7 @@ impl Signal for WhiteNoise {
             }
             NoiseDistribution::StdNormal => out = amplitude * rng.sample::<f32, _>(StandardNormal),
         }
-        outputs[(self.tag, 0)] = out;
+        rack.outputs[(self.tag, 0)] = out;
     }
 }
 
@@ -272,9 +251,9 @@ impl PinkNoiseBuilder {
         }
     }
     build!(amplitude);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<PinkNoise> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<PinkNoise> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.amplitude;
+        rack.controls[(n, 0)] = self.amplitude;
         let noise = Arc::new(PinkNoise::new(n));
         rack.push(noise.clone());
         noise
@@ -283,34 +262,27 @@ impl PinkNoiseBuilder {
 
 impl Signal for PinkNoise {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
         let tag = self.tag;
-        let amplitude = self.amplitude(controls, outputs);
+        let amplitude = self.amplitude(rack);
         let mut rng = thread_rng();
         let white = Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng);
-        state[(tag, 0)] = 0.99886 * state[(tag, 0)] + white * 0.0555179;
-        state[(tag, 1)] = 0.99332 * state[(tag, 1)] + white * 0.0750759;
-        state[(tag, 2)] = 0.969 * state[(tag, 2)] + white * 0.153852;
-        state[(tag, 3)] = 0.8665 * state[(tag, 3)] + white * 0.3104856;
-        state[(tag, 4)] = 0.55 * state[(tag, 4)] + white * 0.5329522;
-        state[(tag, 5)] = -0.7616 * state[(tag, 5)] - white * 0.016898;
-        let pink = state[(tag, 0)]
-            + state[(tag, 1)]
-            + state[(tag, 2)]
-            + state[(tag, 3)]
-            + state[(tag, 4)]
-            + state[(tag, 5)]
-            + state[(tag, 6)]
+        rack.state[(tag, 0)] = 0.99886 * rack.state[(tag, 0)] + white * 0.0555179;
+        rack.state[(tag, 1)] = 0.99332 * rack.state[(tag, 1)] + white * 0.0750759;
+        rack.state[(tag, 2)] = 0.969 * rack.state[(tag, 2)] + white * 0.153852;
+        rack.state[(tag, 3)] = 0.8665 * rack.state[(tag, 3)] + white * 0.3104856;
+        rack.state[(tag, 4)] = 0.55 * rack.state[(tag, 4)] + white * 0.5329522;
+        rack.state[(tag, 5)] = -0.7616 * rack.state[(tag, 5)] - white * 0.016898;
+        let pink = rack.state[(tag, 0)]
+            + rack.state[(tag, 1)]
+            + rack.state[(tag, 2)]
+            + rack.state[(tag, 3)]
+            + rack.state[(tag, 4)]
+            + rack.state[(tag, 5)]
+            + rack.state[(tag, 6)]
             + white * 0.5362;
-        state[(tag, 6)] = white * 0.115926;
-        outputs[(self.tag, 0)] = pink * amplitude;
+        rack.state[(tag, 6)] = white * 0.115926;
+        rack.outputs[(self.tag, 0)] = pink * amplitude;
     }
 }
 
@@ -363,10 +335,10 @@ impl FourierOscBuilder {
         self.lanczos = value;
         self
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<FourierOsc> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<FourierOsc> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.hz;
-        controls[(n, 1)] = self.amplitude;
+        rack.controls[(n, 0)] = self.hz;
+        rack.controls[(n, 1)] = self.amplitude;
         let osc = Arc::new(FourierOsc::new(n, self.coefficients.clone(), self.lanczos));
         rack.push(osc.clone());
         osc
@@ -382,31 +354,24 @@ fn sinc(x: f32) -> f32 {
 
 impl Signal for FourierOsc {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        sample_rate: f32,
-    ) {
+    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
         let tag = self.tag;
-        let hz = self.hz(controls, outputs);
+        let hz = self.hz(rack);
         let sigma = self.lanczos as i32;
         let mut out = 0.0;
         for (i, c) in self.coefficients.iter().enumerate() {
             out += c
                 * sinc(sigma as f32 * i as f32 / self.coefficients.len() as f32)
-                * (state[(tag, i)] * TAU).sin();
-            state[(tag, i)] += hz * i as f32 / sample_rate;
-            while state[(tag, i)] >= 1.0 {
-                state[(tag, i)] -= 1.0;
+                * (rack.state[(tag, i)] * TAU).sin();
+            rack.state[(tag, i)] += hz * i as f32 / sample_rate;
+            while rack.state[(tag, i)] >= 1.0 {
+                rack.state[(tag, i)] -= 1.0;
             }
-            while state[(tag, i)] <= -1.0 {
-                state[(tag, i)] += 1.0;
+            while rack.state[(tag, i)] <= -1.0 {
+                rack.state[(tag, i)] += 1.0;
             }
         }
-        outputs[(self.tag, 0)] = out * self.amplitude(controls, outputs);
+        rack.outputs[(self.tag, 0)] = out * self.amplitude(rack);
     }
 }
 
@@ -453,9 +418,9 @@ impl ClockBuilder {
             interval: interval.into(),
         }
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Clock> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Clock> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.interval;
+        rack.controls[(n, 0)] = self.interval;
         let clock = Arc::new(Clock::new(n));
         rack.push(clock.clone());
         clock
@@ -471,26 +436,19 @@ impl Clock {
 
 impl Signal for Clock {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        sample_rate: f32,
-    ) {
+    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
         let tag = self.tag;
-        let interval = self.interval(controls, outputs) * sample_rate;
-        let out = if state[(tag, 0)] == 0.0 {
-            state[(tag, 0)] += 1.0;
+        let interval = self.interval(rack) * sample_rate;
+        let out = if rack.state[(tag, 0)] == 0.0 {
+            rack.state[(tag, 0)] += 1.0;
             1.0
         } else {
-            state[(tag, 0)] += 1.0;
-            while state[(tag, 0)] >= interval {
-                state[(tag, 0)] -= interval;
+            rack.state[(tag, 0)] += 1.0;
+            while rack.state[(tag, 0)] >= interval {
+                rack.state[(tag, 0)] -= interval;
             }
             0.0
         };
-        outputs[(self.tag, 0)] = out;
+        rack.outputs[(self.tag, 0)] = out;
     }
 }

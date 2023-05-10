@@ -361,14 +361,7 @@ pub trait Signal {
     fn modify_tag(&mut self, f: fn(Tag) -> Tag);
     /// Responsible for updating any inputs including `phase` and returning the next signal
     /// output.
-    fn signal(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        buffers: &mut Buffers,
-        sample_rate: f32,
-    );
+    fn signal(&self, rack: &mut Rack, sample_rate: f32);
 }
 
 /// A macro to reduce the boiler plate of creating a Synth Module by implementing
@@ -421,14 +414,8 @@ impl Rack {
     /// of outpts in the last module.
     pub fn play(&mut self, sample_rate: f32) -> [f32; MAX_OUTPUTS] {
         let n = self.modules.len() - 1;
-        for module in self.modules.iter() {
-            module.signal(
-                &self.controls,
-                &mut self.state,
-                &mut self.outputs,
-                &mut self.buffers,
-                sample_rate,
-            );
+        for module in self.modules.iter_mut() {
+            module.signal(self, sample_rate);
         }
         self.outputs.0[n]
     }
@@ -451,12 +438,12 @@ macro_rules! build {
 #[macro_export]
 macro_rules! props {
     ($field:ident, $set:ident, $n:expr) => {
-        pub fn $field(&self, controls: &Controls, outputs: &Outputs) -> f32 {
-            let inp = controls[(self.tag, $n)];
-            outputs.value(inp).unwrap()
+        pub fn $field(&self, rack: &Rack) -> f32 {
+            let inp = rack.controls[(self.tag, $n)];
+            rack.outputs.value(inp).unwrap()
         }
-        pub fn $set(&self, controls: &mut Controls, value: Control) {
-            controls[(self.tag, $n)] = value;
+        pub fn $set(&self, rack: &mut Rack, value: Control) {
+            rack.controls[(self.tag, $n)] = value;
         }
     };
 }

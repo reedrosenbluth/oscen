@@ -15,8 +15,8 @@ impl Lpf {
     }
     props!(cutoff, set_cutoff, 0);
     props!(q, set_q, 1);
-    pub fn off(&self, controls: &Controls) -> bool {
-        let ctrl = controls[(self.tag, 2)];
+    pub fn off(&self, rack: &Rack) -> bool {
+        let ctrl = rack.controls[(self.tag, 2)];
         match ctrl {
             Control::B(b) => b,
             _ => panic!("off must be a bool, not {ctrl:?}"),
@@ -29,37 +29,30 @@ impl Lpf {
 
 impl Signal for Lpf {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        sample_rate: f32,
-    ) {
-        let x0 = outputs[(self.wave, 0)];
-        let cut_off = self.cutoff(controls, outputs);
-        if self.off(controls) || cut_off > 20_000.0 {
-            outputs[(self.tag, 0)] = x0;
+    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+        let x0 = rack.outputs[(self.wave, 0)];
+        let cut_off = self.cutoff(rack);
+        if self.off(rack) || cut_off > 20_000.0 {
+            rack.outputs[(self.tag, 0)] = x0;
             return;
         }
         let tag = self.tag;
-        let q = self.q(controls, outputs);
+        let q = self.q(rack);
         let phi = 2.0 * PI * cut_off / sample_rate;
         let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.25 * (1.0 + b1 + b2);
         let a1 = 2.0 * a0;
-        outputs[(tag, 0)] = a0 * x0 + a1 * state[(tag, 0)] + a0 * state[(tag, 1)]
-            - b1 * state[(tag, 2)]
-            - b2 * state[(tag, 3)];
-        state[(tag, 1)] = state[(tag, 0)];
-        state[(tag, 0)] = x0;
-        state[(tag, 3)] = state[(tag, 2)];
-        state[(tag, 2)] = if outputs[(tag, 0)].is_nan() {
+        rack.outputs[(tag, 0)] = a0 * x0 + a1 * rack.state[(tag, 0)] + a0 * rack.state[(tag, 1)]
+            - b1 * rack.state[(tag, 2)]
+            - b2 * rack.state[(tag, 3)];
+        rack.state[(tag, 1)] = rack.state[(tag, 0)];
+        rack.state[(tag, 0)] = x0;
+        rack.state[(tag, 3)] = rack.state[(tag, 2)];
+        rack.state[(tag, 2)] = if rack.outputs[(tag, 0)].is_nan() {
             0.0
         } else {
-            outputs[(tag, 0)]
+            rack.outputs[(tag, 0)]
         };
     }
 }
@@ -86,11 +79,11 @@ impl LpfBuilder {
     build!(q);
     build!(off);
 
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Lpf> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Lpf> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.cut_off;
-        controls[(n, 1)] = self.q;
-        controls[(n, 2)] = self.off;
+        rack.controls[(n, 0)] = self.cut_off;
+        rack.controls[(n, 1)] = self.q;
+        rack.controls[(n, 2)] = self.off;
         let lpf = Arc::new(Lpf::new(n.into(), self.wave));
         rack.push(lpf.clone());
         lpf
@@ -109,51 +102,44 @@ impl Hpf {
     }
     props!(cutoff, set_cutoff, 0);
     props!(q, set_q, 1);
-    pub fn off(&self, controls: &Controls) -> bool {
-        let ctrl = controls[(self.tag, 2)];
+    pub fn off(&self, rack: &Rack) -> bool {
+        let ctrl = rack.controls[(self.tag, 2)];
         match ctrl {
             Control::B(b) => b,
             _ => panic!("off must be a bool, not {ctrl:?}"),
         }
     }
-    pub fn set_off(&self, controls: &mut Controls, value: bool) {
-        controls[(self.tag, 2)] = value.into();
+    pub fn set_off(&self, rack: &mut Rack, value: bool) {
+        rack.controls[(self.tag, 2)] = value.into();
     }
 }
 
 impl Signal for Hpf {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        sample_rate: f32,
-    ) {
-        let x0 = outputs[(self.wave, 0)];
-        let cut_off = self.cutoff(controls, outputs);
-        if self.off(controls) || cut_off > 20_000.0 {
-            outputs[(self.tag, 0)] = x0;
+    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+        let x0 = rack.outputs[(self.wave, 0)];
+        let cut_off = self.cutoff(rack);
+        if self.off(rack) || cut_off > 20_000.0 {
+            rack.outputs[(self.tag, 0)] = x0;
             return;
         }
         let tag = self.tag;
-        let q = self.q(controls, outputs);
+        let q = self.q(rack);
         let phi = 2.0 * PI * cut_off / sample_rate;
         let b2 = (2.0 * q - phi.sin()) / (2.0 * q + phi.sin());
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.25 * (1.0 - b1 + b2);
         let a1 = -2.0 * a0;
-        outputs[(tag, 0)] = a0 * x0 + a1 * state[(tag, 0)] + a0 * state[(tag, 1)]
-            - b1 * state[(tag, 2)]
-            - b2 * state[(tag, 3)];
-        state[(tag, 1)] = state[(tag, 0)];
-        state[(tag, 0)] = x0;
-        state[(tag, 3)] = state[(tag, 2)];
-        state[(tag, 2)] = if outputs[(tag, 0)].is_nan() {
+        rack.outputs[(tag, 0)] = a0 * x0 + a1 * rack.state[(tag, 0)] + a0 * rack.state[(tag, 1)]
+            - b1 * rack.state[(tag, 2)]
+            - b2 * rack.state[(tag, 3)];
+        rack.state[(tag, 1)] = rack.state[(tag, 0)];
+        rack.state[(tag, 0)] = x0;
+        rack.state[(tag, 3)] = rack.state[(tag, 2)];
+        rack.state[(tag, 2)] = if rack.outputs[(tag, 0)].is_nan() {
             0.0
         } else {
-            outputs[(tag, 0)]
+            rack.outputs[(tag, 0)]
         };
     }
 }
@@ -180,11 +166,11 @@ impl HpfBuilder {
     build!(q);
     build!(off);
 
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Hpf> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Hpf> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.cut_off;
-        controls[(n, 1)] = self.q;
-        controls[(n, 2)] = self.off;
+        rack.controls[(n, 0)] = self.cut_off;
+        rack.controls[(n, 1)] = self.q;
+        rack.controls[(n, 2)] = self.off;
         let hpf = Arc::new(Hpf::new(n.into(), self.wave));
         rack.push(hpf.clone());
         hpf
@@ -202,8 +188,8 @@ impl Bpf {
     }
     props!(cutoff, set_cutoff, 0);
     props!(q, set_q, 1);
-    pub fn off(&self, controls: &Controls) -> bool {
-        let ctrl = controls[(self.tag, 2)];
+    pub fn off(&self, rack: &Rack) -> bool {
+        let ctrl = rack.controls[(self.tag, 2)];
         match ctrl {
             Control::B(b) => b,
             _ => panic!("off must be a bool, not {ctrl:?}"),
@@ -216,38 +202,31 @@ impl Bpf {
 
 impl Signal for Bpf {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        sample_rate: f32,
-    ) {
-        let x0 = outputs[(self.wave, 0)];
-        let cut_off = self.cutoff(controls, outputs);
-        if self.off(controls) || cut_off > 20_000.0 {
-            outputs[(self.tag, 0)] = x0;
+    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+        let x0 = rack.outputs[(self.wave, 0)];
+        let cut_off = self.cutoff(rack);
+        if self.off(rack) || cut_off > 20_000.0 {
+            rack.outputs[(self.tag, 0)] = x0;
             return;
         }
         let tag = self.tag;
-        let q = self.q(controls, outputs);
+        let q = self.q(rack);
         let phi = 2.0 * PI * cut_off / sample_rate;
         let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.5 * (1.0 - b2);
         let a1 = 0.0;
         let a2 = -a0;
-        outputs[(tag, 0)] = a0 * x0 + a1 * state[(tag, 0)] + a2 * state[(tag, 1)]
-            - b1 * state[(tag, 2)]
-            - b2 * state[(tag, 3)];
-        state[(tag, 1)] = state[(tag, 0)];
-        state[(tag, 0)] = x0;
-        state[(tag, 3)] = state[(tag, 2)];
-        state[(tag, 2)] = if outputs[(tag, 0)].is_nan() {
+        rack.outputs[(tag, 0)] = a0 * x0 + a1 * rack.state[(tag, 0)] + a2 * rack.state[(tag, 1)]
+            - b1 * rack.state[(tag, 2)]
+            - b2 * rack.state[(tag, 3)];
+        rack.state[(tag, 1)] = rack.state[(tag, 0)];
+        rack.state[(tag, 0)] = x0;
+        rack.state[(tag, 3)] = rack.state[(tag, 2)];
+        rack.state[(tag, 2)] = if rack.outputs[(tag, 0)].is_nan() {
             0.0
         } else {
-            outputs[(tag, 0)]
+            rack.outputs[(tag, 0)]
         };
     }
 }
@@ -274,11 +253,11 @@ impl BpfBuilder {
     build!(q);
     build!(off);
 
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Bpf> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Bpf> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.cut_off;
-        controls[(n, 1)] = self.q;
-        controls[(n, 2)] = self.off;
+        rack.controls[(n, 0)] = self.cut_off;
+        rack.controls[(n, 1)] = self.q;
+        rack.controls[(n, 2)] = self.off;
         let bpf = Arc::new(Bpf::new(n.into(), self.wave));
         rack.push(bpf.clone());
         bpf
@@ -296,51 +275,44 @@ impl Notch {
     }
     props!(cutoff, set_cutoff, 0);
     props!(q, set_q, 1);
-    pub fn off(&self, controls: &Controls) -> bool {
-        let ctrl = controls[(self.tag, 2)];
+    pub fn off(&self, rack: &Rack) -> bool {
+        let ctrl = rack.controls[(self.tag, 2)];
         match ctrl {
             Control::B(b) => b,
             _ => panic!("off must be a bool, not {ctrl:?}"),
         }
     }
-    pub fn set_off(&self, controls: &mut Controls, value: bool) {
-        controls[(self.tag, 2)] = value.into();
+    pub fn set_off(&self, rack: &mut Rack, value: bool) {
+        rack.controls[(self.tag, 2)] = value.into();
     }
 }
 
 impl Signal for Notch {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        sample_rate: f32,
-    ) {
-        let x0 = outputs[(self.wave, 0)];
-        let cut_off = self.cutoff(controls, outputs);
-        if self.off(controls) || cut_off > 20_000.0 {
-            outputs[(self.tag, 0)] = x0;
+    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+        let x0 = rack.outputs[(self.wave, 0)];
+        let cut_off = self.cutoff(rack);
+        if self.off(rack) || cut_off > 20_000.0 {
+            rack.outputs[(self.tag, 0)] = x0;
             return;
         }
         let tag = self.tag;
-        let q = self.q(controls, outputs);
+        let q = self.q(rack);
         let phi = 2.0 * PI * cut_off / sample_rate;
         let b2 = (PI / 4.0 - phi / (2.0 * q)).tan();
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.5 * (1.0 + b2);
         let a1 = b1;
-        outputs[(tag, 0)] = a0 * x0 + a1 * state[(tag, 0)] + a0 * state[(tag, 1)]
-            - b1 * state[(tag, 2)]
-            - b2 * state[(tag, 3)];
-        state[(tag, 1)] = state[(tag, 0)];
-        state[(tag, 0)] = x0;
-        state[(tag, 3)] = state[(tag, 2)];
-        state[(tag, 2)] = if outputs[(tag, 0)].is_nan() {
+        rack.outputs[(tag, 0)] = a0 * x0 + a1 * rack.state[(tag, 0)] + a0 * rack.state[(tag, 1)]
+            - b1 * rack.state[(tag, 2)]
+            - b2 * rack.state[(tag, 3)];
+        rack.state[(tag, 1)] = rack.state[(tag, 0)];
+        rack.state[(tag, 0)] = x0;
+        rack.state[(tag, 3)] = rack.state[(tag, 2)];
+        rack.state[(tag, 2)] = if rack.outputs[(tag, 0)].is_nan() {
             0.0
         } else {
-            outputs[(tag, 0)]
+            rack.outputs[(tag, 0)]
         };
     }
 }
@@ -399,20 +371,13 @@ impl Comb {
 
 impl Signal for Comb {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        outputs[(self.tag, 0)] = buffers.buffers(self.tag).get_max_delay();
-        state[(self.tag, 0)] = outputs[(self.tag, 0)] * self.dampening_inverse(controls, outputs)
-            + state[(self.tag, 0)] * self.dampening(controls, outputs);
-        buffers.buffers_mut(self.tag).push(
-            outputs[(self.wave, 0)] + state[(self.tag, 0)] * self.feedback(controls, outputs),
-        );
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        rack.outputs[(self.tag, 0)] = rack.buffers.buffers(self.tag).get_max_delay();
+        rack.state[(self.tag, 0)] = rack.outputs[(self.tag, 0)] * self.dampening_inverse(rack)
+            + rack.state[(self.tag, 0)] * self.dampening(rack);
+        rack.buffers
+            .buffers(self.tag)
+            .push(rack.outputs[(self.wave, 0)] + rack.state[(self.tag, 0)] * self.feedback(rack));
     }
 }
 
@@ -440,18 +405,14 @@ impl CombBuilder {
     build!(dampening);
     build!(dampening_inverse);
 
-    pub fn rack(
-        &mut self,
-        rack: &mut Rack,
-        controls: &mut Controls,
-        buffers: &mut Buffers,
-    ) -> Arc<Comb> {
+    pub fn rack(&mut self, rack: &mut Rack) -> Arc<Comb> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.feedback;
-        controls[(n, 1)] = self.dampening;
-        controls[(n, 2)] = self.dampening_inverse;
+        rack.controls[(n, 0)] = self.feedback;
+        rack.controls[(n, 1)] = self.dampening;
+        rack.controls[(n, 2)] = self.dampening_inverse;
         let comb = Arc::new(Comb::new(n, self.wave));
-        buffers.set_buffer(comb.tag, RingBuffer::new(1, vec![0.0; self.length]));
+        rack.buffers
+            .set_buffer(comb.tag, RingBuffer::new(1, vec![0.0; self.length]));
         rack.push(comb.clone());
         comb
     }
@@ -474,18 +435,11 @@ impl AllPass {
 
 impl Signal for AllPass {
     tag!();
-    fn signal(
-        &self,
-        _controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        let input = outputs[(self.wave, 0)];
-        let delayed = buffers.buffers(self.tag).get_max_delay();
-        outputs[(self.tag, 0)] = delayed - input;
-        buffers.buffers_mut(self.tag).push(input + 0.5 * delayed);
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        let input = rack.outputs[(self.wave, 0)];
+        let delayed = rack.buffers.buffers(self.tag).get_max_delay();
+        rack.outputs[(self.tag, 0)] = delayed - input;
+        rack.buffers.buffers(self.tag).push(input + 0.5 * delayed);
     }
 }
 

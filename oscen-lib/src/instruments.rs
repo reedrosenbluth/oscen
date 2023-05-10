@@ -23,43 +23,36 @@ impl WaveGuide {
     props!(cutoff, set_cutoff, 1);
     props!(decay, set_decay, 2);
 
-    pub fn on(&self, controls: &mut Controls, state: &mut State) {
-        self.adsr.on(controls, state);
+    pub fn on(&self, rack: &mut Rack) {
+        self.adsr.on(rack);
     }
 
-    pub fn off(&self, controls: &mut Controls) {
-        self.adsr.off(controls);
+    pub fn off(&self, rack: &mut Rack) {
+        self.adsr.off(rack);
     }
 
-    pub fn set_adsr_attack(&self, controls: &mut Controls, value: Control) {
-        self.adsr.set_attack(controls, value);
+    pub fn set_adsr_attack(&self, rack: &mut Rack, value: Control) {
+        self.adsr.set_attack(rack, value);
     }
 
-    pub fn set_adsr_decay(&self, controls: &mut Controls, value: Control) {
-        self.adsr.set_decay(controls, value);
+    pub fn set_adsr_decay(&self, rack: &mut Rack, value: Control) {
+        self.adsr.set_decay(rack, value);
     }
 
-    pub fn set_adsr_sustain(&self, controls: &mut Controls, value: Control) {
-        self.adsr.set_sustain(controls, value);
+    pub fn set_adsr_sustain(&self, rack: &mut Rack, value: Control) {
+        self.adsr.set_sustain(rack, value);
     }
 
-    pub fn set_adsr_release(&self, controls: &mut Controls, value: Control) {
-        self.adsr.set_release(controls, value);
+    pub fn set_adsr_release(&self, rack: &mut Rack, value: Control) {
+        self.adsr.set_release(rack, value);
     }
 }
 
 impl Signal for WaveGuide {
     tag!();
 
-    fn signal(
-        &self,
-        _controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        outputs[(self.tag, 0)] = outputs[(self.mixer.tag(), 0)];
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        rack.outputs[(self.tag, 0)] = rack.outputs[(self.mixer.tag(), 0)];
     }
 }
 
@@ -83,33 +76,24 @@ impl WaveGuideBuilder {
     build!(hz_inv);
     build!(cutoff);
     build!(decay);
-    pub fn rack(
-        &self,
-        rack: &mut Rack,
-        controls: &mut Controls,
-        buffers: &mut Buffers,
-    ) -> Arc<WaveGuide> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<WaveGuide> {
         let adsr = AdsrBuilder::exp_20()
             .attack(0.001)
             .decay(0.0)
             .sustain(0.0)
             .release(0.001)
-            .rack(rack, controls);
+            .rack(rack);
         let exciter = ProductBuilder::new(vec![self.burst, adsr.tag()]).rack(rack);
         let mixer = MixerBuilder::new(vec![0.into(), 0.into()]).rack(rack);
         let delay = DelayBuilder::new(mixer.tag(), self.hz_inv).rack(rack);
-        let lpf = LpfBuilder::new(delay.tag())
-            .cut_off(self.cutoff)
-            .rack(rack, controls);
-        let lpf_vca = VcaBuilder::new(lpf.tag())
-            .level(self.decay)
-            .rack(rack, controls);
-        controls[(mixer.tag(), 0)] = Control::I(exciter.tag().into());
-        controls[(mixer.tag(), 1)] = Control::I(lpf_vca.tag().into());
+        let lpf = LpfBuilder::new(delay.tag()).cut_off(self.cutoff).rack(rack);
+        let lpf_vca = VcaBuilder::new(lpf.tag()).level(self.decay).rack(rack);
+        rack.controls[(mixer.tag(), 0)] = Control::I(exciter.tag().into());
+        rack.controls[(mixer.tag(), 1)] = Control::I(lpf_vca.tag().into());
         let n = rack.num_modules();
-        controls[(n, 0)] = self.hz_inv;
-        controls[(n, 1)] = self.cutoff;
-        controls[(n, 2)] = self.decay;
+        rack.controls[(n, 0)] = self.hz_inv;
+        rack.controls[(n, 1)] = self.cutoff;
+        rack.controls[(n, 2)] = self.decay;
         let wg = Arc::new(WaveGuide::new(n, self.burst, adsr, mixer));
         rack.push(wg.clone());
         wg
