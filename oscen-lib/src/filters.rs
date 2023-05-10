@@ -375,9 +375,10 @@ impl Signal for Comb {
         rack.outputs[(self.tag, 0)] = rack.buffers.buffers(self.tag).get_max_delay();
         rack.state[(self.tag, 0)] = rack.outputs[(self.tag, 0)] * self.dampening_inverse(rack)
             + rack.state[(self.tag, 0)] * self.dampening(rack);
+        let feedback = self.feedback(rack);
         rack.buffers
-            .buffers(self.tag)
-            .push(rack.outputs[(self.wave, 0)] + rack.state[(self.tag, 0)] * self.feedback(rack));
+            .buffers_mut(self.tag)
+            .push(rack.outputs[(self.wave, 0)] + rack.state[(self.tag, 0)] * feedback);
     }
 }
 
@@ -439,7 +440,9 @@ impl Signal for AllPass {
         let input = rack.outputs[(self.wave, 0)];
         let delayed = rack.buffers.buffers(self.tag).get_max_delay();
         rack.outputs[(self.tag, 0)] = delayed - input;
-        rack.buffers.buffers(self.tag).push(input + 0.5 * delayed);
+        rack.buffers
+            .buffers_mut(self.tag)
+            .push(input + 0.5 * delayed);
     }
 }
 

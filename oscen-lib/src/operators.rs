@@ -19,7 +19,7 @@ impl MixerBuilder {
     }
     pub fn rack(&self, rack: &mut Rack) -> Arc<Mixer> {
         let n = rack.num_modules();
-        let cs = rack.controls.controls(n);
+        let cs = rack.controls.controls_mut(n);
         for (i, w) in self.waves.iter().enumerate() {
             cs[i] = Control::I((*w).into());
         }
@@ -70,7 +70,7 @@ impl UnionBuilder {
     pub fn rack(&self, rack: &mut Rack) -> Arc<Union> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.active;
-        let cs = rack.controls.controls(n);
+        let cs = rack.controls.controls_mut(n);
         for (i, w) in self.waves.iter().enumerate() {
             cs[i + 1] = Control::I((*w).into());
         }
@@ -123,7 +123,7 @@ impl ProductBuilder {
     }
     pub fn rack(&self, rack: &mut Rack) -> Arc<Product> {
         let n = rack.num_modules();
-        let cs = rack.controls.controls(n);
+        let cs = rack.controls.controls_mut(n);
         for (i, w) in self.waves.iter().enumerate() {
             cs[i] = Control::I((*w).into());
         }
@@ -385,7 +385,7 @@ impl Signal for Delay {
     fn signal(&self, rack: &mut Rack, sample_rate: f32) {
         let val = rack.outputs[(self.wave, 0)];
         let d = self.delay(rack) * sample_rate;
-        rack.buffers.buffers(self.tag).push(val);
+        rack.buffers.buffers_mut(self.tag).push(val);
         rack.outputs[(self.tag, 0)] = rack.buffers.buffers(self.tag).get_cubic(d);
     }
 }

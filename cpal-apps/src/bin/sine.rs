@@ -54,10 +54,7 @@ where
 
     let mut next_value = move || {
         if let Ok(r) = rx.try_recv() {
-            so.set_hz(
-                &mut rack.controls,
-                (220.0 * 1.059463_f32.powf(r as f32)).into(),
-            );
+            so.set_hz(&mut rack, (220.0 * 1.059463_f32.powf(r as f32)).into());
         };
         rack.mono(sample_rate)
     };

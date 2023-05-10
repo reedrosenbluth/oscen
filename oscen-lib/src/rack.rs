@@ -414,7 +414,8 @@ impl Rack {
     /// of outpts in the last module.
     pub fn play(&mut self, sample_rate: f32) -> [f32; MAX_OUTPUTS] {
         let n = self.modules.len() - 1;
-        for module in self.modules.iter_mut() {
+        let modules = self.modules.clone();
+        for module in modules.iter() {
             module.signal(self, sample_rate);
         }
         self.outputs.0[n]
