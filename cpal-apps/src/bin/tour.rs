@@ -82,17 +82,18 @@ where
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
 
-    let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
+    let mut rack = Rack::default();
+    let mut storage = Storage::default();
 
-    let union = synth(&mut rack, &mut controls, &mut state);
-    union.set_active(&mut controls, tag_num.into());
+    let union = synth(&mut rack, &mut storage.controls, &mut storage.state);
+    union.set_active(&mut storage.controls, tag_num.into());
 
     let mut next_value = move || {
         rack.mono(
-            &controls,
-            &mut state,
-            &mut outputs,
-            &mut buffers,
+            &storage.controls,
+            &mut storage.state,
+            &mut storage.outputs,
+            &mut storage.buffers,
             sample_rate,
         )
     };

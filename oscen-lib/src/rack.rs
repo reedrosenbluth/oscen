@@ -453,15 +453,15 @@ impl Default for Storage {
     }
 }
 ///  XXX deprecated, use Storage.
-pub fn tables() -> (Rack, Box<Controls>, Box<State>, Box<Outputs>, Box<Buffers>) {
-    (
-        Rack::new(),
-        Box::new(Controls::new()),
-        Box::new(State::new()),
-        Box::new(Outputs::new()),
-        Box::new(Buffers::new()),
-    )
-}
+// pub fn tables() -> (Rack, Box<Controls>, Box<State>, Box<Outputs>, Box<Buffers>) {
+//     (
+//         Rack::new(),
+//         Box::new(Controls::new()),
+//         Box::new(State::new()),
+//         Box::new(Outputs::new()),
+//         Box::new(Buffers::new()),
+//     )
+// }
 
 #[macro_export]
 macro_rules! build {

@@ -29,7 +29,8 @@ where
     let sample_rate = config.sample_rate.0 as f32;
     let channels = config.channels as usize;
 
-    let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
+    let mut rack = Rack::default();
+    let mut storage = Storage::default();
 
     let num_oscillators = 25;
     let amp = 1.0 / num_oscillators as f32;
@@ -37,19 +38,19 @@ where
     for _ in 0..num_oscillators {
         let osc = OscBuilder::new(sine_osc).amplitude(amp).hz(220f32).rack(
             &mut rack,
-            &mut controls,
-            &mut state,
+            &mut storage.controls,
+            &mut storage.state,
         );
         oscs.push(osc.tag());
     }
-    MixerBuilder::new(oscs).rack(&mut rack, &mut controls);
+    MixerBuilder::new(oscs).rack(&mut rack, &mut storage.controls);
 
     let mut next_value = move || {
         rack.mono(
-            &controls,
-            &mut state,
-            &mut outputs,
-            &mut buffers,
+            &storage.controls,
+            &mut storage.state,
+            &mut storage.outputs,
+            &mut storage.buffers,
             sample_rate,
         )
     };
