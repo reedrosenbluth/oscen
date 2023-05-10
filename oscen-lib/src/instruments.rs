@@ -95,9 +95,9 @@ impl WaveGuideBuilder {
             .sustain(0.0)
             .release(0.001)
             .rack(rack, controls);
-        let exciter = ProductBuilder::new(vec![self.burst, adsr.tag()]).rack(rack, controls);
-        let mixer = MixerBuilder::new(vec![0.into(), 0.into()]).rack(rack, controls);
-        let delay = DelayBuilder::new(mixer.tag(), self.hz_inv).rack(rack, controls, buffers);
+        let exciter = ProductBuilder::new(vec![self.burst, adsr.tag()]).rack(rack);
+        let mixer = MixerBuilder::new(vec![0.into(), 0.into()]).rack(rack);
+        let delay = DelayBuilder::new(mixer.tag(), self.hz_inv).rack(rack);
         let lpf = LpfBuilder::new(delay.tag())
             .cut_off(self.cutoff)
             .rack(rack, controls);

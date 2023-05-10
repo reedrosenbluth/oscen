@@ -17,9 +17,9 @@ impl MixerBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Mixer> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Mixer> {
         let n = rack.num_modules();
-        let cs = controls.controls_mut(n);
+        let cs = rack.controls.controls_mut(n);
         for (i, w) in self.waves.iter().enumerate() {
             cs[i] = Control::I((*w).into());
         }
@@ -133,9 +133,9 @@ impl ProductBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Product> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Product> {
         let n = rack.num_modules();
-        let cs = controls.controls_mut(n);
+        let cs = rack.controls.controls_mut(n);
         for (i, w) in self.waves.iter().enumerate() {
             cs[i] = Control::I((*w).into());
         }
@@ -393,23 +393,17 @@ impl ModulatorBuilder {
     build!(hz);
     build!(ratio);
     build!(index);
-    pub fn rack(
-        &self,
-        rack: &mut Rack,
-        controls: &mut Controls,
-        state: &mut State,
-    ) -> Arc<Modulator> {
-        let hz = ConstBuilder::new(self.hz).rack(rack, controls);
-        let ratio = ConstBuilder::new(self.ratio).rack(rack, controls);
-        let index = ConstBuilder::new(self.index).rack(rack, controls);
-        let mod_hz = ProductBuilder::new(vec![hz.tag(), ratio.tag()]).rack(rack, controls);
-        let mod_amp =
-            ProductBuilder::new(vec![hz.tag(), ratio.tag(), index.tag()]).rack(rack, controls);
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Modulator> {
+        let hz = ConstBuilder::new(self.hz).rack(rack);
+        let ratio = ConstBuilder::new(self.ratio).rack(rack);
+        let index = ConstBuilder::new(self.index).rack(rack);
+        let mod_hz = ProductBuilder::new(vec![hz.tag(), ratio.tag()]).rack(rack);
+        let mod_amp = ProductBuilder::new(vec![hz.tag(), ratio.tag(), index.tag()]).rack(rack);
         let modulator = OscBuilder::new(self.signal_fn)
             .amplitude(mod_amp.tag())
             .hz(mod_hz.tag())
-            .rack(rack, controls, state);
-        let carrier_hz = MixerBuilder::new(vec![modulator.tag(), hz.tag()]).rack(rack, controls);
+            .rack(rack);
+        let carrier_hz = MixerBuilder::new(vec![modulator.tag(), hz.tag()]).rack(rack);
         Arc::new(Modulator::new(
             carrier_hz.tag(),
             hz.tag(),
@@ -463,16 +457,12 @@ impl DelayBuilder {
 
     build!(delay);
 
-    pub fn rack(
-        &mut self,
-        rack: &mut Rack,
-        controls: &mut Controls,
-        buffers: &mut Buffers,
-    ) -> Arc<Delay> {
+    pub fn rack(&mut self, rack: &mut Rack) -> Arc<Delay> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.delay;
+        rack.controls[(n, 0)] = self.delay;
         let delay = Arc::new(Delay::new(n, self.wave));
-        buffers.set_buffer(delay.tag(), RingBuffer::new32(44100.0));
+        rack.buffers
+            .set_buffer(delay.tag(), RingBuffer::new32(44100.0));
         rack.push(delay.clone());
         delay
     }

@@ -5,8 +5,8 @@ use oscen::rack::*;
 #[test]
 fn mixer() {
     let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
-    let c2 = ConstBuilder::new(2.0.into()).rack(&mut rack, &mut controls);
-    let c3 = ConstBuilder::new(3.0.into()).rack(&mut rack, &mut controls);
+    let c2 = KonstBuilder::new(2.0.into()).rack(&mut rack, &mut controls);
+    let c3 = KonstBuilder::new(3.0.into()).rack(&mut rack, &mut controls);
     MixerBuilder::new(vec![c2.tag(), c3.tag(), c2.tag()]).rack(&mut rack, &mut controls);
     let r1 = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
     let r2 = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
@@ -16,8 +16,8 @@ fn mixer() {
 #[test]
 fn prod() {
     let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
-    let c2 = ConstBuilder::new(2.0.into()).rack(&mut rack, &mut controls);
-    let c3 = ConstBuilder::new(3.0.into()).rack(&mut rack, &mut controls);
+    let c2 = KonstBuilder::new(2.0.into()).rack(&mut rack, &mut controls);
+    let c3 = KonstBuilder::new(3.0.into()).rack(&mut rack, &mut controls);
     ProductBuilder::new(vec![c2.tag(), c3.tag(), c2.tag()]).rack(&mut rack, &mut controls);
     let r1 = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
     let r2 = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
@@ -27,9 +27,9 @@ fn prod() {
 #[test]
 fn union() {
     let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
-    let c2 = ConstBuilder::new(2.0.into()).rack(&mut rack, &mut controls);
-    let c3 = ConstBuilder::new(3.0.into()).rack(&mut rack, &mut controls);
-    let c4 = ConstBuilder::new(4.0.into()).rack(&mut rack, &mut controls);
+    let c2 = KonstBuilder::new(2.0.into()).rack(&mut rack, &mut controls);
+    let c3 = KonstBuilder::new(3.0.into()).rack(&mut rack, &mut controls);
+    let c4 = KonstBuilder::new(4.0.into()).rack(&mut rack, &mut controls);
     let u = UnionBuilder::new(vec![c2.tag(), c3.tag(), c4.tag()]).rack(&mut rack, &mut controls);
     let r1 = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
     u.set_active(&mut controls, 1.into());
@@ -42,7 +42,7 @@ fn union() {
 #[test]
 fn vca() {
     let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
-    let c2 = ConstBuilder::new(2.0.into()).rack(&mut rack, &mut controls);
+    let c2 = KonstBuilder::new(2.0.into()).rack(&mut rack, &mut controls);
     let vca = VcaBuilder::new(c2.tag()).rack(&mut rack, &mut controls);
     vca.set_level(&mut controls, 2.5.into());
     let r = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
@@ -52,8 +52,8 @@ fn vca() {
 #[test]
 fn cross() {
     let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
-    let c2 = ConstBuilder::new(2.0.into()).rack(&mut rack, &mut controls);
-    let c3 = ConstBuilder::new(3.0.into()).rack(&mut rack, &mut controls);
+    let c2 = KonstBuilder::new(2.0.into()).rack(&mut rack, &mut controls);
+    let c3 = KonstBuilder::new(3.0.into()).rack(&mut rack, &mut controls);
     let cf = CrossFadeBuilder::new(c2.tag(), c3.tag()).rack(&mut rack, &mut controls);
     cf.set_alpha(&mut controls, 0.25.into());
     let r = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);

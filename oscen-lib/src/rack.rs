@@ -387,11 +387,23 @@ macro_rules! tag {
 
 /// A Rack is a topologically sorted `Array` of Synth Modules. A synth is one or
 /// more racks.
-pub struct Rack(Vec<Arc<dyn Signal + Send + Sync>>);
+pub struct Rack {
+    modules: Vec<Arc<dyn Signal + Send + Sync>>,
+    pub controls: Box<Controls>,
+    pub state: Box<State>,
+    pub outputs: Box<Outputs>,
+    pub buffers: Box<Buffers>,
+}
 
 impl Default for Rack {
     fn default() -> Self {
-        Rack(vec![])
+        Rack {
+            modules: Vec::with_capacity(MAX_MODULES),
+            controls: Default::default(),
+            state: Default::default(),
+            outputs: Default::default(),
+            buffers: Default::default(),
+        }
     }
 }
 
@@ -400,68 +412,31 @@ impl Rack {
         Self::default()
     }
     pub fn num_modules(&self) -> usize {
-        self.0.len()
+        self.modules.len()
     }
     pub fn push(&mut self, module: Arc<dyn Signal + Send + Sync>) {
-        self.0.push(module);
+        self.modules.push(module);
     }
     /// Call the `signal` function for each module in turn returning the vector
     /// of outpts in the last module.
-    pub fn play(
-        &mut self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        buffers: &mut Buffers,
-        sample_rate: f32,
-    ) -> [f32; MAX_OUTPUTS] {
-        let n = self.0.len() - 1;
-        for module in self.0.iter() {
-            module.signal(controls, state, outputs, buffers, sample_rate);
+    pub fn play(&mut self, sample_rate: f32) -> [f32; MAX_OUTPUTS] {
+        let n = self.modules.len() - 1;
+        for module in self.modules.iter() {
+            module.signal(
+                &self.controls,
+                &mut self.state,
+                &mut self.outputs,
+                &mut self.buffers,
+                sample_rate,
+            );
         }
-        outputs.0[n]
+        self.outputs.0[n]
     }
     /// Like play but only returns the sample in `outputs[0].
-    pub fn mono(
-        &mut self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        buffers: &mut Buffers,
-        sample_rate: f32,
-    ) -> f32 {
-        self.play(controls, state, outputs, buffers, sample_rate)[0]
+    pub fn mono(&mut self, sample_rate: f32) -> f32 {
+        self.play(sample_rate)[0]
     }
 }
-
-#[derive(Clone)]
-pub struct Storage {
-    pub controls: Box<Controls>,
-    pub state: Box<State>,
-    pub outputs: Box<Outputs>,
-    pub buffers: Box<Buffers>,
-}
-
-impl Default for Storage {
-    fn default() -> Self {
-        Self {
-            controls: Default::default(),
-            state: Default::default(),
-            outputs: Default::default(),
-            buffers: Default::default(),
-        }
-    }
-}
-///  XXX deprecated, use Storage.
-// pub fn tables() -> (Rack, Box<Controls>, Box<State>, Box<Outputs>, Box<Buffers>) {
-//     (
-//         Rack::new(),
-//         Box::new(Controls::new()),
-//         Box::new(State::new()),
-//         Box::new(Outputs::new()),
-//         Box::new(Buffers::new()),
-//     )
-// }
 
 #[macro_export]
 macro_rules! build {

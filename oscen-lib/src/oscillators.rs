@@ -44,17 +44,12 @@ impl OscBuilder {
     build!(amplitude);
     build!(arg);
 
-    pub fn rack(
-        &self,
-        rack: &mut Rack,
-        controls: &mut Controls,
-        state: &mut State,
-    ) -> Arc<Oscillator> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Oscillator> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.hz;
-        controls[(n, 1)] = self.amplitude;
-        controls[(n, 2)] = self.arg;
-        state[(n, 0)] = self.phase;
+        rack.controls[(n, 0)] = self.hz;
+        rack.controls[(n, 1)] = self.amplitude;
+        rack.controls[(n, 2)] = self.arg;
+        rack.state[(n, 0)] = self.phase;
         let osc = Arc::new(Oscillator::new(n, self.signal_fn));
         rack.push(osc.clone());
         osc
@@ -150,9 +145,9 @@ impl ConstBuilder {
     pub fn new(value: Control) -> Self {
         Self { value }
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Const> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Const> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.value;
+        rack.controls[(n, 0)] = self.value;
         let out = Arc::new(Const::new(n));
         rack.push(out.clone());
         out
@@ -211,9 +206,9 @@ impl WhiteNoiseBuilder {
         self
     }
     build!(amplitude);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<WhiteNoise> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<WhiteNoise> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.amplitude;
+        rack.controls[(n, 0)] = self.amplitude;
         let noise = Arc::new(WhiteNoise::new(n, self.dist));
         rack.push(noise.clone());
         noise

@@ -16,7 +16,7 @@ fn osc() {
 #[test]
 fn cnst() {
     let (mut rack, mut controls, mut state, mut outputs, mut buffers) = tables();
-    ConstBuilder::new(42.0.into()).rack(&mut rack, &mut controls);
+    KonstBuilder::new(42.0.into()).rack(&mut rack, &mut controls);
     let r = rack.mono(&controls, &mut state, &mut outputs, &mut buffers, 1f32);
     assert_eq!(r, 42.0);
 }
