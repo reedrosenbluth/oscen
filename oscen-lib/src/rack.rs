@@ -91,11 +91,11 @@ impl Controls {
     }
 
     pub fn controls<T: Into<usize>>(&self, tag: T) -> &[Control] {
-        self.0[tag.into()].as_ref()
+        &self.0[tag.into()]
     }
 
     pub fn controls_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [Control] {
-        self.0[tag.into()].as_mut()
+        &mut self.0[tag.into()]
     }
 }
 
@@ -133,11 +133,11 @@ impl Outputs {
     }
 
     pub fn outputs<T: Into<usize>>(&self, tag: T) -> &[f32] {
-        self.0[tag.into()].as_ref()
+        &self.0[tag.into()]
     }
 
     pub fn outputs_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [f32] {
-        self.0[tag.into()].as_mut()
+        &mut self.0[tag.into()]
     }
 
     pub fn value(&self, ctrl: Control) -> Option<f32> {
@@ -196,10 +196,10 @@ impl State {
         Self::default()
     }
     pub fn state<T: Into<usize>>(&self, tag: T) -> &[f32] {
-        self.0[tag.into()].as_ref()
+        &self.0[tag.into()]
     }
     pub fn state_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [f32] {
-        self.0[tag.into()].as_mut()
+        &mut self.0[tag.into()]
     }
 }
 

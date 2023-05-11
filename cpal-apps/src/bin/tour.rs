@@ -5,26 +5,20 @@ use oscen::oscillators::*;
 use oscen::rack::*;
 use std::{env, sync::Arc};
 
-fn synth(rack: &mut Rack, controls: &mut Controls, state: &mut State) -> Arc<Union> {
+fn synth(rack: &mut Rack) -> Arc<Union> {
     let mut tags = vec![];
 
     // Sine
     let freq = 330.0;
-    let sine = OscBuilder::new(sine_osc)
-        .hz(freq)
-        .rack(rack, controls, state);
+    let sine = OscBuilder::new(sine_osc).hz(freq).rack(rack);
     tags.push(sine.tag());
 
     // Square
-    let square = OscBuilder::new(square_osc)
-        .hz(freq)
-        .rack(rack, controls, state);
+    let square = OscBuilder::new(square_osc).hz(freq).rack(rack);
     tags.push(square.tag());
 
     // Triangle
-    let tri = OscBuilder::new(triangle_osc)
-        .hz(freq)
-        .rack(rack, controls, state);
+    let tri = OscBuilder::new(triangle_osc).hz(freq).rack(rack);
     tags.push(tri.tag());
 
     // FM
@@ -32,24 +26,18 @@ fn synth(rack: &mut Rack, controls: &mut Controls, state: &mut State) -> Arc<Uni
         .hz(220.0)
         .ratio(2.0)
         .index(4.0)
-        .rack(rack, controls, state);
-    let fm = OscBuilder::new(triangle_osc)
-        .hz(modulator.tag())
-        .rack(rack, controls, state);
+        .rack(rack);
+    let fm = OscBuilder::new(triangle_osc).hz(modulator.tag()).rack(rack);
     tags.push(fm.tag());
 
     // LFO
-    let lfo = OscBuilder::new(sine_osc)
-        .hz(2.0)
-        .rack(rack, controls, state);
+    let lfo = OscBuilder::new(sine_osc).hz(2.0).rack(rack);
 
     // Vca, where amplitude is controlled by lfo.
-    let vca = VcaBuilder::new(sine.tag())
-        .level(lfo.tag())
-        .rack(rack, controls);
+    let vca = VcaBuilder::new(sine.tag()).level(lfo.tag()).rack(rack);
     tags.push(vca.tag());
 
-    UnionBuilder::new(tags).rack(rack, controls)
+    UnionBuilder::new(tags).rack(rack)
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -83,20 +71,11 @@ where
     let channels = config.channels as usize;
 
     let mut rack = Rack::default();
-    let mut storage = Storage::default();
 
-    let union = synth(&mut rack, &mut storage.controls, &mut storage.state);
-    union.set_active(&mut storage.controls, tag_num.into());
+    let union = synth(&mut rack);
+    union.set_active(&mut rack, tag_num.into());
 
-    let mut next_value = move || {
-        rack.mono(
-            &storage.controls,
-            &mut storage.state,
-            &mut storage.outputs,
-            &mut storage.buffers,
-            sample_rate,
-        )
-    };
+    let mut next_value = move || rack.mono(sample_rate);
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 
