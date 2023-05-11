@@ -39,13 +39,19 @@ pub struct MidiPitchBuilder {
     factor: Control,
 }
 
-impl MidiPitchBuilder {
-    pub fn new() -> Self {
+impl Default for MidiPitchBuilder {
+    fn default() -> Self {
         Self {
             step: 0.0.into(),
             offset: 0.0.into(),
             factor: 1.0.into(),
         }
+    }
+}
+
+impl MidiPitchBuilder {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     build!(step);
@@ -110,7 +116,7 @@ impl MidiControl {
     pub fn value(&self, rack: &Rack) -> usize {
         match rack.controls[(self.tag, 0)] {
             Control::I(u) => u,
-            c => panic!("Control must be I(usized) not {:?}", c),
+            c => panic!("Control must be I(usized) not {c:?}"),
         }
     }
 
@@ -146,9 +152,9 @@ impl MidiControlBuilder {
     pub fn new(controller: u8) -> Self {
         Self {
             controller,
-            low: 0.0.into(),
-            mid: 0.5.into(),
-            high: 1.0.into(),
+            low: 0.0,
+            mid: 0.5,
+            high: 1.0,
             value: 0.0.into(),
         }
     }

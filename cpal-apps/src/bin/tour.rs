@@ -77,7 +77,7 @@ where
 
     let mut next_value = move || rack.mono(sample_rate);
 
-    let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
+    let err_fn = |err| eprintln!("an error occurred on stream: {err}");
 
     let stream = device.build_output_stream(
         config,

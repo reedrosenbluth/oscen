@@ -1,4 +1,3 @@
-use anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, FromSample, Sample, SizedSample, StreamConfig};
 use iced::widget::row;
@@ -59,7 +58,7 @@ where
         rack.mono(sample_rate)
     };
 
-    let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
+    let err_fn = |err| eprintln!("an error occurred on stream: {err}");
 
     let stream = device.build_output_stream(
         config,

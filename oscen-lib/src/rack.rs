@@ -47,7 +47,7 @@ impl Control {
     pub fn idx(&self) -> usize {
         match self {
             Control::I(u) => *u,
-            c => panic!("Expecting I variant, not {:?}", c),
+            c => panic!("Expecting I variant, not {c:?}"),
         }
     }
 }

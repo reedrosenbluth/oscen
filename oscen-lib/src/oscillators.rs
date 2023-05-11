@@ -107,9 +107,9 @@ impl Signal for Oscillator {
     tag!();
     fn signal(&self, rack: &mut Rack, sample_rate: f32) {
         let phase = self.phase(&rack.state);
-        let hz = self.hz(&rack);
-        let amp = self.amplitude(&rack);
-        let arg = self.arg(&rack);
+        let hz = self.hz(rack);
+        let amp = self.amplitude(rack);
+        let arg = self.arg(rack);
         let mut ph = phase + hz / sample_rate;
         while ph >= 1.0 {
             ph -= 1.0
@@ -180,12 +180,18 @@ pub struct WhiteNoiseBuilder {
     dist: NoiseDistribution,
 }
 
-impl WhiteNoiseBuilder {
-    pub fn new() -> Self {
+impl Default for WhiteNoiseBuilder {
+    fn default() -> Self {
         Self {
             amplitude: 1.0.into(),
             dist: NoiseDistribution::StdNormal,
         }
+    }
+}
+
+impl WhiteNoiseBuilder {
+    pub fn new() -> Self {
+        Self::default()
     }
     pub fn dist(&mut self, arg: NoiseDistribution) -> &mut Self {
         self.dist = arg;
@@ -216,13 +222,12 @@ impl Signal for WhiteNoise {
     fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
         let amplitude = self.amplitude(rack);
         let mut rng = thread_rng();
-        let out: f32;
-        match self.dist {
+        let out = match self.dist {
             NoiseDistribution::Uni => {
-                out = amplitude * Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng)
+                amplitude * Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng)
             }
-            NoiseDistribution::StdNormal => out = amplitude * rng.sample::<f32, _>(StandardNormal),
-        }
+            NoiseDistribution::StdNormal => amplitude * rng.sample::<f32, _>(StandardNormal),
+        };
         rack.outputs[(self.tag, 0)] = out;
     }
 }
@@ -237,6 +242,14 @@ pub struct PinkNoiseBuilder {
     amplitude: Control,
 }
 
+impl Default for PinkNoiseBuilder {
+    fn default() -> Self {
+        Self {
+            amplitude: 1.0.into(),
+        }
+    }
+}
+
 impl PinkNoise {
     pub fn new<T: Into<Tag>>(tag: T) -> Self {
         Self { tag: tag.into() }
@@ -246,9 +259,7 @@ impl PinkNoise {
 
 impl PinkNoiseBuilder {
     pub fn new() -> Self {
-        Self {
-            amplitude: 0.25.into(),
-        }
+        Self::default()
     }
     build!(amplitude);
     pub fn rack(&self, rack: &mut Rack) -> Arc<PinkNoise> {

@@ -57,7 +57,7 @@ impl Signal for Adsr {
         let d = self.decay(rack).max(0.005);
         let s = self.sustain(rack);
         let r = self.release(rack).max(0.005);
-        let triggered = self.triggered(&rack);
+        let triggered = self.triggered(rack);
         rack.state[(self.tag, 2)] = match (triggered, rack.state[(self.tag, 0)]) {
             (_, t) if t < a => interp(0.0, 1.0 - self.ax, 1.0, t / a),
             (_, t) if t < a + d => interp(1.0, s + self.dx * (1.0 - s), s, (t - a) / d),
@@ -90,8 +90,8 @@ pub struct AdsrBuilder {
     triggered: Control,
 }
 
-impl AdsrBuilder {
-    pub fn new() -> Self {
+impl Default for AdsrBuilder {
+    fn default() -> Self {
         let attack = 0.01.into();
         let decay = 0.0.into();
         let sustain = 1.0.into();
@@ -107,6 +107,12 @@ impl AdsrBuilder {
             release,
             triggered,
         }
+    }
+}
+
+impl AdsrBuilder {
+    pub fn new() -> Self {
+        Self::default()
     }
     pub fn linear() -> Self {
         let mut ab = Self::new();
