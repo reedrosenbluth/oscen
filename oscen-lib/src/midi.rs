@@ -26,18 +26,9 @@ impl MidiPitch {
 impl Signal for MidiPitch {
     tag!();
 
-    fn signal(
-        &self,
-        controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        outputs[(self.tag, 0)] = hz_from_step(
-            self.factor(controls, outputs) * self.step(controls, outputs)
-                + self.offset(controls, outputs),
-        );
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        rack.outputs[(self.tag, 0)] =
+            hz_from_step(self.factor(rack) * self.step(rack) + self.offset(rack));
     }
 }
 
@@ -116,15 +107,15 @@ impl MidiControl {
         self.high = value;
     }
 
-    pub fn value(&self, controls: &Controls) -> usize {
-        match controls[(self.tag, 0)] {
+    pub fn value(&self, rack: &Rack) -> usize {
+        match rack.controls[(self.tag, 0)] {
             Control::I(u) => u,
             c => panic!("Control must be I(usized) not {:?}", c),
         }
     }
 
-    pub fn set_value(&self, controls: &mut Controls, value: usize) {
-        controls[(self.tag, 0)] = (value as f32).into();
+    pub fn set_value(&self, rack: &mut Rack, value: usize) {
+        rack.controls[(self.tag, 0)] = (value as f32).into();
     }
 
     pub fn map_range(&self, input: f32) -> f32 {
@@ -136,16 +127,9 @@ impl MidiControl {
 impl Signal for MidiControl {
     tag!();
 
-    fn signal(
-        &self,
-        controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        let value = self.value(controls);
-        outputs[(self.tag, 0)] = self.map_range(value as f32);
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        let value = self.value(rack);
+        rack.outputs[(self.tag, 0)] = self.map_range(value as f32);
     }
 }
 

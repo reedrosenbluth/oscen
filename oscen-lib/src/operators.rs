@@ -17,9 +17,9 @@ impl MixerBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Mixer> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Mixer> {
         let n = rack.num_modules();
-        let cs = controls.controls_mut(n);
+        let cs = rack.controls.controls_mut(n);
         for (i, w) in self.waves.iter().enumerate() {
             cs[i] = Control::I((*w).into());
         }
@@ -38,19 +38,12 @@ impl Mixer {
 
 impl Signal for Mixer {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        let cs = &controls.controls(self.tag())[0..self.num_waves as usize];
-        outputs[(self.tag, 0)] = cs
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        let cs = &rack.controls.controls(self.tag())[0..self.num_waves as usize];
+        rack.outputs[(self.tag, 0)] = cs
             .iter()
             .map(|x| x.idx())
-            .fold(0.0, |acc, n| acc + outputs[(n, 0)]);
+            .fold(0.0, |acc, n| acc + rack.outputs[(n, 0)]);
     }
 }
 
@@ -74,10 +67,10 @@ impl UnionBuilder {
         }
     }
     build!(active);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Union> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Union> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.active;
-        let cs = controls.controls_mut(n);
+        rack.controls[(n, 0)] = self.active;
+        let cs = rack.controls.controls_mut(n);
         for (i, w) in self.waves.iter().enumerate() {
             cs[i + 1] = Control::I((*w).into());
         }
@@ -92,29 +85,24 @@ impl Union {
     pub fn new(tag: Tag, num_waves: u8) -> Self {
         Self { tag, num_waves }
     }
-    pub fn active(&self, controls: &Controls, outputs: &Outputs) -> usize {
-        let inp = controls[(self.tag, 0)];
-        outputs.integer(inp).expect("active must be Control::I")
+    pub fn active(&self, rack: &Rack) -> usize {
+        let inp = rack.controls[(self.tag, 0)];
+        rack.outputs
+            .integer(inp)
+            .expect("active must be Control::I")
     }
-    pub fn set_active(&self, controls: &mut Controls, value: Control) {
-        controls[(self.tag, 0)] = value;
+    pub fn set_active(&self, rack: &mut Rack, value: Control) {
+        rack.controls[(self.tag, 0)] = value;
     }
 }
 
 impl Signal for Union {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        let idx = self.active(controls, outputs);
-        let cs = &controls.controls(self.tag())[1..=self.num_waves as usize];
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        let idx = self.active(rack);
+        let cs = &rack.controls.controls(self.tag())[1..=self.num_waves as usize];
         let c: Tag = cs[idx].idx().into();
-        outputs[(self.tag, 0)] = outputs[(c, 0)];
+        rack.outputs[(self.tag, 0)] = rack.outputs[(c, 0)];
     }
 }
 
@@ -133,9 +121,9 @@ impl ProductBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Product> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Product> {
         let n = rack.num_modules();
-        let cs = controls.controls_mut(n);
+        let cs = rack.controls.controls_mut(n);
         for (i, w) in self.waves.iter().enumerate() {
             cs[i] = Control::I((*w).into());
         }
@@ -154,19 +142,12 @@ impl Product {
 
 impl Signal for Product {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        let cs = &controls.controls(self.tag())[0..self.num_waves as usize];
-        outputs[(self.tag, 0)] = cs
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        let cs = &rack.controls.controls(self.tag())[0..self.num_waves as usize];
+        rack.outputs[(self.tag, 0)] = cs
             .iter()
             .map(|x| x.idx())
-            .fold(1.0, |acc, n| acc * outputs[(n, 0)]);
+            .fold(1.0, |acc, n| acc * rack.outputs[(n, 0)]);
     }
 }
 
@@ -185,15 +166,8 @@ impl Inverse {
 impl Signal for Inverse {
     tag!();
 
-    fn signal(
-        &self,
-        _controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        outputs[(self.tag, 0)] = 1.0 / outputs[(self.wave, 0)];
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        rack.outputs[(self.tag, 0)] = 1.0 / rack.outputs[(self.wave, 0)];
     }
 }
 
@@ -230,15 +204,8 @@ impl Vca {
 
 impl Signal for Vca {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        outputs[(self.tag, 0)] = self.level(controls, outputs) * outputs[(self.wave, 0)];
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        rack.outputs[(self.tag, 0)] = self.level(rack) * rack.outputs[(self.wave, 0)];
     }
 }
 
@@ -256,9 +223,9 @@ impl VcaBuilder {
         }
     }
     build!(level);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Vca> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Vca> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.level;
+        rack.controls[(n, 0)] = self.level;
         let vca = Arc::new(Vca::new(n.into(), self.wave));
         rack.push(vca.clone());
         vca
@@ -281,17 +248,10 @@ impl CrossFade {
 
 impl Signal for CrossFade {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-        let alpha = self.alpha(controls, outputs);
-        outputs[(self.tag, 0)] =
-            alpha * outputs[(self.wave2, 0)] + (1.0 - alpha) * outputs[(self.wave1, 0)];
+    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+        let alpha = self.alpha(rack);
+        rack.outputs[(self.tag, 0)] =
+            alpha * rack.outputs[(self.wave2, 0)] + (1.0 - alpha) * rack.outputs[(self.wave1, 0)];
     }
 }
 
@@ -311,9 +271,9 @@ impl CrossFadeBuilder {
         }
     }
     build!(alpha);
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<CrossFade> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<CrossFade> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.alpha;
+        rack.controls[(n, 0)] = self.alpha;
         let cf = Arc::new(CrossFade::new(n.into(), self.wave1, self.wave2));
         rack.push(cf.clone());
         cf
@@ -337,40 +297,32 @@ impl Modulator {
             index_tag,
         }
     }
-    pub fn hz(&self, controls: &Controls, outputs: &Outputs) -> f32 {
-        let inp = controls[(self.hz_tag, 0)];
-        outputs.value(inp).unwrap()
+    pub fn hz(&self, rack: &Rack) -> f32 {
+        let inp = rack.controls[(self.hz_tag, 0)];
+        rack.outputs.value(inp).unwrap()
     }
-    pub fn set_hz(&self, controls: &mut Controls, value: Control) {
-        controls[(self.hz_tag, 0)] = value;
+    pub fn set_hz(&self, rack: &mut Rack, value: Control) {
+        rack.controls[(self.hz_tag, 0)] = value;
     }
-    pub fn ratio(&self, controls: &Controls, outputs: &Outputs) -> f32 {
-        let inp = controls[(self.ratio_tag, 0)];
-        outputs.value(inp).unwrap()
+    pub fn ratio(&self, rack: &Rack) -> f32 {
+        let inp = rack.controls[(self.ratio_tag, 0)];
+        rack.outputs.value(inp).unwrap()
     }
-    pub fn set_ratio(&self, controls: &mut Controls, value: Control) {
-        controls[(self.ratio_tag, 0)] = value;
+    pub fn set_ratio(&self, rack: &mut Rack, value: Control) {
+        rack.controls[(self.ratio_tag, 0)] = value;
     }
-    pub fn index(&self, controls: &Controls, outputs: &Outputs) -> f32 {
-        let inp = controls[(self.index_tag, 0)];
-        outputs.value(inp).unwrap()
+    pub fn index(&self, rack: &Rack) -> f32 {
+        let inp = rack.controls[(self.index_tag, 0)];
+        rack.outputs.value(inp).unwrap()
     }
-    pub fn set_index(&self, controls: &mut Controls, value: Control) {
-        controls[(self.index_tag, 0)] = value;
+    pub fn set_index(&self, rack: &mut Rack, value: Control) {
+        rack.controls[(self.index_tag, 0)] = value;
     }
 }
 
 impl Signal for Modulator {
     tag!();
-    fn signal(
-        &self,
-        _controls: &Controls,
-        _state: &mut State,
-        _outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        _sample_rate: f32,
-    ) {
-    }
+    fn signal(&self, _rack: &mut Rack, _sample_rate: f32) {}
 }
 
 #[derive(Debug, Clone)]
@@ -393,23 +345,17 @@ impl ModulatorBuilder {
     build!(hz);
     build!(ratio);
     build!(index);
-    pub fn rack(
-        &self,
-        rack: &mut Rack,
-        controls: &mut Controls,
-        state: &mut State,
-    ) -> Arc<Modulator> {
-        let hz = ConstBuilder::new(self.hz).rack(rack, controls);
-        let ratio = ConstBuilder::new(self.ratio).rack(rack, controls);
-        let index = ConstBuilder::new(self.index).rack(rack, controls);
-        let mod_hz = ProductBuilder::new(vec![hz.tag(), ratio.tag()]).rack(rack, controls);
-        let mod_amp =
-            ProductBuilder::new(vec![hz.tag(), ratio.tag(), index.tag()]).rack(rack, controls);
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Modulator> {
+        let hz = ConstBuilder::new(self.hz).rack(rack);
+        let ratio = ConstBuilder::new(self.ratio).rack(rack);
+        let index = ConstBuilder::new(self.index).rack(rack);
+        let mod_hz = ProductBuilder::new(vec![hz.tag(), ratio.tag()]).rack(rack);
+        let mod_amp = ProductBuilder::new(vec![hz.tag(), ratio.tag(), index.tag()]).rack(rack);
         let modulator = OscBuilder::new(self.signal_fn)
             .amplitude(mod_amp.tag())
             .hz(mod_hz.tag())
-            .rack(rack, controls, state);
-        let carrier_hz = MixerBuilder::new(vec![modulator.tag(), hz.tag()]).rack(rack, controls);
+            .rack(rack);
+        let carrier_hz = MixerBuilder::new(vec![modulator.tag(), hz.tag()]).rack(rack);
         Arc::new(Modulator::new(
             carrier_hz.tag(),
             hz.tag(),
@@ -436,18 +382,11 @@ impl Delay {
 
 impl Signal for Delay {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        _state: &mut State,
-        outputs: &mut Outputs,
-        buffers: &mut Buffers,
-        sample_rate: f32,
-    ) {
-        let val = outputs[(self.wave, 0)];
-        let d = self.delay(controls, outputs) * sample_rate;
-        buffers.buffers_mut(self.tag).push(val);
-        outputs[(self.tag, 0)] = buffers.buffers(self.tag).get_cubic(d);
+    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+        let val = rack.outputs[(self.wave, 0)];
+        let d = self.delay(rack) * sample_rate;
+        rack.buffers.buffers_mut(self.tag).push(val);
+        rack.outputs[(self.tag, 0)] = rack.buffers.buffers(self.tag).get_cubic(d);
     }
 }
 
@@ -463,16 +402,12 @@ impl DelayBuilder {
 
     build!(delay);
 
-    pub fn rack(
-        &mut self,
-        rack: &mut Rack,
-        controls: &mut Controls,
-        buffers: &mut Buffers,
-    ) -> Arc<Delay> {
+    pub fn rack(&mut self, rack: &mut Rack) -> Arc<Delay> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.delay;
+        rack.controls[(n, 0)] = self.delay;
         let delay = Arc::new(Delay::new(n, self.wave));
-        buffers.set_buffer(delay.tag(), RingBuffer::new32(44100.0));
+        rack.buffers
+            .set_buffer(delay.tag(), RingBuffer::new32(44100.0));
         rack.push(delay.clone());
         delay
     }

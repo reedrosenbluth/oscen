@@ -30,30 +30,20 @@ where
     let channels = config.channels as usize;
 
     let mut rack = Rack::default();
-    let mut storage = Storage::default();
 
     let num_oscillators = 25;
     let amp = 1.0 / num_oscillators as f32;
     let mut oscs = vec![];
     for _ in 0..num_oscillators {
-        let osc = OscBuilder::new(sine_osc).amplitude(amp).hz(220f32).rack(
-            &mut rack,
-            &mut storage.controls,
-            &mut storage.state,
-        );
+        let osc = OscBuilder::new(sine_osc)
+            .amplitude(amp)
+            .hz(220f32)
+            .rack(&mut rack);
         oscs.push(osc.tag());
     }
-    MixerBuilder::new(oscs).rack(&mut rack, &mut storage.controls);
+    MixerBuilder::new(oscs).rack(&mut rack);
 
-    let mut next_value = move || {
-        rack.mono(
-            &storage.controls,
-            &mut storage.state,
-            &mut storage.outputs,
-            &mut storage.buffers,
-            sample_rate,
-        )
-    };
+    let mut next_value = move || rack.mono(sample_rate);
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
 

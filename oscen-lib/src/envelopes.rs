@@ -26,59 +26,55 @@ impl Adsr {
     props!(sustain, set_sustain, 2);
     props!(release, set_release, 3);
 
-    pub fn triggered(&self, controls: &Controls) -> bool {
-        let ctrl = controls[(self.tag, 4)];
+    pub fn triggered(&self, rack: &Rack) -> bool {
+        let ctrl = rack.controls[(self.tag, 4)];
         match ctrl {
             Control::B(b) => b,
             _ => panic!("triggered must be a bool, not {ctrl:?}"),
         }
     }
 
-    pub fn set_triggered(&self, controls: &mut Controls, value: bool) {
-        controls[(self.tag, 4)] = value.into();
+    pub fn set_triggered(&self, rack: &mut Rack, value: bool) {
+        rack.controls[(self.tag, 4)] = value.into();
     }
 
-    pub fn on(&self, controls: &mut Controls, state: &mut State) {
-        self.set_triggered(controls, true);
-        state[(self.tag, 1)] = 0.0;
-        let x = state[(self.tag, 2)];
-        state[(self.tag, 0)] = interp_inv(0.0, 1.0 - self.ax, 1.0, x);
+    pub fn on(&self, rack: &mut Rack) {
+        self.set_triggered(rack, true);
+        rack.state[(self.tag, 1)] = 0.0;
+        let x = rack.state[(self.tag, 2)];
+        rack.state[(self.tag, 0)] = interp_inv(0.0, 1.0 - self.ax, 1.0, x);
     }
 
-    pub fn off(&self, controls: &mut Controls) {
-        self.set_triggered(controls, false);
+    pub fn off(&self, rack: &mut Rack) {
+        self.set_triggered(rack, false);
     }
 }
 
 impl Signal for Adsr {
     tag!();
-    fn signal(
-        &self,
-        controls: &Controls,
-        state: &mut State,
-        outputs: &mut Outputs,
-        _buffers: &mut Buffers,
-        sample_rate: f32,
-    ) {
-        let a = self.attack(controls, outputs).max(0.005);
-        let d = self.decay(controls, outputs).max(0.005);
-        let s = self.sustain(controls, outputs);
-        let r = self.release(controls, outputs).max(0.005);
-        let triggered = self.triggered(controls);
-        state[(self.tag, 2)] = match (triggered, state[(self.tag, 0)]) {
+    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+        let a = self.attack(rack).max(0.005);
+        let d = self.decay(rack).max(0.005);
+        let s = self.sustain(rack);
+        let r = self.release(rack).max(0.005);
+        let triggered = self.triggered(&rack);
+        rack.state[(self.tag, 2)] = match (triggered, rack.state[(self.tag, 0)]) {
             (_, t) if t < a => interp(0.0, 1.0 - self.ax, 1.0, t / a),
             (_, t) if t < a + d => interp(1.0, s + self.dx * (1.0 - s), s, (t - a) / d),
             (true, t) => {
-                state[(self.tag, 1)] = t - a - d;
+                rack.state[(self.tag, 1)] = t - a - d;
                 s
             }
-            (false, t) if t < a + d + r + state[(self.tag, 1)] => {
-                interp(s, self.rx * s, 0.0, t - a - d - state[(self.tag, 1)] / r)
-            }
+            (false, t) if t < a + d + r + rack.state[(self.tag, 1)] => interp(
+                s,
+                self.rx * s,
+                0.0,
+                t - a - d - rack.state[(self.tag, 1)] / r,
+            ),
             (false, _) => 0.0,
         };
-        outputs[(self.tag, 0)] = state[(self.tag, 2)];
-        state[(self.tag, 0)] += 1.0 / sample_rate;
+        rack.outputs[(self.tag, 0)] = rack.state[(self.tag, 2)];
+        rack.state[(self.tag, 0)] += 1.0 / sample_rate;
     }
 }
 
@@ -147,13 +143,13 @@ impl AdsrBuilder {
         self.triggered = t.into();
         self
     }
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Adsr> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Adsr> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.attack;
-        controls[(n, 1)] = self.decay;
-        controls[(n, 2)] = self.sustain;
-        controls[(n, 3)] = self.release;
-        controls[(n, 4)] = self.triggered;
+        rack.controls[(n, 0)] = self.attack;
+        rack.controls[(n, 1)] = self.decay;
+        rack.controls[(n, 2)] = self.sustain;
+        rack.controls[(n, 3)] = self.release;
+        rack.controls[(n, 4)] = self.triggered;
         let adsr = Arc::new(Adsr::new(n, self.ax, self.dx, self.rx));
         rack.push(adsr.clone());
         adsr
