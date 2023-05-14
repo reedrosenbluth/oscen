@@ -58,11 +58,11 @@ impl MidiPitchBuilder {
     build!(offset);
     build!(factor);
 
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<MidiPitch> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<MidiPitch> {
         let n = rack.num_modules();
-        controls[(n, 0)] = self.step;
-        controls[(n, 1)] = self.offset;
-        controls[(n, 2)] = self.factor;
+        rack.controls[(n, 0)] = self.step;
+        rack.controls[(n, 1)] = self.offset;
+        rack.controls[(n, 2)] = self.factor;
         let mp = Arc::new(MidiPitch::new(n.into()));
         rack.push(mp.clone());
         mp
@@ -87,6 +87,10 @@ impl MidiControl {
             mid,
             high,
         }
+    }
+
+    pub fn controller(&self) -> u8 {
+        self.controller
     }
 
     pub fn low(&self) -> f32 {
@@ -176,9 +180,9 @@ impl MidiControlBuilder {
         self
     }
 
-    pub fn rack(&self, rack: &mut Rack, controlls: &mut Controls) -> Arc<MidiControl> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<MidiControl> {
         let n = rack.num_modules();
-        controlls[(n, 0)] = self.value;
+        rack.controls[(n, 0)] = self.value;
         let mc = Arc::new(MidiControl::new(
             n.into(),
             self.controller,

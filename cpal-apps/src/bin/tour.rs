@@ -21,6 +21,22 @@ fn synth(rack: &mut Rack) -> Arc<Union> {
     let tri = OscBuilder::new(triangle_osc).hz(freq).rack(rack);
     tags.push(tri.tag());
 
+    // Fourier Square 8.
+    let mut builder = square_wave(8);
+    builder.hz(freq);
+    let sq8 = builder.rack(rack);
+    tags.push(sq8.tag());
+
+    // Fourier tri 8.
+    let mut builder = triangle_wave(8);
+    builder.hz(freq);
+    let tri8 = builder.rack(rack);
+    tags.push(tri8.tag());
+
+    // PinkNoise
+    let pn = PinkNoiseBuilder::new().amplitude(0.5).rack(rack);
+    tags.push(pn.tag());
+
     // FM
     let modulator = ModulatorBuilder::new(sine_osc)
         .hz(220.0)
@@ -36,6 +52,16 @@ fn synth(rack: &mut Rack) -> Arc<Union> {
     // Vca, where amplitude is controlled by lfo.
     let vca = VcaBuilder::new(sine.tag()).level(lfo.tag()).rack(rack);
     tags.push(vca.tag());
+
+    // CrossFade
+    let cf = CrossFadeBuilder::new(sine.tag(), square.tag()).rack(rack);
+    cf.set_alpha(rack, Control::V(lfo.tag(), 0));
+    tags.push(cf.tag());
+
+    // Delay
+    let delay = DelayBuilder::new(sine.tag(), 0.02.into()).rack(rack);
+    let d = CrossFadeBuilder::new(sine.tag(), delay.tag()).rack(rack);
+    tags.push(d.tag());
 
     UnionBuilder::new(tags).rack(rack)
 }

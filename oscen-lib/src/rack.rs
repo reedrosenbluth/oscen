@@ -378,8 +378,8 @@ macro_rules! tag {
     };
 }
 
-/// A Rack is a topologically sorted `Array` of Synth Modules. A synth is one or
-/// more racks.
+/// A Rack is a topologically sorted `Array` of Synth Modules.  Along with the
+/// storage needed for each module: `Controls`, `State`, `Outputs`, and `Buffers`.
 pub struct Rack {
     modules: Vec<Arc<dyn Signal + Send + Sync>>,
     pub controls: Box<Controls>,
