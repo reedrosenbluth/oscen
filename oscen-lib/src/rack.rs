@@ -8,7 +8,6 @@ pub type SignalFn = fn(f32, f32) -> f32;
 
 pub const MAX_CONTROLS: usize = 32;
 pub const MAX_OUTPUTS: usize = 32;
-pub const MAX_STATE: usize = 64;
 // Must be changed by hand in Buffers due to limitaion of arr! marcro
 pub const MAX_MODULES: usize = 1024;
 
@@ -184,45 +183,6 @@ where
     }
 }
 
-#[derive(Copy, Clone)]
-pub struct State([[f32; MAX_STATE]; MAX_MODULES]);
-
-impl Default for State {
-    fn default() -> Self {
-        State([[0.0; MAX_STATE]; MAX_MODULES])
-    }
-}
-
-impl State {
-    pub fn new() -> Self {
-        Self::default()
-    }
-    pub fn state<T: Into<usize>>(&self, tag: T) -> &[f32] {
-        &self.0[tag.into()]
-    }
-    pub fn state_mut<T: Into<usize>>(&mut self, tag: T) -> &mut [f32] {
-        &mut self.0[tag.into()]
-    }
-}
-
-impl<T> Index<(T, usize)> for State
-where
-    T: Into<Tag>,
-{
-    type Output = f32;
-    fn index(&self, index: (T, usize)) -> &Self::Output {
-        &self.state(index.0.into())[index.1]
-    }
-}
-
-impl<T> IndexMut<(T, usize)> for State
-where
-    T: Into<Tag>,
-{
-    fn index_mut(&mut self, index: (T, usize)) -> &mut Self::Output {
-        &mut self.state_mut(index.0.into())[index.1]
-    }
-}
 /// Circular buffer
 #[derive(Clone)]
 pub struct RingBuffer<T = f32> {
@@ -397,7 +357,6 @@ new_key_type! { pub struct ModuleKey; }
 pub struct Module {
     pub key: ModuleKey,
     pub controls: ArrayVec<Control, MAX_CONTROLS>,
-    pub state: ArrayVec<f32, MAX_STATE>,
     pub outputs: ArrayVec<f32, MAX_OUTPUTS>,
 }
 
@@ -406,7 +365,6 @@ pub struct Module {
 pub struct Rack {
     modules: Vec<ArcMutex<dyn Signal + Send + Sync>>,
     pub controls: Controls,
-    pub state: State,
     pub outputs: Outputs,
     pub buffers: Buffers,
 }
@@ -416,7 +374,6 @@ impl Default for Rack {
         Rack {
             modules: Vec::with_capacity(MAX_MODULES),
             controls: Default::default(),
-            state: Default::default(),
             outputs: Default::default(),
             buffers: Default::default(),
         }

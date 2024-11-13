@@ -7,11 +7,22 @@ use std::f32::consts::PI;
 pub struct Lpf {
     tag: Tag,
     wave: Tag,
+    s0: f32,
+    s1: f32,
+    s2: f32,
+    s3: f32,
 }
 
 impl Lpf {
     pub fn new(tag: Tag, wave: Tag) -> Self {
-        Self { tag, wave }
+        Self {
+            tag,
+            wave,
+            s0: 0.0,
+            s1: 0.0,
+            s2: 0.0,
+            s3: 0.0,
+        }
     }
     props!(cutoff, set_cutoff, 0);
     props!(q, set_q, 1);
@@ -43,13 +54,12 @@ impl Signal for Lpf {
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.25 * (1.0 + b1 + b2);
         let a1 = 2.0 * a0;
-        rack.outputs[(tag, 0)] = a0 * x0 + a1 * rack.state[(tag, 0)] + a0 * rack.state[(tag, 1)]
-            - b1 * rack.state[(tag, 2)]
-            - b2 * rack.state[(tag, 3)];
-        rack.state[(tag, 1)] = rack.state[(tag, 0)];
-        rack.state[(tag, 0)] = x0;
-        rack.state[(tag, 3)] = rack.state[(tag, 2)];
-        rack.state[(tag, 2)] = if rack.outputs[(tag, 0)].is_nan() {
+        rack.outputs[(tag, 0)] =
+            a0 * x0 + a1 * self.s0 + a0 * self.s1 - b1 * self.s2 - b2 * self.s3;
+        self.s1 = self.s0;
+        self.s0 = x0;
+        self.s3 = self.s2;
+        self.s2 = if rack.outputs[(tag, 0)].is_nan() {
             0.0
         } else {
             rack.outputs[(tag, 0)]
@@ -94,11 +104,22 @@ impl LpfBuilder {
 pub struct Hpf {
     tag: Tag,
     wave: Tag,
+    s0: f32,
+    s1: f32,
+    s2: f32,
+    s3: f32,
 }
 
 impl Hpf {
     pub fn new(tag: Tag, wave: Tag) -> Self {
-        Self { tag, wave }
+        Self {
+            tag,
+            wave,
+            s0: 0.0,
+            s1: 0.0,
+            s2: 0.0,
+            s3: 0.0,
+        }
     }
     props!(cutoff, set_cutoff, 0);
     props!(q, set_q, 1);
@@ -130,13 +151,12 @@ impl Signal for Hpf {
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.25 * (1.0 - b1 + b2);
         let a1 = -2.0 * a0;
-        rack.outputs[(tag, 0)] = a0 * x0 + a1 * rack.state[(tag, 0)] + a0 * rack.state[(tag, 1)]
-            - b1 * rack.state[(tag, 2)]
-            - b2 * rack.state[(tag, 3)];
-        rack.state[(tag, 1)] = rack.state[(tag, 0)];
-        rack.state[(tag, 0)] = x0;
-        rack.state[(tag, 3)] = rack.state[(tag, 2)];
-        rack.state[(tag, 2)] = if rack.outputs[(tag, 0)].is_nan() {
+        rack.outputs[(tag, 0)] =
+            a0 * x0 + a1 * self.s0 + a0 * self.s1 - b1 * self.s2 - b2 * self.s3;
+        self.s1 = self.s0;
+        self.s0 = x0;
+        self.s3 = self.s2;
+        self.s2 = if rack.outputs[(tag, 0)].is_nan() {
             0.0
         } else {
             rack.outputs[(tag, 0)]
@@ -180,11 +200,22 @@ impl HpfBuilder {
 pub struct Bpf {
     tag: Tag,
     wave: Tag,
+    s0: f32,
+    s1: f32,
+    s2: f32,
+    s3: f32,
 }
 
 impl Bpf {
     pub fn new(tag: Tag, wave: Tag) -> Self {
-        Self { tag, wave }
+        Self {
+            tag,
+            wave,
+            s0: 0.0,
+            s1: 0.0,
+            s2: 0.0,
+            s3: 0.0,
+        }
     }
     props!(cutoff, set_cutoff, 0);
     props!(q, set_q, 1);
@@ -217,13 +248,12 @@ impl Signal for Bpf {
         let a0 = 0.5 * (1.0 - b2);
         let a1 = 0.0;
         let a2 = -a0;
-        rack.outputs[(tag, 0)] = a0 * x0 + a1 * rack.state[(tag, 0)] + a2 * rack.state[(tag, 1)]
-            - b1 * rack.state[(tag, 2)]
-            - b2 * rack.state[(tag, 3)];
-        rack.state[(tag, 1)] = rack.state[(tag, 0)];
-        rack.state[(tag, 0)] = x0;
-        rack.state[(tag, 3)] = rack.state[(tag, 2)];
-        rack.state[(tag, 2)] = if rack.outputs[(tag, 0)].is_nan() {
+        rack.outputs[(tag, 0)] =
+            a0 * x0 + a1 * self.s0 + a2 * self.s1 - b1 * self.s2 - b2 * self.s3;
+        self.s1 = self.s0;
+        self.s0 = x0;
+        self.s3 = self.s2;
+        self.s2 = if rack.outputs[(tag, 0)].is_nan() {
             0.0
         } else {
             rack.outputs[(tag, 0)]
@@ -267,11 +297,22 @@ impl BpfBuilder {
 pub struct Notch {
     tag: Tag,
     wave: Tag,
+    s0: f32,
+    s1: f32,
+    s2: f32,
+    s3: f32,
 }
 
 impl Notch {
     pub fn new(tag: Tag, wave: Tag) -> Self {
-        Self { tag, wave }
+        Self {
+            tag,
+            wave,
+            s0: 0.0,
+            s1: 0.0,
+            s2: 0.0,
+            s3: 0.0,
+        }
     }
     props!(cutoff, set_cutoff, 0);
     props!(q, set_q, 1);
@@ -303,13 +344,12 @@ impl Signal for Notch {
         let b1 = -(1.0 + b2) * phi.cos();
         let a0 = 0.5 * (1.0 + b2);
         let a1 = b1;
-        rack.outputs[(tag, 0)] = a0 * x0 + a1 * rack.state[(tag, 0)] + a0 * rack.state[(tag, 1)]
-            - b1 * rack.state[(tag, 2)]
-            - b2 * rack.state[(tag, 3)];
-        rack.state[(tag, 1)] = rack.state[(tag, 0)];
-        rack.state[(tag, 0)] = x0;
-        rack.state[(tag, 3)] = rack.state[(tag, 2)];
-        rack.state[(tag, 2)] = if rack.outputs[(tag, 0)].is_nan() {
+        rack.outputs[(tag, 0)] =
+            a0 * x0 + a1 * self.s0 + a0 * self.s1 - b1 * self.s2 - b2 * self.s3;
+        self.s1 = self.s0;
+        self.s0 = x0;
+        self.s3 = self.s2;
+        self.s2 = if rack.outputs[(tag, 0)].is_nan() {
             0.0
         } else {
             rack.outputs[(tag, 0)]
@@ -355,6 +395,7 @@ impl NotchBuilder {
 pub struct Comb {
     tag: Tag,
     wave: Tag,
+    s0: f32,
 }
 
 impl Comb {
@@ -362,6 +403,7 @@ impl Comb {
         Self {
             tag: tag.into(),
             wave,
+            s0: 0.0,
         }
     }
     props!(feedback, set_feedback, 0);
@@ -373,12 +415,12 @@ impl Signal for Comb {
     tag!();
     fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         rack.outputs[(self.tag, 0)] = rack.buffers.buffers(self.tag).get_max_delay();
-        rack.state[(self.tag, 0)] = rack.outputs[(self.tag, 0)] * self.dampening_inverse(rack)
-            + rack.state[(self.tag, 0)] * self.dampening(rack);
+        self.s0 = rack.outputs[(self.tag, 0)] * self.dampening_inverse(rack)
+            + self.s0 * self.dampening(rack);
         let feedback = self.feedback(rack);
         rack.buffers
             .buffers_mut(self.tag)
-            .push(rack.outputs[(self.wave, 0)] + rack.state[(self.tag, 0)] * feedback);
+            .push(rack.outputs[(self.wave, 0)] + self.s0 * feedback);
     }
 }
 

@@ -8,6 +8,9 @@ pub struct Adsr {
     ax: f32,
     dx: f32,
     rx: f32,
+    x: f32,
+    y: f32,
+    z: f32,
 }
 
 impl Adsr {
@@ -17,6 +20,9 @@ impl Adsr {
             ax,
             dx,
             rx,
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
         }
     }
 
@@ -37,11 +43,10 @@ impl Adsr {
         rack.controls[(self.tag, 4)] = value.into();
     }
 
-    pub fn on(&self, rack: &mut Rack) {
+    pub fn on(&mut self, rack: &mut Rack) {
         self.set_triggered(rack, true);
-        rack.state[(self.tag, 1)] = 0.0;
-        let x = rack.state[(self.tag, 2)];
-        rack.state[(self.tag, 0)] = interp_inv(0.0, 1.0 - self.ax, 1.0, x);
+        self.y = 0.0;
+        self.x = interp_inv(0.0, 1.0 - self.ax, 1.0, self.z);
     }
 
     pub fn off(&self, rack: &mut Rack) {
@@ -57,23 +62,20 @@ impl Signal for Adsr {
         let s = self.sustain(rack);
         let r = self.release(rack).max(0.005);
         let triggered = self.triggered(rack);
-        rack.state[(self.tag, 2)] = match (triggered, rack.state[(self.tag, 0)]) {
+        self.z = match (triggered, self.x) {
             (_, t) if t < a => interp(0.0, 1.0 - self.ax, 1.0, t / a),
             (_, t) if t < a + d => interp(1.0, s + self.dx * (1.0 - s), s, (t - a) / d),
             (true, t) => {
-                rack.state[(self.tag, 1)] = t - a - d;
+                self.y = t - a - d;
                 s
             }
-            (false, t) if t < a + d + r + rack.state[(self.tag, 1)] => interp(
-                s,
-                self.rx * s,
-                0.0,
-                t - a - d - rack.state[(self.tag, 1)] / r,
-            ),
+            (false, t) if t < a + d + r + self.y => {
+                interp(s, self.rx * s, 0.0, t - a - d - self.y / r)
+            }
             (false, _) => 0.0,
         };
-        rack.outputs[(self.tag, 0)] = rack.state[(self.tag, 2)];
-        rack.state[(self.tag, 0)] += 1.0 / sample_rate;
+        self.x = self.z;
+        self.x += 1.0 / sample_rate;
     }
 }
 

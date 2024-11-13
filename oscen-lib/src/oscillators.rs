@@ -1,6 +1,7 @@
 use crate::rack::*;
 use crate::utils::{arc_mutex, ArcMutex};
 use crate::{build, props, tag};
+use arrayvec::ArrayVec;
 use math::round::floor;
 use rand::prelude::*;
 use rand_distr::{StandardNormal, Uniform};
@@ -8,6 +9,7 @@ use std::f32::consts;
 use std::sync::{Arc, Mutex};
 
 const TAU: f32 = 2.0 * consts::PI;
+const MAX_FOURIER_COEFFICIENTS: usize = 64;
 
 pub struct OscBuilder {
     signal_fn: SignalFn,
@@ -225,6 +227,7 @@ impl Signal for WhiteNoise {
 #[derive(Copy, Clone)]
 pub struct PinkNoise {
     tag: Tag,
+    whites: [f32; 7],
 }
 
 #[derive(Copy, Clone)]
@@ -242,7 +245,10 @@ impl Default for PinkNoiseBuilder {
 
 impl PinkNoise {
     pub fn new<T: Into<Tag>>(tag: T) -> Self {
-        Self { tag: tag.into() }
+        Self {
+            tag: tag.into(),
+            whites: [0.0; 7],
+        }
     }
     props!(amplitude, set_amplitude, 0);
 }
@@ -264,25 +270,24 @@ impl PinkNoiseBuilder {
 impl Signal for PinkNoise {
     tag!();
     fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
-        let tag = self.tag;
         let amplitude = self.amplitude(rack);
         let mut rng = thread_rng();
         let white = Uniform::new_inclusive(-1.0, 1.0).sample(&mut rng);
-        rack.state[(tag, 0)] = 0.99886 * rack.state[(tag, 0)] + white * 0.0555179;
-        rack.state[(tag, 1)] = 0.99332 * rack.state[(tag, 1)] + white * 0.0750759;
-        rack.state[(tag, 2)] = 0.969 * rack.state[(tag, 2)] + white * 0.153852;
-        rack.state[(tag, 3)] = 0.8665 * rack.state[(tag, 3)] + white * 0.3104856;
-        rack.state[(tag, 4)] = 0.55 * rack.state[(tag, 4)] + white * 0.5329522;
-        rack.state[(tag, 5)] = -0.7616 * rack.state[(tag, 5)] - white * 0.016898;
-        let pink = rack.state[(tag, 0)]
-            + rack.state[(tag, 1)]
-            + rack.state[(tag, 2)]
-            + rack.state[(tag, 3)]
-            + rack.state[(tag, 4)]
-            + rack.state[(tag, 5)]
-            + rack.state[(tag, 6)]
+        self.whites[0] = 0.99886 * self.whites[0] + white * 0.0555179;
+        self.whites[1] = 0.99332 * self.whites[1] + white * 0.0750759;
+        self.whites[2] = 0.969 * self.whites[2] + white * 0.153852;
+        self.whites[3] = 0.8665 * self.whites[3] + white * 0.3104856;
+        self.whites[4] = 0.55 * self.whites[4] + white * 0.5329522;
+        self.whites[5] = -0.7616 * self.whites[5] - white * 0.016898;
+        let pink = self.whites[0]
+            + self.whites[1]
+            + self.whites[2]
+            + self.whites[3]
+            + self.whites[4]
+            + self.whites[5]
+            + self.whites[6]
             + white * 0.5362;
-        rack.state[(tag, 6)] = white * 0.115926;
+        self.whites[6] = white * 0.115926;
         rack.outputs[(self.tag, 0)] = pink * amplitude;
     }
 }
@@ -290,7 +295,7 @@ impl Signal for PinkNoise {
 #[derive(Clone)]
 pub struct FourierOsc {
     tag: Tag,
-    coefficients: Vec<f32>,
+    coefficients: ArrayVec<f32, 64>,
     lanczos: bool,
 }
 
@@ -298,13 +303,12 @@ pub struct FourierOsc {
 pub struct FourierOscBuilder {
     hz: Control,
     amplitude: Control,
-    coefficients: Vec<f32>,
+    coefficients: ArrayVec<f32, 64>,
     lanczos: bool,
 }
 
 impl FourierOsc {
-    pub fn new<T: Into<Tag>>(tag: T, coefficients: Vec<f32>, lanczos: bool) -> Self {
-        assert!(coefficients.len() <= 64, "Max size of fourier osc is 64");
+    pub fn new<T: Into<Tag>>(tag: T, coefficients: ArrayVec<f32, 64>, lanczos: bool) -> Self {
         FourierOsc {
             tag: tag.into(),
             coefficients,
@@ -322,7 +326,7 @@ impl FourierOsc {
 }
 
 impl FourierOscBuilder {
-    pub fn new(coefficients: Vec<f32>) -> Self {
+    pub fn new(coefficients: ArrayVec<f32, 64>) -> Self {
         Self {
             hz: 0.0.into(),
             amplitude: 1.0.into(),
@@ -356,20 +360,18 @@ fn sinc(x: f32) -> f32 {
 impl Signal for FourierOsc {
     tag!();
     fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
-        let tag = self.tag;
         let hz = self.hz(rack);
         let sigma = self.lanczos as i32;
         let mut out = 0.0;
-        for (i, c) in self.coefficients.iter().enumerate() {
-            out += c
-                * sinc(sigma as f32 * i as f32 / self.coefficients.len() as f32)
-                * (rack.state[(tag, i)] * TAU).sin();
-            rack.state[(tag, i)] += hz * i as f32 / sample_rate;
-            while rack.state[(tag, i)] >= 1.0 {
-                rack.state[(tag, i)] -= 1.0;
+        let n = self.coefficients.len();
+        for (i, c) in self.coefficients.iter_mut().enumerate() {
+            out += *c * sinc(sigma as f32 * i as f32 / n as f32) * (*c * TAU).sin();
+            *c += hz * i as f32 / sample_rate;
+            while *c >= 1.0 {
+                *c -= 1.0;
             }
-            while rack.state[(tag, i)] <= -1.0 {
-                rack.state[(tag, i)] += 1.0;
+            while *c <= -1.0 {
+                *c += 1.0;
             }
         }
         rack.outputs[(self.tag, 0)] = out * self.amplitude(rack);
@@ -377,7 +379,7 @@ impl Signal for FourierOsc {
 }
 
 pub fn square_wave(n: u32) -> FourierOscBuilder {
-    let mut coefficients: Vec<f32> = Vec::new();
+    let mut coefficients: ArrayVec<f32, MAX_FOURIER_COEFFICIENTS> = ArrayVec::new();
     for i in 0..=n {
         if i % 2 == 1 {
             coefficients.push(1. / i as f32);
@@ -389,7 +391,7 @@ pub fn square_wave(n: u32) -> FourierOscBuilder {
 }
 
 pub fn triangle_wave(n: u32) -> FourierOscBuilder {
-    let mut coefficients: Vec<f32> = Vec::new();
+    let mut coefficients: ArrayVec<f32, MAX_FOURIER_COEFFICIENTS> = ArrayVec::new();
     for i in 0..=n {
         if i % 2 == 1 {
             let sgn = if i % 4 == 1 { -1.0 } else { 1.0 };
@@ -406,6 +408,7 @@ pub fn triangle_wave(n: u32) -> FourierOscBuilder {
 #[derive(Copy, Clone)]
 pub struct Clock {
     tag: Tag,
+    tick: f32,
 }
 
 #[derive(Copy, Clone)]
@@ -430,7 +433,10 @@ impl ClockBuilder {
 
 impl Clock {
     pub fn new<T: Into<Tag>>(tag: T) -> Self {
-        Self { tag: tag.into() }
+        Self {
+            tag: tag.into(),
+            tick: 0.0,
+        }
     }
     props!(interval, set_interval, 0);
 }
@@ -438,15 +444,14 @@ impl Clock {
 impl Signal for Clock {
     tag!();
     fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
-        let tag = self.tag;
         let interval = self.interval(rack) * sample_rate;
-        let out = if rack.state[(tag, 0)] == 0.0 {
-            rack.state[(tag, 0)] += 1.0;
+        let out = if self.tick == 0.0 {
+            self.tick += 1.0;
             1.0
         } else {
-            rack.state[(tag, 0)] += 1.0;
-            while rack.state[(tag, 0)] >= interval {
-                rack.state[(tag, 0)] -= interval;
+            self.tick += 1.0;
+            while self.tick >= interval {
+                self.tick -= interval;
             }
             0.0
         };
