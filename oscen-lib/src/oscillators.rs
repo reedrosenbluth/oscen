@@ -1,15 +1,16 @@
 use crate::rack::*;
+use crate::utils::{arc_mutex, ArcMutex};
 use crate::{build, props, tag};
 use math::round::floor;
 use rand::prelude::*;
 use rand_distr::{StandardNormal, Uniform};
 use std::f32::consts;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 const TAU: f32 = 2.0 * consts::PI;
 
 pub struct OscBuilder {
-    signal_fn: fn(f32, f32) -> f32,
+    signal_fn: SignalFn,
     phase: f32,
     hz: Control,
     amplitude: Control,
@@ -21,11 +22,12 @@ pub struct OscBuilder {
 #[derive(Clone)]
 pub struct Oscillator {
     tag: Tag,
-    signal_fn: fn(f32, f32) -> f32,
+    signal_fn: SignalFn,
+    phase: f32,
 }
 
 impl OscBuilder {
-    pub fn new(signal_fn: fn(f32, f32) -> f32) -> Self {
+    pub fn new(signal_fn: SignalFn) -> Self {
         Self {
             signal_fn,
             phase: 0.0,
@@ -35,22 +37,16 @@ impl OscBuilder {
         }
     }
 
-    pub fn phase(&mut self, value: f32) -> &mut Self {
-        self.phase = value;
-        self
-    }
-
     build!(hz);
     build!(amplitude);
     build!(arg);
 
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Oscillator> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Oscillator> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.hz;
         rack.controls[(n, 1)] = self.amplitude;
         rack.controls[(n, 2)] = self.arg;
-        rack.state[(n, 0)] = self.phase;
-        let osc = Arc::new(Oscillator::new(n, self.signal_fn));
+        let osc = Arc::new(Mutex::new(Oscillator::new(n, self.signal_fn, self.phase)));
         rack.push(osc.clone());
         osc
     }
@@ -86,17 +82,12 @@ pub fn triangle_osc(phase: f32, _: f32) -> f32 {
 }
 
 impl Oscillator {
-    pub fn new<T: Into<Tag>>(tag: T, signal_fn: fn(f32, f32) -> f32) -> Self {
+    pub fn new<T: Into<Tag>>(tag: T, signal_fn: SignalFn, phase: f32) -> Self {
         Self {
             tag: tag.into(),
             signal_fn,
+            phase,
         }
-    }
-    pub fn phase(&self, state: &State) -> f32 {
-        state[(self.tag, 0)]
-    }
-    pub fn set_phase(&self, state: &mut State, value: f32) {
-        state[(self.tag, 0)] = value;
     }
     props!(hz, set_hz, 0);
     props!(amplitude, set_amplitude, 1);
@@ -105,20 +96,19 @@ impl Oscillator {
 
 impl Signal for Oscillator {
     tag!();
-    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
-        let phase = self.phase(&rack.state);
+    fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
         let hz = self.hz(rack);
         let amp = self.amplitude(rack);
         let arg = self.arg(rack);
-        let mut ph = phase + hz / sample_rate;
+        let mut ph = self.phase + hz / sample_rate;
         while ph >= 1.0 {
             ph -= 1.0
         }
         while ph <= -1.0 {
             ph += 1.0
         }
-        self.set_phase(&mut rack.state, ph);
-        rack.outputs[(self.tag, 0)] = amp * (self.signal_fn)(phase, arg);
+        self.phase = ph;
+        rack.outputs[(self.tag, 0)] = amp * (self.signal_fn)(self.phase, arg);
     }
 }
 
@@ -138,10 +128,10 @@ impl ConstBuilder {
     pub fn new(value: Control) -> Self {
         Self { value }
     }
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Const> {
+    pub fn rack(&self, rack: &mut Rack) -> Arc<Mutex<Const>> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.value;
-        let out = Arc::new(Const::new(n));
+        let out = arc_mutex(Const::new(n));
         rack.push(out.clone());
         out
     }
@@ -156,7 +146,7 @@ impl Const {
 
 impl Signal for Const {
     tag!();
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         rack.outputs[(self.tag, 0)] = self.value(rack);
     }
 }
@@ -198,10 +188,10 @@ impl WhiteNoiseBuilder {
         self
     }
     build!(amplitude);
-    pub fn rack(&self, rack: &mut Rack) -> Arc<WhiteNoise> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<WhiteNoise> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.amplitude;
-        let noise = Arc::new(WhiteNoise::new(n, self.dist));
+        let noise = arc_mutex(WhiteNoise::new(n, self.dist));
         rack.push(noise.clone());
         noise
     }
@@ -219,7 +209,7 @@ impl WhiteNoise {
 
 impl Signal for WhiteNoise {
     tag!();
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         let amplitude = self.amplitude(rack);
         let mut rng = thread_rng();
         let out = match self.dist {
@@ -262,10 +252,10 @@ impl PinkNoiseBuilder {
         Self::default()
     }
     build!(amplitude);
-    pub fn rack(&self, rack: &mut Rack) -> Arc<PinkNoise> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<PinkNoise> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.amplitude;
-        let noise = Arc::new(PinkNoise::new(n));
+        let noise = arc_mutex(PinkNoise::new(n));
         rack.push(noise.clone());
         noise
     }
@@ -273,7 +263,7 @@ impl PinkNoiseBuilder {
 
 impl Signal for PinkNoise {
     tag!();
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         let tag = self.tag;
         let amplitude = self.amplitude(rack);
         let mut rng = thread_rng();
@@ -346,11 +336,11 @@ impl FourierOscBuilder {
         self.lanczos = value;
         self
     }
-    pub fn rack(&self, rack: &mut Rack) -> Arc<FourierOsc> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<FourierOsc> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.hz;
         rack.controls[(n, 1)] = self.amplitude;
-        let osc = Arc::new(FourierOsc::new(n, self.coefficients.clone(), self.lanczos));
+        let osc = arc_mutex(FourierOsc::new(n, self.coefficients.clone(), self.lanczos));
         rack.push(osc.clone());
         osc
     }
@@ -365,7 +355,7 @@ fn sinc(x: f32) -> f32 {
 
 impl Signal for FourierOsc {
     tag!();
-    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
         let tag = self.tag;
         let hz = self.hz(rack);
         let sigma = self.lanczos as i32;
@@ -429,10 +419,10 @@ impl ClockBuilder {
             interval: interval.into(),
         }
     }
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Clock> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Clock> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.interval;
-        let clock = Arc::new(Clock::new(n));
+        let clock = arc_mutex(Clock::new(n));
         rack.push(clock.clone());
         clock
     }
@@ -447,7 +437,7 @@ impl Clock {
 
 impl Signal for Clock {
     tag!();
-    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
         let tag = self.tag;
         let interval = self.interval(rack) * sample_rate;
         let out = if rack.state[(tag, 0)] == 0.0 {

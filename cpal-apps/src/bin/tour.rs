@@ -1,5 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SizedSample};
+use iced::widget::shader::wgpu::hal::auxil::db;
 use oscen::operators::*;
 use oscen::oscillators::*;
 use oscen::rack::*;
@@ -8,62 +9,70 @@ use std::{env, sync::Arc};
 fn synth(rack: &mut Rack) -> Arc<Union> {
     let mut tags = vec![];
 
-    // Sine
+    // Sine 0
     let freq = 330.0;
     let sine = OscBuilder::new(sine_osc).hz(freq).rack(rack);
-    tags.push(sine.tag());
+    tags.push(sine.lock().unwrap().tag());
 
-    // Square
+    // Square 1
     let square = OscBuilder::new(square_osc).hz(freq).rack(rack);
-    tags.push(square.tag());
+    tags.push(square.lock().unwrap().tag());
 
-    // Triangle
+    // Triangle 2
     let tri = OscBuilder::new(triangle_osc).hz(freq).rack(rack);
-    tags.push(tri.tag());
+    tags.push(tri.lock().unwrap().tag());
 
-    // Fourier Square 8.
+    // Fourier Square 8. 3
     let mut builder = square_wave(8);
     builder.hz(freq);
     let sq8 = builder.rack(rack);
-    tags.push(sq8.tag());
+    tags.push(sq8.lock().unwrap().tag());
 
-    // Fourier tri 8.
+    // Fourier tri 8. 4
     let mut builder = triangle_wave(8);
     builder.hz(freq);
     let tri8 = builder.rack(rack);
-    tags.push(tri8.tag());
+    tags.push(tri8.lock().unwrap().tag());
 
-    // PinkNoise
+    // PinkNoise 5
     let pn = PinkNoiseBuilder::new().amplitude(0.5).rack(rack);
-    tags.push(pn.tag());
+    tags.push(pn.lock().unwrap().tag());
 
-    // FM
+    // FM 6
     let modulator = ModulatorBuilder::new(sine_osc)
         .hz(220.0)
         .ratio(2.0)
         .index(4.0)
         .rack(rack);
-    let fm = OscBuilder::new(triangle_osc).hz(modulator.tag()).rack(rack);
-    tags.push(fm.tag());
+    let fm = OscBuilder::new(triangle_osc)
+        .hz(modulator.lock().unwrap().tag())
+        .rack(rack);
+    tags.push(fm.lock().unwrap().tag());
 
     // LFO
     let lfo = OscBuilder::new(sine_osc).hz(2.0).rack(rack);
 
-    // Vca, where amplitude is controlled by lfo.
-    let vca = VcaBuilder::new(sine.tag()).level(lfo.tag()).rack(rack);
-    tags.push(vca.tag());
+    // Vca, where amplitude is controlled by lfo. 7
+    let vca = VcaBuilder::new(sine.lock().unwrap().tag())
+        .level(lfo.lock().unwrap().tag())
+        .rack(rack);
+    tags.push(vca.lock().unwrap().tag());
 
-    // CrossFade
-    let cf = CrossFadeBuilder::new(sine.tag(), square.tag()).rack(rack);
-    cf.set_alpha(rack, Control::V(lfo.tag(), 0));
-    tags.push(cf.tag());
+    // CrossFade 8
+    let cf =
+        CrossFadeBuilder::new(sine.lock().unwrap().tag(), square.lock().unwrap().tag()).rack(rack);
+    cf.lock()
+        .unwrap()
+        .set_alpha(rack, Control::V(lfo.lock().unwrap().tag(), 0));
+    tags.push(cf.lock().unwrap().tag());
 
-    // Delay
-    let delay = DelayBuilder::new(sine.tag(), 0.02.into()).rack(rack);
-    let d = CrossFadeBuilder::new(sine.tag(), delay.tag()).rack(rack);
-    tags.push(d.tag());
+    // Delay 9
+    let delay = DelayBuilder::new(sine.lock().unwrap().tag(), 0.02.into()).rack(rack);
+    let d =
+        CrossFadeBuilder::new(sine.lock().unwrap().tag(), delay.lock().unwrap().tag()).rack(rack);
+    tags.push(d.lock().unwrap().tag());
 
-    UnionBuilder::new(tags).rack(rack)
+    Arc::new(UnionBuilder::new(tags).rack(rack).lock().unwrap().clone())
 }
 
 fn main() -> Result<(), anyhow::Error> {

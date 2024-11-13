@@ -1,7 +1,7 @@
 use crate::rack::*;
+use crate::utils::{arc_mutex, ArcMutex};
 use crate::{build, props, tag};
 use std::f32::consts::PI;
-use std::sync::Arc;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Lpf {
@@ -29,7 +29,7 @@ impl Lpf {
 
 impl Signal for Lpf {
     tag!();
-    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
         let x0 = rack.outputs[(self.wave, 0)];
         let cut_off = self.cutoff(rack);
         if self.off(rack) || cut_off > 20_000.0 {
@@ -79,12 +79,12 @@ impl LpfBuilder {
     build!(q);
     build!(off);
 
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Lpf> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Lpf> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.cut_off;
         rack.controls[(n, 1)] = self.q;
         rack.controls[(n, 2)] = self.off;
-        let lpf = Arc::new(Lpf::new(n.into(), self.wave));
+        let lpf = arc_mutex(Lpf::new(n.into(), self.wave));
         rack.push(lpf.clone());
         lpf
     }
@@ -116,7 +116,7 @@ impl Hpf {
 
 impl Signal for Hpf {
     tag!();
-    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
         let x0 = rack.outputs[(self.wave, 0)];
         let cut_off = self.cutoff(rack);
         if self.off(rack) || cut_off > 20_000.0 {
@@ -166,12 +166,12 @@ impl HpfBuilder {
     build!(q);
     build!(off);
 
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Hpf> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Hpf> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.cut_off;
         rack.controls[(n, 1)] = self.q;
         rack.controls[(n, 2)] = self.off;
-        let hpf = Arc::new(Hpf::new(n.into(), self.wave));
+        let hpf = arc_mutex(Hpf::new(n.into(), self.wave));
         rack.push(hpf.clone());
         hpf
     }
@@ -202,7 +202,7 @@ impl Bpf {
 
 impl Signal for Bpf {
     tag!();
-    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
         let x0 = rack.outputs[(self.wave, 0)];
         let cut_off = self.cutoff(rack);
         if self.off(rack) || cut_off > 20_000.0 {
@@ -253,12 +253,12 @@ impl BpfBuilder {
     build!(q);
     build!(off);
 
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Bpf> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Bpf> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.cut_off;
         rack.controls[(n, 1)] = self.q;
         rack.controls[(n, 2)] = self.off;
-        let bpf = Arc::new(Bpf::new(n.into(), self.wave));
+        let bpf = arc_mutex(Bpf::new(n.into(), self.wave));
         rack.push(bpf.clone());
         bpf
     }
@@ -289,7 +289,7 @@ impl Notch {
 
 impl Signal for Notch {
     tag!();
-    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
         let x0 = rack.outputs[(self.wave, 0)];
         let cut_off = self.cutoff(rack);
         if self.off(rack) || cut_off > 20_000.0 {
@@ -339,12 +339,12 @@ impl NotchBuilder {
     build!(q);
     build!(off);
 
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<Notch> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> ArcMutex<Notch> {
         let n = rack.num_modules();
         controls[(n, 0)] = self.cut_off;
         controls[(n, 1)] = self.q;
         controls[(n, 2)] = self.off;
-        let notch = Arc::new(Notch::new(n.into(), self.wave));
+        let notch = arc_mutex(Notch::new(n.into(), self.wave));
         rack.push(notch.clone());
         notch
     }
@@ -371,7 +371,7 @@ impl Comb {
 
 impl Signal for Comb {
     tag!();
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         rack.outputs[(self.tag, 0)] = rack.buffers.buffers(self.tag).get_max_delay();
         rack.state[(self.tag, 0)] = rack.outputs[(self.tag, 0)] * self.dampening_inverse(rack)
             + rack.state[(self.tag, 0)] * self.dampening(rack);
@@ -406,14 +406,16 @@ impl CombBuilder {
     build!(dampening);
     build!(dampening_inverse);
 
-    pub fn rack(&mut self, rack: &mut Rack) -> Arc<Comb> {
+    pub fn rack(&mut self, rack: &mut Rack) -> ArcMutex<Comb> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.feedback;
         rack.controls[(n, 1)] = self.dampening;
         rack.controls[(n, 2)] = self.dampening_inverse;
-        let comb = Arc::new(Comb::new(n, self.wave));
-        rack.buffers
-            .set_buffer(comb.tag, RingBuffer::new(1, vec![0.0; self.length]));
+        let comb = arc_mutex(Comb::new(n, self.wave));
+        rack.buffers.set_buffer(
+            comb.lock().unwrap().tag,
+            RingBuffer::new(1, vec![0.0; self.length]),
+        );
         rack.push(comb.clone());
         comb
     }
@@ -436,7 +438,7 @@ impl AllPass {
 
 impl Signal for AllPass {
     tag!();
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         let input = rack.outputs[(self.wave, 0)];
         let delayed = rack.buffers.buffers(self.tag).get_max_delay();
         rack.outputs[(self.tag, 0)] = delayed - input;
@@ -456,10 +458,13 @@ impl AllPassBuilder {
     pub fn new(wave: Tag, length: usize) -> Self {
         Self { wave, length }
     }
-    pub fn rack(&mut self, rack: &mut Rack, buffers: &mut Buffers) -> Arc<AllPass> {
+    pub fn rack(&mut self, rack: &mut Rack, buffers: &mut Buffers) -> ArcMutex<AllPass> {
         let n = rack.num_modules();
-        let allpass = Arc::new(AllPass::new(n, self.wave));
-        buffers.set_buffer(allpass.tag, RingBuffer::new(1, vec![0.0; self.length]));
+        let allpass = arc_mutex(AllPass::new(n, self.wave));
+        buffers.set_buffer(
+            allpass.lock().unwrap().tag,
+            RingBuffer::new(1, vec![0.0; self.length]),
+        );
         rack.push(allpass.clone());
         allpass
     }

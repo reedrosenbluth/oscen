@@ -1,12 +1,11 @@
 use crate::rack::*;
-use crate::utils::interp;
+use crate::utils::{arc_mutex, interp, ArcMutex};
 use crate::{build, props, tag};
 use crossbeam::channel::Sender;
 use midir::{Ignore, MidiInput};
 use pitch_calc::calc::hz_from_step;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
-use std::sync::Arc;
 
 #[derive(Debug, Copy, Clone)]
 pub struct MidiPitch {
@@ -26,7 +25,7 @@ impl MidiPitch {
 impl Signal for MidiPitch {
     tag!();
 
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         rack.outputs[(self.tag, 0)] =
             hz_from_step(self.factor(rack) * self.step(rack) + self.offset(rack));
     }
@@ -58,12 +57,12 @@ impl MidiPitchBuilder {
     build!(offset);
     build!(factor);
 
-    pub fn rack(&self, rack: &mut Rack) -> Arc<MidiPitch> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<MidiPitch> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.step;
         rack.controls[(n, 1)] = self.offset;
         rack.controls[(n, 2)] = self.factor;
-        let mp = Arc::new(MidiPitch::new(n.into()));
+        let mp = arc_mutex(MidiPitch::new(n.into()));
         rack.push(mp.clone());
         mp
     }
@@ -137,7 +136,7 @@ impl MidiControl {
 impl Signal for MidiControl {
     tag!();
 
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         let value = self.value(rack);
         rack.outputs[(self.tag, 0)] = self.map_range(value as f32);
     }
@@ -180,10 +179,10 @@ impl MidiControlBuilder {
         self
     }
 
-    pub fn rack(&self, rack: &mut Rack) -> Arc<MidiControl> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<MidiControl> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.value;
-        let mc = Arc::new(MidiControl::new(
+        let mc = arc_mutex(MidiControl::new(
             n.into(),
             self.controller,
             self.low,

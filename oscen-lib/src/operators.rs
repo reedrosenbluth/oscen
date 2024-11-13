@@ -1,7 +1,7 @@
 use crate::oscillators::{ConstBuilder, OscBuilder};
 use crate::rack::*;
+use crate::utils::{arc_mutex, ArcMutex};
 use crate::{build, props, tag};
-use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct Mixer {
     tag: Tag,
@@ -17,14 +17,14 @@ impl MixerBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Mixer> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Mixer> {
         let n = rack.num_modules();
         let cs = rack.controls.controls_mut(n);
         for (i, w) in self.waves.iter().enumerate() {
             cs[i] = Control::I((*w).into());
         }
         let nw = self.waves.len() as u8;
-        let mix = Arc::new(Mixer::new(n.into(), nw));
+        let mix = arc_mutex(Mixer::new(n.into(), nw));
         rack.push(mix.clone());
         mix
     }
@@ -38,7 +38,7 @@ impl Mixer {
 
 impl Signal for Mixer {
     tag!();
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         let cs = &rack.controls.controls(self.tag())[0..self.num_waves as usize];
         rack.outputs[(self.tag, 0)] = cs
             .iter()
@@ -67,7 +67,7 @@ impl UnionBuilder {
         }
     }
     build!(active);
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Union> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Union> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.active;
         let cs = rack.controls.controls_mut(n);
@@ -75,7 +75,7 @@ impl UnionBuilder {
             cs[i + 1] = Control::I((*w).into());
         }
         let nw = self.waves.len() as u8;
-        let u = Arc::new(Union::new(n.into(), nw));
+        let u = arc_mutex(Union::new(n.into(), nw));
         rack.push(u.clone());
         u
     }
@@ -98,7 +98,7 @@ impl Union {
 
 impl Signal for Union {
     tag!();
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         let idx = self.active(rack);
         let cs = &rack.controls.controls(self.tag())[1..=self.num_waves as usize];
         let c: Tag = cs[idx].idx().into();
@@ -121,14 +121,14 @@ impl ProductBuilder {
     pub fn new(waves: Vec<Tag>) -> Self {
         Self { waves }
     }
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Product> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Product> {
         let n = rack.num_modules();
         let cs = rack.controls.controls_mut(n);
         for (i, w) in self.waves.iter().enumerate() {
             cs[i] = Control::I((*w).into());
         }
         let nw = self.waves.len() as u8;
-        let p = Arc::new(Product::new(n.into(), nw));
+        let p = arc_mutex(Product::new(n.into(), nw));
         rack.push(p.clone());
         p
     }
@@ -142,7 +142,7 @@ impl Product {
 
 impl Signal for Product {
     tag!();
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         let cs = &rack.controls.controls(self.tag())[0..self.num_waves as usize];
         rack.outputs[(self.tag, 0)] = cs
             .iter()
@@ -166,7 +166,7 @@ impl Inverse {
 impl Signal for Inverse {
     tag!();
 
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         rack.outputs[(self.tag, 0)] = 1.0 / rack.outputs[(self.wave, 0)];
     }
 }
@@ -181,9 +181,9 @@ impl InverseBuilder {
         Self { wave }
     }
 
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Inverse> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Inverse> {
         let n = rack.num_modules();
-        let inverse = Arc::new(Inverse::new(n.into(), self.wave));
+        let inverse = arc_mutex(Inverse::new(n.into(), self.wave));
         rack.push(inverse.clone());
         inverse
     }
@@ -204,7 +204,7 @@ impl Vca {
 
 impl Signal for Vca {
     tag!();
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         rack.outputs[(self.tag, 0)] = self.level(rack) * rack.outputs[(self.wave, 0)];
     }
 }
@@ -223,10 +223,10 @@ impl VcaBuilder {
         }
     }
     build!(level);
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Vca> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Vca> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.level;
-        let vca = Arc::new(Vca::new(n.into(), self.wave));
+        let vca = arc_mutex(Vca::new(n.into(), self.wave));
         rack.push(vca.clone());
         vca
     }
@@ -248,7 +248,7 @@ impl CrossFade {
 
 impl Signal for CrossFade {
     tag!();
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         let alpha = self.alpha(rack);
         rack.outputs[(self.tag, 0)] =
             alpha * rack.outputs[(self.wave2, 0)] + (1.0 - alpha) * rack.outputs[(self.wave1, 0)];
@@ -271,10 +271,10 @@ impl CrossFadeBuilder {
         }
     }
     build!(alpha);
-    pub fn rack(&self, rack: &mut Rack) -> Arc<CrossFade> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<CrossFade> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.alpha;
-        let cf = Arc::new(CrossFade::new(n.into(), self.wave1, self.wave2));
+        let cf = arc_mutex(CrossFade::new(n.into(), self.wave1, self.wave2));
         rack.push(cf.clone());
         cf
     }
@@ -322,7 +322,7 @@ impl Modulator {
 
 impl Signal for Modulator {
     tag!();
-    fn signal(&self, _rack: &mut Rack, _sample_rate: f32) {}
+    fn signal(&mut self, _rack: &mut Rack, _sample_rate: f32) {}
 }
 
 #[derive(Debug, Clone)]
@@ -345,23 +345,36 @@ impl ModulatorBuilder {
     build!(hz);
     build!(ratio);
     build!(index);
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Modulator> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Modulator> {
         let hz = ConstBuilder::new(self.hz).rack(rack);
         let ratio = ConstBuilder::new(self.ratio).rack(rack);
         let index = ConstBuilder::new(self.index).rack(rack);
-        let mod_hz = ProductBuilder::new(vec![hz.tag(), ratio.tag()]).rack(rack);
-        let mod_amp = ProductBuilder::new(vec![hz.tag(), ratio.tag(), index.tag()]).rack(rack);
+        let mod_hz =
+            ProductBuilder::new(vec![hz.lock().unwrap().tag(), ratio.lock().unwrap().tag()])
+                .rack(rack);
+        let mod_amp = ProductBuilder::new(vec![
+            hz.lock().unwrap().tag(),
+            ratio.lock().unwrap().tag(),
+            index.lock().unwrap().tag(),
+        ])
+        .rack(rack);
         let modulator = OscBuilder::new(self.signal_fn)
-            .amplitude(mod_amp.tag())
-            .hz(mod_hz.tag())
+            .amplitude(mod_amp.lock().unwrap().tag())
+            .hz(mod_hz.lock().unwrap().tag())
             .rack(rack);
-        let carrier_hz = MixerBuilder::new(vec![modulator.tag(), hz.tag()]).rack(rack);
-        Arc::new(Modulator::new(
-            carrier_hz.tag(),
-            hz.tag(),
-            ratio.tag(),
-            index.tag(),
-        ))
+        let carrier_hz = MixerBuilder::new(vec![
+            modulator.lock().unwrap().tag(),
+            hz.lock().unwrap().tag(),
+        ])
+        .rack(rack);
+        let index_tag = index.lock().unwrap().tag();
+        let wrapped_modulator = arc_mutex(Modulator::new(
+            carrier_hz.lock().unwrap().tag(),
+            hz.lock().unwrap().tag(),
+            ratio.lock().unwrap().tag(),
+            index_tag,
+        ));
+        wrapped_modulator
     }
 }
 
@@ -382,7 +395,7 @@ impl Delay {
 
 impl Signal for Delay {
     tag!();
-    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
         let val = rack.outputs[(self.wave, 0)];
         let d = self.delay(rack) * sample_rate;
         rack.buffers.buffers_mut(self.tag).push(val);
@@ -402,12 +415,12 @@ impl DelayBuilder {
 
     build!(delay);
 
-    pub fn rack(&mut self, rack: &mut Rack) -> Arc<Delay> {
+    pub fn rack(&mut self, rack: &mut Rack) -> ArcMutex<Delay> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.delay;
-        let delay = Arc::new(Delay::new(n, self.wave));
+        let delay = arc_mutex(Delay::new(n, self.wave));
         rack.buffers
-            .set_buffer(delay.tag(), RingBuffer::new32(44100.0));
+            .set_buffer(delay.lock().unwrap().tag, RingBuffer::new32(44100.0));
         rack.push(delay.clone());
         delay
     }

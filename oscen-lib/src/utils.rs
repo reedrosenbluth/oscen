@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use crate::rack::*;
 use approx::relative_eq;
 
@@ -32,6 +34,44 @@ pub fn signals(rack: &mut Rack, start: u32, end: u32, sample_rate: f32) -> Vec<(
         result.push((i as f32 / sample_rate, rack.mono(sample_rate)));
     }
     result
+}
+
+pub trait AsBool: Copy {
+    fn as_bool(self) -> bool;
+}
+
+impl AsBool for f32 {
+    fn as_bool(self) -> bool {
+        self > 0.0
+    }
+}
+
+impl AsBool for f64 {
+    fn as_bool(self) -> bool {
+        self > 0.0
+    }
+}
+
+pub trait AsUsize: Copy {
+    fn as_usize(self) -> usize;
+}
+
+impl AsUsize for f32 {
+    fn as_usize(self) -> usize {
+        self.clamp(0.0, 255.0) as usize
+    }
+}
+
+impl AsUsize for f64 {
+    fn as_usize(self) -> usize {
+        self.clamp(0.0, 255.0) as usize
+    }
+}
+
+pub type ArcMutex<T> = Arc<Mutex<T>>;
+
+pub fn arc_mutex<T>(t: T) -> Arc<Mutex<T>> {
+    Arc::new(Mutex::new(t))
 }
 
 #[cfg(test)]
@@ -97,5 +137,22 @@ mod tests {
             "interp returned {}, expected 10,1000",
             result
         );
+    }
+
+    #[test]
+    fn as_bool() {
+        assert_eq!(0.0.as_bool(), false);
+        assert_eq!(0.1.as_bool(), true);
+        assert_eq!((-0.1).as_bool(), false);
+        assert_eq!((1.1).as_bool(), true);
+    }
+
+    #[test]
+    fn as_usize() {
+        assert_eq!(0.0.as_usize(), 0);
+        assert_eq!(0.5.as_usize(), 0);
+        assert_eq!((-5.1).as_usize(), 0);
+        assert_eq!((134.231).as_usize(), 134);
+        assert_eq!((1304.231).as_usize(), 255);
     }
 }

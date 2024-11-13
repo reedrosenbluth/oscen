@@ -1,7 +1,7 @@
 use crate::rack::*;
+use crate::utils::{arc_mutex, ArcMutex};
 use crate::{props, tag};
 use std::f32::consts::PI;
-use std::sync::Arc;
 
 #[derive(Debug, Copy, Clone)]
 pub struct SineFold {
@@ -21,7 +21,7 @@ impl SineFold {
 impl Signal for SineFold {
     tag!();
 
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         let fold_param = self.fold_param(rack);
         rack.outputs[(self.tag, 0)] = (rack.outputs[(self.wave, 0)] * 2.0 * PI / fold_param).sin();
     }
@@ -38,10 +38,10 @@ impl SineFoldBuilder {
         Self { wave, fold_param }
     }
 
-    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> Arc<SineFold> {
+    pub fn rack(&self, rack: &mut Rack, controls: &mut Controls) -> ArcMutex<SineFold> {
         let n = rack.num_modules();
         controls[(n, 0)] = self.fold_param;
-        let sf = Arc::new(SineFold::new(n.into(), self.wave));
+        let sf = arc_mutex(SineFold::new(n.into(), self.wave));
         rack.push(sf.clone());
         sf
     }
@@ -62,7 +62,7 @@ impl Tanh {
 impl Signal for Tanh {
     tag!();
 
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
         rack.outputs[(self.tag, 0)] = (rack.outputs[(self.wave, 0)] * 2.0 * PI).tanh();
     }
 }
@@ -77,9 +77,9 @@ impl TanhBuilder {
         Self { wave }
     }
 
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Tanh> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Tanh> {
         let n = rack.num_modules();
-        let t = Arc::new(Tanh::new(n.into(), self.wave));
+        let t = arc_mutex(Tanh::new(n.into(), self.wave));
         rack.push(t.clone());
         t
     }

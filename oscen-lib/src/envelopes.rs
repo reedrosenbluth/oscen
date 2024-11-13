@@ -1,7 +1,6 @@
 use crate::rack::*;
-use crate::utils::{interp, interp_inv};
+use crate::utils::{arc_mutex, interp, interp_inv, ArcMutex};
 use crate::{build, props, tag};
-use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Adsr {
@@ -52,7 +51,7 @@ impl Adsr {
 
 impl Signal for Adsr {
     tag!();
-    fn signal(&self, rack: &mut Rack, sample_rate: f32) {
+    fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
         let a = self.attack(rack).max(0.005);
         let d = self.decay(rack).max(0.005);
         let s = self.sustain(rack);
@@ -149,14 +148,14 @@ impl AdsrBuilder {
         self.triggered = t.into();
         self
     }
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Adsr> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Adsr> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.attack;
         rack.controls[(n, 1)] = self.decay;
         rack.controls[(n, 2)] = self.sustain;
         rack.controls[(n, 3)] = self.release;
         rack.controls[(n, 4)] = self.triggered;
-        let adsr = Arc::new(Adsr::new(n, self.ax, self.dx, self.rx));
+        let adsr = arc_mutex(Adsr::new(n, self.ax, self.dx, self.rx));
         rack.push(adsr.clone());
         adsr
     }

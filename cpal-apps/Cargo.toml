@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 oscen = { path = "../oscen-lib" }
-cpal = "0.15.2"
-anyhow = "1.0.71"
+cpal = "0.15.3"
+anyhow = "1.0.93"
 libmath = "0.2.1"
-iced = { version = "0.9.0"}
+iced = { version = "0.13.1", features = ["canvas"] }

@@ -1,6 +1,8 @@
-use arr_macro::arr;
+use arrayvec::ArrayVec;
+use slotmap::new_key_type;
 use std::ops::{Index, IndexMut};
-use std::sync::Arc;
+
+use crate::utils::ArcMutex;
 
 pub type SignalFn = fn(f32, f32) -> f32;
 
@@ -333,7 +335,7 @@ pub struct Buffers([RingBuffer; MAX_MODULES]);
 
 impl Default for Buffers {
     fn default() -> Self {
-        Buffers(arr![Default::default(); 1024])
+        Buffers(std::array::from_fn(|_| RingBuffer::default()))
     }
 }
 
@@ -361,7 +363,19 @@ pub trait Signal {
     fn modify_tag(&mut self, f: fn(Tag) -> Tag);
     /// Responsible for updating any inputs including `phase` and returning the next signal
     /// output.
-    fn signal(&self, rack: &mut Rack, sample_rate: f32);
+    fn signal(&mut self, rack: &mut Rack, sample_rate: f32);
+}
+
+impl Signal for ArcMutex<dyn Signal + Send + Sync> {
+    fn tag(&self) -> Tag {
+        self.lock().unwrap().tag()
+    }
+    fn modify_tag(&mut self, f: fn(Tag) -> Tag) {
+        self.lock().unwrap().modify_tag(f);
+    }
+    fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
+        self.lock().unwrap().signal(rack, sample_rate);
+    }
 }
 
 /// A macro to reduce the boiler plate of creating a Synth Module by implementing
@@ -378,14 +392,23 @@ macro_rules! tag {
     };
 }
 
+new_key_type! { pub struct ModuleKey; }
+
+pub struct Module {
+    pub key: ModuleKey,
+    pub controls: ArrayVec<Control, MAX_CONTROLS>,
+    pub state: ArrayVec<f32, MAX_STATE>,
+    pub outputs: ArrayVec<f32, MAX_OUTPUTS>,
+}
+
 /// A Rack is a topologically sorted `Array` of Synth Modules.  Along with the
 /// storage needed for each module: `Controls`, `State`, `Outputs`, and `Buffers`.
 pub struct Rack {
-    modules: Vec<Arc<dyn Signal + Send + Sync>>,
-    pub controls: Box<Controls>,
-    pub state: Box<State>,
-    pub outputs: Box<Outputs>,
-    pub buffers: Box<Buffers>,
+    modules: Vec<ArcMutex<dyn Signal + Send + Sync>>,
+    pub controls: Controls,
+    pub state: State,
+    pub outputs: Outputs,
+    pub buffers: Buffers,
 }
 
 impl Default for Rack {
@@ -407,15 +430,15 @@ impl Rack {
     pub fn num_modules(&self) -> usize {
         self.modules.len()
     }
-    pub fn push(&mut self, module: Arc<dyn Signal + Send + Sync>) {
+    pub fn push(&mut self, module: ArcMutex<dyn Signal + Send + Sync>) {
         self.modules.push(module);
     }
     /// Call the `signal` function for each module in turn returning the vector
     /// of outpts in the last module.
     pub fn play(&mut self, sample_rate: f32) -> [f32; MAX_OUTPUTS] {
         let n = self.modules.len() - 1;
-        let modules = self.modules.clone();
-        for module in modules.iter() {
+        let mut modules = self.modules.clone();
+        for module in modules.iter_mut() {
             module.signal(self, sample_rate);
         }
         self.outputs.0[n]

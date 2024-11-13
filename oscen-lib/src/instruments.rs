@@ -1,17 +1,22 @@
+use crate::utils::{arc_mutex, ArcMutex};
 use crate::{build, props, tag};
 use crate::{envelopes::*, filters::LpfBuilder, operators::*, rack::*};
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct WaveGuide {
     tag: Tag,
     _burst: Tag,
-    adsr: Arc<Adsr>,
-    mixer: Arc<Mixer>,
+    adsr: ArcMutex<Adsr>,
+    mixer: ArcMutex<Mixer>,
 }
 
 impl WaveGuide {
-    pub fn new<T: Into<Tag>>(tag: T, burst: Tag, adsr: Arc<Adsr>, mixer: Arc<Mixer>) -> Self {
+    pub fn new<T: Into<Tag>>(
+        tag: T,
+        burst: Tag,
+        adsr: ArcMutex<Adsr>,
+        mixer: ArcMutex<Mixer>,
+    ) -> Self {
         Self {
             tag: tag.into(),
             _burst: burst,
@@ -24,35 +29,35 @@ impl WaveGuide {
     props!(decay, set_decay, 2);
 
     pub fn on(&self, rack: &mut Rack) {
-        self.adsr.on(rack);
+        self.adsr.lock().unwrap().on(rack);
     }
 
     pub fn off(&self, rack: &mut Rack) {
-        self.adsr.off(rack);
+        self.adsr.lock().unwrap().off(rack);
     }
 
     pub fn set_adsr_attack(&self, rack: &mut Rack, value: Control) {
-        self.adsr.set_attack(rack, value);
+        self.adsr.lock().unwrap().set_attack(rack, value);
     }
 
     pub fn set_adsr_decay(&self, rack: &mut Rack, value: Control) {
-        self.adsr.set_decay(rack, value);
+        self.adsr.lock().unwrap().set_decay(rack, value);
     }
 
     pub fn set_adsr_sustain(&self, rack: &mut Rack, value: Control) {
-        self.adsr.set_sustain(rack, value);
+        self.adsr.lock().unwrap().set_sustain(rack, value);
     }
 
     pub fn set_adsr_release(&self, rack: &mut Rack, value: Control) {
-        self.adsr.set_release(rack, value);
+        self.adsr.lock().unwrap().set_release(rack, value);
     }
 }
 
 impl Signal for WaveGuide {
     tag!();
 
-    fn signal(&self, rack: &mut Rack, _sample_rate: f32) {
-        rack.outputs[(self.tag, 0)] = rack.outputs[(self.mixer.tag(), 0)];
+    fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
+        rack.outputs[(self.tag, 0)] = rack.outputs[(self.mixer.lock().unwrap().tag(), 0)];
     }
 }
 
@@ -76,25 +81,31 @@ impl WaveGuideBuilder {
     build!(hz_inv);
     build!(cutoff);
     build!(decay);
-    pub fn rack(&self, rack: &mut Rack) -> Arc<WaveGuide> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<WaveGuide> {
         let adsr = AdsrBuilder::exp_20()
             .attack(0.001)
             .decay(0.0)
             .sustain(0.0)
             .release(0.001)
             .rack(rack);
-        let exciter = ProductBuilder::new(vec![self.burst, adsr.tag()]).rack(rack);
+        let exciter = ProductBuilder::new(vec![self.burst, adsr.lock().unwrap().tag()]).rack(rack);
         let mixer = MixerBuilder::new(vec![0.into(), 0.into()]).rack(rack);
-        let delay = DelayBuilder::new(mixer.tag(), self.hz_inv).rack(rack);
-        let lpf = LpfBuilder::new(delay.tag()).cut_off(self.cutoff).rack(rack);
-        let lpf_vca = VcaBuilder::new(lpf.tag()).level(self.decay).rack(rack);
-        rack.controls[(mixer.tag(), 0)] = Control::I(exciter.tag().into());
-        rack.controls[(mixer.tag(), 1)] = Control::I(lpf_vca.tag().into());
+        let delay = DelayBuilder::new(mixer.lock().unwrap().tag(), self.hz_inv).rack(rack);
+        let lpf = LpfBuilder::new(delay.lock().unwrap().tag())
+            .cut_off(self.cutoff)
+            .rack(rack);
+        let lpf_vca = VcaBuilder::new(lpf.lock().unwrap().tag())
+            .level(self.decay)
+            .rack(rack);
+        rack.controls[(mixer.lock().unwrap().tag(), 0)] =
+            Control::I(exciter.lock().unwrap().tag().into());
+        rack.controls[(mixer.lock().unwrap().tag(), 1)] =
+            Control::I(lpf_vca.lock().unwrap().tag().into());
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.hz_inv;
         rack.controls[(n, 1)] = self.cutoff;
         rack.controls[(n, 2)] = self.decay;
-        let wg = Arc::new(WaveGuide::new(n, self.burst, adsr, mixer));
+        let wg = arc_mutex(WaveGuide::new(n, self.burst, adsr, mixer));
         rack.push(wg.clone());
         wg
     }
