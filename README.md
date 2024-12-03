@@ -5,6 +5,7 @@
     <source media="(prefers-color-scheme: light)" srcset="logo-light.svg">
     <img src="logo-light.svg">
 </picture>
+<br />
 
 Oscen _[“oh-sin”]_ is a library for building modular synthesizers in Rust.
 
