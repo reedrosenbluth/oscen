@@ -38,7 +38,7 @@ where
             .amplitude(amp)
             .hz(220f32)
             .rack(&mut rack);
-        oscs.push(osc.tag());
+        oscs.push(osc.lock().tag());
     }
     MixerBuilder::new(oscs).rack(&mut rack);
 

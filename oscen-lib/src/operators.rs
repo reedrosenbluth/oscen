@@ -349,30 +349,24 @@ impl ModulatorBuilder {
         let hz = ConstBuilder::new(self.hz).rack(rack);
         let ratio = ConstBuilder::new(self.ratio).rack(rack);
         let index = ConstBuilder::new(self.index).rack(rack);
-        let mod_hz =
-            ProductBuilder::new(vec![hz.lock().unwrap().tag(), ratio.lock().unwrap().tag()])
-                .rack(rack);
+        let mod_hz = ProductBuilder::new(vec![hz.lock().tag(), ratio.lock().tag()]).rack(rack);
         let mod_amp = ProductBuilder::new(vec![
-            hz.lock().unwrap().tag(),
-            ratio.lock().unwrap().tag(),
-            index.lock().unwrap().tag(),
+            hz.lock().tag(),
+            ratio.lock().tag(),
+            index.lock().tag(),
         ])
         .rack(rack);
         let modulator = OscBuilder::new(self.signal_fn)
-            .amplitude(mod_amp.lock().unwrap().tag())
-            .hz(mod_hz.lock().unwrap().tag())
+            .amplitude(mod_amp.lock().tag())
+            .hz(mod_hz.lock().tag())
             .rack(rack);
-        let carrier_hz = MixerBuilder::new(vec![
-            modulator.lock().unwrap().tag(),
-            hz.lock().unwrap().tag(),
-        ])
-        .rack(rack);
-        let index_tag = index.lock().unwrap().tag();
+        let carrier_hz =
+            MixerBuilder::new(vec![modulator.lock().tag(), hz.lock().tag()]).rack(rack);
         let wrapped_modulator = arc_mutex(Modulator::new(
-            carrier_hz.lock().unwrap().tag(),
-            hz.lock().unwrap().tag(),
-            ratio.lock().unwrap().tag(),
-            index_tag,
+            carrier_hz.lock().tag(),
+            hz.lock().tag(),
+            ratio.lock().tag(),
+            index.lock().tag(),
         ));
         wrapped_modulator
     }
@@ -420,7 +414,7 @@ impl DelayBuilder {
         rack.controls[(n, 0)] = self.delay;
         let delay = arc_mutex(Delay::new(n, self.wave));
         rack.buffers
-            .set_buffer(delay.lock().unwrap().tag, RingBuffer::new32(44100.0));
+            .set_buffer(delay.lock().tag, RingBuffer::new32(44100.0));
         rack.push(delay.clone());
         delay
     }

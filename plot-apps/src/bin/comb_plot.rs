@@ -7,7 +7,6 @@ use plotters::prelude::*;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rack = Rack::new();
     let mut controls = Controls::new();
-    let mut state = State::new();
     let mut buffers = Buffers::new();
     let sine = OscBuilder::new(sine_osc)
         .hz(440.0)

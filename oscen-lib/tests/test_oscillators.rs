@@ -5,8 +5,8 @@ use oscen::rack::*;
 fn osc() {
     let mut rack = Rack::default();
     let o = OscBuilder::new(|x, y| x + y).rack(&mut rack);
-    o.lock().unwrap().set_hz(&mut rack, 0.5.into());
-    o.lock().unwrap().set_arg(&mut rack, 7.0.into());
+    o.lock().set_hz(&mut rack, 0.5.into());
+    o.lock().set_arg(&mut rack, 7.0.into());
     let r1 = rack.mono(1f32);
     let r2 = rack.mono(1f32);
     let r3 = rack.mono(1f32);

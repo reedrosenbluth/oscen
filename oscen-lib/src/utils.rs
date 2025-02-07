@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex; // Use parking_lot::Mutex instead of std::sync::Mutex so we don't need to unwarp.
+use std::sync::Arc;
 
 use crate::rack::*;
 use approx::relative_eq;

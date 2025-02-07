@@ -6,7 +6,6 @@ use plotters::prelude::*;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rack = Rack::new();
     let mut controls = Controls::new();
-    let mut state = State::new();
     let mut buffers = Buffers::new();
     let adsr = envelopes::AdsrBuilder::new()
         .ax(0.2)
@@ -46,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)
-        .build_ranged(0f32..5f32, 0f32..1.1f32)?;
+        .build_cartesian_2d(0f32..5f32, 0f32..1.1f32)?;
 
     chart.configure_mesh().draw()?;
 

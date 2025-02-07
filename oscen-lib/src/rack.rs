@@ -1,5 +1,5 @@
 use arrayvec::ArrayVec;
-use slotmap::new_key_type;
+use slotmap::{new_key_type, SecondaryMap, SlotMap};
 use std::ops::{Index, IndexMut};
 
 use crate::utils::ArcMutex;
@@ -8,8 +8,8 @@ pub type SignalFn = fn(f32, f32) -> f32;
 
 pub const MAX_CONTROLS: usize = 32;
 pub const MAX_OUTPUTS: usize = 32;
-// Must be changed by hand in Buffers due to limitaion of arr! marcro
 pub const MAX_MODULES: usize = 1024;
+pub const IO_ARENA_SIZE: usize = 1_048_576;
 
 /// Unique identifier for each Synth Module.
 #[derive(Copy, Clone, Debug)]
@@ -328,13 +328,13 @@ pub trait Signal {
 
 impl Signal for ArcMutex<dyn Signal + Send + Sync> {
     fn tag(&self) -> Tag {
-        self.lock().unwrap().tag()
+        self.lock().tag()
     }
     fn modify_tag(&mut self, f: fn(Tag) -> Tag) {
-        self.lock().unwrap().modify_tag(f);
+        self.lock().modify_tag(f);
     }
     fn signal(&mut self, rack: &mut Rack, sample_rate: f32) {
-        self.lock().unwrap().signal(rack, sample_rate);
+        self.lock().signal(rack, sample_rate);
     }
 }
 
@@ -352,12 +352,70 @@ macro_rules! tag {
     };
 }
 
-new_key_type! { pub struct ModuleKey; }
+pub trait Signal2 {
+    fn Signal2(&self, rack: &Rack2, sample_rate: f32);
+}
 
-pub struct Module {
-    pub key: ModuleKey,
-    pub controls: ArrayVec<Control, MAX_CONTROLS>,
-    pub outputs: ArrayVec<f32, MAX_OUTPUTS>,
+impl Signal2 for ArcMutex<dyn Signal2 + Send + Sync> {
+    fn Signal2(&self, rack: &Rack2, sample_rate: f32) {
+        self.lock().Signal2(rack, sample_rate);
+    }
+}
+
+new_key_type! { pub struct IoKey; }
+new_key_type! { pub struct DagKey; }
+
+pub struct Rack2 {
+    pub io: SlotMap<IoKey, f32>,
+    pub nodes: SlotMap<DagKey, ArcMutex<dyn Signal + Send + Sync>>,
+    pub edges: SecondaryMap<DagKey, ArrayVec<DagKey, MAX_MODULES>>,
+    pub order: ArrayVec<DagKey, MAX_MODULES>,
+}
+
+impl Default for Rack2 {
+    fn default() -> Self {
+        Self {
+            io: SlotMap::<IoKey, f32>::with_capacity_and_key(IO_ARENA_SIZE),
+            nodes: SlotMap::<DagKey, ArcMutex<dyn Signal + Send + Sync>>::with_capacity_and_key(
+                MAX_MODULES,
+            ),
+            edges: SecondaryMap::<DagKey, ArrayVec<DagKey, MAX_MODULES>>::with_capacity(
+                MAX_MODULES,
+            ),
+            order: ArrayVec::<DagKey, MAX_MODULES>::new(),
+        }
+    }
+}
+
+impl Rack2 {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+    pub fn push(&mut self, module: ArcMutex<dyn Signal + Send + Sync>) -> DagKey {
+        let key = self.nodes.insert(module);
+        self.edges.insert(key, ArrayVec::new());
+        key
+    }
+    pub fn connect(&mut self, from: DagKey, to: DagKey) {
+        self.edges.get_mut(from).unwrap().push(to);
+    }
+    pub fn top_sort(&mut self) {
+        let mut in_degree: HashMap<NodeKey, usize> = HashMap::new();
+
+        // Initialize in-degrees to 0
+        for key in self.nodes.keys() {
+            in_degree.insert(key, 0);
+        }
+    }
+
+    // pub fn play(&mut self, sample_rate: f32) {
+    //     for (key, node) in self.nodes.iter_mut() {
+    //         node.signal(self, sample_rate);
+    //     }
+    // }
 }
 
 /// A Rack is a topologically sorted `Array` of Synth Modules.  Along with the

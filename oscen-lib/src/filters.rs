@@ -454,10 +454,8 @@ impl CombBuilder {
         rack.controls[(n, 1)] = self.dampening;
         rack.controls[(n, 2)] = self.dampening_inverse;
         let comb = arc_mutex(Comb::new(n, self.wave));
-        rack.buffers.set_buffer(
-            comb.lock().unwrap().tag,
-            RingBuffer::new(1, vec![0.0; self.length]),
-        );
+        rack.buffers
+            .set_buffer(comb.lock().tag, RingBuffer::new(1, vec![0.0; self.length]));
         rack.push(comb.clone());
         comb
     }
@@ -504,7 +502,7 @@ impl AllPassBuilder {
         let n = rack.num_modules();
         let allpass = arc_mutex(AllPass::new(n, self.wave));
         buffers.set_buffer(
-            allpass.lock().unwrap().tag,
+            allpass.lock().tag,
             RingBuffer::new(1, vec![0.0; self.length]),
         );
         rack.push(allpass.clone());

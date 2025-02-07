@@ -29,27 +29,27 @@ impl WaveGuide {
     props!(decay, set_decay, 2);
 
     pub fn on(&self, rack: &mut Rack) {
-        self.adsr.lock().unwrap().on(rack);
+        self.adsr.lock().on(rack);
     }
 
     pub fn off(&self, rack: &mut Rack) {
-        self.adsr.lock().unwrap().off(rack);
+        self.adsr.lock().off(rack);
     }
 
     pub fn set_adsr_attack(&self, rack: &mut Rack, value: Control) {
-        self.adsr.lock().unwrap().set_attack(rack, value);
+        self.adsr.lock().set_attack(rack, value);
     }
 
     pub fn set_adsr_decay(&self, rack: &mut Rack, value: Control) {
-        self.adsr.lock().unwrap().set_decay(rack, value);
+        self.adsr.lock().set_decay(rack, value);
     }
 
     pub fn set_adsr_sustain(&self, rack: &mut Rack, value: Control) {
-        self.adsr.lock().unwrap().set_sustain(rack, value);
+        self.adsr.lock().set_sustain(rack, value);
     }
 
     pub fn set_adsr_release(&self, rack: &mut Rack, value: Control) {
-        self.adsr.lock().unwrap().set_release(rack, value);
+        self.adsr.lock().set_release(rack, value);
     }
 }
 
@@ -57,7 +57,7 @@ impl Signal for WaveGuide {
     tag!();
 
     fn signal(&mut self, rack: &mut Rack, _sample_rate: f32) {
-        rack.outputs[(self.tag, 0)] = rack.outputs[(self.mixer.lock().unwrap().tag(), 0)];
+        rack.outputs[(self.tag, 0)] = rack.outputs[(self.mixer.lock().tag(), 0)];
     }
 }
 
@@ -88,19 +88,17 @@ impl WaveGuideBuilder {
             .sustain(0.0)
             .release(0.001)
             .rack(rack);
-        let exciter = ProductBuilder::new(vec![self.burst, adsr.lock().unwrap().tag()]).rack(rack);
+        let exciter = ProductBuilder::new(vec![self.burst, adsr.lock().tag()]).rack(rack);
         let mixer = MixerBuilder::new(vec![0.into(), 0.into()]).rack(rack);
-        let delay = DelayBuilder::new(mixer.lock().unwrap().tag(), self.hz_inv).rack(rack);
-        let lpf = LpfBuilder::new(delay.lock().unwrap().tag())
+        let delay = DelayBuilder::new(mixer.lock().tag(), self.hz_inv).rack(rack);
+        let lpf = LpfBuilder::new(delay.lock().tag())
             .cut_off(self.cutoff)
             .rack(rack);
-        let lpf_vca = VcaBuilder::new(lpf.lock().unwrap().tag())
+        let lpf_vca = VcaBuilder::new(lpf.lock().tag())
             .level(self.decay)
             .rack(rack);
-        rack.controls[(mixer.lock().unwrap().tag(), 0)] =
-            Control::I(exciter.lock().unwrap().tag().into());
-        rack.controls[(mixer.lock().unwrap().tag(), 1)] =
-            Control::I(lpf_vca.lock().unwrap().tag().into());
+        rack.controls[(mixer.lock().tag(), 0)] = Control::I(exciter.lock().tag().into());
+        rack.controls[(mixer.lock().tag(), 1)] = Control::I(lpf_vca.lock().tag().into());
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.hz_inv;
         rack.controls[(n, 1)] = self.cutoff;

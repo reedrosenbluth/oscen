@@ -48,7 +48,7 @@ impl OscBuilder {
         rack.controls[(n, 0)] = self.hz;
         rack.controls[(n, 1)] = self.amplitude;
         rack.controls[(n, 2)] = self.arg;
-        let osc = Arc::new(Mutex::new(Oscillator::new(n, self.signal_fn, self.phase)));
+        let osc = arc_mutex(Oscillator::new(n, self.signal_fn, self.phase));
         rack.push(osc.clone());
         osc
     }
@@ -130,7 +130,7 @@ impl ConstBuilder {
     pub fn new(value: Control) -> Self {
         Self { value }
     }
-    pub fn rack(&self, rack: &mut Rack) -> Arc<Mutex<Const>> {
+    pub fn rack(&self, rack: &mut Rack) -> ArcMutex<Const> {
         let n = rack.num_modules();
         rack.controls[(n, 0)] = self.value;
         let out = arc_mutex(Const::new(n));
