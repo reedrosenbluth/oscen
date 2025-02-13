@@ -2,7 +2,8 @@
 resolver = "2"
 members = [
     "oscen-lib",
-    # "nannou-apps",
     # "plot-apps",
-    "cpal-apps"
+    "cpal-apps" ,
+    "oscen2-lib",
+    "oscen2-macros"
 ]
