@@ -643,6 +643,7 @@ dependencies = [
  "iced",
  "libmath",
  "oscen",
+ "oscen2",
 ]
 
 [[package]]
@@ -2237,7 +2238,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "oscen2-lib"
+name = "oscen2"
 version = "0.1.0"
 dependencies = [
  "arrayvec 0.7.6",

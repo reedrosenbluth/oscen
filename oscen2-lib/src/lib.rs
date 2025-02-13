@@ -36,7 +36,7 @@ pub trait EndpointDefinition {
     }
 }
 
-pub trait SignalProcessor: EndpointDefinition {
+pub trait SignalProcessor: EndpointDefinition + Send {
     fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32;
 }
 
