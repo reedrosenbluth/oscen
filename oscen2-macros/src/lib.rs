@@ -81,7 +81,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             #(#input_getters)*
         }
 
-        impl TypedNode for #name {
+        impl ProcessingNode for #name {
             type Endpoints = #endpoints_name;
 
             fn create_endpoints(
@@ -97,19 +97,19 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl NodeEndpoints for #name {
-            fn input_endpoints(&self) -> Vec<EndpointInfo> {
+        impl EndpointDefinition for #name {
+            fn input_endpoints(&self) -> Vec<EndpointMetadata> {
                 vec![
-                    #(EndpointInfo {
+                    #(EndpointMetadata {
                         name: #input_names,
                         index: #input_indices,
                     },)*
                 ]
             }
 
-            fn output_endpoints(&self) -> Vec<EndpointInfo> {
+            fn output_endpoints(&self) -> Vec<EndpointMetadata> {
                 vec![
-                    #(EndpointInfo {
+                    #(EndpointMetadata {
                         name: #output_names,
                         index: #output_indices,
                     },)*

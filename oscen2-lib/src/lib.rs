@@ -18,8 +18,30 @@ pub struct OutputEndpoint {
     pub(crate) key: ValueKey,
 }
 
+#[derive(Debug, Default)]
+pub struct EndpointMetadata {
+    pub name: &'static str,
+    pub index: usize,
+}
+
+pub trait EndpointDefinition {
+    fn input_endpoints(&self) -> Vec<EndpointMetadata>;
+    fn output_endpoints(&self) -> Vec<EndpointMetadata>;
+
+    fn input_index(&self, name: &str) -> Option<usize> {
+        self.input_endpoints()
+            .iter()
+            .find(|endpoint| endpoint.name == name)
+            .map(|endpoint| endpoint.index)
+    }
+}
+
+pub trait SignalProcessor: EndpointDefinition {
+    fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32;
+}
+
 // This trait will be implemented by the macro
-pub trait TypedNode: SignalProcessor + NodeEndpoints {
+pub trait ProcessingNode: SignalProcessor + EndpointDefinition {
     type Endpoints;
 
     fn create_endpoints(
@@ -51,7 +73,7 @@ impl Graph {
         }
     }
 
-    pub fn add_node<T: TypedNode + 'static>(&mut self, node: T) -> T::Endpoints {
+    pub fn add_node<T: ProcessingNode + 'static>(&mut self, node: T) -> T::Endpoints {
         let input_count = node.input_endpoints().len();
         let output_count = node.output_endpoints().len();
 
@@ -173,28 +195,6 @@ impl Graph {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct EndpointInfo {
-    pub name: &'static str,
-    pub index: usize,
-}
-
-pub trait NodeEndpoints {
-    fn input_endpoints(&self) -> Vec<EndpointInfo>;
-    fn output_endpoints(&self) -> Vec<EndpointInfo>;
-
-    fn input_index(&self, name: &str) -> Option<usize> {
-        self.input_endpoints()
-            .iter()
-            .find(|endpoint| endpoint.name == name)
-            .map(|endpoint| endpoint.index)
-    }
-}
-
-pub trait SignalProcessor: NodeEndpoints {
-    fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32;
-}
-
 #[derive(Node)]
 pub struct Oscillator {
     #[input]
@@ -239,12 +239,12 @@ impl SignalProcessor for Oscillator {
         let freq = self.frequency + (freq_mod * 100.0);
         let amplitude = self.amplitude * (1.0 + amp_mod);
 
-        let sample = (self.waveform)(self.phase) * amplitude;
+        self.signal = (self.waveform)(self.phase) * amplitude;
 
         self.phase += freq / sample_rate;
         self.phase %= 1.0; // Keep phase between 0 and 1
 
-        sample
+        self.signal
     }
 }
 
