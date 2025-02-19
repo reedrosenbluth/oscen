@@ -41,7 +41,12 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     let getter_name = format_ident!("get_{}", field_name);
                     input_getters.push(quote! {
                         pub fn #getter_name(&self, inputs: &[f32]) -> f32 {
-                            inputs[#input_idx]
+                            // inputs[#input_idx]
+                            if inputs[#input_idx] == 0.0 {
+                                self.#field_name
+                            } else {
+                                inputs[#input_idx]
+                            }
                         }
                     });
 
@@ -75,6 +80,10 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         impl #endpoints_name {
             #(#input_fields)*
             #(#output_fields)*
+
+            pub fn node_key(&self) -> NodeKey {
+                self.node_key
+            }
         }
 
         impl #name {

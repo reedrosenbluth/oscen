@@ -1,211 +1,23 @@
-use oscen2_macros::Node;
+mod graph;
 
-use arrayvec::ArrayVec;
-use hound;
-use slotmap::{new_key_type, SecondaryMap, SlotMap};
+pub use graph::*;
+
+use oscen2_macros::Node;
 use std::f32::consts::PI;
 
-pub const MAX_MODULES: usize = 1024;
-
-new_key_type! { pub struct NodeKey; }
-new_key_type! { pub struct ValueKey; }
-
-pub struct InputEndpoint {
-    pub(crate) key: ValueKey,
-}
-
-pub struct OutputEndpoint {
-    pub(crate) key: ValueKey,
-}
-
-#[derive(Debug, Default)]
-pub struct EndpointMetadata {
-    pub name: &'static str,
-    pub index: usize,
-}
-
-pub trait EndpointDefinition {
-    fn input_endpoints(&self) -> Vec<EndpointMetadata>;
-    fn output_endpoints(&self) -> Vec<EndpointMetadata>;
-
-    fn input_index(&self, name: &str) -> Option<usize> {
-        self.input_endpoints()
-            .iter()
-            .find(|endpoint| endpoint.name == name)
-            .map(|endpoint| endpoint.index)
-    }
-}
-
-pub trait SignalProcessor: EndpointDefinition + Send {
-    fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32;
-}
-
-// This trait will be implemented by the macro
-pub trait ProcessingNode: SignalProcessor + EndpointDefinition {
-    type Endpoints;
-
-    fn create_endpoints(
-        node_key: NodeKey,
-        inputs: ArrayVec<ValueKey, 16>,
-        outputs: ArrayVec<ValueKey, 16>,
-    ) -> Self::Endpoints;
-}
-
-//TODO: replace ArrayVecs with SlotMaps?
-pub struct Graph {
-    pub sample_rate: f32,
-    pub nodes: SlotMap<NodeKey, Box<dyn SignalProcessor>>,
-    pub values: SlotMap<ValueKey, f32>,
-    pub connections: SecondaryMap<ValueKey, ArrayVec<ValueKey, MAX_MODULES>>,
-    pub node_inputs: SecondaryMap<NodeKey, ArrayVec<ValueKey, 16>>,
-    pub node_outputs: SecondaryMap<NodeKey, ArrayVec<ValueKey, 16>>,
-}
-
-impl Graph {
-    pub fn new(sample_rate: f32) -> Self {
-        Self {
-            sample_rate,
-            nodes: SlotMap::with_key(),
-            values: SlotMap::with_key(),
-            connections: SecondaryMap::new(),
-            node_inputs: SecondaryMap::new(),
-            node_outputs: SecondaryMap::new(),
-        }
-    }
-
-    pub fn add_node<T: ProcessingNode + 'static>(&mut self, node: T) -> T::Endpoints {
-        let input_count = node.input_endpoints().len();
-        let output_count = node.output_endpoints().len();
-
-        let node_key = self.nodes.insert(Box::new(node));
-
-        let mut input_keys = ArrayVec::new();
-        for _ in 0..input_count {
-            let value_key = self.values.insert(0.0);
-            input_keys.push(value_key);
-        }
-        self.node_inputs.insert(node_key, input_keys.clone());
-
-        let mut output_keys = ArrayVec::new();
-        for _ in 0..output_count {
-            let value_key = self.values.insert(0.0);
-            output_keys.push(value_key);
-        }
-        self.node_outputs.insert(node_key, output_keys.clone());
-
-        T::create_endpoints(node_key, input_keys, output_keys)
-    }
-
-    pub fn get_input(&self, node: NodeKey, index: usize) -> Option<ValueKey> {
-        self.node_inputs
-            .get(node)
-            .and_then(|inputs| inputs.get(index))
-            .copied()
-    }
-
-    pub fn get_input_by_name(&self, node: NodeKey, name: &str) -> Option<ValueKey> {
-        self.nodes
-            .get(node)
-            .and_then(|node| node.input_index(name))
-            .and_then(|idx| self.get_input(node, idx))
-    }
-
-    pub fn get_output(&self, node: NodeKey, index: usize) -> Option<ValueKey> {
-        self.node_outputs
-            .get(node)
-            .and_then(|outputs| outputs.get(index))
-            .copied()
-    }
-
-    pub fn connect(&mut self, from: OutputEndpoint, to: InputEndpoint) {
-        self.connections
-            .entry(from.key)
-            .unwrap()
-            .or_insert_with(ArrayVec::new)
-            .push(to.key);
-    }
-
-    /// Process one sample of audio for all nodes in the graph
-    pub fn process(&mut self) {
-        // Iterate through all nodes in the graph
-        for (node_key, node) in self.nodes.iter_mut() {
-            // Create array to store input values for this node
-            let mut input_values = ArrayVec::<f32, 16>::new();
-
-            // Get the input keys for this node
-            if let Some(input_keys) = self.node_inputs.get(node_key) {
-                // For each input key, find its connected output value
-                for &input_key in input_keys {
-                    let mut input_value = 0.0;
-
-                    // Search through all connections to find if this input is connected
-                    for (output_key, connections) in self.connections.iter() {
-                        if connections.contains(&input_key) {
-                            // Found a connection - get the output value
-                            input_value = self.values[output_key];
-                            break;
-                        }
-                    }
-
-                    // Store the input value (0.0 if no connection found)
-                    input_values.push(input_value);
-                }
-            }
-
-            // Process the node with its inputs to get the output
-            let output = node.process(self.sample_rate, &input_values);
-
-            // Store the output value in the first output of the node
-            if let Some(output_keys) = self.node_outputs.get(node_key) {
-                if let Some(&output_key) = output_keys.get(0) {
-                    self.values[output_key] = output;
-                }
-            }
-        }
-    }
-
-    pub fn render_to_file(
-        &mut self,
-        duration_secs: f32,
-        path: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let spec = hound::WavSpec {
-            channels: 2, // Stereo output
-            sample_rate: self.sample_rate as u32,
-            bits_per_sample: 32,
-            sample_format: hound::SampleFormat::Float,
-        };
-
-        let mut writer = hound::WavWriter::create(path, spec)?;
-        let num_samples = (duration_secs * self.sample_rate) as u32;
-
-        for _ in 0..num_samples {
-            self.process();
-            if let Some(output_key) = self.node_outputs.values().last().and_then(|v| v.get(0)) {
-                if let Some(&value) = self.values.get(*output_key) {
-                    // Write same value to both channels for now
-                    writer.write_sample(value)?; // Left channel
-                    writer.write_sample(value)?; // Right channel
-                }
-            }
-        }
-
-        writer.finalize()?;
-        Ok(())
-    }
-}
-
-#[derive(Node)]
+#[derive(Debug, Node)]
 pub struct Oscillator {
     #[input]
     phase: f32,
     #[input]
     frequency: f32,
     #[input]
+    frequency_mod: f32,
+    #[input]
     amplitude: f32,
 
     #[output]
-    signal: f32,
+    output: f32,
 
     waveform: fn(f32) -> f32,
 }
@@ -215,9 +27,10 @@ impl Oscillator {
         Self {
             phase: 0.0,
             frequency,
+            frequency_mod: 0.0,
             amplitude,
             waveform,
-            signal: 0.0,
+            output: 0.0,
         }
     }
 
@@ -228,23 +41,142 @@ impl Oscillator {
     pub fn square(frequency: f32, amplitude: f32) -> Self {
         Self::new(frequency, amplitude, |p| if p < 0.5 { 1.0 } else { -1.0 })
     }
+
+    // Anti-aliased sawtooth using polynomial transition region
+    pub fn saw(frequency: f32, amplitude: f32) -> Self {
+        Self::new(frequency, amplitude, |p| {
+            // Map phase from [0,1] to [-1,1]
+            let x = p * 2.0 - 1.0;
+
+            // Width of transition region (adjust for aliasing vs sharpness tradeoff)
+            let transition_width = 0.1;
+
+            // Linear ramp from -1 to 1
+            let raw_saw = x;
+
+            // Smooth transition near discontinuity using polynomial
+            if x > (1.0 - transition_width) {
+                let t = (x - (1.0 - transition_width)) / transition_width;
+                let smoothed = -1.0 + (1.0 - t * t) * (raw_saw + 1.0);
+                smoothed
+            } else {
+                raw_saw
+            }
+        })
+    }
 }
 
 impl SignalProcessor for Oscillator {
     fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
         let phase_mod = self.get_phase(inputs);
-        let freq_mod = self.get_frequency(inputs);
+        let freq_mod = self.get_frequency_mod(inputs);
+        let freq_offset = self.get_frequency(inputs);
         let amp_mod = self.get_amplitude(inputs);
 
-        let freq = self.frequency + (freq_mod * 100.0);
+        // Use the initial frequency value when no input is connected
+        let base_freq = if freq_offset == 0.0 {
+            self.frequency
+        } else {
+            freq_offset
+        };
+        let frequency = base_freq * (1.0 + freq_mod);
         let amplitude = self.amplitude * (1.0 + amp_mod);
 
-        self.signal = (self.waveform)(self.phase) * amplitude;
+        let modulated_phase = (self.phase + phase_mod) % 1.0;
+        self.output = (self.waveform)(modulated_phase) * amplitude;
 
-        self.phase += freq / sample_rate;
+        self.phase += frequency / sample_rate;
         self.phase %= 1.0; // Keep phase between 0 and 1
 
-        self.signal
+        self.output
+    }
+}
+
+#[derive(Debug, Default, Node)]
+pub struct TPT_Filter {
+    #[input]
+    input: f32,
+    #[input]
+    cutoff: f32,
+    #[input]
+    q: f32,
+
+    #[output]
+    output: f32,
+
+    // state
+    z: [f32; 2],
+
+    // coefficients
+    d: f32,
+    a: f32,
+    g1: f32,
+
+    // frame counting
+    frame_counter: usize,
+    frames_per_update: usize,
+}
+
+/// These filters are based on the designs outlined in The Art of VA Filter Design
+/// by Vadim Zavalishin, with help from Will Pirkle in Virtual Analog Filter Implementation.
+/// The topology-preserving transform approach leads to designs where parameter
+/// modulation can be applied with minimal instability.
+///
+/// Parameter changes are applied at a lower rate than processor.frequency to reduce
+/// computational cost, and the frames between updates can be altered using the
+/// `framesPerParameterUpdate`, smaller numbers causing more frequent updates.
+impl TPT_Filter {
+    pub fn new(cutoff: f32, q: f32) -> Self {
+        Self {
+            cutoff,
+            q,
+            frames_per_update: 32,
+            ..Default::default()
+        }
+    }
+
+    fn update_coefficients(&mut self, sample_rate: f32) {
+        let freq = self.cutoff.clamp(20.0, sample_rate * 0.48);
+        let period = 0.5 / sample_rate;
+        let f = (2.0 * sample_rate) * (2.0 * PI * freq * period).tan() * period;
+        let inv_q = 1.0 / self.q;
+
+        self.d = 1.0 / (1.0 + inv_q * f + f * f);
+        self.a = f;
+        self.g1 = f + inv_q;
+    }
+}
+
+impl SignalProcessor for TPT_Filter {
+    fn init(&mut self, sample_rate: f32) {
+        self.update_coefficients(sample_rate);
+    }
+
+    fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
+        let input = self.get_input(inputs);
+
+        if self.frame_counter == 0 {
+            let cutoff = self.get_cutoff(inputs).clamp(20.0, sample_rate * 0.5);
+            let q = self.get_q(inputs).clamp(0.1, 10.0);
+
+            if cutoff != self.cutoff || q != self.q {
+                self.cutoff = cutoff;
+                self.q = q;
+                self.update_coefficients(sample_rate);
+            }
+        }
+
+        self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
+
+        let high = (input - self.g1 * self.z[0] - self.z[1]) * self.d;
+        let band = self.a * high + self.z[0];
+        let low = self.a * band + self.z[1];
+
+        self.z[0] = self.a * high + band;
+        self.z[1] = self.a * band + low;
+
+        self.output = low;
+        self.output
     }
 }
 
@@ -255,7 +187,7 @@ fn test_audio_render_fm() {
     let modulator = graph.add_node(Oscillator::sine(880.0, 0.5));
     let carrier = graph.add_node(Oscillator::sine(254.37, 0.5));
 
-    graph.connect(modulator.signal(), carrier.frequency());
+    graph.connect(modulator.output(), carrier.frequency_mod());
 
     graph
         .render_to_file(5.0, "test_output_fm.wav")
@@ -269,7 +201,7 @@ fn test_audio_render_fm2() {
     let modulator = graph.add_node(Oscillator::sine(0.5, 0.5));
     let carrier = graph.add_node(Oscillator::sine(440., 0.5));
 
-    graph.connect(modulator.signal(), carrier.frequency());
+    graph.connect(modulator.output(), carrier.frequency());
 
     graph
         .render_to_file(5.0, "test_output_fm2.wav")
@@ -283,7 +215,7 @@ fn test_audio_render_am() {
     let lfo = graph.add_node(Oscillator::sine(0.5, 0.5));
     let osc2 = graph.add_node(Oscillator::sine(440., 0.5));
 
-    graph.connect(lfo.signal(), osc2.amplitude());
+    graph.connect(lfo.output(), osc2.amplitude());
 
     graph
         .render_to_file(5.0, "test_output_am.wav") // 4 seconds to hear 2 full cycles
@@ -297,11 +229,30 @@ fn test_audio_render_debug() {
     let modulator = graph.add_node(Oscillator::sine(5.0, 100.0));
     let carrier = graph.add_node(Oscillator::sine(440.0, 0.5));
 
-    graph.connect(modulator.signal(), carrier.frequency());
+    graph.connect(modulator.output(), carrier.frequency());
 
     // Process just 10 samples
     for i in 0..10 {
         println!("\nProcessing sample {}", i);
         graph.process();
+    }
+}
+
+#[test]
+fn test_filter_debug() {
+    let mut graph = Graph::new(44100.0);
+
+    let carrier = graph.add_node(Oscillator::saw(440.0, 0.5));
+    let filter = graph.add_node(TPT_Filter::new(1000.0, 0.707));
+
+    graph.connect(carrier.output(), filter.input());
+
+    // Process just 10 samples
+    for i in 0..100 {
+        println!("\nProcessing sample {}", i);
+        graph.process();
+        if let Some(value) = graph.get_value(&filter.output()) {
+            println!("Output value: {}", value);
+        }
     }
 }
