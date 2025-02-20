@@ -214,10 +214,15 @@ impl Graph {
                 ramp_total_samples,
             } = endpoint_type
             {
+                // if *ramp_samples_remaining > 0 {
+                //     let progress = (*ramp_total_samples - *ramp_samples_remaining) as f32
+                //         / *ramp_total_samples as f32;
+                //     *current = *current + (*target - *current) * progress;
+                //     *ramp_samples_remaining -= 1;
+                // }
                 if *ramp_samples_remaining > 0 {
-                    let progress = (*ramp_total_samples - *ramp_samples_remaining) as f32
-                        / *ramp_total_samples as f32;
-                    *current = *current + (*target - *current) * progress;
+                    let increment = (*target - *current) / (*ramp_total_samples as f32);
+                    *current += increment;
                     *ramp_samples_remaining -= 1;
                 }
                 // Update the actual input value with the current value

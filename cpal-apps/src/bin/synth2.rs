@@ -184,7 +184,7 @@ fn main() -> Result<(), eframe::Error> {
         graph.connect(modulator.output(), carrier.phase());
         graph.connect(carrier.output(), filter.input());
 
-        let output = graph.transform(filter.output(), |x| x.tanh() * 0.5);
+        let output = graph.transform(filter.output(), |x| x * 0.5);
 
         let carrier_freq_input = graph
             .get_input_by_name(carrier.node_key(), "frequency")
