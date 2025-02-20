@@ -40,10 +40,10 @@ fn audio_callback(
     }
 
     if let Some(params) = latest_params {
-        graph.set_value(*carrier_freq_input, params.carrier_frequency, 1000);
-        graph.set_value(*modulator_freq_input, params.modulator_frequency, 1000);
-        graph.set_value(*cutoff_freq_input, params.cutoff_frequency, 1000);
-        graph.set_value(*q_input, params.q_factor, 1000);
+        graph.set_value(*carrier_freq_input, params.carrier_frequency, 441);
+        graph.set_value(*modulator_freq_input, params.modulator_frequency, 441);
+        graph.set_value(*cutoff_freq_input, params.cutoff_frequency, 1323);
+        graph.set_value(*q_input, params.q_factor, 441);
     }
 
     for frame in data.chunks_mut(channels) {
