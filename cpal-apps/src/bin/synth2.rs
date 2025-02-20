@@ -184,33 +184,20 @@ fn main() -> Result<(), eframe::Error> {
         graph.connect(modulator.output(), carrier.phase());
         graph.connect(carrier.output(), filter.input());
 
-        let output = graph.transform(filter.output(), |x| x * 0.5);
+        let output = graph.transform(filter.output(), |x| x * 0.3);
 
         let carrier_freq_input = graph
-            .get_input_by_name(carrier.node_key(), "frequency")
-            .expect("Oscillator should have frequency input");
+            .insert_value_input(carrier.frequency(), 440.0)
+            .expect("Failed to insert carrier frequency input");
         let modulator_freq_input = graph
-            .get_input_by_name(modulator.node_key(), "frequency")
-            .expect("Oscillator should have frequency input");
+            .insert_value_input(modulator.frequency(), 100.0)
+            .expect("Failed to insert modulator frequency input");
         let cutoff_freq_input = graph
-            .get_input_by_name(filter.node_key(), "cutoff")
-            .expect("LPF should have cutoff input");
+            .insert_value_input(filter.cutoff(), 3000.0)
+            .expect("Failed to insert filter cutoff input");
         let q_input = graph
-            .get_input_by_name(filter.node_key(), "q")
-            .expect("LPF should have Q input");
-
-        graph
-            .endpoint_types
-            .insert(carrier_freq_input, EndpointType::value(440.0));
-        graph
-            .endpoint_types
-            .insert(modulator_freq_input, EndpointType::value(100.0));
-        graph
-            .endpoint_types
-            .insert(cutoff_freq_input, EndpointType::value(3000.0));
-        graph
-            .endpoint_types
-            .insert(q_input, EndpointType::value(0.707));
+            .insert_value_input(filter.q(), 0.707)
+            .expect("Failed to insert filter Q input");
 
         let channels = config.channels as usize;
 

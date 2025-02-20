@@ -129,6 +129,18 @@ impl Graph {
             .and_then(|idx| self.get_input(node, idx))
     }
 
+    pub fn insert_value_input(
+        &mut self,
+        input: InputEndpoint,
+        initial_value: f32,
+    ) -> Option<ValueKey> {
+        let value = self.values.get_mut(input.key)?;
+        *value = initial_value;
+        self.endpoint_types
+            .insert(input.key, EndpointType::value(initial_value));
+        Some(input.key)
+    }
+
     pub fn set_input_by_name(&mut self, node_key: NodeKey, name: &str, value: f32) {
         if let Some(node) = self.nodes.get(node_key) {
             if let Some(index) = node.input_index(name) {
