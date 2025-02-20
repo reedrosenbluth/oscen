@@ -62,8 +62,14 @@ fn main() -> iced::Result {
     thread::spawn(move || {
         let host = cpal::default_host();
         let device = host.default_output_device().expect("no output device");
-        let config = device.default_output_config().unwrap();
-        let sample_rate = config.sample_rate().0 as f32;
+        let default_config = device.default_output_config().unwrap();
+        let config = cpal::StreamConfig {
+            channels: default_config.channels(),
+            sample_rate: default_config.sample_rate(),
+            buffer_size: cpal::BufferSize::Fixed(512),
+        };
+
+        let sample_rate = config.sample_rate.0 as f32;
 
         let mut graph = Graph::new(sample_rate);
 
@@ -103,7 +109,7 @@ fn main() -> iced::Result {
             .endpoint_types
             .insert(q_input, EndpointType::value(0.707));
 
-        let channels = config.channels() as usize;
+        let channels = config.channels as usize;
 
         let stream = device
             .build_output_stream(
@@ -224,7 +230,7 @@ impl Application for Model {
                     linear_to_log(self.params.cutoff_frequency, 20.0, 20000.0),
                     |norm| Message::SetCutoffFrequency(log_to_linear(norm, 20.0, 20000.0))
                 )
-                .step(0.001),
+                .step(0.01),
                 text(format!("Filter Q: {:.1} Hz", self.params.q_factor)).size(20),
                 slider(0.1..=10.0, self.params.q_factor, Message::SetQFactor).step(0.1),
             ]
