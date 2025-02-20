@@ -175,17 +175,24 @@ fn main() -> Result<(), eframe::Error> {
 
         let sample_rate = config.sample_rate.0 as f32;
 
+        // ==========================================================
+        // Construct Audio Graph
+        // ==========================================================
+
+        // initialize new graph
         let mut graph = Graph::new(sample_rate);
 
+        // create a few nodes
         let modulator = graph.add_node(Oscillator::sine(100.0, 0.5));
         let carrier = graph.add_node(Oscillator::sine(440.0, 1.0));
         let filter = graph.add_node(TPT_Filter::new(3000.0, 0.707));
 
+        // make connections
         graph.connect(modulator.output(), carrier.phase());
         graph.connect(carrier.output(), filter.input());
-
         let output = graph.transform(filter.output(), |x| x * 0.3);
 
+        // create value input endpoints for the UI
         let carrier_freq_input = graph
             .insert_value_input(carrier.frequency(), 440.0)
             .expect("Failed to insert carrier frequency input");
@@ -198,6 +205,7 @@ fn main() -> Result<(), eframe::Error> {
         let q_input = graph
             .insert_value_input(filter.q(), 0.707)
             .expect("Failed to insert filter Q input");
+        // ==========================================================
 
         let channels = config.channels as usize;
 
