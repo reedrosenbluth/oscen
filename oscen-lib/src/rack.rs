@@ -1,5 +1,6 @@
 use arrayvec::ArrayVec;
 use slotmap::{new_key_type, SecondaryMap, SlotMap};
+use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 
 use crate::utils::ArcMutex;
@@ -367,7 +368,7 @@ new_key_type! { pub struct DagKey; }
 
 pub struct Rack2 {
     pub io: SlotMap<IoKey, f32>,
-    pub nodes: SlotMap<DagKey, ArcMutex<dyn Signal + Send + Sync>>,
+    pub nodes: SlotMap<DagKey, Box<dyn Signal + Send + Sync>>,
     pub edges: SecondaryMap<DagKey, ArrayVec<DagKey, MAX_MODULES>>,
     pub order: ArrayVec<DagKey, MAX_MODULES>,
 }
@@ -376,7 +377,7 @@ impl Default for Rack2 {
     fn default() -> Self {
         Self {
             io: SlotMap::<IoKey, f32>::with_capacity_and_key(IO_ARENA_SIZE),
-            nodes: SlotMap::<DagKey, ArcMutex<dyn Signal + Send + Sync>>::with_capacity_and_key(
+            nodes: SlotMap::<DagKey, Box<dyn Signal + Send + Sync>>::with_capacity_and_key(
                 MAX_MODULES,
             ),
             edges: SecondaryMap::<DagKey, ArrayVec<DagKey, MAX_MODULES>>::with_capacity(
@@ -394,7 +395,7 @@ impl Rack2 {
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
-    pub fn push(&mut self, module: ArcMutex<dyn Signal + Send + Sync>) -> DagKey {
+    pub fn push(&mut self, module: Box<dyn Signal + Send + Sync>) -> DagKey {
         let key = self.nodes.insert(module);
         self.edges.insert(key, ArrayVec::new());
         key
@@ -403,7 +404,7 @@ impl Rack2 {
         self.edges.get_mut(from).unwrap().push(to);
     }
     pub fn top_sort(&mut self) {
-        let mut in_degree: HashMap<NodeKey, usize> = HashMap::new();
+        let mut in_degree: HashMap<DagKey, usize> = HashMap::new();
 
         // Initialize in-degrees to 0
         for key in self.nodes.keys() {
