@@ -147,7 +147,8 @@ impl eframe::App for ESynthApp {
                         if ui
                             .add(
                                 egui::Slider::new(&mut self.params.q_factor, 0.1..=10.0)
-                                    .step_by(0.1),
+                                    .fixed_decimals(3)
+                                    .step_by(0.001),
                             )
                             .changed()
                         {
@@ -183,14 +184,32 @@ fn main() -> Result<(), eframe::Error> {
         let mut graph = Graph::new(sample_rate);
 
         // create a few nodes
+        // let square = graph.add_node(Oscillator::square(0.5, 1.0));
         let modulator = graph.add_node(Oscillator::sine(100.0, 0.5));
-        let carrier = graph.add_node(Oscillator::sine(440.0, 1.0));
+        let carrier = graph.add_node(Oscillator::saw(440.0, 1.0));
         let filter = graph.add_node(TPT_Filter::new(3000.0, 0.707));
 
         // make connections
-        graph.connect(modulator.output(), carrier.phase());
-        graph.connect(carrier.output(), filter.input());
-        let output = graph.transform(filter.output(), |x| x * 0.3);
+        // graph.connect(modulator.output(), carrier.frequency_mod());
+        // graph.connect(carrier.output(), filter.input());
+
+        // graph.connect(carrier.output(), filter.input());
+        // let output = graph.combine(filter.output(), square.output(), |x, y| {
+        //     if y > 0.0 {
+        //         x
+        //     } else {
+        //         0.0
+        //     }
+        // });
+
+        let routing = vec![
+            // modulator.output() >> carrier.frequency_mod(),
+            carrier.output() >> filter.input(),
+        ];
+
+        graph.connect_all(routing);
+
+        let output = filter.output();
 
         // create value input endpoints for the UI
         let carrier_freq_input = graph

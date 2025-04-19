@@ -865,11 +865,13 @@ name = "cpal-apps"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrayvec",
  "cpal",
  "eframe",
  "libmath",
  "oscen",
  "oscen2",
+ "oscen2-macros",
 ]
 
 [[package]]

@@ -34,7 +34,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 if has_input {
                     input_fields.push(quote! {
                         pub fn #field_name(&self) -> InputEndpoint {
-                            InputEndpoint { key: self.inputs[#input_idx] }
+                            InputEndpoint::new(self.inputs[#input_idx])
                         }
                     });
 
@@ -58,7 +58,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 if has_output {
                     output_fields.push(quote! {
                         pub fn #field_name(&self) -> OutputEndpoint {
-                            OutputEndpoint { key: self.outputs[#output_idx] }
+                            OutputEndpoint::new(self.outputs[#output_idx])
                         }
                     });
                     output_names.push(field_name.to_string());

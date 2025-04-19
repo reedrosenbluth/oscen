@@ -9,6 +9,8 @@ edition = "2021"
 [dependencies]
 oscen = { path = "../oscen-lib" }
 oscen2 = { path = "../oscen2-lib" }
+oscen2-macros = { path = "../oscen2-macros" }
+arrayvec = "0.7.6"
 cpal = "0.15.2"
 anyhow = "1.0.71"
 libmath = "0.2.1"
