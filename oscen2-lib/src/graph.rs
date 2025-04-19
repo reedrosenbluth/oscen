@@ -12,6 +12,13 @@ pub const MAX_NODE_ENDPOINTS: usize = 16;
 new_key_type! { pub struct NodeKey; }
 new_key_type! { pub struct ValueKey; }
 
+/// Everything the graph needs to know about a node.
+pub struct NodeData {
+    pub processor: Box<dyn SignalProcessor>,
+    pub inputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
+    pub outputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
+}
+
 #[derive(Debug)]
 pub enum EndpointType {
     Stream(ValueKey),
@@ -141,11 +148,9 @@ pub trait EndpointDefinition {
 //TODO: replace ArrayVecs with SlotMaps?
 pub struct Graph {
     pub sample_rate: f32,
-    pub nodes: SlotMap<NodeKey, Box<dyn SignalProcessor>>,
+    pub nodes: SlotMap<NodeKey, NodeData>,
     pub values: SlotMap<ValueKey, f32>,
     pub connections: SecondaryMap<ValueKey, ArrayVec<ValueKey, MAX_CONNECTIONS_PER_OUTPUT>>,
-    pub node_inputs: SecondaryMap<NodeKey, ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>>,
-    pub node_outputs: SecondaryMap<NodeKey, ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>>,
     pub endpoint_types: SecondaryMap<ValueKey, EndpointType>,
     pub event_queue: ArrayVec<(ValueKey, EventData), MAX_EVENTS>,
 }
@@ -157,8 +162,6 @@ impl Graph {
             nodes: SlotMap::with_key(),
             values: SlotMap::with_key(),
             connections: SecondaryMap::new(),
-            node_inputs: SecondaryMap::new(),
-            node_outputs: SecondaryMap::new(),
             endpoint_types: SecondaryMap::new(),
             event_queue: ArrayVec::new(),
         }
@@ -167,40 +170,38 @@ impl Graph {
     pub fn add_node<T: ProcessingNode + 'static>(&mut self, mut node: T) -> T::Endpoints {
         node.init(self.sample_rate);
 
-        let input_count = node.input_endpoints().len();
-        let output_count = node.output_endpoints().len();
+        let inputs = (0..node.input_endpoints().len())
+            .map(|_| self.values.insert(0.0))
+            .collect::<ArrayVec<_, MAX_NODE_ENDPOINTS>>();
 
-        let node_key = self.nodes.insert(Box::new(node));
+        let outputs = (0..node.output_endpoints().len())
+            .map(|_| self.values.insert(0.0))
+            .collect::<ArrayVec<_, MAX_NODE_ENDPOINTS>>();
 
-        let mut input_keys = ArrayVec::new();
-        for _ in 0..input_count {
-            let value_key = self.values.insert(0.0);
-            input_keys.push(value_key);
-        }
-        self.node_inputs.insert(node_key, input_keys.clone());
+        let node_key = self.nodes.insert(NodeData {
+            processor: Box::new(node),
+            inputs: inputs.clone(),
+            outputs: outputs.clone(),
+        });
 
-        let mut output_keys = ArrayVec::new();
-        for _ in 0..output_count {
-            let value_key = self.values.insert(0.0);
-            output_keys.push(value_key);
-        }
-        self.node_outputs.insert(node_key, output_keys.clone());
-
-        T::create_endpoints(node_key, input_keys, output_keys)
+        T::create_endpoints(node_key, inputs, outputs)
     }
 
     pub fn get_input(&self, node: NodeKey, index: usize) -> Option<ValueKey> {
-        self.node_inputs
+        self.nodes
             .get(node)
-            .and_then(|inputs| inputs.get(index))
+            .and_then(|node_data| node_data.inputs.get(index))
             .copied()
     }
 
     pub fn get_input_by_name(&self, node: NodeKey, name: &str) -> Option<ValueKey> {
-        self.nodes
-            .get(node)
-            .and_then(|node| node.input_index(name))
-            .and_then(|idx| self.get_input(node, idx))
+        self.nodes.get(node).and_then(|node_data| {
+            node_data
+                .processor
+                .input_index(name)
+                .and_then(|idx| node_data.inputs.get(idx))
+                .copied()
+        })
     }
 
     pub fn insert_value_input(
@@ -216,21 +217,19 @@ impl Graph {
     }
 
     pub fn set_input_by_name(&mut self, node_key: NodeKey, name: &str, value: f32) {
-        if let Some(node) = self.nodes.get(node_key) {
-            if let Some(index) = node.input_index(name) {
-                if let Some(inputs) = self.node_inputs.get(node_key) {
-                    if let Some(value_key) = inputs.get(index) {
-                        self.values[*value_key] = value;
-                    }
+        if let Some(node_data) = self.nodes.get(node_key) {
+            if let Some(index) = node_data.processor.input_index(name) {
+                if let Some(value_key) = node_data.inputs.get(index) {
+                    self.values[*value_key] = value;
                 }
             }
         }
     }
 
     pub fn get_node_output(&self, node: NodeKey, index: usize) -> Option<ValueKey> {
-        self.node_outputs
+        self.nodes
             .get(node)
-            .and_then(|outputs| outputs.get(index))
+            .and_then(|node_data| node_data.outputs.get(index))
             .copied()
     }
 
@@ -260,19 +259,24 @@ impl Graph {
     /// A new output endpoint representing the transformed signal
     pub fn transform(&mut self, from: OutputEndpoint, f: fn(f32) -> f32) -> OutputEndpoint {
         let node = FunctionNode::new(f);
-        let node_key = self.nodes.insert(Box::new(node));
+        let processor: Box<dyn SignalProcessor> = Box::new(node); // Explicitly type as Box<dyn SignalProcessor>
 
         // Create input value key
         let input_key = self.values.insert(0.0);
         let mut input_keys = ArrayVec::new();
         input_keys.push(input_key);
-        self.node_inputs.insert(node_key, input_keys);
 
         // Create output value key
         let output_key = self.values.insert(0.0);
         let mut output_keys = ArrayVec::new();
         output_keys.push(output_key);
-        self.node_outputs.insert(node_key, output_keys);
+
+        // Insert NodeData
+        let node_key = self.nodes.insert(NodeData {
+            processor,
+            inputs: input_keys.clone(),   // Clone for NodeData
+            outputs: output_keys.clone(), // Clone for NodeData
+        });
 
         let output = OutputEndpoint { key: output_key };
 
@@ -297,7 +301,7 @@ impl Graph {
         f: fn(f32, f32) -> f32,
     ) -> OutputEndpoint {
         let node = BinaryFunctionNode::new(f);
-        let node_key = self.nodes.insert(Box::new(node));
+        let processor: Box<dyn SignalProcessor> = Box::new(node); // Explicitly type as Box<dyn SignalProcessor>
 
         // Create input value keys
         let input_key1 = self.values.insert(0.0);
@@ -305,13 +309,18 @@ impl Graph {
         let mut input_keys = ArrayVec::new();
         input_keys.push(input_key1);
         input_keys.push(input_key2);
-        self.node_inputs.insert(node_key, input_keys);
 
         // Create output value key
         let output_key = self.values.insert(0.0);
         let mut output_keys = ArrayVec::new();
         output_keys.push(output_key);
-        self.node_outputs.insert(node_key, output_keys);
+
+        // Insert NodeData
+        let node_key = self.nodes.insert(NodeData {
+            processor,
+            inputs: input_keys.clone(),   // Clone for NodeData
+            outputs: output_keys.clone(), // Clone for NodeData
+        });
 
         let output = OutputEndpoint { key: output_key };
 
@@ -385,25 +394,21 @@ impl Graph {
             let mut input_values = ArrayVec::<f32, MAX_NODE_ENDPOINTS>::new();
 
             // Get input values
-            if let Some(input_keys) = self.node_inputs.get(node_key) {
-                for &input_key in input_keys {
-                    input_values.push(self.values[input_key]);
-                }
+            for &input_key in &node.inputs {
+                input_values.push(self.values[input_key]);
             }
 
             // Process the node with its inputs to get the output
-            let output = node.process(self.sample_rate, &input_values);
+            let output = node.processor.process(self.sample_rate, &input_values);
 
             // Store the output value in the first output of the node
-            if let Some(output_keys) = self.node_outputs.get(node_key) {
-                if let Some(&output_key) = output_keys.get(0) {
-                    self.values[output_key] = output;
+            if let Some(&output_key) = node.outputs.get(0) {
+                self.values[output_key] = output;
 
-                    // Propagate the output to all connected inputs
-                    if let Some(connections) = self.connections.get(output_key) {
-                        for &target_input in connections {
-                            self.values[target_input] = output;
-                        }
+                // Propagate the output to all connected inputs
+                if let Some(connections) = self.connections.get(output_key) {
+                    for &target_input in connections {
+                        self.values[target_input] = output;
                     }
                 }
             }
@@ -433,8 +438,17 @@ impl Graph {
 
         for _ in 0..num_samples {
             self.process();
-            if let Some(output_key) = self.node_outputs.values().last().and_then(|v| v.get(0)) {
-                if let Some(&value) = self.values.get(*output_key) {
+            // Find the output key of the last node's first output
+            // Note: This assumes the last node added is the final output node.
+            // This might need refinement based on your desired graph structure.
+            if let Some(output_key) = self
+                .nodes
+                .values()
+                .last()
+                .and_then(|node_data| node_data.outputs.get(0))
+                .copied()
+            {
+                if let Some(&value) = self.values.get(output_key) {
                     // Write same value to both channels for now
                     writer.write_sample(value)?; // Left channel
                     writer.write_sample(value)?; // Right channel
