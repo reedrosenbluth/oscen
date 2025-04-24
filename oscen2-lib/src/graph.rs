@@ -4,9 +4,13 @@ use arrayvec::ArrayVec;
 use hound;
 use slotmap::{new_key_type, SecondaryMap, SlotMap};
 
+// Remove mod declaration - moved to lib.rs
+// mod ring_buffer;
+// Import moved items
+use crate::ring_buffer::{BufferMode, RingBuffer};
+
 pub const MAX_EVENTS: usize = 256;
 pub const MAX_CONNECTIONS_PER_OUTPUT: usize = 1024;
-pub const MAX_DELAY_SAMPLES: usize = 44100;
 pub const MAX_NODE_ENDPOINTS: usize = 16;
 
 new_key_type! { pub struct NodeKey; }
@@ -466,7 +470,7 @@ pub trait SignalProcessor: EndpointDefinition + Send + std::fmt::Debug {
     fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32;
 }
 
-// The ProcessingNode trait is automatically implemented by the Node macro.
+// ProcessingNode is automatically implemented by the Node macro.
 // This trait provides the necessary functionality to create node endpoints
 // and integrate custom node types into the audio graph. When you use the
 // #[derive(Node)] macro, it generates all the boilerplate code needed to
@@ -575,145 +579,5 @@ impl ProcessingNode for BinaryFunctionNode {
         _outputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
     ) -> Self::Endpoints {
         node_key
-    }
-}
-
-/// Represents the mode of operation for a buffer's size management
-/// - PowerOfTwo: Buffer size is rounded up to the next power of 2
-/// - Exact: Buffer size is kept exactly as specified
-#[derive(Clone, Copy, Debug)]
-pub enum BufferMode {
-    PowerOfTwo,
-    Exact,
-}
-
-impl Default for BufferMode {
-    fn default() -> Self {
-        BufferMode::PowerOfTwo
-    }
-}
-
-/// A ring buffer implementation with linear and cubic interpolation for reading values.
-#[derive(Clone, Debug)]
-pub struct RingBuffer {
-    /// The internal buffer storing samples
-    buffer: ArrayVec<f32, MAX_DELAY_SAMPLES>,
-    /// Current write position in the buffer
-    write_pos: usize,
-    /// Mask used for efficient wrapping of indices (must be power of 2 minus 1)
-    size: usize,
-    /// Buffer mode: PowerOfTwo for power-of-2 sized buffers, Exact for exact sizes
-    mode: BufferMode,
-}
-
-impl RingBuffer {
-    /// Creates a new RingBuffer with the specified size.
-    pub fn new(size: usize) -> Self {
-        Self::with_mode(size, BufferMode::default())
-    }
-
-    /// Creates a new RingBuffer with the specified size and mode
-    /// The buffer size can either be the exact specified size, or the next power of two.
-    pub fn with_mode(size: usize, mode: BufferMode) -> Self {
-        let clamped_size = size.min(MAX_DELAY_SAMPLES);
-        let buffer_size = match mode {
-            BufferMode::PowerOfTwo => clamped_size.next_power_of_two(),
-            BufferMode::Exact => clamped_size,
-        };
-
-        let buffer: ArrayVec<f32, MAX_DELAY_SAMPLES> = ArrayVec::new();
-
-        Self {
-            buffer,
-            write_pos: 0,
-            size: buffer_size - 1,
-            mode,
-        }
-    }
-
-    /// Pushes a new value into the buffer, advancing the write position
-    pub fn push(&mut self, v: f32) {
-        self.write_pos = (self.write_pos + 1) & self.size;
-        self.buffer[self.write_pos] = v;
-    }
-
-    /// Calculates the read position for a given offset, handling wrapping
-    fn read_pos(&self, offset: f32) -> f32 {
-        let n = (self.size + 1) as f32;
-        let mut rp = self.write_pos as f32 - offset;
-        // Wrap the read position to stay within buffer bounds
-        while rp >= n {
-            rp -= n;
-        }
-        while rp < 0.0 {
-            rp += n;
-        }
-        rp
-    }
-
-    /// Gets a value from the buffer using linear interpolation
-    fn get_linear(&self, offset: f32) -> f32 {
-        let rp = self.read_pos(offset);
-        let i = rp.floor() as usize;
-        let f = rp - rp.floor();
-
-        let a = self.buffer[i];
-        let b = self.buffer[(i + 1) & self.size];
-
-        // Linear interpolation between adjacent samples
-        a + f * (b - a)
-    }
-
-    /// Gets a value from the buffer using cubic interpolation
-    fn get_cubic(&self, offset: f32) -> f32 {
-        let rp = self.read_pos(offset);
-        let i = rp.floor() as usize;
-        let f = rp - rp.floor();
-
-        // Get indices for 4 points needed for cubic interpolation
-        let im1 = (i - 1) & self.size;
-        let i1 = (i + 1) & self.size;
-        let i2 = (i + 2) & self.size;
-
-        let v0 = self.buffer[im1];
-        let v1 = self.buffer[i];
-        let v2 = self.buffer[i1];
-        let v3 = self.buffer[i2];
-
-        // Cubic interpolation coefficients
-        let a1 = 0.5 * (v2 - v0);
-        let a2 = v0 - 2.5 * v1 + 2.0 * v2 - 0.5 * v3;
-        let a3 = 0.5 * (v3 - v0) + 1.5 * (v1 - v2);
-
-        // Cubic interpolation formula
-        v1 + f * (a1 + f * (a2 + f * a3))
-    }
-
-    /// Gets a value from the buffer using the most appropriate interpolation method
-    /// based on the offset distance
-    pub fn get(&self, offset: f32) -> f32 {
-        let offset = offset.min((self.size + 1) as f32);
-
-        // Use different interpolation methods based on offset:
-        // - Cubic interpolation for small offsets
-        // - Linear interpolation for larger offsets
-        if offset <= 1.0 {
-            self.buffer[self.write_pos]
-        } else if offset < 4.0 {
-            self.get_cubic(offset)
-        } else {
-            self.get_linear(offset)
-        }
-    }
-
-    /// Sets the size of the buffer, clamped to the actual buffer length.
-    /// If in PowerOfTwo mode, rounds up to next power of 2.
-    /// If in Exact mode, uses the clamped size directly.
-    pub fn set_size(&mut self, new_size: usize) {
-        let clamped_size = new_size.min(self.buffer.len());
-        self.size = match self.mode {
-            BufferMode::PowerOfTwo => clamped_size.next_power_of_two(),
-            BufferMode::Exact => clamped_size,
-        };
     }
 }

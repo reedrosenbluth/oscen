@@ -1,8 +1,10 @@
 pub mod graph;
+pub mod ring_buffer;
 
 pub use graph::*;
 
 pub use oscen2_macros::Node;
+use ring_buffer::RingBuffer;
 use std::f32::consts::PI;
 
 #[derive(Debug, Node)]
@@ -192,7 +194,7 @@ pub struct Delay {
     #[output]
     output: f32,
 
-    buffer: RingBuffer,
+    buffer: RingBuffer<88200>,
     sample_rate: f32,
     frames_per_update: usize,
     frame_counter: usize,
