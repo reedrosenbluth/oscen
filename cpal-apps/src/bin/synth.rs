@@ -1,179 +1,268 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Device, FromSample, Sample, SizedSample, StreamConfig};
-use iced::widget::{container, row};
-use iced::{
-    widget::{button, column, slider, text, Rule},
-    Alignment, Application, Command, Element, Settings, Theme,
-};
-use oscen::filters::LpfBuilder;
-use oscen::oscillators::{saw_osc, sine_osc, OscBuilder};
-use oscen::rack::*;
-use std::sync::mpsc::*;
+use eframe::egui;
+use oscen::{EndpointType, Graph, Oscillator, OutputEndpoint, TPT_Filter, ValueKey};
+use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
-fn main() -> iced::Result {
-    let (tx, rx) = channel();
-    thread::spawn(|| {
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .expect("failed to find a default output device");
-        let config = device.default_output_config()?;
+#[derive(Clone, Copy, Debug)]
+struct SynthParams {
+    carrier_frequency: f32,
+    modulator_frequency: f32,
+    cutoff_frequency: f32,
+    q_factor: f32,
+}
 
-        match config.sample_format() {
-            cpal::SampleFormat::F32 => run::<f32>(&device, &config.into(), rx)?,
-            cpal::SampleFormat::I16 => run::<i16>(&device, &config.into(), rx)?,
-            cpal::SampleFormat::U16 => run::<u16>(&device, &config.into(), rx)?,
-            _ => panic!("Unsupported sample format "),
+impl Default for SynthParams {
+    fn default() -> Self {
+        Self {
+            carrier_frequency: 440.0,
+            modulator_frequency: 100.0,
+            cutoff_frequency: 3000.0,
+            q_factor: 0.707,
         }
-        Ok::<(), anyhow::Error>(())
+    }
+}
+
+fn audio_callback(
+    data: &mut [f32],
+    graph: &mut Graph,
+    carrier_freq_input: &ValueKey,
+    modulator_freq_input: &ValueKey,
+    cutoff_freq_input: &ValueKey,
+    q_input: &ValueKey,
+    output: &OutputEndpoint,
+    rx: &std::sync::mpsc::Receiver<SynthParams>,
+    channels: usize,
+) {
+    let mut latest_params = None;
+    while let Ok(params) = rx.try_recv() {
+        latest_params = Some(params);
+    }
+
+    if let Some(params) = latest_params {
+        graph.set_value(*carrier_freq_input, params.carrier_frequency, 441);
+        graph.set_value(*modulator_freq_input, params.modulator_frequency, 441);
+        graph.set_value(*cutoff_freq_input, params.cutoff_frequency, 1323);
+        graph.set_value(*q_input, params.q_factor, 441);
+    }
+
+    for frame in data.chunks_mut(channels) {
+        graph.process();
+
+        if let Some(value) = graph.get_value(output) {
+            for sample in frame.iter_mut() {
+                *sample = value;
+            }
+        }
+    }
+}
+
+struct ESynthApp {
+    params: SynthParams,
+    tx: Sender<SynthParams>,
+}
+
+impl ESynthApp {
+    fn new(tx: Sender<SynthParams>) -> Self {
+        Self {
+            params: SynthParams::default(),
+            tx,
+        }
+    }
+}
+
+impl eframe::App for ESynthApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.group(|ui| {
+                    // ui.set_min_width(400.0);
+
+                    ui.vertical(|ui| {
+                        ui.heading("Oscillator");
+                        ui.add_space(20.0);
+
+                        // Carrier Frequency
+                        ui.label("Carrier Frequency");
+                        if ui
+                            .add(
+                                egui::Slider::new(
+                                    &mut self.params.carrier_frequency,
+                                    20.0..=2000.0,
+                                )
+                                .step_by(1.0),
+                            )
+                            .changed()
+                        {
+                            let _ = self.tx.send(self.params);
+                        }
+
+                        ui.add_space(10.0);
+
+                        // Modulator Frequency
+                        ui.label("Modulator Frequency");
+                        if ui
+                            .add(
+                                egui::Slider::new(
+                                    &mut self.params.modulator_frequency,
+                                    20.0..=2000.0,
+                                )
+                                .step_by(0.1),
+                            )
+                            .changed()
+                        {
+                            let _ = self.tx.send(self.params);
+                        }
+                    });
+                });
+
+                ui.add_space(20.0);
+
+                ui.group(|ui| {
+                    // ui.set_min_width(400.0);
+                    ui.vertical(|ui| {
+                        ui.heading("Filter");
+                        ui.add_space(20.0);
+
+                        // Filter Cutoff
+                        ui.label("Filter Cutoff");
+                        if ui
+                            .add(
+                                egui::Slider::new(
+                                    &mut self.params.cutoff_frequency,
+                                    20.0..=20000.0,
+                                )
+                                .logarithmic(true)
+                                .step_by(0.1),
+                            )
+                            .changed()
+                        {
+                            let _ = self.tx.send(self.params);
+                        }
+
+                        ui.add_space(10.0);
+
+                        // Filter Q
+                        ui.label("Filter Q");
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut self.params.q_factor, 0.1..=10.0)
+                                    .fixed_decimals(3)
+                                    .step_by(0.001),
+                            )
+                            .changed()
+                        {
+                            let _ = self.tx.send(self.params);
+                        }
+                    });
+                });
+            });
+        });
+    }
+}
+
+fn main() -> Result<(), eframe::Error> {
+    let (tx, rx) = channel();
+
+    thread::spawn(move || {
+        let host = cpal::default_host();
+        let device = host.default_output_device().expect("no output device");
+        let default_config = device.default_output_config().unwrap();
+        let config = cpal::StreamConfig {
+            channels: default_config.channels(),
+            sample_rate: default_config.sample_rate(),
+            buffer_size: cpal::BufferSize::Fixed(512),
+        };
+
+        let sample_rate = config.sample_rate.0 as f32;
+
+        // ==========================================================
+        // Construct Audio Graph
+        // ==========================================================
+
+        // initialize new graph
+        let mut graph = Graph::new(sample_rate);
+
+        // create a few nodes
+        // let square = graph.add_node(Oscillator::square(0.5, 1.0));
+        let modulator = graph.add_node(Oscillator::sine(100.0, 0.5));
+        let carrier = graph.add_node(Oscillator::saw(440.0, 1.0));
+        let filter = graph.add_node(TPT_Filter::new(3000.0, 0.707));
+
+        // make connections
+        // graph.connect(modulator.output(), carrier.frequency_mod());
+        // graph.connect(carrier.output(), filter.input());
+
+        // graph.connect(carrier.output(), filter.input());
+        // let output = graph.combine(filter.output(), square.output(), |x, y| {
+        //     if y > 0.0 {
+        //         x
+        //     } else {
+        //         0.0
+        //     }
+        // });
+
+        let routing = vec![
+            // modulator.output() >> carrier.frequency_mod(),
+            carrier.output() >> filter.input(),
+        ];
+
+        graph.connect_all(routing);
+
+        let output = filter.output();
+
+        // create value input endpoints for the UI
+        let carrier_freq_input = graph
+            .insert_value_input(carrier.frequency(), 440.0)
+            .expect("Failed to insert carrier frequency input");
+        let modulator_freq_input = graph
+            .insert_value_input(modulator.frequency(), 100.0)
+            .expect("Failed to insert modulator frequency input");
+        let cutoff_freq_input = graph
+            .insert_value_input(filter.cutoff(), 3000.0)
+            .expect("Failed to insert filter cutoff input");
+        let q_input = graph
+            .insert_value_input(filter.q(), 0.707)
+            .expect("Failed to insert filter Q input");
+        // ==========================================================
+
+        let channels = config.channels as usize;
+
+        let stream = device
+            .build_output_stream(
+                &config.clone().into(),
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    audio_callback(
+                        data,
+                        &mut graph,
+                        &carrier_freq_input,
+                        &modulator_freq_input,
+                        &cutoff_freq_input,
+                        &q_input,
+                        &output,
+                        &rx,
+                        channels,
+                    );
+                },
+                |err| eprintln!("Audio stream error: {}", err),
+                None,
+            )
+            .unwrap();
+
+        stream.play().unwrap();
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
     });
 
-    let mut settings = Settings::with_flags(tx);
-    settings.window.size = (600, 250);
-    Model::run(settings)
-}
-
-pub fn run<T>(
-    device: &Device,
-    config: &StreamConfig,
-    rx: Receiver<(i32, i32)>,
-) -> Result<(), anyhow::Error>
-where
-    T: SizedSample + FromSample<f32>,
-{
-    let sample_rate = config.sample_rate.0 as f32;
-    let channels = config.channels as usize;
-
-    let mut rack = Rack::default();
-
-    let so = OscBuilder::new(saw_osc)
-        .hz(220.0)
-        .amplitude(0.25)
-        .rack(&mut rack);
-
-    let filter = LpfBuilder::new(so.tag()).cut_off(0.0).rack(&mut rack);
-
-    let mut next_value = move || {
-        if let Ok(r) = rx.try_recv() {
-            so.set_hz(&mut rack, (220.0 * 1.059463_f32.powf(r.0 as f32)).into());
-            filter.set_cutoff(&mut rack, (r.1 as f32).into());
-        };
-        rack.mono(sample_rate)
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([370.0, 160.0]),
+        ..Default::default()
     };
 
-    let err_fn = |err| eprintln!("an error occurred on stream: {err}");
-
-    let stream = device.build_output_stream(
-        config,
-        move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-            write_data(data, channels, &mut next_value)
-        },
-        err_fn,
-        None,
-    )?;
-    stream.play()?;
-    std::thread::sleep(std::time::Duration::from_millis(100000));
-    Ok(())
-}
-
-fn write_data<T>(output: &mut [T], channels: usize, next_sample: &mut dyn FnMut() -> f32)
-where
-    T: Sample + FromSample<f32>,
-{
-    for frame in output.chunks_mut(channels) {
-        let value: T = T::from_sample(next_sample());
-        for sample in frame.iter_mut() {
-            *sample = value;
-        }
-    }
-}
-
-struct Model {
-    value: i32,
-    filter: i32,
-    tx: Sender<(i32, i32)>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Message {
-    IncrementPressed,
-    DecrementPressed,
-    SliderChanged(i32),
-}
-
-impl Application for Model {
-    type Message = Message;
-    type Theme = Theme;
-    type Executor = iced::executor::Default;
-    type Flags = Sender<(i32, i32)>;
-
-    fn new(flags: Sender<(i32, i32)>) -> (Model, Command<Message>) {
-        (
-            Self {
-                value: 0,
-                filter: 0,
-                tx: flags,
-            },
-            Command::none(),
-        )
-    }
-
-    fn title(&self) -> String {
-        String::from("Sine Wave")
-    }
-
-    fn update(&mut self, message: Message) -> Command<Message> {
-        match message {
-            Message::IncrementPressed => {
-                self.value += 1;
-            }
-            Message::DecrementPressed => {
-                self.value -= 1;
-            }
-            Message::SliderChanged(v) => {
-                self.filter = v;
-            }
-        }
-        let _ = self.tx.send((self.value, self.filter));
-        Command::none()
-    }
-
-    fn view(&self) -> Element<Message> {
-        let buttons = column![
-            button(
-                text("+")
-                    .width(50)
-                    .horizontal_alignment(iced::alignment::Horizontal::Center)
-            )
-            .on_press(Message::IncrementPressed),
-            text(self.value).size(50),
-            button(
-                text("-")
-                    .width(50)
-                    .horizontal_alignment(iced::alignment::Horizontal::Center)
-            )
-            .on_press(Message::DecrementPressed),
-            container(slider(16..=16_000, self.filter, Message::SliderChanged)).width(250)
-        ]
-        .padding(30)
-        .spacing(10)
-        .align_items(Alignment::Center);
-
-        let info = column![
-            text(format!(
-                "Frequency: {:.0}",
-                220.0 * 1.059463_f32.powf(self.value as f32)
-            ),)
-            .size(35),
-            text(format!("Filter: {:.0}", self.filter)).size(35)
-        ]
-        .padding(30);
-
-        row![buttons, Rule::vertical(10), info].into()
-    }
-
-    fn theme(&self) -> Theme {
-        Theme::Dark
-    }
+    eframe::run_native(
+        "Oscen",
+        options,
+        Box::new(|_cc| Ok(Box::new(ESynthApp::new(tx)))),
+    )
 }

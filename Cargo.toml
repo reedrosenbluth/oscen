@@ -1,9 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "cpal-apps",
     "oscen-lib",
-    # "plot-apps",
-    "cpal-apps" ,
-    "oscen2-lib",
-    "oscen2-macros"
+    "oscen-macros"
 ]

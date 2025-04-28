@@ -1,11 +1,11 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
-// use oscen2::{
+// use oscen::{
 //     EndpointDefinition, EndpointMetadata, Graph, InputEndpoint, NodeKey, OutputEndpoint,
 //     ProcessingNode, SignalProcessor, ValueKey,
 // };
-use oscen2::graph::*;
-use oscen2::Node;
+use oscen::graph::*;
+use oscen::Node;
 use std::f32::consts::PI;
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
@@ -208,7 +208,7 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     eframe::run_native(
-        "Oscen v2",
+        "Oscen",
         options,
         Box::new(|_cc| Ok(Box::new(ESynthApp::new(tx)))),
     )

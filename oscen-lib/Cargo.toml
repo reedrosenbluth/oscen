@@ -1,27 +1,14 @@
 [package]
 name = "oscen"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
-authors = [
-    "Reed Rosenbluth <reed.rosenbluth@gmail.com>", 
-    "Jeffrey Rosenbluth <jeffrey.rosenbluth@gmail.com>",
-]
-repository = "https://github.com/reedrosenbluth/oscen"
-documentation = "https://docs.rs/oscen/0.1.4/oscen/"
-readme = "README.md"
-license = "MIT OR Apache-2.0"
-description = "A library for building modular synthesizers"
-keywords = ["audio", "dsp", "synth", "synthesizer", "sound"]
-categories = ["multimedia::audio"]
 
 [dependencies]
-approx = "0.5.1"
-midir = "0.9.1"
-num = "0.4.0"
-pitch_calc = "0.12.0"
-rand = "0.8.5"
-rand_distr = "0.4.3"
-libmath = "0.2.1"
-crossbeam = "0.8.2"
-parking_lot = "0.12.1"
-arr_macro = "0.2.1"
+oscen-macros = { path = "../oscen-macros" }
+arrayvec = "0.7.6"
+cpal = "0.15.3"
+hound = "3.5.1"
+slotmap = "1.0.7"
+
+[dev-dependencies]
+float-cmp = "0.10.0"
