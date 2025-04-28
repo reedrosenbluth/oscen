@@ -1,5 +1,5 @@
 [package]
-name = "cpal-apps"
+name = "oscen-examples"
 version = "0.1.0"
 authors = ["jeffreyrosenbluth <jeffrey.rosenbluth@gmail.com>"]
 edition = "2021"
