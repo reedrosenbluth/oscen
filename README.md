@@ -18,8 +18,22 @@ connect (or patch) the output of one module into the input of another.
 
 ```Rust
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::{Graph, Oscillator, TPT_Filter};
+use oscen::{Graph, Oscillator, TPT_Filter, OutputEndpoint};
 use std::thread;
+
+fn create_audio_graph(sample_rate: f32) -> (Graph, OutputEndpoint) {
+    let mut graph = Graph::new(sample_rate);
+    
+    // Create a sine oscillator and low-pass filter
+    let osc = graph.add_node(Oscillator::sine(440.0, 0.5));
+    let filter = graph.add_node(TPT_Filter::new(1200.0, 0.707));
+    
+    // Connect oscillator to filter
+    graph.connect(osc.output(), filter.input());
+    
+    // Return graph and the final output node
+    (graph, filter.output())
+}
 
 fn main() {
     thread::spawn(move || {
@@ -37,22 +51,12 @@ fn main() {
         let channels = config.channels as usize;
 
         // Create audio graph
-        let mut graph = Graph::new(sample_rate);
-        
-        // Create a sine oscillator and low-pass filter
-        let osc = graph.add_node(Oscillator::sine(440.0, 0.5));
-        let filter = graph.add_node(TPT_Filter::new(1200.0, 0.707));
-        
-        // Connect oscillator to filter
-        graph.connect(osc.output(), filter.input());
-        
-        // Use filter output as final output
-        let output = filter.output();
+        let (mut graph, output) = create_audio_graph(sample_rate);
 
         // Build the audio stream
         let stream = device
             .build_output_stream(
-                &config.into(),
+                &config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     // Process audio in chunks
                     for frame in data.chunks_mut(channels) {
