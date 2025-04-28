@@ -22,14 +22,22 @@ use oscen::{Graph, Oscillator, TPT_Filter, OutputEndpoint};
 use std::thread;
 
 fn create_audio_graph(sample_rate: f32) -> (Graph, OutputEndpoint) {
+    // Create oscen audio graph
     let mut graph = Graph::new(sample_rate);
     
-    // Create a sine oscillator and low-pass filter
-    let osc = graph.add_node(Oscillator::sine(440.0, 0.5));
+    // Create oscillators and filter
+    let modulator = graph.add_node(Oscillator::sine(5.0, 0.2));
+    let carrier = graph.add_node(Oscillator::saw(440.0, 0.5));
     let filter = graph.add_node(TPT_Filter::new(1200.0, 0.707));
     
-    // Connect oscillator to filter
-    graph.connect(osc.output(), filter.input());
+    // Connect nodes using the routing vec syntax
+    let routing = vec![
+        modulator.output() >> carrier.frequency_mod(),  // FM synthesis
+        carrier.output() >> filter.input(),             // Filter the carrier
+    ];
+    
+    // Connect all routes at once
+    graph.connect_all(routing);
     
     // Return graph and the final output node
     (graph, filter.output())
