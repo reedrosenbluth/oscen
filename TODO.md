@@ -12,6 +12,7 @@
 ### Big todos
 - topological sorting the dag
 - investigate Graph implementing SignalProcessor
+- windowed sinc interpolation for buffer
 
 
 notes
