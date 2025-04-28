@@ -1,22 +1,3 @@
-# Oscen [![crates.io](https://img.shields.io/crates/v/oscen.svg)](https://crates.io/crates/oscen)
-
-<picture>
-    <source media="(prefers-color-scheme: dark)" srcset="logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="logo-light.svg">
-    <img src="logo-light.svg">
-</picture>
-<br />
-<br />
-
-Oscen _[“oh-sin”]_ is a library for building modular synthesizers in Rust.
-
-It contains a collection of components frequently used in sound synthesis
-such as oscillators, filters, and envelope generators. It lets you
-connect (or patch) the output of one module into the input of another.
-
-## Example
-
-```Rust
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use oscen::{Graph, Oscillator, TPT_Filter};
 use std::thread;
@@ -81,4 +62,3 @@ fn main() {
         }
     }).join().unwrap();
 }
-```
