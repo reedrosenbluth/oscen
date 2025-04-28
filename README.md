@@ -30,13 +30,13 @@ fn create_audio_graph(sample_rate: f32) -> (Graph, OutputEndpoint) {
     let carrier = graph.add_node(Oscillator::saw(440.0, 0.5));
     let filter = graph.add_node(TPT_Filter::new(1200.0, 0.707));
     
-    // Connect nodes using the routing vec syntax
+    // Connect nodes to eachother
     let routing = vec![
         modulator.output() >> carrier.frequency_mod(),  // FM synthesis
         carrier.output() >> filter.input(),             // Filter the carrier
     ];
     
-    // Connect all routes at once
+    // Make graph connections
     graph.connect_all(routing);
     
     // Return graph and the final output node
