@@ -1,6 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
-use oscen::{Graph, Oscillator, OutputEndpoint, TptFilter, ValueKey};
+use oscen::{Graph, LP18Filter, Oscillator, OutputEndpoint, ValueKey};
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
@@ -9,16 +9,16 @@ struct SynthParams {
     carrier_frequency: f32,
     modulator_frequency: f32,
     cutoff_frequency: f32,
-    q_factor: f32,
+    resonance: f32,
 }
 
 impl Default for SynthParams {
     fn default() -> Self {
         Self {
-            carrier_frequency: 440.0,
-            modulator_frequency: 100.0,
-            cutoff_frequency: 3000.0,
-            q_factor: 0.707,
+            carrier_frequency: 110.0,
+            modulator_frequency: 0.2,
+            cutoff_frequency: 1200.0,
+            resonance: 0.4,
         }
     }
 }
@@ -28,7 +28,7 @@ struct AudioContext {
     carrier_freq_input: ValueKey,
     modulator_freq_input: ValueKey,
     cutoff_freq_input: ValueKey,
-    q_input: ValueKey,
+    resonance_input: ValueKey,
     output: OutputEndpoint,
     channels: usize,
 }
@@ -47,7 +47,7 @@ fn audio_callback(
         context.graph.set_value(context.carrier_freq_input, params.carrier_frequency, 441);
         context.graph.set_value(context.modulator_freq_input, params.modulator_frequency, 441);
         context.graph.set_value(context.cutoff_freq_input, params.cutoff_frequency, 1323);
-        context.graph.set_value(context.q_input, params.q_factor, 441);
+        context.graph.set_value(context.resonance_input, params.resonance, 441);
     }
 
     for frame in data.chunks_mut(context.channels) {
@@ -61,12 +61,12 @@ fn audio_callback(
     }
 }
 
-struct ESynthApp {
+struct LP18SynthApp {
     params: SynthParams,
     tx: Sender<SynthParams>,
 }
 
-impl ESynthApp {
+impl LP18SynthApp {
     fn new(tx: Sender<SynthParams>) -> Self {
         Self {
             params: SynthParams::default(),
@@ -75,13 +75,11 @@ impl ESynthApp {
     }
 }
 
-impl eframe::App for ESynthApp {
+impl eframe::App for LP18SynthApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.group(|ui| {
-                    // ui.set_min_width(400.0);
-
                     ui.vertical(|ui| {
                         ui.heading("Oscillator");
                         ui.add_space(20.0);
@@ -92,9 +90,10 @@ impl eframe::App for ESynthApp {
                             .add(
                                 egui::Slider::new(
                                     &mut self.params.carrier_frequency,
-                                    20.0..=2000.0,
+                                    20.0..=1000.0,
                                 )
-                                .step_by(1.0),
+                                .logarithmic(true)
+                                .step_by(0.1),
                             )
                             .changed()
                         {
@@ -103,15 +102,16 @@ impl eframe::App for ESynthApp {
 
                         ui.add_space(10.0);
 
-                        // Modulator Frequency
-                        ui.label("Modulator Frequency");
+                        // LFO Frequency
+                        ui.label("LFO Frequency");
                         if ui
                             .add(
                                 egui::Slider::new(
                                     &mut self.params.modulator_frequency,
-                                    20.0..=2000.0,
+                                    0.05..=10.0,
                                 )
-                                .step_by(0.1),
+                                .logarithmic(true)
+                                .step_by(0.01),
                             )
                             .changed()
                         {
@@ -123,9 +123,8 @@ impl eframe::App for ESynthApp {
                 ui.add_space(20.0);
 
                 ui.group(|ui| {
-                    // ui.set_min_width(400.0);
                     ui.vertical(|ui| {
-                        ui.heading("Filter");
+                        ui.heading("LP18 Filter");
                         ui.add_space(20.0);
 
                         // Filter Cutoff
@@ -146,13 +145,13 @@ impl eframe::App for ESynthApp {
 
                         ui.add_space(10.0);
 
-                        // Filter Q
-                        ui.label("Filter Q");
+                        // Resonance
+                        ui.label("Resonance");
                         if ui
                             .add(
-                                egui::Slider::new(&mut self.params.q_factor, 0.1..=10.0)
-                                    .fixed_decimals(3)
-                                    .step_by(0.001),
+                                egui::Slider::new(&mut self.params.resonance, 0.0..=0.9)
+                                    .fixed_decimals(2)
+                                    .step_by(0.01),
                             )
                             .changed()
                         {
@@ -184,59 +183,65 @@ fn main() -> Result<(), eframe::Error> {
         // Construct Audio Graph
         // ==========================================================
 
-        // initialize new graph
+        println!("Initializing audio graph...");
+        println!("Sample rate: {}", sample_rate);
+
+        // Initialize new graph
         let mut graph = Graph::new(sample_rate);
 
-        // create a few nodes
-        // let square = graph.add_node(Oscillator::square(0.5, 1.0));
-        let modulator = graph.add_node(Oscillator::sine(100.0, 0.5));
-        let carrier = graph.add_node(Oscillator::saw(440.0, 1.0));
-        let filter = graph.add_node(TptFilter::new(3000.0, 0.707));
+        // Source oscillator - single sawtooth
+        let carrier = graph.add_node(Oscillator::saw(110.0, 0.5));
+        println!("Created carrier oscillator");
 
-        // make connections
-        // graph.connect(modulator.output(), carrier.frequency_mod());
-        // graph.connect(carrier.output(), filter.input());
+        // LFO for filter modulation
+        let lfo = graph.add_node(Oscillator::sine(0.2, 0.6));
+        println!("Created LFO");
 
-        // graph.connect(carrier.output(), filter.input());
-        // let output = graph.combine(filter.output(), square.output(), |x, y| {
-        //     if y > 0.0 {
-        //         x
-        //     } else {
-        //         0.0
-        //     }
-        // });
+        // LP18 filter with moderate cutoff and resonance
+        let filter = graph.add_node(LP18Filter::new(1200.0, 0.4));
+        println!("Created LP18 filter");
 
-        let routing = vec![
-            // modulator.output() >> carrier.frequency_mod(),
-            carrier.output() >> filter.input(),
-        ];
+        // Connect oscillator to filter - DIRECT CONNECTION LIKE MINIMAL EXAMPLE
+        graph.connect(carrier.output(), filter.audio_in());
+        println!("Connected carrier to filter input");
 
-        graph.connect_all(routing);
+        // Connect LFO to filter cutoff
+        graph.connect(lfo.output(), filter.cutoff());
+        println!("Connected LFO to filter cutoff");
 
-        let limited = graph.transform(filter.output(), |x| x.tanh());
+        // No need for separate resonance oscillator or feedback path
+        // The LP18Filter includes the res_in input to allow for external feedback
+        println!("Connected resonance feedback path");
+
+        // Get filter output
+        let filter_out = filter.audio_out();
+        println!("Set up output from filter.audio_out()");
+
+        // Apply tanh limiting for soft clipping (just like in the working synth.rs)
+        let limited = graph.transform(filter_out, |x| x.tanh());
         let output = limited;
 
-        // create value input endpoints for the UI
+        // Create value input endpoints for the UI controls
         let carrier_freq_input = graph
-            .insert_value_input(carrier.frequency(), 440.0)
+            .insert_value_input(carrier.frequency(), 110.0)
             .expect("Failed to insert carrier frequency input");
-        let modulator_freq_input = graph
-            .insert_value_input(modulator.frequency(), 100.0)
-            .expect("Failed to insert modulator frequency input");
+        let lfo_freq_input = graph
+            .insert_value_input(lfo.frequency(), 0.2)
+            .expect("Failed to insert LFO frequency input");
         let cutoff_freq_input = graph
-            .insert_value_input(filter.cutoff(), 3000.0)
+            .insert_value_input(filter.cutoff(), 1200.0)
             .expect("Failed to insert filter cutoff input");
-        let q_input = graph
-            .insert_value_input(filter.q(), 0.707)
-            .expect("Failed to insert filter Q input");
+        let resonance_input = graph
+            .insert_value_input(filter.resonance(), 0.3)
+            .expect("Failed to insert resonance input");
         // ==========================================================
 
         let mut audio_context = AudioContext {
             graph,
             carrier_freq_input,
-            modulator_freq_input,
+            modulator_freq_input: lfo_freq_input,
             cutoff_freq_input,
-            q_input,
+            resonance_input,
             output,
             channels: config.channels as usize,
         };
@@ -259,13 +264,13 @@ fn main() -> Result<(), eframe::Error> {
     });
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([370.0, 160.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([420.0, 180.0]),
         ..Default::default()
     };
 
     eframe::run_native(
-        "Oscen",
+        "LP18 Filter Synth",
         options,
-        Box::new(|_cc| Ok(Box::new(ESynthApp::new(tx)))),
+        Box::new(|_cc| Ok(Box::new(LP18SynthApp::new(tx)))),
     )
 }

@@ -3,16 +3,11 @@ use arrayvec::ArrayVec;
 /// Represents the mode of operation for a buffer's size management
 /// - PowerOfTwo: Buffer size is rounded up to the next power of 2
 /// - Exact: Buffer size is kept exactly as specified
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum BufferMode {
+    #[default]
     PowerOfTwo,
     Exact,
-}
-
-impl Default for BufferMode {
-    fn default() -> Self {
-        BufferMode::PowerOfTwo
-    }
 }
 
 /// A ring buffer implementation with linear and cubic interpolation for reading values.
@@ -278,8 +273,8 @@ impl<const N: usize> RingBuffer<N> {
         if count_to_preserve > 0 {
             // Calculate the starting index in the new buffer to write preserved data
             let start_write_idx = new_capacity.saturating_sub(count_to_preserve);
-            for i in 0..count_to_preserve {
-                self.buffer[start_write_idx + i] = preserved_data[i];
+            for (i, &value) in preserved_data.iter().enumerate().take(count_to_preserve) {
+                self.buffer[start_write_idx + i] = value;
             }
         }
 

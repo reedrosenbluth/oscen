@@ -4,11 +4,6 @@ use arrayvec::ArrayVec;
 use hound;
 use slotmap::{new_key_type, SecondaryMap, SlotMap};
 
-// Remove mod declaration - moved to lib.rs
-// mod ring_buffer;
-// Import moved items
-use crate::ring_buffer::{BufferMode, RingBuffer};
-
 pub const MAX_EVENTS: usize = 256;
 pub const MAX_CONNECTIONS_PER_OUTPUT: usize = 1024;
 pub const MAX_NODE_ENDPOINTS: usize = 16;
@@ -241,7 +236,7 @@ impl Graph {
         self.connections
             .entry(from.key())
             .unwrap()
-            .or_insert_with(ArrayVec::new)
+            .or_default()
             .push(to.key());
     }
 
@@ -276,7 +271,7 @@ impl Graph {
         output_keys.push(output_key);
 
         // Insert NodeData
-        let node_key = self.nodes.insert(NodeData {
+        let _node_key = self.nodes.insert(NodeData {
             processor,
             inputs: input_keys.clone(),   // Clone for NodeData
             outputs: output_keys.clone(), // Clone for NodeData
@@ -320,7 +315,7 @@ impl Graph {
         output_keys.push(output_key);
 
         // Insert NodeData
-        let node_key = self.nodes.insert(NodeData {
+        let _node_key = self.nodes.insert(NodeData {
             processor,
             inputs: input_keys.clone(),   // Clone for NodeData
             outputs: output_keys.clone(), // Clone for NodeData
@@ -394,7 +389,7 @@ impl Graph {
         }
 
         // Iterate through all nodes in the graph
-        for (node_key, node) in self.nodes.iter_mut() {
+        for (_node_key, node) in self.nodes.iter_mut() {
             let mut input_values = ArrayVec::<f32, MAX_NODE_ENDPOINTS>::new();
 
             // Get input values
@@ -406,7 +401,7 @@ impl Graph {
             let output = node.processor.process(self.sample_rate, &input_values);
 
             // Store the output value in the first output of the node
-            if let Some(&output_key) = node.outputs.get(0) {
+            if let Some(&output_key) = node.outputs.first() {
                 self.values[output_key] = output;
 
                 // Propagate the output to all connected inputs
@@ -418,7 +413,7 @@ impl Graph {
             }
 
             // Process events
-            while let Some((target_input, event)) = self.event_queue.pop() {
+            while let Some((_target_input, _event)) = self.event_queue.pop() {
                 // TODO: Handle event processing
                 // Maybe add event handlers to the SignalProcessor trait?
             }
@@ -449,7 +444,7 @@ impl Graph {
                 .nodes
                 .values()
                 .last()
-                .and_then(|node_data| node_data.outputs.get(0))
+                .and_then(|node_data| node_data.outputs.first())
                 .copied()
             {
                 if let Some(&value) = self.values.get(output_key) {

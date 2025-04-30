@@ -35,7 +35,7 @@ pub struct SVSine {
 }
 
 impl SVSine {
-    pub fn new(frequency: f32, amplitude: f32) -> Self {
+    pub fn new(frequency: f32, _amplitude: f32) -> Self {
         Self {
             frequency,
             output: 0.0,
@@ -48,7 +48,7 @@ impl SVSine {
 impl SignalProcessor for SVSine {
     fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
         // Get frequency from input or use default
-        let frequency = if inputs.len() > 0 && inputs[0] != 0.0 {
+        let frequency = if !inputs.is_empty() && inputs[0] != 0.0 {
             inputs[0]
         } else {
             self.frequency
@@ -187,7 +187,7 @@ fn main() -> Result<(), eframe::Error> {
 
         let stream = device
             .build_output_stream(
-                &config.clone().into(),
+                &config.clone(),
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     audio_callback(data, &mut graph, &freq_input, &output, &rx, channels);
                 },

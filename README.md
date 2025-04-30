@@ -18,7 +18,7 @@ connect (or patch) the output of one module into the input of another.
 
 ```Rust
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::{Graph, Oscillator, TPT_Filter, OutputEndpoint};
+use oscen::{Graph, Oscillator, TptFilter, OutputEndpoint};
 use std::thread;
 
 fn create_audio_graph(sample_rate: f32) -> (Graph, OutputEndpoint) {
@@ -28,7 +28,7 @@ fn create_audio_graph(sample_rate: f32) -> (Graph, OutputEndpoint) {
     // Create oscillators and filter
     let modulator = graph.add_node(Oscillator::sine(5.0, 0.2));
     let carrier = graph.add_node(Oscillator::saw(440.0, 0.5));
-    let filter = graph.add_node(TPT_Filter::new(1200.0, 0.707));
+    let filter = graph.add_node(TptFilter::new(1200.0, 0.707));
     
     // Connect nodes to eachother
     let routing = vec![
