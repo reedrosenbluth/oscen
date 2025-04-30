@@ -22,7 +22,7 @@ fn test_lp18_rolloff_slope() {
         let mut graph = Graph::new(sample_rate);
         let osc = graph.add_node(Oscillator::sine(*freq, 1.0));
         let filter = graph.add_node(LP18Filter::new(cutoff, 0.0));
-        graph.connect(osc.output(), filter.audio_in());
+        graph.connect(osc.output(), filter.input());
 
         // Stabilize and measure
         for _ in 0..10000 {
@@ -32,7 +32,7 @@ fn test_lp18_rolloff_slope() {
         let mut peak = 0.0f32;
         for _ in 0..2000 {
             graph.process();
-            if let Some(value) = graph.get_value(&filter.audio_out()) {
+            if let Some(value) = graph.get_value(&filter.output()) {
                 peak = peak.max(value.abs());
             }
         }

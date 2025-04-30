@@ -10,7 +10,7 @@ use std::f32::consts::PI;
 pub struct LP18Filter {
     /// Input audio signal to be filtered
     #[input]
-    audio_in: f32,
+    input: f32,
 
     /// Cutoff frequency in Hz
     #[input]
@@ -35,22 +35,22 @@ pub struct LP18Filter {
 
     /// Filtered output signal
     #[output]
-    audio_out: f32,
+    output: f32,
 }
 
 impl LP18Filter {
     /// Creates a new LP18Filter instance with the specified cutoff frequency and resonance
     pub fn new(cutoff: f32, resonance: f32) -> Self {
         Self {
-            audio_in: 0.0,
+            input: 0.0,
             cutoff,
             resonance: resonance.clamp(0.0, 0.99), // Prevent excessive resonance
-            audio_out: 0.0,
             z: [0.0; 3],
             g: 0.0,
             h: 0.0,
             frame_counter: 0,
             frames_per_update: 32, // Update coefficients every 32 samples (control rate)
+            output: 0.0,
         }
     }
 
@@ -62,7 +62,7 @@ impl LP18Filter {
     /// Updates the filter coefficients based on the current cutoff frequency
     fn update_coefficients(&mut self, sample_rate: f32) {
         // Clamp cutoff to valid range (0, Fs/2 - ε)
-        let freq = self.cutoff.clamp(1.0, sample_rate * 0.49);
+        let freq = self.cutoff.clamp(1.0, sample_rate * 0.45);
 
         // adjust by 2^(1/3)
         let adjusted_freq = freq * 1.25992;
@@ -72,6 +72,12 @@ impl LP18Filter {
 
         // Pre-calculate h = g / (1 + g) for optimization
         self.h = self.g / (1.0 + self.g);
+
+        // Limit coefficient to prevent instability at high frequencies
+        if self.h > 0.99 {
+            self.h = 0.99;
+            self.g = self.h / (1.0 - self.h);
+        }
 
         // If cutoff is very low, zero the z states to avoid denormals
         if freq < 1.0 {
@@ -88,7 +94,7 @@ impl SignalProcessor for LP18Filter {
 
     fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
         // Get input values
-        let audio_in = self.get_audio_in(inputs);
+        let audio_in = self.get_input(inputs);
         let resonance = self.get_resonance(inputs);
 
         // Update coefficients at control rate
@@ -105,7 +111,7 @@ impl SignalProcessor for LP18Filter {
         self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
 
         // Calculate resonance feedback from previous output
-        let feedback = self.audio_out * resonance;
+        let feedback = self.output * resonance;
 
         // Sum audio_in with resonance feedback
         let x = audio_in + feedback;
@@ -127,7 +133,7 @@ impl SignalProcessor for LP18Filter {
         self.z[2] = y + v3;
 
         // Output is the result of the third pole
-        self.audio_out = y;
+        self.output = y;
         y
     }
 }

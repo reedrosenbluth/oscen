@@ -1,6 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
-use oscen::{Graph, Oscillator, OutputEndpoint, TptFilter, ValueKey};
+use oscen::{Graph, LP18Filter, Oscillator, OutputEndpoint, TptFilter, ValueKey};
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
@@ -134,7 +134,7 @@ impl eframe::App for ESynthApp {
                         ui.label("Filter Q");
                         if ui
                             .add(
-                                egui::Slider::new(&mut self.params.q_factor, 0.1..=10.0)
+                                egui::Slider::new(&mut self.params.q_factor, 0.1..=0.85)
                                     .fixed_decimals(3)
                                     .step_by(0.001),
                             )
@@ -173,11 +173,12 @@ fn main() -> Result<(), eframe::Error> {
 
         // create a few nodes
         let oscillator = graph.add_node(Oscillator::saw(440.0, 1.0));
-        let filter = graph.add_node(TptFilter::new(3000.0, 0.707));
+        let filter = graph.add_node(LP18Filter::new(3000.0, 0.707));
 
         // make connections
         graph.connect(oscillator.output(), filter.input());
 
+        // Apply tanh limiting to prevent filter feedback from getting out of control
         let limited = graph.transform(filter.output(), |x| x.tanh());
         let output = limited;
 
@@ -189,7 +190,7 @@ fn main() -> Result<(), eframe::Error> {
             .insert_value_input(filter.cutoff(), 3000.0)
             .expect("Failed to insert filter cutoff input");
         let q_input = graph
-            .insert_value_input(filter.q(), 0.707)
+            .insert_value_input(filter.resonance(), 0.707)
             .expect("Failed to insert filter Q input");
         // ==========================================================
 
