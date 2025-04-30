@@ -379,9 +379,15 @@ impl Graph {
             } = endpoint_type
             {
                 if *ramp_samples_remaining > 0 {
-                    let increment = (*target - *current) / (*ramp_total_samples as f32);
+                    // Calculate increment based on remaining distance and samples
+                    let increment = (*target - *current) / (*ramp_samples_remaining as f32);
                     *current += increment;
                     *ramp_samples_remaining -= 1;
+                    
+                    // If we're on the last sample or very close to target, set to exact target
+                    if *ramp_samples_remaining == 0 || (*target - *current).abs() < 0.000001 {
+                        *current = *target;
+                    }
                 }
                 // Update the actual input value with the current value
                 self.values[value_key] = *current;

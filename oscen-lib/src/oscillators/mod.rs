@@ -44,18 +44,15 @@ impl Oscillator {
     // Anti-aliased sawtooth using polynomial transition region
     pub fn saw(frequency: f32, amplitude: f32) -> Self {
         Self::new(frequency, amplitude, |p| {
-            // Map phase from [0,1] to [-1,1]
-            let x = p * 2.0 - 1.0;
-
             // Width of transition region (adjust for aliasing vs sharpness tradeoff)
             let transition_width = 0.1;
-
-            // Linear ramp from -1 to 1
-            let raw_saw = x;
-
+            
+            // Linear ramp from -1 to 1 (over one full cycle)
+            let raw_saw = 2.0 * p - 1.0;
+            
             // Smooth transition near discontinuity using polynomial
-            if x > (1.0 - transition_width) {
-                let t = (x - (1.0 - transition_width)) / transition_width;
+            if p > (1.0 - transition_width/2.0) {
+                let t = (p - (1.0 - transition_width/2.0)) / (transition_width/2.0);
                 -1.0 + (1.0 - t * t) * (raw_saw + 1.0)
             } else {
                 raw_saw
