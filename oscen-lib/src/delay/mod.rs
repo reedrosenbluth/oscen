@@ -25,13 +25,20 @@ pub struct Delay {
 
 impl Delay {
     pub fn new(delay_time: f32, feedback: f32) -> Self {
+        // Use a small buffer size initially to prevent stack overflow during initialization
+        // The real buffer will be properly allocated in init() with the correct sample rate
+        let default_sample_rate = 44100.0;
+
+        // Start with a very small buffer to avoid excessive stack usage
+        let initial_buffer_size = 1024;
+
         Self {
             input: 0.0,
             delay_time,
             feedback,
             output: 0.0,
-            buffer: RingBuffer::new(88200), // 2 seconds at 44.1kHz
-            sample_rate: 44100.0,
+            buffer: RingBuffer::new(initial_buffer_size),
+            sample_rate: default_sample_rate,
             frames_per_update: 32,
             frame_counter: 0,
         }
@@ -41,7 +48,16 @@ impl Delay {
 impl SignalProcessor for Delay {
     fn init(&mut self, sample_rate: f32) {
         self.sample_rate = sample_rate;
-        self.buffer = RingBuffer::new((2.0 * sample_rate) as usize);
+
+        // Calculate a reasonable buffer size based on sample rate, with a safety cap
+        // to prevent potential stack overflows
+        let target_seconds = 2.0;
+        let max_samples = 88200; // Maximum buffer size (2 seconds at 44.1kHz)
+
+        let buffer_size = ((target_seconds * sample_rate) as usize).min(max_samples);
+
+        // Initialize the buffer with a capped size
+        self.buffer = RingBuffer::new(buffer_size);
     }
 
     fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
@@ -61,8 +77,12 @@ impl SignalProcessor for Delay {
         // Calculate delay in samples
         let delay_samples = self.delay_time * sample_rate;
 
+        // Ensure delay_samples doesn't exceed the buffer capacity
+        let max_delay = self.buffer.capacity() as f32 - 1.0;
+        let clamped_delay = delay_samples.min(max_delay).max(0.0);
+
         // Read delayed sample using get() method
-        let delayed = self.buffer.get(delay_samples);
+        let delayed = self.buffer.get(clamped_delay);
 
         // Write input + feedback to buffer using push() method
         self.buffer.push(input + delayed * self.feedback);

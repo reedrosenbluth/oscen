@@ -25,7 +25,6 @@ pub enum EndpointType {
         current: f32,
         target: f32,
         ramp_samples_remaining: u32,
-        ramp_total_samples: u32,
     },
     Event,
 }
@@ -36,7 +35,6 @@ impl EndpointType {
             current: initial_value,
             target: initial_value,
             ramp_samples_remaining: 0,
-            ramp_total_samples: 0,
         }
     }
 }
@@ -341,13 +339,11 @@ impl Graph {
         if let Some(EndpointType::Value {
             target,
             ramp_samples_remaining,
-            ramp_total_samples,
             ..
         }) = self.endpoint_types.get_mut(input)
         {
             *target = value;
             *ramp_samples_remaining = ramp_samples;
-            *ramp_total_samples = ramp_samples;
         }
     }
 
@@ -375,7 +371,6 @@ impl Graph {
                 current,
                 target,
                 ramp_samples_remaining,
-                ramp_total_samples,
             } = endpoint_type
             {
                 if *ramp_samples_remaining > 0 {
@@ -383,7 +378,7 @@ impl Graph {
                     let increment = (*target - *current) / (*ramp_samples_remaining as f32);
                     *current += increment;
                     *ramp_samples_remaining -= 1;
-                    
+
                     // If we're on the last sample or very close to target, set to exact target
                     if *ramp_samples_remaining == 0 || (*target - *current).abs() < 0.000001 {
                         *current = *target;
