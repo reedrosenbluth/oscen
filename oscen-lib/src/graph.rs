@@ -142,13 +142,13 @@ pub trait EndpointDefinition {
     }
 }
 
-//TODO: replace ArrayVecs with SlotMaps?
 pub struct Graph {
     pub sample_rate: f32,
     pub nodes: SlotMap<NodeKey, NodeData>,
     pub values: SlotMap<ValueKey, f32>,
     pub connections: SecondaryMap<ValueKey, ArrayVec<ValueKey, MAX_CONNECTIONS_PER_OUTPUT>>,
     pub endpoint_types: SecondaryMap<ValueKey, EndpointType>,
+    // TODO: reconsider this
     pub event_queue: ArrayVec<(ValueKey, EventData), MAX_EVENTS>,
 }
 

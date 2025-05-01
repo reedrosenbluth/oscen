@@ -200,12 +200,13 @@ fn main() -> Result<(), eframe::Error> {
         let default_params = SynthParams::default();
         let mut graph = Graph::new(sample_rate);
 
-        // Use an even narrower pulse for sharper excitation of the filters
-        let pulse_osc = graph.add_node(Oscillator::new(
-            default_params.frequency,
-            1.0,
-            |p| if p < 0.001 { 1.0 } else { 0.0 }, // Stronger, narrower pulse
-        ));
+        let pulse_osc = graph.add_node(Oscillator::new(default_params.frequency, 1.0, |p| {
+            if p < 0.001 {
+                1.0
+            } else {
+                0.0
+            }
+        }));
 
         let sine = graph.add_node(Oscillator::sine(1000.0, 70.0));
 
@@ -218,36 +219,37 @@ fn main() -> Result<(), eframe::Error> {
             default_params.q_factor,
         ));
 
-        graph.connect(pulse_osc.output(), filter_a.input());
-        graph.connect(pulse_osc.output(), filter_b.input());
-
-        // graph.connect(sine.output(), filter_a.fmod());
-        // graph.connect(sine.output(), filter_b.fmod());
-
-        // Use transform to create a sequencer that advances when pulse goes high
-        let sequencer = graph.transform(pulse_osc.output(), |pulse_value: f32| -> f32 {
+        let sequencer = graph.transform(pulse_osc.output(), |x: f32| -> f32 {
             static SEQ_VALUES: [f32; 3] = [200., 400., 800.];
             static mut SEQ_INDEX: usize = 0;
             static mut PREV_PULSE: f32 = 0.0;
 
             unsafe {
-                if pulse_value > 0.5 && PREV_PULSE <= 0.5 {
+                if x > 0.5 && PREV_PULSE <= 0.5 {
                     SEQ_INDEX = (SEQ_INDEX + 1) % SEQ_VALUES.len();
                 }
 
-                PREV_PULSE = pulse_value;
+                PREV_PULSE = x;
                 SEQ_VALUES[SEQ_INDEX]
             }
         });
 
+        // Make connections
+        graph.connect(pulse_osc.output(), filter_a.input());
+        graph.connect(pulse_osc.output(), filter_b.input());
+
         graph.connect(sequencer, filter_a.fmod());
         graph.connect(sequencer, filter_b.fmod());
 
-        let diff = graph.combine(filter_a.output(), filter_b.output(), |x, y| x - y);
+        // graph.connect(sine.output(), filter_a.fmod());
+        // graph.connect(sine.output(), filter_b.fmod());
 
-        // Apply tanh limiting to prevent filter feedback from getting out of control
-        let limited = graph.transform(diff, |x| x.tanh());
-        let output = limited;
+        let filter_diff = graph.combine(filter_a.output(), filter_b.output(), |x, y| x - y);
+
+        let limited_output = graph.transform(filter_diff, |x| x.tanh());
+
+        // Set output
+        let output = limited_output;
 
         // create value input endpoints for the UI
         let oscillator_freq_input = graph
