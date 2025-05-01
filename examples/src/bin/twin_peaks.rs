@@ -39,27 +39,21 @@ fn audio_callback(
     context: &mut AudioContext,
     rx: &std::sync::mpsc::Receiver<SynthParams>,
 ) {
-    let mut latest_params = None;
-    while let Ok(params) = rx.try_recv() {
-        latest_params = Some(params);
-    }
+    // Get only the latest parameters
+    if let Some(params) = rx.try_iter().last() {
+        // Define parameters and their corresponding inputs
+        let param_mappings = [
+            (context.oscillator_freq_input, params.frequency, 441),
+            (context.cutoff_freq_input_a, params.cutoff_frequency_a, 1323),
+            (context.cutoff_freq_input_b, params.cutoff_frequency_b, 1323),
+            (context.q_input_a, params.q_factor, 441),
+            (context.q_input_b, params.q_factor, 441),
+        ];
 
-    if let Some(params) = latest_params {
-        context
-            .graph
-            .set_value(context.oscillator_freq_input, params.frequency, 441);
-        context
-            .graph
-            .set_value(context.cutoff_freq_input_a, params.cutoff_frequency_a, 1323);
-        context
-            .graph
-            .set_value(context.cutoff_freq_input_b, params.cutoff_frequency_b, 1323);
-        context
-            .graph
-            .set_value(context.q_input_a, params.q_factor, 441);
-        context
-            .graph
-            .set_value(context.q_input_b, params.q_factor, 441);
+        // Apply all parameters at once
+        for (key, value, smoothing) in param_mappings {
+            context.graph.set_value(key, value, smoothing);
+        }
     }
 
     for frame in data.chunks_mut(context.channels) {
