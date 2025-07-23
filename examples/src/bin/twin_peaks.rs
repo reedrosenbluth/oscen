@@ -122,7 +122,7 @@ impl eframe::App for ESynthApp {
                             .add(
                                 egui::Slider::new(
                                     &mut self.params.cutoff_frequency_a,
-                                    20.0..=16000.0,
+                                    20.0..=14500.0,
                                 )
                                 .logarithmic(true)
                                 .step_by(0.1),
@@ -140,7 +140,7 @@ impl eframe::App for ESynthApp {
                             .add(
                                 egui::Slider::new(
                                     &mut self.params.cutoff_frequency_b,
-                                    20.0..=16000.0,
+                                    20.0..=14500.0,
                                 )
                                 .logarithmic(true)
                                 .step_by(0.1),

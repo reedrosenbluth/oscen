@@ -77,7 +77,7 @@ impl SignalProcessor for LP18Filter {
             self.cutoff = cutoff;
             self.fmod = fmod;
 
-            let fc = (modulated_cutoff / sample_rate).clamp(0.001, 0.499);
+            let fc = (modulated_cutoff / sample_rate).clamp(0.001, 0.33);
             self.g = (PI * fc).tan();
         }
 
