@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "examples",
+    "examples/clap-gain",
+    "examples/clap-twin-peaks",
     "oscen-lib",
     "oscen-macros"
 ]

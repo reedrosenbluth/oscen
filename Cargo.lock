@@ -656,6 +656,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "clack-common"
+version = "0.1.0"
+source = "git+https://github.com/prokopyl/clack/#5deaa1be9b5af7078d75cbe54abefee12ed40f63"
+dependencies = [
+ "bitflags 2.8.0",
+ "clap-sys",
+]
+
+[[package]]
+name = "clack-extensions"
+version = "0.1.0"
+source = "git+https://github.com/prokopyl/clack/#5deaa1be9b5af7078d75cbe54abefee12ed40f63"
+dependencies = [
+ "bitflags 2.8.0",
+ "clack-common",
+ "clack-host",
+ "clack-plugin",
+ "clap-sys",
+]
+
+[[package]]
+name = "clack-host"
+version = "0.1.0"
+source = "git+https://github.com/prokopyl/clack/#5deaa1be9b5af7078d75cbe54abefee12ed40f63"
+dependencies = [
+ "clack-common",
+ "clap-sys",
+ "libloading",
+]
+
+[[package]]
+name = "clack-plugin"
+version = "0.1.0"
+source = "git+https://github.com/prokopyl/clack/#5deaa1be9b5af7078d75cbe54abefee12ed40f63"
+dependencies = [
+ "clack-common",
+ "clap-sys",
+]
+
+[[package]]
 name = "clang-sys"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -664,6 +704,43 @@ dependencies = [
  "glob",
  "libc",
  "libloading",
+]
+
+[[package]]
+name = "clap-gain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrayvec",
+ "clack-extensions",
+ "clack-host",
+ "clack-plugin",
+ "cpal",
+ "eframe",
+ "libmath",
+ "oscen",
+ "oscen-macros",
+]
+
+[[package]]
+name = "clap-sys"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61b04354981cd059bf376007c9361ded38b15de87972e634670799685b042197"
+
+[[package]]
+name = "clap-twin-peaks"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrayvec",
+ "clack-extensions",
+ "clack-host",
+ "clack-plugin",
+ "cpal",
+ "libmath",
+ "oscen",
+ "oscen-macros",
 ]
 
 [[package]]
