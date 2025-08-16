@@ -142,6 +142,48 @@ pub trait EndpointDefinition {
     }
 }
 
+use crate::Node;
+
+/// A built-in node for accepting external audio input into the graph.
+/// This node provides a simple pass-through from a value input to an audio output,
+/// eliminating the need for users to implement their own audio input nodes.
+#[derive(Debug, Node)]
+pub struct AudioInput {
+    #[input]
+    input_value: f32,
+    
+    #[output] 
+    output: f32,
+}
+
+impl AudioInput {
+    pub fn new() -> Self {
+        Self {
+            input_value: 0.0,
+            output: 0.0,
+        }
+    }
+}
+
+impl Default for AudioInput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SignalProcessor for AudioInput {
+    fn process(&mut self, _sample_rate: f32, inputs: &[f32]) -> f32 {
+        // The input_value is at index 0 of the inputs array
+        let input_val = if !inputs.is_empty() {
+            inputs[0]
+        } else {
+            0.0
+        };
+        self.output = input_val;
+        self.output
+    }
+}
+
 pub struct Graph {
     pub sample_rate: f32,
     pub nodes: SlotMap<NodeKey, NodeData>,
@@ -182,6 +224,28 @@ impl Graph {
         });
 
         T::create_endpoints(node_key, inputs, outputs)
+    }
+
+    /// Adds a built-in audio input node to the graph.
+    /// This provides a convenient way to accept external audio input without
+    /// having to implement a custom audio input node.
+    /// 
+    /// Returns a tuple of:
+    /// - The audio input node endpoints (for connecting the output)
+    /// - The ValueKey for setting input samples via set_value()
+    /// 
+    /// Example:
+    /// ```
+    /// let (input_node, input_key) = graph.add_audio_input();
+    /// graph.connect(input_node.output(), filter.input());
+    /// // Later in process loop:
+    /// graph.set_value(input_key, audio_sample);
+    /// ```
+    pub fn add_audio_input(&mut self) -> (<AudioInput as ProcessingNode>::Endpoints, ValueKey) {
+        let input_node = self.add_node(AudioInput::new());
+        let input_key = self.insert_value_input(input_node.input_value(), 0.0)
+            .expect("Failed to insert audio input value");
+        (input_node, input_key)
     }
 
     pub fn get_input(&self, node: NodeKey, index: usize) -> Option<ValueKey> {
@@ -335,7 +399,21 @@ impl Graph {
         self.combine(a, b, |x, y| x + y)
     }
 
-    pub fn set_value(&mut self, input: ValueKey, value: f32, ramp_samples: u32) {
+    /// Sets a value immediately without ramping.
+    pub fn set_value(&mut self, input: ValueKey, value: f32) {
+        if let Some(EndpointType::Value {
+            target,
+            ramp_samples_remaining,
+            ..
+        }) = self.endpoint_types.get_mut(input)
+        {
+            *target = value;
+            *ramp_samples_remaining = 0;
+        }
+    }
+
+    /// Sets a value with ramping over the specified number of samples.
+    pub fn set_value_with_ramp(&mut self, input: ValueKey, value: f32, ramp_samples: u32) {
         if let Some(EndpointType::Value {
             target,
             ramp_samples_remaining,
@@ -383,6 +461,9 @@ impl Graph {
                     if *ramp_samples_remaining == 0 || (*target - *current).abs() < 0.000001 {
                         *current = *target;
                     }
+                } else {
+                    // No ramping - immediately set current to target
+                    *current = *target;
                 }
                 // Update the actual input value with the current value
                 self.values[value_key] = *current;

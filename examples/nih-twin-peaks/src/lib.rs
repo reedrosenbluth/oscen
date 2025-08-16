@@ -1,8 +1,13 @@
+mod lp18_filter;
+
+use lp18_filter::LP18Filter;
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
-use oscen::{Graph, LP18Filter, Oscillator, OutputEndpoint, ValueKey};
+use oscen::{Graph, OutputEndpoint, ValueKey};
 use parking_lot::RwLock;
 use std::sync::Arc;
+
+const OUTPUT_GAIN: f32 = 5.0;
 
 pub struct TwinPeaks {
     params: Arc<TwinPeaksParams>,
@@ -14,37 +19,22 @@ pub struct TwinPeaksParams {
     #[persist = "editor-state"]
     editor_state: Arc<EguiState>,
 
-    #[id = "frequency"]
-    pub frequency: FloatParam,
-
     #[id = "cutoff_a"]
-    pub cutoff_frequency_a: FloatParam,
+    pub cutoff_a: FloatParam,
 
     #[id = "cutoff_b"]
-    pub cutoff_frequency_b: FloatParam,
+    pub cutoff_b: FloatParam,
 
-    #[id = "q_factor"]
-    pub q_factor: FloatParam,
+    #[id = "resonance"]
+    pub resonance: FloatParam,
 }
 
 impl Default for TwinPeaksParams {
     fn default() -> Self {
         Self {
-            editor_state: EguiState::from_size(370, 220),
+            editor_state: EguiState::from_size(200, 220),
 
-            frequency: FloatParam::new(
-                "Frequency",
-                3.0,
-                FloatRange::Linear {
-                    min: 0.1,
-                    max: 10.0,
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" Hz")
-            .with_value_to_string(formatters::v2s_f32_rounded(1)),
-
-            cutoff_frequency_a: FloatParam::new(
+            cutoff_a: FloatParam::new(
                 "Cutoff A",
                 1000.0,
                 FloatRange::Skewed {
@@ -57,7 +47,7 @@ impl Default for TwinPeaksParams {
             .with_unit(" Hz")
             .with_value_to_string(formatters::v2s_f32_rounded(0)),
 
-            cutoff_frequency_b: FloatParam::new(
+            cutoff_b: FloatParam::new(
                 "Cutoff B",
                 1900.0,
                 FloatRange::Skewed {
@@ -70,8 +60,8 @@ impl Default for TwinPeaksParams {
             .with_unit(" Hz")
             .with_value_to_string(formatters::v2s_f32_rounded(0)),
 
-            q_factor: FloatParam::new(
-                "Q Factor",
+            resonance: FloatParam::new(
+                "Resonance",
                 0.54,
                 FloatRange::Linear {
                     min: 0.4,
@@ -86,112 +76,90 @@ impl Default for TwinPeaksParams {
 
 pub struct AudioContext {
     graph: Graph,
-    oscillator_freq_input: ValueKey,
-    cutoff_freq_input_a: ValueKey,
-    cutoff_freq_input_b: ValueKey,
-    q_input_a: ValueKey,
-    q_input_b: ValueKey,
+    cutoff_input_a: ValueKey,
+    cutoff_input_b: ValueKey,
+    resonance_input_a: ValueKey,
+    resonance_input_b: ValueKey,
     output: OutputEndpoint,
+    input_endpoint: ValueKey,
 }
 
 impl AudioContext {
     fn new(sample_rate: f32, params: &TwinPeaksParams) -> Result<Self, &'static str> {
         let mut graph = Graph::new(sample_rate);
 
-        let pulse_osc = graph.add_node(Oscillator::new(params.frequency.value(), 1.0, |p| {
-            if p < 0.001 {
-                1.0
-            } else {
-                0.0
-            }
-        }));
+        let (input_signal, input_endpoint) = graph.add_audio_input();
 
         let filter_a = graph.add_node(LP18Filter::new(
-            params.cutoff_frequency_a.value(),
-            params.q_factor.value(),
+            params.cutoff_a.value(),
+            params.resonance.value(),
         ));
         let filter_b = graph.add_node(LP18Filter::new(
-            params.cutoff_frequency_b.value(),
-            params.q_factor.value(),
+            params.cutoff_b.value(),
+            params.resonance.value(),
         ));
 
-        let sequencer = graph.transform(pulse_osc.output(), |x: f32| -> f32 {
-            static SEQ_VALUES: [f32; 3] = [200., 400., 800.];
-            static mut SEQ_INDEX: usize = 0;
-            static mut PREV_PULSE: f32 = 0.0;
+        // Connect input signal to both filters
+        graph.connect(input_signal.output(), filter_a.input());
+        graph.connect(input_signal.output(), filter_b.input());
 
-            unsafe {
-                if x > 0.5 && PREV_PULSE <= 0.5 {
-                    SEQ_INDEX = (SEQ_INDEX + 1) % SEQ_VALUES.len();
-                }
+        // Use the input signal to modulate both filters
+        graph.connect(input_signal.output(), filter_a.fmod());
+        graph.connect(input_signal.output(), filter_b.fmod());
 
-                PREV_PULSE = x;
-                SEQ_VALUES[SEQ_INDEX]
-            }
-        });
-
-        graph.connect(pulse_osc.output(), filter_a.input());
-        graph.connect(pulse_osc.output(), filter_b.input());
-
-        graph.connect(sequencer, filter_a.fmod());
-        graph.connect(sequencer, filter_b.fmod());
-
+        // Process through twin peak filters
         let filter_diff = graph.combine(filter_a.output(), filter_b.output(), |x, y| x - y);
         let limited_output = graph.transform(filter_diff, |x| x.tanh());
-        let output = limited_output;
+        let gained_output = graph.transform(limited_output, |x| x * OUTPUT_GAIN);
+        let output = gained_output;
 
-        let oscillator_freq_input = graph
-            .insert_value_input(pulse_osc.frequency(), params.frequency.value())
-            .ok_or("Failed to insert frequency input")?;
-
-        let cutoff_freq_input_a = graph
-            .insert_value_input(filter_a.cutoff(), params.cutoff_frequency_a.value())
+        let cutoff_input_a = graph
+            .insert_value_input(filter_a.cutoff(), params.cutoff_a.value())
             .ok_or("Failed to insert filter A cutoff input")?;
 
-        let cutoff_freq_input_b = graph
-            .insert_value_input(filter_b.cutoff(), params.cutoff_frequency_b.value())
+        let cutoff_input_b = graph
+            .insert_value_input(filter_b.cutoff(), params.cutoff_b.value())
             .ok_or("Failed to insert filter B cutoff input")?;
 
-        let q_input_a = graph
-            .insert_value_input(filter_a.resonance(), params.q_factor.value())
+        let resonance_input_a = graph
+            .insert_value_input(filter_a.resonance(), params.resonance.value())
             .ok_or("Failed to insert filter A Q input")?;
 
-        let q_input_b = graph
-            .insert_value_input(filter_b.resonance(), params.q_factor.value())
+        let resonance_input_b = graph
+            .insert_value_input(filter_b.resonance(), params.resonance.value())
             .ok_or("Failed to insert filter B Q input")?;
 
         Ok(Self {
             graph,
-            oscillator_freq_input,
-            cutoff_freq_input_a,
-            cutoff_freq_input_b,
-            q_input_a,
-            q_input_b,
+            cutoff_input_a,
+            cutoff_input_b,
+            resonance_input_a,
+            resonance_input_b,
             output,
+            input_endpoint,
         })
     }
 
     fn update_params(&mut self, params: &TwinPeaksParams) {
+        // Using immediate updates since NIH-plug already handles parameter smoothing
         self.graph.set_value(
-            self.oscillator_freq_input,
-            params.frequency.smoothed.next(),
-            441,
+            self.cutoff_input_a,
+            params.cutoff_a.smoothed.next(),
         );
         self.graph.set_value(
-            self.cutoff_freq_input_a,
-            params.cutoff_frequency_a.smoothed.next(),
-            1323,
+            self.cutoff_input_b,
+            params.cutoff_b.smoothed.next(),
         );
         self.graph.set_value(
-            self.cutoff_freq_input_b,
-            params.cutoff_frequency_b.smoothed.next(),
-            1323,
+            self.resonance_input_a,
+            params.resonance.smoothed.next(),
         );
-        self.graph
-            .set_value(self.q_input_a, params.q_factor.smoothed.next(), 441);
-        self.graph
-            .set_value(self.q_input_b, params.q_factor.smoothed.next(), 441);
+        self.graph.set_value(
+            self.resonance_input_b,
+            params.resonance.smoothed.next(),
+        );
     }
+
 }
 
 impl Default for TwinPeaks {
@@ -204,14 +172,14 @@ impl Default for TwinPeaks {
 }
 
 impl Plugin for TwinPeaks {
-    const NAME: &'static str = "Twin Peaks Demo";
+    const NAME: &'static str = "Twin Peak Filter";
     const VENDOR: &'static str = "Oscen";
     const URL: &'static str = "https://reed.nyc";
     const EMAIL: &'static str = "your.email@example.com";
     const VERSION: &'static str = "0.1.0";
 
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout {
-        main_input_channels: None,                // Synthesizer has no input
+        main_input_channels: NonZeroU32::new(1),  // Mono input
         main_output_channels: NonZeroU32::new(1), // Mono output
         aux_input_ports: &[],
         aux_output_ports: &[],
@@ -240,42 +208,26 @@ impl Plugin for TwinPeaks {
                     ui.horizontal(|ui| {
                         ui.group(|ui| {
                             ui.vertical(|ui| {
-                                ui.heading("Oscillator");
-                                ui.add_space(20.0);
-
-                                ui.label("Trigger Frequency");
-                                ui.add(nih_plug_egui::widgets::ParamSlider::for_param(
-                                    &params.frequency,
-                                    setter,
-                                ));
-                                ui.add_space(10.0);
-                            });
-                        });
-
-                        ui.add_space(4.0);
-
-                        ui.group(|ui| {
-                            ui.vertical(|ui| {
                                 ui.heading("Filter");
                                 ui.add_space(20.0);
 
                                 ui.label("Filter A Cutoff");
                                 ui.add(nih_plug_egui::widgets::ParamSlider::for_param(
-                                    &params.cutoff_frequency_a,
+                                    &params.cutoff_a,
                                     setter,
                                 ));
                                 ui.add_space(10.0);
 
                                 ui.label("Filter B Cutoff");
                                 ui.add(nih_plug_egui::widgets::ParamSlider::for_param(
-                                    &params.cutoff_frequency_b,
+                                    &params.cutoff_b,
                                     setter,
                                 ));
                                 ui.add_space(10.0);
 
                                 ui.label("Resonance (both filters)");
                                 ui.add(nih_plug_egui::widgets::ParamSlider::for_param(
-                                    &params.q_factor,
+                                    &params.resonance,
                                     setter,
                                 ));
                             });
@@ -311,17 +263,25 @@ impl Plugin for TwinPeaks {
     ) -> ProcessStatus {
         let mut audio_context_guard = self.audio_context.write();
         if let Some(audio_context) = audio_context_guard.as_mut() {
-            for channel_samples in buffer.iter_samples() {
+            for mut channel_samples in buffer.iter_samples() {
                 // Update parameters
                 audio_context.update_params(&self.params);
 
-                // Process audio with Oscen
+                // Get input sample from first channel
+                let input_sample = channel_samples.iter_mut().next().map(|s| *s).unwrap_or(0.0);
+
+                // Feed input to the graph
+                audio_context
+                    .graph
+                    .set_value(audio_context.input_endpoint, input_sample);
+
+                // Process the graph
                 audio_context.graph.process();
 
-                if let Some(value) = audio_context.graph.get_value(&audio_context.output) {
-                    // Write to all output channels (mono to stereo/multi-channel)
+                // Write output to all channels
+                if let Some(output_value) = audio_context.graph.get_value(&audio_context.output) {
                     for sample in channel_samples {
-                        *sample = value;
+                        *sample = output_value;
                     }
                 }
             }
@@ -332,18 +292,17 @@ impl Plugin for TwinPeaks {
 }
 
 impl ClapPlugin for TwinPeaks {
-    const CLAP_ID: &'static str = "com.oscen.twin-peaks-nih";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("Twin Peaks Filter Synthesizer");
+    const CLAP_ID: &'static str = "com.oscen.twin-peak-nih";
+    const CLAP_DESCRIPTION: Option<&'static str> = Some("Twin Peak Filter");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
-    const CLAP_FEATURES: &'static [ClapFeature] =
-        &[ClapFeature::Instrument, ClapFeature::Synthesizer];
+    const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Filter];
 }
 
 impl Vst3Plugin for TwinPeaks {
     const VST3_CLASS_ID: [u8; 16] = *b"TwinPeaksNIHPlug";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Instrument, Vst3SubCategory::Synth];
+        &[Vst3SubCategory::Fx, Vst3SubCategory::Filter];
 }
 
 nih_export_clap!(TwinPeaks);

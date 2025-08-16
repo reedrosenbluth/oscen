@@ -90,7 +90,7 @@ fn audio_callback(
     }
 
     if let Some(params) = latest_params {
-        graph.set_value(*freq_input, params.frequency, 441);
+        graph.set_value_with_ramp(*freq_input, params.frequency, 441);
     }
 
     for frame in data.chunks_mut(channels) {

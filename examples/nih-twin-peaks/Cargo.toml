@@ -1,5 +1,5 @@
 [package]
-name = "twin-peaks-nih"
+name = "twin-peak-nih"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,13 +12,14 @@ oscen-macros = { path = "../../oscen-macros" }
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug" }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug" }
 parking_lot = "0.12"
+arrayvec = "0.7.6"
 
 [package.metadata.bundle]
-name = "Twin Peaks Synth (NIH)"
-identifier = "com.oscen.twin-peaks-nih"
+name = "TwinPeak Filter"
+identifier = "com.oscen.twin-peak-nih"
 icon = []
-version = "0.1.0" 
+version = "0.1.0"
 copyright = "Copyright (c) 2025"
 category = "Music"
-short_description = "Twin Peaks Filter Synthesizer (NIH-plug)"
-long_description = "A synthesizer based on the Twin Peaks algorithm with dual filters and sequencer using NIH-plug"
+short_description = "TwinPeak Filter"
+long_description = "Digital implementation of Rob Hordijk's TwinPeak Filter"

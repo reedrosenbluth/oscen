@@ -1,6 +1,6 @@
-use crate::{
-    EndpointDefinition, EndpointMetadata, InputEndpoint, Node, NodeKey, OutputEndpoint,
-    ProcessingNode, SignalProcessor, ValueKey,
+use oscen::{
+    EndpointDefinition, EndpointMetadata, InputEndpoint, Node, NodeKey,
+    OutputEndpoint, ProcessingNode, SignalProcessor, ValueKey,
 };
 use std::f32::consts::PI;
 
@@ -102,6 +102,3 @@ impl SignalProcessor for LP18Filter {
         lp
     }
 }
-
-#[cfg(test)]
-mod tests;
