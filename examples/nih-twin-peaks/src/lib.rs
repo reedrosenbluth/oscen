@@ -103,16 +103,12 @@ impl AudioContext {
         graph.connect(input_signal.output(), filter_a.input());
         graph.connect(input_signal.output(), filter_b.input());
 
-        // Use the input signal to modulate both filters
-        graph.connect(input_signal.output(), filter_a.fmod());
-        graph.connect(input_signal.output(), filter_b.fmod());
-
         // Process through twin peak filters
         let filter_diff = graph.combine(filter_a.output(), filter_b.output(), |x, y| x - y);
         let limited_output = graph.transform(filter_diff, |x| x.tanh());
-        let gained_output = graph.transform(limited_output, |x| x * OUTPUT_GAIN);
-        let output = gained_output;
+        let output = graph.transform(limited_output, |x| x * OUTPUT_GAIN);
 
+        // Connect graph
         let cutoff_input_a = graph
             .insert_value_input(filter_a.cutoff(), params.cutoff_a.value())
             .ok_or("Failed to insert filter A cutoff input")?;
@@ -142,24 +138,15 @@ impl AudioContext {
 
     fn update_params(&mut self, params: &TwinPeaksParams) {
         // Using immediate updates since NIH-plug already handles parameter smoothing
-        self.graph.set_value(
-            self.cutoff_input_a,
-            params.cutoff_a.smoothed.next(),
-        );
-        self.graph.set_value(
-            self.cutoff_input_b,
-            params.cutoff_b.smoothed.next(),
-        );
-        self.graph.set_value(
-            self.resonance_input_a,
-            params.resonance.smoothed.next(),
-        );
-        self.graph.set_value(
-            self.resonance_input_b,
-            params.resonance.smoothed.next(),
-        );
+        self.graph
+            .set_value(self.cutoff_input_a, params.cutoff_a.smoothed.next());
+        self.graph
+            .set_value(self.cutoff_input_b, params.cutoff_b.smoothed.next());
+        self.graph
+            .set_value(self.resonance_input_a, params.resonance.smoothed.next());
+        self.graph
+            .set_value(self.resonance_input_b, params.resonance.smoothed.next());
     }
-
 }
 
 impl Default for TwinPeaks {
