@@ -1,0 +1,24 @@
+[package]
+name = "simple-echo"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oscen = { path = "../../oscen-lib" }
+oscen-macros = { path = "../../oscen-macros" }
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug" }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug" }
+parking_lot = "0.12"
+
+[package.metadata.bundle]
+name = "Simple Echo"
+identifier = "com.oscen.simple-echo"
+icon = []
+version = "0.1.0"
+copyright = "Copyright (c) 2025"
+category = "Music"
+short_description = "Simple Echo"
+long_description = "Simple echo effect with delay, filtering, and feedback"

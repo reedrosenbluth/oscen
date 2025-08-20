@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "examples",
     "examples/nih-twin-peaks",
+    "examples/simple-echo",
     "oscen-lib",
     "oscen-macros",
     "xtask"

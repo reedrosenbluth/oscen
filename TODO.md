@@ -1,6 +1,6 @@
 ### Small todos
 - slotmap capacity
--  replace ArrayVecs with SlotMaps?
+- replace ArrayVecs with SlotMaps?
 - try implementing a few more SignalProcessors (mixer...)
 - implement multiple outputs for SignalProcessor
 - fix value smoothing
@@ -19,4 +19,4 @@ notes
 - node sorting/processing
   - mark & sweep
 - feedback
-- 
+-
