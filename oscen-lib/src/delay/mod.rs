@@ -59,6 +59,10 @@ impl SignalProcessor for Delay {
         // Initialize the buffer with a capped size
         self.buffer = RingBuffer::new(buffer_size);
     }
+    
+    fn allows_feedback(&self) -> bool {
+        true  // Delay nodes can break feedback cycles
+    }
 
     fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
         let input = self.get_input(inputs);
