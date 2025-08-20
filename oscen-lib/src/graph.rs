@@ -1,7 +1,7 @@
-use std::ops::Shr;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::error::Error;
+use std::fmt;
+use std::ops::Shr;
 
 use arrayvec::ArrayVec;
 use hound;
@@ -171,8 +171,8 @@ use crate::Node;
 pub struct AudioInput {
     #[input]
     input_value: f32,
-    
-    #[output] 
+
+    #[output]
     output: f32,
 }
 
@@ -194,11 +194,7 @@ impl Default for AudioInput {
 impl SignalProcessor for AudioInput {
     fn process(&mut self, _sample_rate: f32, inputs: &[f32]) -> f32 {
         // The input_value is at index 0 of the inputs array
-        let input_val = if !inputs.is_empty() {
-            inputs[0]
-        } else {
-            0.0
-        };
+        let input_val = if !inputs.is_empty() { inputs[0] } else { 0.0 };
         self.output = input_val;
         self.output
     }
@@ -212,11 +208,11 @@ pub struct Graph {
     pub endpoint_types: SecondaryMap<ValueKey, EndpointType>,
     // TODO: reconsider this
     pub event_queue: ArrayVec<(ValueKey, EventData), MAX_EVENTS>,
-    
+
     // Topology tracking for sorted processing order
     node_order: Vec<NodeKey>,
     topology_dirty: bool,
-    
+
     // Performance optimization: cache which node owns each value
     value_to_node: SecondaryMap<ValueKey, NodeKey>,
 }
@@ -252,7 +248,7 @@ impl Graph {
             inputs: inputs.clone(),
             outputs: outputs.clone(),
         });
-        
+
         // Cache which node owns these values for fast lookup
         for &value_key in &inputs {
             self.value_to_node.insert(value_key, node_key);
@@ -260,7 +256,7 @@ impl Graph {
         for &value_key in &outputs {
             self.value_to_node.insert(value_key, node_key);
         }
-        
+
         // Mark topology as needing re-sort
         self.topology_dirty = true;
 
@@ -270,11 +266,11 @@ impl Graph {
     /// Adds a built-in audio input node to the graph.
     /// This provides a convenient way to accept external audio input without
     /// having to implement a custom audio input node.
-    /// 
+    ///
     /// Returns a tuple of:
     /// - The audio input node endpoints (for connecting the output)
     /// - The ValueKey for setting input samples via set_value()
-    /// 
+    ///
     /// Example:
     /// ```
     /// let (input_node, input_key) = graph.add_audio_input();
@@ -284,7 +280,8 @@ impl Graph {
     /// ```
     pub fn add_audio_input(&mut self) -> (<AudioInput as ProcessingNode>::Endpoints, ValueKey) {
         let input_node = self.add_node(AudioInput::new());
-        let input_key = self.insert_value_input(input_node.input_value(), 0.0)
+        let input_key = self
+            .insert_value_input(input_node.input_value(), 0.0)
             .expect("Failed to insert audio input value");
         (input_node, input_key)
     }
@@ -341,7 +338,7 @@ impl Graph {
             .unwrap()
             .or_default()
             .push(to.key());
-        
+
         // Mark topology as needing re-sort
         self.topology_dirty = true;
     }
@@ -382,7 +379,7 @@ impl Graph {
             inputs: input_keys.clone(),   // Clone for NodeData
             outputs: output_keys.clone(), // Clone for NodeData
         });
-        
+
         // Cache which node owns these values
         for &value_key in &input_keys {
             self.value_to_node.insert(value_key, node_key);
@@ -390,7 +387,7 @@ impl Graph {
         for &value_key in &output_keys {
             self.value_to_node.insert(value_key, node_key);
         }
-        
+
         // Mark topology as needing re-sort
         self.topology_dirty = true;
 
@@ -437,7 +434,7 @@ impl Graph {
             inputs: input_keys.clone(),   // Clone for NodeData
             outputs: output_keys.clone(), // Clone for NodeData
         });
-        
+
         // Cache which node owns these values
         for &value_key in &input_keys {
             self.value_to_node.insert(value_key, node_key);
@@ -445,7 +442,7 @@ impl Graph {
         for &value_key in &output_keys {
             self.value_to_node.insert(value_key, node_key);
         }
-        
+
         // Mark topology as needing re-sort
         self.topology_dirty = true;
 
@@ -500,17 +497,18 @@ impl Graph {
             self.event_queue.push((input, event));
         }
     }
-    
+
     /// Build a node-level adjacency list from the value-level connections.
     /// Returns a map from each node to the nodes it connects to.
     fn build_node_adjacency(&self) -> HashMap<NodeKey, Vec<NodeKey>> {
-        let mut adjacency: HashMap<NodeKey, Vec<NodeKey>> = HashMap::with_capacity(self.nodes.len());
-        
+        let mut adjacency: HashMap<NodeKey, Vec<NodeKey>> =
+            HashMap::with_capacity(self.nodes.len());
+
         // Initialize empty adjacency lists for all nodes
         for node_key in self.nodes.keys() {
             adjacency.insert(node_key, Vec::new());
         }
-        
+
         // Build adjacency from connections
         for (from_value, to_values) in self.connections.iter() {
             // Find which node owns the output value
@@ -527,32 +525,33 @@ impl Graph {
                 }
             }
         }
-        
+
         adjacency
     }
-    
+
     /// Perform topological sort with cycle detection.
     /// Returns the sorted node order or an error if an invalid cycle is detected.
     fn topological_sort(&mut self) -> Result<Vec<NodeKey>, GraphError> {
         let adjacency = self.build_node_adjacency();
-        
+
         // Find all Delay nodes - we won't follow their outputs during sorting
-        let delay_nodes: HashSet<NodeKey> = self.nodes
+        let delay_nodes: HashSet<NodeKey> = self
+            .nodes
             .iter()
             .filter(|(_, data)| data.processor.allows_feedback())
             .map(|(key, _)| key)
             .collect();
-        
+
         // Build modified adjacency for sorting - Delay nodes don't have outgoing edges
         let mut sort_adjacency = adjacency.clone();
         for &delay_node in &delay_nodes {
             sort_adjacency.insert(delay_node, Vec::new());
         }
-        
+
         let mut sorted = Vec::with_capacity(self.nodes.len());
         let mut visited = HashSet::new();
         let mut recursion_stack = HashSet::new();
-        
+
         // Helper function for DFS
         fn visit(
             node: NodeKey,
@@ -566,48 +565,57 @@ impl Graph {
                 let cycle = vec![node];
                 return Err(GraphError::CycleDetected(cycle));
             }
-            
+
             if visited.contains(&node) {
                 return Ok(());
             }
-            
+
             visited.insert(node);
             recursion_stack.insert(node);
-            
+
             if let Some(neighbors) = adjacency.get(&node) {
                 for &neighbor in neighbors {
                     visit(neighbor, adjacency, visited, recursion_stack, sorted)?;
                 }
             }
-            
+
             recursion_stack.remove(&node);
             sorted.push(node);
-            
+
             Ok(())
         }
-        
+
         // Visit all nodes
         for node in self.nodes.keys() {
             if !visited.contains(&node) {
-                visit(node, &sort_adjacency, &mut visited, &mut recursion_stack, &mut sorted)?;
+                visit(
+                    node,
+                    &sort_adjacency,
+                    &mut visited,
+                    &mut recursion_stack,
+                    &mut sorted,
+                )?;
             }
         }
-        
+
         // Reverse to get correct topological order
         sorted.reverse();
-        
+
         // Now verify that any remaining cycles in the original graph have delays
         self.verify_cycles_have_delays(&adjacency)?;
-        
+
         Ok(sorted)
     }
-    
+
     /// Verify that all cycles in the graph contain at least one Delay node
-    fn verify_cycles_have_delays(&self, adjacency: &HashMap<NodeKey, Vec<NodeKey>>) -> Result<(), GraphError> {
+    fn verify_cycles_have_delays(
+        &self,
+        adjacency: &HashMap<NodeKey, Vec<NodeKey>>,
+    ) -> Result<(), GraphError> {
         let mut visited = HashSet::new();
         let mut recursion_stack = HashSet::new();
         let mut path = Vec::new();
-        
+
         fn find_cycle(
             node: NodeKey,
             adjacency: &HashMap<NodeKey, Vec<NodeKey>>,
@@ -619,7 +627,7 @@ impl Graph {
             visited.insert(node);
             recursion_stack.insert(node);
             path.push(node);
-            
+
             if let Some(neighbors) = adjacency.get(&node) {
                 for &neighbor in neighbors {
                     if !visited.contains(&neighbor) {
@@ -628,35 +636,43 @@ impl Graph {
                         // Found a cycle
                         let cycle_start = path.iter().position(|&n| n == neighbor).unwrap();
                         let cycle_nodes: Vec<NodeKey> = path[cycle_start..].to_vec();
-                        
+
                         // Check if any node in the cycle allows feedback
                         let has_delay = cycle_nodes.iter().any(|&n| {
-                            nodes.get(n)
+                            nodes
+                                .get(n)
                                 .map(|data| data.processor.allows_feedback())
                                 .unwrap_or(false)
                         });
-                        
+
                         if !has_delay {
                             return Err(GraphError::CycleDetected(cycle_nodes));
                         }
                     }
                 }
             }
-            
+
             path.pop();
             recursion_stack.remove(&node);
             Ok(())
         }
-        
+
         for node in self.nodes.keys() {
             if !visited.contains(&node) {
-                find_cycle(node, adjacency, &mut visited, &mut recursion_stack, &mut path, &self.nodes)?;
+                find_cycle(
+                    node,
+                    adjacency,
+                    &mut visited,
+                    &mut recursion_stack,
+                    &mut path,
+                    &self.nodes,
+                )?;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Update the sorted node order if the topology is dirty.
     fn update_topology_if_needed(&mut self) -> Result<(), GraphError> {
         if self.topology_dirty {
@@ -665,7 +681,7 @@ impl Graph {
         }
         Ok(())
     }
-    
+
     /// Validate the graph structure.
     /// This checks for invalid cycles and ensures the graph can be processed.
     /// Returns Ok(()) if the graph is valid, or an error describing the problem.
@@ -743,7 +759,7 @@ impl Graph {
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -790,11 +806,13 @@ impl Graph {
 pub trait SignalProcessor: EndpointDefinition + Send + std::fmt::Debug {
     fn init(&mut self, _sample_rate: f32) {}
     fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32;
-    
+
     /// Returns true if this node can be used to break feedback cycles.
     /// IMPORTANT: Only Delay nodes should return true. Incorrectly returning true
     /// for non-delay nodes will cause incorrect audio processing in feedback paths.
-    fn allows_feedback(&self) -> bool { false }
+    fn allows_feedback(&self) -> bool {
+        false
+    }
 }
 
 // ProcessingNode is automatically implemented by the Node macro.
@@ -912,85 +930,82 @@ impl ProcessingNode for BinaryFunctionNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::oscillators::Oscillator;
-    use crate::filters::tpt::TptFilter;
     use crate::delay::Delay;
-    
+    use crate::filters::tpt::TptFilter;
+    use crate::oscillators::Oscillator;
+
     #[test]
     fn test_simple_chain_topology() {
         let mut graph = Graph::new(44100.0);
-        
+
         // Create a simple chain: osc -> filter
         let osc = graph.add_node(Oscillator::sine(440.0, 1.0));
         let filter = graph.add_node(TptFilter::new(1000.0, 0.7));
-        
+
         graph.connect(osc.output(), filter.input());
-        
+
         // Validate should succeed
         assert!(graph.validate().is_ok());
-        
+
         // Process should work
         assert!(graph.process().is_ok());
     }
-    
+
     #[test]
     fn test_invalid_cycle_without_delay() {
         let mut graph = Graph::new(44100.0);
-        
+
         // Create a cycle without delay: osc -> filter -> osc
         let osc = graph.add_node(Oscillator::sine(440.0, 1.0));
         let filter = graph.add_node(TptFilter::new(1000.0, 0.7));
-        
+
         graph.connect(osc.output(), filter.input());
         graph.connect(filter.output(), osc.frequency());
-        
+
         // Validation should fail - cycle without delay
         assert!(graph.validate().is_err());
         if let Err(GraphError::CycleDetected(nodes)) = graph.validate() {
             assert!(nodes.len() > 0);
         }
     }
-    
+
     #[test]
     fn test_valid_cycle_with_delay() {
         let mut graph = Graph::new(44100.0);
-        
-        // Create a cycle with delay: osc -> delay -> filter -> osc
+
+        // Create a cycle with delay: osc -> filter -> delay -> osc
         let osc = graph.add_node(Oscillator::sine(440.0, 1.0));
-        let delay = graph.add_node(Delay::new(0.5, 0.3));
         let filter = graph.add_node(TptFilter::new(1000.0, 0.7));
-        
-        graph.connect(osc.output(), delay.input());
-        graph.connect(delay.output(), filter.input());
-        graph.connect(filter.output(), osc.frequency());
-        
-        // Validation should succeed - cycle has delay
+        let delay = graph.add_node(Delay::new(0.5, 0.3));
+
+        graph.connect(osc.output(), filter.input());
+        graph.connect(filter.output(), delay.input());
+        graph.connect(delay.output(), osc.frequency());
+
         assert!(graph.validate().is_ok());
-        
-        // Process should work
+
         assert!(graph.process().is_ok());
     }
-    
+
     #[test]
     fn test_nodes_added_out_of_order() {
         let mut graph = Graph::new(44100.0);
-        
+
         // Add nodes in reverse dependency order
         let filter = graph.add_node(TptFilter::new(1000.0, 0.7));
         let osc = graph.add_node(Oscillator::sine(440.0, 1.0));
-        
-        // Connect them properly
+
         graph.connect(osc.output(), filter.input());
-        
+
         // Should still work thanks to topological sorting
         assert!(graph.validate().is_ok());
         assert!(graph.process().is_ok());
     }
-    
+
     #[test]
     fn test_complex_graph_with_multiple_paths() {
         let mut graph = Graph::new(44100.0);
-        
+
         // Create a more complex graph:
         //     osc1 -> filter1 -> output
         //     osc2 -> filter2 -> output
@@ -998,10 +1013,10 @@ mod tests {
         let osc2 = graph.add_node(Oscillator::sine(880.0, 1.0));
         let filter1 = graph.add_node(TptFilter::new(1000.0, 0.7));
         let filter2 = graph.add_node(TptFilter::new(2000.0, 0.5));
-        
+
         graph.connect(osc1.output(), filter1.input());
         graph.connect(osc2.output(), filter2.input());
-        
+
         // Both paths should be processed correctly
         assert!(graph.validate().is_ok());
         assert!(graph.process().is_ok());
