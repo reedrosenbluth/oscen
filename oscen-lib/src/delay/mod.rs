@@ -17,7 +17,7 @@ pub struct Delay {
     #[output]
     output: f32,
 
-    buffer: RingBuffer<88200>,
+    buffer: RingBuffer,
     sample_rate: f32,
     frames_per_update: usize,
     frame_counter: usize,

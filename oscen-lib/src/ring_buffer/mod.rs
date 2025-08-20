@@ -1,5 +1,3 @@
-use arrayvec::ArrayVec;
-
 /// Represents the mode of operation for a buffer's size management
 /// - PowerOfTwo: Buffer size is rounded up to the next power of 2
 /// - Exact: Buffer size is kept exactly as specified
@@ -11,11 +9,11 @@ pub enum BufferMode {
 }
 
 /// A ring buffer implementation with linear and cubic interpolation for reading values.
-/// The maximum capacity is determined by parameter N.
+/// Uses heap allocation to avoid stack overflow issues with large buffers.
 #[derive(Clone, Debug)]
-pub struct RingBuffer<const N: usize> {
-    /// The internal buffer storing samples
-    buffer: ArrayVec<f32, N>,
+pub struct RingBuffer {
+    /// The internal buffer storing samples (heap-allocated)
+    buffer: Vec<f32>,
     /// Current write position in the buffer
     write_pos: usize,
     /// Actual capacity/size of the buffer being used.
@@ -26,36 +24,25 @@ pub struct RingBuffer<const N: usize> {
     mode: BufferMode,
 }
 
-impl<const N: usize> RingBuffer<N> {
+impl RingBuffer {
     /// Creates a new RingBuffer with the specified size and default PowerOfTwo mode.
-    /// The requested `size` is clamped by the compile-time maximum `N`.
     pub fn new(size: usize) -> Self {
         Self::with_mode(size, BufferMode::default())
     }
 
     /// Creates a new RingBuffer with the specified size and mode.
-    /// The buffer capacity will be the exact specified size or the next power of two,
-    /// clamped to the compile-time maximum `N`.
+    /// The buffer capacity will be the exact specified size or the next power of two.
     pub fn with_mode(size: usize, mode: BufferMode) -> Self {
-        // Clamp requested size by the compile-time maximum N
-        let clamped_size = size.min(N);
         let capacity = match mode {
             BufferMode::PowerOfTwo => {
-                // Ensure capacity is at least 1, then find next power of two, clamped by N
-                clamped_size
-                    .max(1) // Ensure logical capacity is at least 1
-                    .next_power_of_two()
-                    .min(N) // Final capacity cannot exceed N
+                // Ensure capacity is at least 1, then find next power of two
+                size.max(1).next_power_of_two()
             }
-            BufferMode::Exact => clamped_size.max(1), // Ensure logical capacity is at least 1
+            BufferMode::Exact => size.max(1), // Ensure logical capacity is at least 1
         };
 
-        // Initialize the buffer with zeros up to the capacity
-        // ArrayVec<_, N> ensures we have enough space pre-allocated.
-        let mut buffer = ArrayVec::new();
-        for _ in 0..capacity {
-            buffer.push(0.0);
-        }
+        // Initialize the buffer with zeros up to the capacity (heap allocation)
+        let buffer = vec![0.0; capacity];
 
         Self {
             buffer,
@@ -214,17 +201,14 @@ impl<const N: usize> RingBuffer<N> {
     }
 
     /// Sets the size (logical capacity) of the buffer, preserving existing data where possible.
-    /// Clamps the new size to the compile-time maximum `N`.
+    /// Note: This method allocates memory and should NOT be called during audio processing.
     pub fn set_size(&mut self, new_size: usize) {
         let old_capacity = self.capacity;
-        // Clamp requested size by the maximum N
-        let clamped_size = new_size.min(N);
         let new_capacity = match self.mode {
-            BufferMode::PowerOfTwo => clamped_size
+            BufferMode::PowerOfTwo => new_size
                 .max(1) // Ensure logical capacity is at least 1
-                .next_power_of_two()
-                .min(N), // Final capacity cannot exceed N
-            BufferMode::Exact => clamped_size.max(1), // Ensure logical capacity is at least 1
+                .next_power_of_two(),
+            BufferMode::Exact => new_size.max(1), // Ensure logical capacity is at least 1
         };
 
         if new_capacity == old_capacity {
@@ -264,10 +248,7 @@ impl<const N: usize> RingBuffer<N> {
         }
 
         // Resize the internal buffer, filling with zeros
-        self.buffer.clear();
-        for _ in 0..new_capacity {
-            self.buffer.push(0.0);
-        }
+        self.buffer.resize(new_capacity, 0.0);
 
         // Copy preserved data into the *end* of the new buffer
         if count_to_preserve > 0 {
@@ -290,11 +271,6 @@ impl<const N: usize> RingBuffer<N> {
     /// Returns the current logical capacity of the buffer.
     pub fn capacity(&self) -> usize {
         self.capacity
-    }
-
-    /// Returns the maximum possible capacity (N) of the buffer.
-    pub fn max_capacity(&self) -> usize {
-        N
     }
 }
 

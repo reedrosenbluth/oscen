@@ -5,62 +5,62 @@ const TEST_MAX_SIZE: usize = 16;
 
 #[test]
 fn test_initialization_power_of_two() {
-    let buf = RingBuffer::<TEST_MAX_SIZE>::with_mode(5, BufferMode::PowerOfTwo);
+    let buf = RingBuffer::with_mode(5, BufferMode::PowerOfTwo);
     assert_eq!(buf.capacity(), 8); // Next power of 2 >= 5
     assert_eq!(buf.mask, 7);
     assert_eq!(buf.mode, BufferMode::PowerOfTwo);
     assert_eq!(buf.buffer.len(), 8); // Logical length
-    assert_eq!(buf.buffer.capacity(), TEST_MAX_SIZE); // Max capacity
+    // Vec capacity may be larger than requested
     assert!(buf.buffer.iter().all(|&x| x == 0.0));
 
-    let buf = RingBuffer::<TEST_MAX_SIZE>::with_mode(8, BufferMode::PowerOfTwo);
+    let buf = RingBuffer::with_mode(8, BufferMode::PowerOfTwo);
     assert_eq!(buf.capacity(), 8);
     assert_eq!(buf.mask, 7);
     assert_eq!(buf.buffer.len(), 8);
 
-    let buf = RingBuffer::<TEST_MAX_SIZE>::with_mode(9, BufferMode::PowerOfTwo);
+    let buf = RingBuffer::with_mode(9, BufferMode::PowerOfTwo);
     assert_eq!(buf.capacity(), 16); // Next power of 2 is 16, <= TEST_MAX_SIZE
     assert_eq!(buf.mask, 15);
     assert_eq!(buf.buffer.len(), 16);
 
-    // Test clamping to N (TEST_MAX_SIZE)
-    let buf = RingBuffer::<TEST_MAX_SIZE>::with_mode(TEST_MAX_SIZE + 5, BufferMode::PowerOfTwo);
-    // Requested 21, clamped to 16. Next power of 2 is 16.
-    assert_eq!(buf.capacity(), TEST_MAX_SIZE); // Capacity clamped by N
-    assert_eq!(buf.mask, TEST_MAX_SIZE - 1);
-    assert_eq!(buf.buffer.len(), TEST_MAX_SIZE);
+    // Test larger sizes - no clamping anymore
+    let buf = RingBuffer::with_mode(TEST_MAX_SIZE + 5, BufferMode::PowerOfTwo);
+    // Requested 21, next power of 2 is 32
+    assert_eq!(buf.capacity(), 32);
+    assert_eq!(buf.mask, 31);
+    assert_eq!(buf.buffer.len(), 32);
 
-    let buf = RingBuffer::<TEST_MAX_SIZE>::with_mode(0, BufferMode::PowerOfTwo);
+    let buf = RingBuffer::with_mode(0, BufferMode::PowerOfTwo);
     assert_eq!(buf.capacity(), 1); // Minimum logical capacity is 1
     assert_eq!(buf.buffer.len(), 1);
 }
 
 #[test]
 fn test_initialization_exact() {
-    let buf = RingBuffer::<TEST_MAX_SIZE>::with_mode(5, BufferMode::Exact);
+    let buf = RingBuffer::with_mode(5, BufferMode::Exact);
     assert_eq!(buf.capacity(), 5);
     assert_eq!(buf.mode, BufferMode::Exact);
     assert_eq!(buf.buffer.len(), 5);
-    assert_eq!(buf.buffer.capacity(), TEST_MAX_SIZE);
+    // Vec capacity may be larger than requested
     assert!(buf.buffer.iter().all(|&x| x == 0.0));
 
-    let buf = RingBuffer::<TEST_MAX_SIZE>::with_mode(8, BufferMode::Exact);
+    let buf = RingBuffer::with_mode(8, BufferMode::Exact);
     assert_eq!(buf.capacity(), 8);
     assert_eq!(buf.buffer.len(), 8);
 
-    // Test clamping to N
-    let buf = RingBuffer::<TEST_MAX_SIZE>::with_mode(TEST_MAX_SIZE + 5, BufferMode::Exact);
-    assert_eq!(buf.capacity(), TEST_MAX_SIZE); // Clamped to N
-    assert_eq!(buf.buffer.len(), TEST_MAX_SIZE);
+    // Test larger sizes - no clamping anymore
+    let buf = RingBuffer::with_mode(TEST_MAX_SIZE + 5, BufferMode::Exact);
+    assert_eq!(buf.capacity(), TEST_MAX_SIZE + 5); // No clamping
+    assert_eq!(buf.buffer.len(), TEST_MAX_SIZE + 5);
 
-    let buf = RingBuffer::<TEST_MAX_SIZE>::with_mode(0, BufferMode::Exact);
+    let buf = RingBuffer::with_mode(0, BufferMode::Exact);
     assert_eq!(buf.capacity(), 1); // Minimum logical capacity is 1
     assert_eq!(buf.buffer.len(), 1);
 }
 
 #[test]
 fn test_push_and_wrap_power_of_two() {
-    let mut buf = RingBuffer::<4>::with_mode(4, BufferMode::PowerOfTwo); // N=4, size=4 -> capacity=4
+    let mut buf = RingBuffer::with_mode(4, BufferMode::PowerOfTwo); // N=4, size=4 -> capacity=4
     assert_eq!(buf.capacity(), 4);
 
     buf.push(1.0);
@@ -86,7 +86,7 @@ fn test_push_and_wrap_power_of_two() {
 
 #[test]
 fn test_push_and_wrap_exact() {
-    let mut buf = RingBuffer::<3>::with_mode(3, BufferMode::Exact); // N=3, size=3 -> capacity=3
+    let mut buf = RingBuffer::with_mode(3, BufferMode::Exact); // N=3, size=3 -> capacity=3
     assert_eq!(buf.capacity(), 3);
 
     buf.push(1.0);
@@ -111,7 +111,7 @@ fn test_push_and_wrap_exact() {
 
 #[test]
 fn test_get_exact_offset() {
-    let mut buf = RingBuffer::<5>::with_mode(5, BufferMode::Exact); // N=5, capacity=5
+    let mut buf = RingBuffer::with_mode(5, BufferMode::Exact); // N=5, capacity=5
     buf.push(1.0); // idx 0
     buf.push(2.0); // idx 1
     buf.push(3.0); // idx 2
@@ -144,7 +144,7 @@ fn test_get_exact_offset() {
 
 #[test]
 fn test_get_linear_interpolation() {
-    let mut buf = RingBuffer::<4>::with_mode(4, BufferMode::PowerOfTwo); // N=4, size=4 -> capacity=4
+    let mut buf = RingBuffer::with_mode(4, BufferMode::PowerOfTwo); // N=4, size=4 -> capacity=4
     buf.push(1.0); // idx 0
     buf.push(3.0); // idx 1
     buf.push(5.0); // idx 2
@@ -171,7 +171,7 @@ fn test_get_linear_interpolation() {
 
 #[test]
 fn test_get_cubic_interpolation() {
-    let mut buf = RingBuffer::<5>::with_mode(5, BufferMode::Exact); // N=5, capacity=5
+    let mut buf = RingBuffer::with_mode(5, BufferMode::Exact); // N=5, capacity=5
                                                                     // Fill with distinct values
     buf.push(1.0); // 0
     buf.push(2.0); // 1
@@ -193,7 +193,7 @@ fn test_get_cubic_interpolation() {
     assert_approx_eq!(f32, cubic_val, 13.1875, epsilon = 1e-6);
 
     // Test fallback to linear for small buffers
-    let mut small_buf = RingBuffer::<3>::with_mode(3, BufferMode::Exact); // N=3, capacity=3
+    let mut small_buf = RingBuffer::with_mode(3, BufferMode::Exact); // N=3, capacity=3
     small_buf.push(1.0);
     small_buf.push(5.0);
     small_buf.push(9.0); // write_pos=0, buffer=[1,5,9] -> get(0)=9, get(1)=5, get(2)=1
@@ -215,7 +215,7 @@ fn test_get_cubic_interpolation() {
 
 #[test]
 fn test_set_size_growing() {
-    let mut buf = RingBuffer::<10>::with_mode(4, BufferMode::Exact); // N=10, cap=4
+    let mut buf = RingBuffer::with_mode(4, BufferMode::Exact); // cap=4
     buf.push(1.0); // [1]
     buf.push(2.0); // [1, 2]
     buf.push(3.0); // [1, 2, 3]
@@ -241,7 +241,7 @@ fn test_set_size_growing() {
 
 #[test]
 fn test_set_size_shrinking() {
-    let mut buf = RingBuffer::<10>::with_mode(8, BufferMode::Exact); // N=10, cap=8
+    let mut buf = RingBuffer::with_mode(8, BufferMode::Exact); // cap=8
     for i in 1..=8 {
         buf.push(i as f32);
     }
@@ -263,7 +263,7 @@ fn test_set_size_shrinking() {
 
 #[test]
 fn test_set_size_same_size() {
-    let mut buf = RingBuffer::<10>::with_mode(5, BufferMode::Exact); // N=10, cap=5
+    let mut buf = RingBuffer::with_mode(5, BufferMode::Exact); // cap=5
     for i in 1..=5 {
         buf.push(i as f32);
     } // [1..=5], write_pos=0. Newest: 5,4,3,2,1
@@ -282,7 +282,7 @@ fn test_set_size_same_size() {
 
 #[test]
 fn test_set_size_minimum() {
-    let mut buf = RingBuffer::<10>::with_mode(3, BufferMode::Exact); // N=10, cap=3
+    let mut buf = RingBuffer::with_mode(3, BufferMode::Exact); // cap=3
     buf.push(10.0);
     buf.push(20.0);
     buf.push(30.0); // [10, 20, 30], write_pos=0. Newest: 30, 20, 10
@@ -298,7 +298,7 @@ fn test_set_size_minimum() {
     assert_approx_eq!(f32, buf.get(1.0), 30.0);
 
     // --- Test Resizing from 1 ---
-    let mut buf = RingBuffer::<10>::with_mode(1, BufferMode::Exact); // N=10, cap=1
+    let mut buf = RingBuffer::with_mode(1, BufferMode::Exact); // cap=1
     buf.push(99.0);
 
     buf.set_size(4); // Grow from 1 to 4
@@ -317,23 +317,23 @@ fn test_set_size_minimum() {
 
 #[test]
 fn test_set_size_clamping() {
-    let mut buf = RingBuffer::<10>::with_mode(8, BufferMode::Exact); // N=10, cap=8
+    let mut buf = RingBuffer::with_mode(8, BufferMode::Exact); // cap=8
     for i in 1..=8 {
         buf.push(i as f32);
     } // [1..=8], write_pos=0
 
-    buf.set_size(15); // Request 15, N=10 -> new_cap=10
-    assert_eq!(buf.capacity(), 10);
+    buf.set_size(15); // Request 15 - no clamping anymore
+    assert_eq!(buf.capacity(), 15);
     assert_eq!(buf.write_pos, 0);
-    // Preserve min(8, 10) = 8 samples
-    // Expected: [0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+    // Preserve min(8, 15) = 8 samples
+    // Expected: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
     assert_approx_eq!(f32, buf.buffer[0], 0.0);
-    assert_approx_eq!(f32, buf.buffer[1], 0.0);
-    assert_approx_eq!(f32, buf.buffer[2], 1.0);
-    assert_approx_eq!(f32, buf.buffer[9], 8.0);
+    assert_approx_eq!(f32, buf.buffer[6], 0.0);
+    assert_approx_eq!(f32, buf.buffer[7], 1.0);
+    assert_approx_eq!(f32, buf.buffer[14], 8.0);
 
-    // --- Test Clamping to N (Shrinking) ---
-    let mut buf = RingBuffer::<10>::with_mode(12, BufferMode::Exact); // N=10, cap=10
+    // --- Test Shrinking ---
+    let mut buf = RingBuffer::with_mode(10, BufferMode::Exact); // cap=10
     for i in 1..=10 {
         buf.push(i as f32);
     } // [1..=10], write_pos=0
@@ -349,7 +349,7 @@ fn test_set_size_clamping() {
 
 #[test]
 fn test_set_size_power_of_two() {
-    let mut buf = RingBuffer::<16>::with_mode(4, BufferMode::PowerOfTwo); // N=16, cap=4
+    let mut buf = RingBuffer::with_mode(4, BufferMode::PowerOfTwo); // N=16, cap=4
     for i in 1..=5 {
         buf.push(i as f32);
     } // Pushed 5 values: newest are 5,4,3,2. write_pos=1.
@@ -370,9 +370,8 @@ fn test_set_size_power_of_two() {
 fn test_minimum_capacity() {
     // Renamed from test_empty_buffer
     // Test with minimum N and size 0 -> capacity 1
-    let mut buf = RingBuffer::<1>::with_mode(0, BufferMode::Exact);
+    let mut buf = RingBuffer::with_mode(0, BufferMode::Exact);
     assert_eq!(buf.capacity(), 1);
-    assert_eq!(buf.max_capacity(), 1);
     buf.push(5.0); // write_pos becomes 0
     assert_eq!(buf.buffer[0], 5.0);
     assert_approx_eq!(f32, buf.get(0.0), 5.0, epsilon = 1e-6); // Read the only sample
@@ -381,27 +380,21 @@ fn test_minimum_capacity() {
     assert_approx_eq!(f32, buf.get(10.0), 5.0, epsilon = 1e-6); // Offset wraps around
 
     // Test PowerOfTwo mode with size 0
-    let buf_pow2 = RingBuffer::<8>::with_mode(0, BufferMode::PowerOfTwo); // N=8, size=0 -> capacity=1
+    let buf_pow2 = RingBuffer::with_mode(0, BufferMode::PowerOfTwo); // N=8, size=0 -> capacity=1
     assert_eq!(buf_pow2.capacity(), 1);
-    assert_eq!(buf_pow2.max_capacity(), 8);
 }
 
 #[test]
-fn test_clamping_at_instantiation() {
-    // Request size larger than N
-    let buf = RingBuffer::<32>::with_mode(100, BufferMode::Exact);
-    assert_eq!(buf.capacity(), 32); // Clamped to N=32
-    assert_eq!(buf.max_capacity(), 32);
+fn test_large_sizes() {
+    // Test large sizes work without clamping
+    let buf = RingBuffer::with_mode(100, BufferMode::Exact);
+    assert_eq!(buf.capacity(), 100); // No clamping
 
-    // Request size larger than N, power of two mode
-    // requested 40, N=32. Clamped size = 32. next_power_of_two(32)=32. min(32, 32)=32
-    let buf_pow2 = RingBuffer::<32>::with_mode(40, BufferMode::PowerOfTwo);
-    assert_eq!(buf_pow2.capacity(), 32);
-    assert_eq!(buf_pow2.max_capacity(), 32);
+    // Power of two mode
+    let buf_pow2 = RingBuffer::with_mode(40, BufferMode::PowerOfTwo);
+    assert_eq!(buf_pow2.capacity(), 64); // Next power of 2
 
-    // Request size smaller than N, power of two rounds up but still below N
-    // requested 10, N=32. Clamped size = 10. next_power_of_two(10)=16. min(16, 32)=16
-    let buf_pow2_small = RingBuffer::<32>::with_mode(10, BufferMode::PowerOfTwo);
-    assert_eq!(buf_pow2_small.capacity(), 16);
-    assert_eq!(buf_pow2_small.max_capacity(), 32);
+    // Test smaller power of two
+    let buf_pow2_small = RingBuffer::with_mode(10, BufferMode::PowerOfTwo);
+    assert_eq!(buf_pow2_small.capacity(), 16); // Next power of 2
 }

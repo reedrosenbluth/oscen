@@ -534,7 +534,7 @@ impl Graph {
     /// Perform topological sort with cycle detection.
     /// Returns the sorted node order or an error if an invalid cycle is detected.
     fn topological_sort(&mut self) -> Result<Vec<NodeKey>, GraphError> {
-        let mut adjacency = self.build_node_adjacency();
+        let adjacency = self.build_node_adjacency();
         
         // Find all Delay nodes - we won't follow their outputs during sorting
         let delay_nodes: HashSet<NodeKey> = self.nodes
@@ -563,7 +563,7 @@ impl Graph {
         ) -> Result<(), GraphError> {
             if recursion_stack.contains(&node) {
                 // Found a cycle - this should only happen if there's a cycle without delays
-                let mut cycle = vec![node];
+                let cycle = vec![node];
                 return Err(GraphError::CycleDetected(cycle));
             }
             
@@ -952,7 +952,6 @@ mod tests {
     }
     
     #[test]
-    #[ignore] // TODO: Fix stack overflow issue with Delay's large RingBuffer
     fn test_valid_cycle_with_delay() {
         let mut graph = Graph::new(44100.0);
         
