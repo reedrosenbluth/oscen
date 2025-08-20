@@ -68,14 +68,21 @@ impl Default for SimpleEchoParams {
             .with_unit(" Hz")
             .with_value_to_string(formatters::v2s_f32_rounded(0)),
 
-            mix: FloatParam::new("Mix", 0.5, FloatRange::Linear { min: 0.01, max: 1.0 })
-                .with_smoother(SmoothingStyle::Linear(50.0))
-                .with_value_to_string(formatters::v2s_f32_rounded(2)),
+            mix: FloatParam::new(
+                "Mix",
+                0.5,
+                FloatRange::Linear {
+                    min: 0.0,
+                    max: 1.0,
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
         }
     }
 }
 
-pub struct AudioContext {
+pub struct ChannelContext {
     graph: Graph,
     delay_time_input: ValueKey,
     filter_cutoff_input: ValueKey,
@@ -85,88 +92,120 @@ pub struct AudioContext {
     input_endpoint: ValueKey,
 }
 
+pub struct AudioContext {
+    left: ChannelContext,
+    right: ChannelContext,
+}
+
+fn build_channel_graph(
+    sample_rate: f32,
+    params: &SimpleEchoParams,
+) -> Result<ChannelContext, &'static str> {
+    let mut graph = Graph::new(sample_rate);
+
+    let (input_signal, input_endpoint) = graph.add_audio_input();
+
+    // Add nodes to graph
+    let delay = graph.add_node(Delay::new(params.delay_time.value(), 0.0));
+    let filter = graph.add_node(TptFilter::new(params.filter_cutoff.value(), 0.7));
+    let feedback_node = graph.add_node(Value::new(params.feedback.value()));
+    let mix_node = graph.add_node(Value::new(params.mix.value()));
+
+    // Connect delay output to filter
+    graph.connect(delay.output(), filter.input());
+
+    // Create feedback loop with controllable amount
+    let feedback_scaled = graph.combine(
+        filter.output(),
+        feedback_node.output(),
+        |filtered, feedback| filtered * feedback, // Scale by feedback amount
+    );
+
+    // Mix input with feedback and send to delay (with limiter to prevent runaway)
+    let delay_input = graph.combine(input_signal.output(), feedback_scaled, |input, feedback| {
+        (input + feedback).tanh()
+    });
+
+    graph.connect(delay_input, delay.input());
+
+    // Mix dry and wet signals with controllable mix
+    let wet_signal = filter.output();
+    let dry_signal = input_signal.output();
+
+    // Create dry component (input * (1 - mix))
+    let dry_mixed = graph.combine(dry_signal, mix_node.output(), |dry, mix| dry * (1.0 - mix));
+
+    // Create wet component (wet * mix)
+    let wet_mixed = graph.combine(wet_signal, mix_node.output(), |wet, mix| wet * mix);
+
+    // Combine dry and wet
+    let output = graph.combine(dry_mixed, wet_mixed, |dry, wet| dry + wet);
+
+    // Set up parameter controls
+    let delay_time_input = graph
+        .insert_value_input(delay.delay_time(), params.delay_time.value())
+        .ok_or("Failed to insert delay time input")?;
+
+    let filter_cutoff_input = graph
+        .insert_value_input(filter.cutoff(), params.filter_cutoff.value())
+        .ok_or("Failed to insert filter cutoff input")?;
+
+    let feedback_input = graph
+        .insert_value_input(feedback_node.input(), params.feedback.value())
+        .ok_or("Failed to insert feedback input")?;
+
+    let mix_input = graph
+        .insert_value_input(mix_node.input(), params.mix.value())
+        .ok_or("Failed to insert mix input")?;
+
+    Ok(ChannelContext {
+        graph,
+        delay_time_input,
+        filter_cutoff_input,
+        feedback_input,
+        mix_input,
+        output,
+        input_endpoint,
+    })
+}
+
 impl AudioContext {
     fn new(sample_rate: f32, params: &SimpleEchoParams) -> Result<Self, &'static str> {
-        let mut graph = Graph::new(sample_rate);
+        let left = build_channel_graph(sample_rate, params)?;
+        let right = build_channel_graph(sample_rate, params)?;
 
-        let (input_signal, input_endpoint) = graph.add_audio_input();
-
-        // Add nodes to graph
-        let delay = graph.add_node(Delay::new(params.delay_time.value(), 0.0));
-        let filter = graph.add_node(TptFilter::new(params.filter_cutoff.value(), 0.7));
-        let feedback_node = graph.add_node(Value::new(params.feedback.value()));
-        let mix_node = graph.add_node(Value::new(params.mix.value()));
-
-        // Connect delay output to filter
-        graph.connect(delay.output(), filter.input());
-
-        // Create feedback loop with controllable amount
-        let feedback_scaled = graph.combine(
-            filter.output(),
-            feedback_node.output(),
-            |filtered, feedback| filtered * feedback, // Scale by feedback amount
-        );
-
-        // Mix input with feedback and send to delay (with limiter to prevent runaway)
-        let delay_input =
-            graph.combine(input_signal.output(), feedback_scaled, |input, feedback| {
-                (input + feedback).tanh()
-            });
-
-        graph.connect(delay_input, delay.input());
-
-        // Mix dry and wet signals with controllable mix
-        let wet_signal = filter.output();
-        let dry_signal = input_signal.output();
-
-        // Create dry component (input * (1 - mix))
-        let dry_mixed = graph.combine(dry_signal, mix_node.output(), |dry, mix| dry * (1.0 - mix));
-
-        // Create wet component (wet * mix)
-        let wet_mixed = graph.combine(wet_signal, mix_node.output(), |wet, mix| wet * mix);
-
-        // Combine dry and wet
-        let output = graph.combine(dry_mixed, wet_mixed, |dry, wet| dry + wet);
-
-        // Set up parameter controls
-        let delay_time_input = graph
-            .insert_value_input(delay.delay_time(), params.delay_time.value())
-            .ok_or("Failed to insert delay time input")?;
-
-        let filter_cutoff_input = graph
-            .insert_value_input(filter.cutoff(), params.filter_cutoff.value())
-            .ok_or("Failed to insert filter cutoff input")?;
-
-        let feedback_input = graph
-            .insert_value_input(feedback_node.input(), params.feedback.value())
-            .ok_or("Failed to insert feedback input")?;
-
-        let mix_input = graph
-            .insert_value_input(mix_node.input(), params.mix.value())
-            .ok_or("Failed to insert mix input")?;
-
-        Ok(Self {
-            graph,
-            delay_time_input,
-            filter_cutoff_input,
-            feedback_input,
-            mix_input,
-            output,
-            input_endpoint,
-        })
+        Ok(Self { left, right })
     }
 
     fn update_params(&mut self, params: &SimpleEchoParams) {
-        self.graph
-            .set_value(self.delay_time_input, params.delay_time.smoothed.next());
-        self.graph.set_value(
-            self.filter_cutoff_input,
-            params.filter_cutoff.smoothed.next(),
-        );
-        self.graph
-            .set_value(self.feedback_input, params.feedback.smoothed.next());
-        self.graph
-            .set_value(self.mix_input, params.mix.smoothed.next());
+        let delay_time = params.delay_time.smoothed.next();
+        let filter_cutoff = params.filter_cutoff.smoothed.next();
+        let feedback = params.feedback.smoothed.next();
+        let mix = params.mix.smoothed.next();
+
+        // Update left channel
+        self.left
+            .graph
+            .set_value(self.left.delay_time_input, delay_time);
+        self.left
+            .graph
+            .set_value(self.left.filter_cutoff_input, filter_cutoff);
+        self.left
+            .graph
+            .set_value(self.left.feedback_input, feedback);
+        self.left.graph.set_value(self.left.mix_input, mix);
+
+        // Update right channel
+        self.right
+            .graph
+            .set_value(self.right.delay_time_input, delay_time);
+        self.right
+            .graph
+            .set_value(self.right.filter_cutoff_input, filter_cutoff);
+        self.right
+            .graph
+            .set_value(self.right.feedback_input, feedback);
+        self.right.graph.set_value(self.right.mix_input, mix);
     }
 }
 
@@ -186,13 +225,22 @@ impl Plugin for SimpleEcho {
     const EMAIL: &'static str = "your.email@example.com";
     const VERSION: &'static str = "0.1.0";
 
-    const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout {
-        main_input_channels: NonZeroU32::new(1),  // Mono input
-        main_output_channels: NonZeroU32::new(1), // Mono output
-        aux_input_ports: &[],
-        aux_output_ports: &[],
-        names: PortNames::const_default(),
-    }];
+    const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[
+        AudioIOLayout {
+            main_input_channels: NonZeroU32::new(2),  // Stereo input
+            main_output_channels: NonZeroU32::new(2), // Stereo output
+            aux_input_ports: &[],
+            aux_output_ports: &[],
+            names: PortNames::const_default(),
+        },
+        AudioIOLayout {
+            main_input_channels: NonZeroU32::new(1),  // Mono input
+            main_output_channels: NonZeroU32::new(1), // Mono output
+            aux_input_ports: &[],
+            aux_output_ports: &[],
+            names: PortNames::const_default(),
+        },
+    ];
 
     const MIDI_INPUT: MidiConfig = MidiConfig::None;
     const MIDI_OUTPUT: MidiConfig = MidiConfig::None;
@@ -282,26 +330,55 @@ impl Plugin for SimpleEcho {
                 // Update parameters
                 audio_context.update_params(&self.params);
 
-                // Get input sample from first channel
-                let input_sample = channel_samples.iter_mut().next().map(|s| *s).unwrap_or(0.0);
+                // Get input samples
+                let inputs: Vec<f32> = channel_samples.iter_mut().map(|s| *s).collect();
 
-                // Feed input to the graph
-                audio_context
-                    .graph
-                    .set_value(audio_context.input_endpoint, input_sample);
+                // Process based on channel count
+                if inputs.len() >= 2 {
+                    // Stereo processing
+                    audio_context
+                        .left
+                        .graph
+                        .set_value(audio_context.left.input_endpoint, inputs[0]);
+                    audio_context
+                        .right
+                        .graph
+                        .set_value(audio_context.right.input_endpoint, inputs[1]);
 
-                // Process the graph
-                let _ = audio_context.graph.process();
+                    let _ = audio_context.left.graph.process();
+                    let _ = audio_context.right.graph.process();
 
-                // Get the mixed output from the graph
-                let output_value = audio_context
-                    .graph
-                    .get_value(&audio_context.output)
-                    .unwrap_or(0.0);
+                    let output_left = audio_context
+                        .left
+                        .graph
+                        .get_value(&audio_context.left.output)
+                        .unwrap_or(0.0);
+                    let output_right = audio_context
+                        .right
+                        .graph
+                        .get_value(&audio_context.right.output)
+                        .unwrap_or(0.0);
 
-                // Write output to all channels
-                for sample in channel_samples {
-                    *sample = output_value;
+                    for (i, sample) in channel_samples.into_iter().enumerate() {
+                        *sample = if i == 0 { output_left } else { output_right };
+                    }
+                } else {
+                    // Mono processing - just use left channel
+                    audio_context
+                        .left
+                        .graph
+                        .set_value(audio_context.left.input_endpoint, inputs[0]);
+                    let _ = audio_context.left.graph.process();
+
+                    let output_mono = audio_context
+                        .left
+                        .graph
+                        .get_value(&audio_context.left.output)
+                        .unwrap_or(0.0);
+
+                    for sample in channel_samples {
+                        *sample = output_mono;
+                    }
                 }
             }
         }
