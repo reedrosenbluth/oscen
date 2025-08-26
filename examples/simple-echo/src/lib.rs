@@ -68,16 +68,9 @@ impl Default for SimpleEchoParams {
             .with_unit(" Hz")
             .with_value_to_string(formatters::v2s_f32_rounded(0)),
 
-            mix: FloatParam::new(
-                "Mix",
-                0.5,
-                FloatRange::Linear {
-                    min: 0.0,
-                    max: 1.0,
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+            mix: FloatParam::new("Mix", 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_smoother(SmoothingStyle::Linear(50.0))
+                .with_value_to_string(formatters::v2s_f32_rounded(2)),
         }
     }
 }
