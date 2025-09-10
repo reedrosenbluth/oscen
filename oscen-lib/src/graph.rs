@@ -137,11 +137,18 @@ pub struct EndpointMetadata {
 }
 
 pub trait EndpointDefinition {
-    fn input_endpoints(&self) -> Vec<EndpointMetadata>;
-    fn output_endpoints(&self) -> Vec<EndpointMetadata>;
+    fn input_endpoints(&self) -> &'static [EndpointMetadata];
+    fn output_endpoints(&self) -> &'static [EndpointMetadata];
 
     fn input_index(&self, name: &str) -> Option<usize> {
         self.input_endpoints()
+            .iter()
+            .find(|endpoint| endpoint.name == name)
+            .map(|endpoint| endpoint.index)
+    }
+
+    fn output_index(&self, name: &str) -> Option<usize> {
+        self.output_endpoints()
             .iter()
             .find(|endpoint| endpoint.name == name)
             .map(|endpoint| endpoint.index)
@@ -880,18 +887,14 @@ impl FunctionNode {
 }
 
 impl EndpointDefinition for FunctionNode {
-    fn input_endpoints(&self) -> Vec<EndpointMetadata> {
-        vec![EndpointMetadata {
-            name: "input",
-            index: 0,
-        }]
+    fn input_endpoints(&self) -> &'static [EndpointMetadata] {
+        const INPUTS: &[EndpointMetadata] = &[EndpointMetadata { name: "input", index: 0 }];
+        INPUTS
     }
 
-    fn output_endpoints(&self) -> Vec<EndpointMetadata> {
-        vec![EndpointMetadata {
-            name: "output",
-            index: 0,
-        }]
+    fn output_endpoints(&self) -> &'static [EndpointMetadata] {
+        const OUTPUTS: &[EndpointMetadata] = &[EndpointMetadata { name: "output", index: 0 }];
+        OUTPUTS
     }
 }
 
@@ -925,24 +928,17 @@ impl BinaryFunctionNode {
 }
 
 impl EndpointDefinition for BinaryFunctionNode {
-    fn input_endpoints(&self) -> Vec<EndpointMetadata> {
-        vec![
-            EndpointMetadata {
-                name: "input1",
-                index: 0,
-            },
-            EndpointMetadata {
-                name: "input2",
-                index: 1,
-            },
-        ]
+    fn input_endpoints(&self) -> &'static [EndpointMetadata] {
+        const INPUTS: &[EndpointMetadata] = &[
+            EndpointMetadata { name: "input1", index: 0 },
+            EndpointMetadata { name: "input2", index: 1 },
+        ];
+        INPUTS
     }
 
-    fn output_endpoints(&self) -> Vec<EndpointMetadata> {
-        vec![EndpointMetadata {
-            name: "output",
-            index: 0,
-        }]
+    fn output_endpoints(&self) -> &'static [EndpointMetadata] {
+        const OUTPUTS: &[EndpointMetadata] = &[EndpointMetadata { name: "output", index: 0 }];
+        OUTPUTS
     }
 }
 

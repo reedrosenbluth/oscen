@@ -102,22 +102,18 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         }
 
         impl EndpointDefinition for #name {
-            fn input_endpoints(&self) -> Vec<EndpointMetadata> {
-                vec![
-                    #(EndpointMetadata {
-                        name: #input_names,
-                        index: #input_indices,
-                    },)*
-                ]
+            fn input_endpoints(&self) -> &'static [EndpointMetadata] {
+                const INPUTS: &[EndpointMetadata] = &[
+                    #(EndpointMetadata { name: #input_names, index: #input_indices },)*
+                ];
+                INPUTS
             }
 
-            fn output_endpoints(&self) -> Vec<EndpointMetadata> {
-                vec![
-                    #(EndpointMetadata {
-                        name: #output_names,
-                        index: #output_indices,
-                    },)*
-                ]
+            fn output_endpoints(&self) -> &'static [EndpointMetadata] {
+                const OUTPUTS: &[EndpointMetadata] = &[
+                    #(EndpointMetadata { name: #output_names, index: #output_indices },)*
+                ];
+                OUTPUTS
             }
         }
     };
