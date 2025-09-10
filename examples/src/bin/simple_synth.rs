@@ -41,8 +41,10 @@ fn main() {
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     // Process audio in chunks
                     for frame in data.chunks_mut(channels) {
-                        // Process the graph
-                        graph.process();
+                        // Process the graph and handle potential errors
+                        if let Err(e) = graph.process() {
+                            eprintln!("Graph process error: {}", e);
+                        }
                         
                         // Get the output value and write to all channels
                         if let Some(value) = graph.get_value(&output) {

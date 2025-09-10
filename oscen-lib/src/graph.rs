@@ -41,22 +41,8 @@ pub struct NodeData {
 #[derive(Debug)]
 pub enum EndpointType {
     Stream(ValueKey),
-    Value {
-        current: f32,
-        target: f32,
-        ramp_samples_remaining: u32,
-    },
+    Value,
     Event,
-}
-
-impl EndpointType {
-    pub fn value(initial_value: f32) -> Self {
-        Self::Value {
-            current: initial_value,
-            target: initial_value,
-            ramp_samples_remaining: 0,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -215,6 +201,18 @@ pub struct Graph {
 
     // Performance optimization: cache which node owns each value
     value_to_node: SecondaryMap<ValueKey, NodeKey>,
+
+    // Active ramps: endpoints with ongoing ramps are updated per-sample
+    active_ramps: Vec<ActiveRamp>,
+    ramp_indices: SecondaryMap<ValueKey, usize>,
+}
+
+#[derive(Copy, Clone, Debug)]
+struct ActiveRamp {
+    key: ValueKey,
+    step: f32,
+    remaining: u32,
+    target: f32,
 }
 
 impl Graph {
@@ -229,6 +227,8 @@ impl Graph {
             node_order: Vec::new(),
             topology_dirty: true,
             value_to_node: SecondaryMap::new(),
+            active_ramps: Vec::new(),
+            ramp_indices: SecondaryMap::new(),
         }
     }
 
@@ -308,18 +308,20 @@ impl Graph {
         input: InputEndpoint,
         initial_value: f32,
     ) -> Option<ValueKey> {
-        let value = self.values.get_mut(input.key())?;
+        let key = input.key();
+        let value = self.values.get_mut(key)?;
         *value = initial_value;
-        self.endpoint_types
-            .insert(input.key(), EndpointType::value(initial_value));
-        Some(input.key())
+        self.endpoint_types.insert(key, EndpointType::Value);
+        // Ensure there's no stale ramp for this key
+        self.remove_active_ramp(key);
+        Some(key)
     }
 
     pub fn set_input_by_name(&mut self, node_key: NodeKey, name: &str, value: f32) {
         if let Some(node_data) = self.nodes.get(node_key) {
             if let Some(index) = node_data.processor.input_index(name) {
                 if let Some(value_key) = node_data.inputs.get(index) {
-                    self.values[*value_key] = value;
+                    self.set_value(*value_key, value);
                 }
             }
         }
@@ -464,27 +466,44 @@ impl Graph {
 
     /// Sets a value immediately without ramping.
     pub fn set_value(&mut self, input: ValueKey, value: f32) {
-        if let Some(EndpointType::Value {
-            target,
-            ramp_samples_remaining,
-            ..
-        }) = self.endpoint_types.get_mut(input)
-        {
-            *target = value;
-            *ramp_samples_remaining = 0;
+        if matches!(self.endpoint_types.get(input), Some(EndpointType::Value)) {
+            if let Some(slot) = self.values.get_mut(input) {
+                *slot = value;
+            }
+            // Cancel any active ramp
+            self.remove_active_ramp(input);
         }
     }
 
     /// Sets a value with ramping over the specified number of samples.
     pub fn set_value_with_ramp(&mut self, input: ValueKey, value: f32, ramp_samples: u32) {
-        if let Some(EndpointType::Value {
-            target,
-            ramp_samples_remaining,
-            ..
-        }) = self.endpoint_types.get_mut(input)
-        {
-            *target = value;
-            *ramp_samples_remaining = ramp_samples;
+        if !matches!(self.endpoint_types.get(input), Some(EndpointType::Value)) {
+            return;
+        }
+        if ramp_samples == 0 {
+            self.set_value(input, value);
+            return;
+        }
+
+        // Compute step from current latched value
+        let current = *self.values.get(input).unwrap_or(&0.0);
+        let step = (value - current) / (ramp_samples as f32);
+
+        if let Some(&idx) = self.ramp_indices.get(input) {
+            if let Some(r) = self.active_ramps.get_mut(idx) {
+                r.step = step;
+                r.remaining = ramp_samples;
+                r.target = value;
+            }
+        } else {
+            let idx = self.active_ramps.len();
+            self.active_ramps.push(ActiveRamp {
+                key: input,
+                step,
+                remaining: ramp_samples,
+                target: value,
+            });
+            self.ramp_indices.insert(input, idx);
         }
     }
 
@@ -693,37 +712,50 @@ impl Graph {
     ///
     /// This method:
     /// 1. Updates the topology if needed (sorts nodes)
-    /// 2. Updates any parameter values that are currently ramping
+    /// 2. Advances only active ramps and updates their latched values
     /// 3. Processes each node in topologically sorted order
     /// 4. Propagates output values to connected inputs
     /// 5. Handles any pending events in the event queue
     pub fn process(&mut self) -> Result<(), GraphError> {
         // Update topology if the graph structure has changed
         self.update_topology_if_needed()?;
-        // Process value ramping
-        for (value_key, endpoint_type) in self.endpoint_types.iter_mut() {
-            if let EndpointType::Value {
-                current,
-                target,
-                ramp_samples_remaining,
-            } = endpoint_type
-            {
-                if *ramp_samples_remaining > 0 {
-                    // Calculate increment based on remaining distance and samples
-                    let increment = (*target - *current) / (*ramp_samples_remaining as f32);
-                    *current += increment;
-                    *ramp_samples_remaining -= 1;
-
-                    // If we're on the last sample or very close to target, set to exact target
-                    if *ramp_samples_remaining == 0 || (*target - *current).abs() < 0.000001 {
-                        *current = *target;
-                    }
-                } else {
-                    // No ramping - immediately set current to target
-                    *current = *target;
+        // Advance active ramps only
+        let mut i = 0;
+        while i < self.active_ramps.len() {
+            let mut finished = false;
+            if let Some(r) = self.active_ramps.get_mut(i) {
+                if let Some(slot) = self.values.get_mut(r.key) {
+                    *slot += r.step;
                 }
-                // Update the actual input value with the current value
-                self.values[value_key] = *current;
+                if r.remaining > 0 {
+                    r.remaining -= 1;
+                }
+                if r.remaining == 0 {
+                    // Snap to exact target and mark finished
+                    if let Some(slot) = self.values.get_mut(r.key) {
+                        *slot = r.target;
+                    }
+                    finished = true;
+                }
+            }
+
+            if finished {
+                // Remove ramp at index i via swap_remove
+                let removed = self.active_ramps.swap_remove(i);
+                // Clear index for removed key
+                self.ramp_indices.remove(removed.key);
+                // If we swapped in a new element at i, update its index mapping
+                if i < self.active_ramps.len() {
+                    let swapped_key = self.active_ramps[i].key;
+                    if let Some(idx_slot) = self.ramp_indices.get_mut(swapped_key) {
+                        *idx_slot = i;
+                    } else {
+                        // Should not happen, but ensure mapping exists
+                        self.ramp_indices.insert(swapped_key, i);
+                    }
+                }
+            } else {
+                i += 1;
             }
         }
 
@@ -761,6 +793,21 @@ impl Graph {
         }
 
         Ok(())
+    }
+
+    fn remove_active_ramp(&mut self, key: ValueKey) {
+        if let Some(&idx) = self.ramp_indices.get(key) {
+            let removed = self.active_ramps.swap_remove(idx);
+            self.ramp_indices.remove(removed.key);
+            if idx < self.active_ramps.len() {
+                let swapped_key = self.active_ramps[idx].key;
+                if let Some(idx_slot) = self.ramp_indices.get_mut(swapped_key) {
+                    *idx_slot = idx;
+                } else {
+                    self.ramp_indices.insert(swapped_key, idx);
+                }
+            }
+        }
     }
 
     pub fn render_to_file(
