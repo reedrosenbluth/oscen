@@ -52,11 +52,10 @@ pub enum EventData {
     Trigger,
 }
 
+#[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
 pub struct InputEndpoint {
-    // TODO: why does making this pub(crate) cause #[derive(Node)]
-    // to fail outside of oscen2 lib?
-    pub key: ValueKey,
+    key: ValueKey,
 }
 
 impl InputEndpoint {
@@ -69,9 +68,10 @@ impl InputEndpoint {
     }
 }
 
+#[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
 pub struct OutputEndpoint {
-    pub key: ValueKey,
+    key: ValueKey,
 }
 
 pub struct Connection {
@@ -317,16 +317,6 @@ impl Graph {
         Some(key)
     }
 
-    pub fn set_input_by_name(&mut self, node_key: NodeKey, name: &str, value: f32) {
-        if let Some(node_data) = self.nodes.get(node_key) {
-            if let Some(index) = node_data.processor.input_index(name) {
-                if let Some(value_key) = node_data.inputs.get(index) {
-                    self.set_value(*value_key, value);
-                }
-            }
-        }
-    }
-
     pub fn get_node_output(&self, node: NodeKey, index: usize) -> Option<ValueKey> {
         self.nodes
             .get(node)
@@ -393,9 +383,9 @@ impl Graph {
         // Mark topology as needing re-sort
         self.topology_dirty = true;
 
-        let output = OutputEndpoint { key: output_key };
+        let output = OutputEndpoint::new(output_key);
 
-        self.connect(from, InputEndpoint { key: input_key });
+        self.connect(from, InputEndpoint::new(input_key));
 
         output
     }
@@ -448,10 +438,10 @@ impl Graph {
         // Mark topology as needing re-sort
         self.topology_dirty = true;
 
-        let output = OutputEndpoint { key: output_key };
+        let output = OutputEndpoint::new(output_key);
 
-        self.connect(from1, InputEndpoint { key: input_key1 });
-        self.connect(from2, InputEndpoint { key: input_key2 });
+        self.connect(from1, InputEndpoint::new(input_key1));
+        self.connect(from2, InputEndpoint::new(input_key2));
 
         output
     }
