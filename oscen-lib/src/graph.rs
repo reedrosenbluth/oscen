@@ -716,10 +716,11 @@ impl Graph {
     pub fn process(&mut self) -> Result<(), GraphError> {
         // Update topology if the graph structure has changed
         self.update_topology_if_needed()?;
+
         // Advance active ramps only
         let mut i = 0;
         while i < self.active_ramps.len() {
-            let mut finished = false;
+            let mut finished_key: Option<ValueKey> = None;
             if let Some(r) = self.active_ramps.get_mut(i) {
                 if let Some(slot) = self.values.get_mut(r.key) {
                     *slot += r.step;
@@ -728,29 +729,15 @@ impl Graph {
                     r.remaining -= 1;
                 }
                 if r.remaining == 0 {
-                    // Snap to exact target and mark finished
                     if let Some(slot) = self.values.get_mut(r.key) {
                         *slot = r.target;
                     }
-                    finished = true;
+                    finished_key = Some(r.key);
                 }
             }
 
-            if finished {
-                // Remove ramp at index i via swap_remove
-                let removed = self.active_ramps.swap_remove(i);
-                // Clear index for removed key
-                self.ramp_indices.remove(removed.key);
-                // If we swapped in a new element at i, update its index mapping
-                if i < self.active_ramps.len() {
-                    let swapped_key = self.active_ramps[i].key;
-                    if let Some(idx_slot) = self.ramp_indices.get_mut(swapped_key) {
-                        *idx_slot = i;
-                    } else {
-                        // Should not happen, but ensure mapping exists
-                        self.ramp_indices.insert(swapped_key, i);
-                    }
-                }
+            if let Some(key) = finished_key {
+                self.remove_active_ramp(key);
             } else {
                 i += 1;
             }
@@ -888,12 +875,18 @@ impl FunctionNode {
 
 impl EndpointDefinition for FunctionNode {
     fn input_endpoints(&self) -> &'static [EndpointMetadata] {
-        const INPUTS: &[EndpointMetadata] = &[EndpointMetadata { name: "input", index: 0 }];
+        const INPUTS: &[EndpointMetadata] = &[EndpointMetadata {
+            name: "input",
+            index: 0,
+        }];
         INPUTS
     }
 
     fn output_endpoints(&self) -> &'static [EndpointMetadata] {
-        const OUTPUTS: &[EndpointMetadata] = &[EndpointMetadata { name: "output", index: 0 }];
+        const OUTPUTS: &[EndpointMetadata] = &[EndpointMetadata {
+            name: "output",
+            index: 0,
+        }];
         OUTPUTS
     }
 }
@@ -930,14 +923,23 @@ impl BinaryFunctionNode {
 impl EndpointDefinition for BinaryFunctionNode {
     fn input_endpoints(&self) -> &'static [EndpointMetadata] {
         const INPUTS: &[EndpointMetadata] = &[
-            EndpointMetadata { name: "input1", index: 0 },
-            EndpointMetadata { name: "input2", index: 1 },
+            EndpointMetadata {
+                name: "input1",
+                index: 0,
+            },
+            EndpointMetadata {
+                name: "input2",
+                index: 1,
+            },
         ];
         INPUTS
     }
 
     fn output_endpoints(&self) -> &'static [EndpointMetadata] {
-        const OUTPUTS: &[EndpointMetadata] = &[EndpointMetadata { name: "output", index: 0 }];
+        const OUTPUTS: &[EndpointMetadata] = &[EndpointMetadata {
+            name: "output",
+            index: 0,
+        }];
         OUTPUTS
     }
 }
