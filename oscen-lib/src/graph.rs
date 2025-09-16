@@ -40,19 +40,11 @@ pub struct NodeData {
 
 #[derive(Debug)]
 pub enum EndpointType {
-    Stream(ValueKey),
+    Stream,
     Value,
     Event,
 }
 
-#[derive(Debug)]
-pub enum EventData {
-    Float(f32),
-    Int(i32),
-    Trigger,
-}
-
-#[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
 pub struct InputEndpoint {
     key: ValueKey,
@@ -68,7 +60,6 @@ impl InputEndpoint {
     }
 }
 
-#[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
 pub struct OutputEndpoint {
     key: ValueKey,
@@ -199,8 +190,8 @@ pub struct Graph {
     pub values: SlotMap<ValueKey, f32>,
     pub connections: SecondaryMap<ValueKey, ArrayVec<ValueKey, MAX_CONNECTIONS_PER_OUTPUT>>,
     pub endpoint_types: SecondaryMap<ValueKey, EndpointType>,
-    // TODO: reconsider this
-    pub event_queue: ArrayVec<(ValueKey, EventData), MAX_EVENTS>,
+
+    //TODO: add event queue
 
     // Topology tracking for sorted processing order
     node_order: Vec<NodeKey>,
@@ -230,7 +221,6 @@ impl Graph {
             values: SlotMap::with_key(),
             connections: SecondaryMap::new(),
             endpoint_types: SecondaryMap::new(),
-            event_queue: ArrayVec::new(),
             node_order: Vec::new(),
             topology_dirty: true,
             value_to_node: SecondaryMap::new(),
@@ -508,12 +498,6 @@ impl Graph {
         self.values.get(endpoint.key()).copied()
     }
 
-    pub fn send_event(&mut self, input: ValueKey, event: EventData) {
-        if let Some(EndpointType::Event) = self.endpoint_types.get(input) {
-            self.event_queue.push((input, event));
-        }
-    }
-
     /// Build a node-level adjacency list from the value-level connections.
     /// Returns a map from each node to the nodes it connects to.
     fn build_node_adjacency(&self) -> HashMap<NodeKey, Vec<NodeKey>> {
@@ -712,7 +696,7 @@ impl Graph {
     /// 2. Advances only active ramps and updates their latched values
     /// 3. Processes each node in topologically sorted order
     /// 4. Propagates output values to connected inputs
-    /// 5. Handles any pending events in the event queue
+    /// 5. TODO: Handles any pending events in the event queue
     pub fn process(&mut self) -> Result<(), GraphError> {
         // Update topology if the graph structure has changed
         self.update_topology_if_needed()?;
@@ -769,10 +753,6 @@ impl Graph {
                 }
 
                 // Process events
-                while let Some((_target_input, _event)) = self.event_queue.pop() {
-                    // TODO: Handle event processing
-                    // Maybe add event handlers to the SignalProcessor trait?
-                }
             }
         }
 

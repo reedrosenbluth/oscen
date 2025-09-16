@@ -101,6 +101,7 @@ fn build_channel_graph(
     // Add nodes to graph
     let delay = graph.add_node(Delay::new(params.delay_time.value(), 0.0));
     let filter = graph.add_node(TptFilter::new(params.filter_cutoff.value(), 0.7));
+
     let feedback_node = graph.add_node(Value::new(params.feedback.value()));
     let mix_node = graph.add_node(Value::new(params.mix.value()));
 
@@ -369,6 +370,7 @@ impl Plugin for SimpleEcho {
                         .get_value(&audio_context.left.output)
                         .unwrap_or(0.0);
 
+                    //TODO: make stereo
                     for sample in channel_samples {
                         *sample = output_mono;
                     }
