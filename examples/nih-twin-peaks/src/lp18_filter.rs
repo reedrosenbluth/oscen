@@ -1,26 +1,27 @@
 use oscen::{
-    EndpointDefinition, EndpointMetadata, InputEndpoint, Node, NodeKey,
-    OutputEndpoint, ProcessingNode, SignalProcessor, ValueKey,
+    EndpointType, InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingNode, SignalProcessor,
+    ValueKey,
 };
 use std::f32::consts::PI;
 
 /// A three-pole, 18dB/octave lowpass filter in the style of Rob Hordijk's TwinPeak filter.
+#[allow(dead_code)]
 #[derive(Debug, Node)]
 pub struct LP18Filter {
     /// Input audio signal to be filtered
-    #[input]
+    #[input(stream)]
     input: f32,
 
     /// Cutoff frequency in Hz
-    #[input]
+    #[input(value)]
     cutoff: f32,
 
     /// frequency modulation input
-    #[input]
+    #[input(value)]
     fmod: f32,
 
     /// Resonance amount (0.0 to 1.0)
-    #[input]
+    #[input(value)]
     resonance: f32,
 
     /// Integrator memories for the three poles
@@ -31,7 +32,7 @@ pub struct LP18Filter {
     h: f32,
 
     /// Filtered output signal
-    #[output]
+    #[output(stream)]
     output: f32,
 }
 

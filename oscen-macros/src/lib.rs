@@ -1,4 +1,5 @@
 use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
@@ -11,11 +12,11 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
     let mut input_fields = Vec::new();
     let mut output_fields = Vec::new();
-    let mut input_names = Vec::new();
-    let mut output_names = Vec::new();
-    let mut input_indices = Vec::new();
-    let mut output_indices = Vec::new();
+    let mut input_types = Vec::new();
+    let mut output_types = Vec::new();
     let mut input_getters = Vec::new();
+    let mut input_idents = Vec::new();
+    let mut output_idents = Vec::new();
 
     // Extract field information
     if let Data::Struct(data_struct) = input.data {
@@ -25,13 +26,22 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
             for field in fields.named {
                 let field_name = field.ident.unwrap();
-                let has_input = field.attrs.iter().any(|attr| attr.path().is_ident("input"));
-                let has_output = field
-                    .attrs
-                    .iter()
-                    .any(|attr| attr.path().is_ident("output"));
+                let mut input_type = None;
+                let mut output_type = None;
 
-                if has_input {
+                for attr in field.attrs.iter() {
+                    if attr.path().is_ident("input") {
+                        let ty = parse_endpoint_type(attr)
+                            .unwrap_or_else(|| quote! { EndpointType::Value });
+                        input_type = Some(ty);
+                    } else if attr.path().is_ident("output") {
+                        let ty = parse_endpoint_type(attr)
+                            .unwrap_or_else(|| quote! { EndpointType::Value });
+                        output_type = Some(ty);
+                    }
+                }
+
+                if let Some(endpoint_ty) = input_type {
                     input_fields.push(quote! {
                         pub fn #field_name(&self) -> InputEndpoint {
                             InputEndpoint::new(self.inputs[#input_idx])
@@ -45,19 +55,19 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         }
                     });
 
-                    input_names.push(field_name.to_string());
-                    input_indices.push(input_idx);
+                    input_types.push(endpoint_ty.clone());
+                    input_idents.push(field_name.clone());
                     input_idx += 1;
                 }
 
-                if has_output {
+                if let Some(endpoint_ty) = output_type {
                     output_fields.push(quote! {
                         pub fn #field_name(&self) -> OutputEndpoint {
                             OutputEndpoint::new(self.outputs[#output_idx])
                         }
                     });
-                    output_names.push(field_name.to_string());
-                    output_indices.push(output_idx);
+                    output_types.push(endpoint_ty.clone());
+                    output_idents.push(field_name.clone());
                     output_idx += 1;
                 }
             }
@@ -65,6 +75,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     }
 
     let expanded = quote! {
+        #[allow(dead_code)]
         #[derive(Debug)]
         pub struct #endpoints_name {
             node_key: NodeKey,
@@ -83,10 +94,20 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
         impl #name {
             #(#input_getters)*
+
+            #[allow(dead_code)]
+            fn __oscen_suppress_unused(&self) {
+                #(let _ = &self.#input_idents;)*
+                #(let _ = &self.#output_idents;)*
+            }
         }
 
         impl ProcessingNode for #name {
             type Endpoints = #endpoints_name;
+
+            const INPUT_TYPES: &'static [EndpointType] = &[#(#input_types),*];
+
+            const OUTPUT_TYPES: &'static [EndpointType] = &[#(#output_types),*];
 
             fn create_endpoints(
                 node_key: NodeKey,
@@ -100,23 +121,42 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 }
             }
         }
-
-        impl EndpointDefinition for #name {
-            fn input_endpoints(&self) -> &'static [EndpointMetadata] {
-                const INPUTS: &[EndpointMetadata] = &[
-                    #(EndpointMetadata { name: #input_names, index: #input_indices },)*
-                ];
-                INPUTS
-            }
-
-            fn output_endpoints(&self) -> &'static [EndpointMetadata] {
-                const OUTPUTS: &[EndpointMetadata] = &[
-                    #(EndpointMetadata { name: #output_names, index: #output_indices },)*
-                ];
-                OUTPUTS
-            }
-        }
     };
 
     TokenStream::from(expanded)
+}
+
+fn parse_endpoint_type(attr: &syn::Attribute) -> Option<TokenStream2> {
+    attr.parse_args::<EndpointTypeAttr>()
+        .ok()
+        .map(|attr| match attr {
+            EndpointTypeAttr::Stream => quote! { EndpointType::Stream },
+            EndpointTypeAttr::Value => quote! { EndpointType::Value },
+            EndpointTypeAttr::Event => quote! { EndpointType::Event },
+        })
+}
+
+enum EndpointTypeAttr {
+    Stream,
+    Value,
+    Event,
+}
+
+impl syn::parse::Parse for EndpointTypeAttr {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        if input.is_empty() {
+            return Ok(EndpointTypeAttr::Value);
+        }
+
+        let ident: syn::Ident = input.parse()?;
+        match ident.to_string().as_str() {
+            "stream" => Ok(EndpointTypeAttr::Stream),
+            "value" => Ok(EndpointTypeAttr::Value),
+            "event" => Ok(EndpointTypeAttr::Event),
+            other => Err(syn::Error::new(
+                ident.span(),
+                format!("unknown endpoint type `{}`", other),
+            )),
+        }
+    }
 }

@@ -1,6 +1,5 @@
 use crate::graph::{
-    EndpointDefinition, EndpointMetadata, InputEndpoint, NodeKey, OutputEndpoint, ProcessingNode,
-    SignalProcessor, ValueKey,
+    EndpointType, InputEndpoint, NodeKey, OutputEndpoint, ProcessingNode, SignalProcessor, ValueKey,
 };
 use oscen_macros::Node;
 
@@ -10,7 +9,7 @@ use oscen_macros::Node;
 pub struct Value {
     #[input]
     input: f32,
-    
+
     #[output]
     output: f32,
 }

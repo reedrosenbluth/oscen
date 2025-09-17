@@ -44,9 +44,11 @@ fn audio_callback(
     }
 
     if let Some(params) = latest_params {
-        context
-            .graph
-            .set_value_with_ramp(context.carrier_freq_input, params.carrier_frequency, 441);
+        context.graph.set_value_with_ramp(
+            context.carrier_freq_input,
+            params.carrier_frequency,
+            441,
+        );
         context.graph.set_value_with_ramp(
             context.modulator_freq_input,
             params.modulator_frequency,

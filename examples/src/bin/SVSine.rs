@@ -30,7 +30,7 @@ pub struct SVSine {
     x: f32,
     w_1: f32,
 
-    #[output]
+    #[output(stream)]
     output: f32,
 }
 

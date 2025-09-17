@@ -1,21 +1,22 @@
 use crate::{
-    EndpointDefinition, EndpointMetadata, InputEndpoint, Node, NodeKey, OutputEndpoint,
-    ProcessingNode, SignalProcessor, ValueKey,
+    EndpointType, InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingNode, SignalProcessor,
+    ValueKey,
 };
 use std::f32::consts::PI;
 
+#[allow(dead_code)]
 #[derive(Debug, Node)]
 pub struct Oscillator {
-    #[input]
+    #[input(value)]
     phase: f32,
-    #[input]
+    #[input(value)]
     frequency: f32,
-    #[input]
+    #[input(stream)]
     frequency_mod: f32,
-    #[input]
+    #[input(value)]
     amplitude: f32,
 
-    #[output]
+    #[output(stream)]
     output: f32,
 
     waveform: fn(f32) -> f32,
@@ -46,13 +47,13 @@ impl Oscillator {
         Self::new(frequency, amplitude, |p| {
             // Width of transition region (adjust for aliasing vs sharpness tradeoff)
             let transition_width = 0.1;
-            
+
             // Linear ramp from -1 to 1 (over one full cycle)
             let raw_saw = 2.0 * p - 1.0;
-            
+
             // Smooth transition near discontinuity using polynomial
-            if p > (1.0 - transition_width/2.0) {
-                let t = (p - (1.0 - transition_width/2.0)) / (transition_width/2.0);
+            if p > (1.0 - transition_width / 2.0) {
+                let t = (p - (1.0 - transition_width / 2.0)) / (transition_width / 2.0);
                 -1.0 + (1.0 - t * t) * (raw_saw + 1.0)
             } else {
                 raw_saw

@@ -1,20 +1,19 @@
 use crate::graph::{
-    EndpointDefinition, EndpointMetadata, InputEndpoint, NodeKey, OutputEndpoint, ProcessingNode,
-    SignalProcessor, ValueKey,
+    EndpointType, InputEndpoint, NodeKey, OutputEndpoint, ProcessingNode, SignalProcessor, ValueKey,
 };
 use crate::ring_buffer::RingBuffer;
 use oscen_macros::Node;
 
 #[derive(Debug, Node)]
 pub struct Delay {
-    #[input]
+    #[input(stream)]
     input: f32,
     #[input]
     delay_time: f32, // In seconds
     #[input]
     feedback: f32,
 
-    #[output]
+    #[output(stream)]
     output: f32,
 
     buffer: RingBuffer,
@@ -59,9 +58,9 @@ impl SignalProcessor for Delay {
         // Initialize the buffer with a capped size
         self.buffer = RingBuffer::new(buffer_size);
     }
-    
+
     fn allows_feedback(&self) -> bool {
-        true  // Delay nodes can break feedback cycles
+        true // Delay nodes can break feedback cycles
     }
 
     fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {

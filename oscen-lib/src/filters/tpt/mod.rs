@@ -1,19 +1,19 @@
 use crate::{
-    EndpointDefinition, EndpointMetadata, InputEndpoint, Node, NodeKey, OutputEndpoint,
-    ProcessingNode, SignalProcessor, ValueKey,
+    EndpointType, InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingNode, SignalProcessor,
+    ValueKey,
 };
 use std::f32::consts::PI;
 
 #[derive(Debug, Default, Node)]
 pub struct TptFilter {
-    #[input]
+    #[input(stream)]
     input: f32,
     #[input]
     cutoff: f32,
     #[input]
     q: f32,
 
-    #[output]
+    #[output(stream)]
     output: f32,
 
     // state

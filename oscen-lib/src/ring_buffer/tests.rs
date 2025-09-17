@@ -10,7 +10,7 @@ fn test_initialization_power_of_two() {
     assert_eq!(buf.mask, 7);
     assert_eq!(buf.mode, BufferMode::PowerOfTwo);
     assert_eq!(buf.buffer.len(), 8); // Logical length
-    // Vec capacity may be larger than requested
+                                     // Vec capacity may be larger than requested
     assert!(buf.buffer.iter().all(|&x| x == 0.0));
 
     let buf = RingBuffer::with_mode(8, BufferMode::PowerOfTwo);
@@ -172,7 +172,7 @@ fn test_get_linear_interpolation() {
 #[test]
 fn test_get_cubic_interpolation() {
     let mut buf = RingBuffer::with_mode(5, BufferMode::Exact); // N=5, capacity=5
-                                                                    // Fill with distinct values
+                                                               // Fill with distinct values
     buf.push(1.0); // 0
     buf.push(2.0); // 1
     buf.push(4.0); // 2

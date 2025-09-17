@@ -1,17 +1,17 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::{Graph, Oscillator, TptFilter, OutputEndpoint};
+use oscen::{Graph, Oscillator, OutputEndpoint, TptFilter};
 use std::thread;
 
 fn create_audio_graph(sample_rate: f32) -> (Graph, OutputEndpoint) {
     let mut graph = Graph::new(sample_rate);
-    
+
     // Create a sine oscillator and low-pass filter
     let osc = graph.add_node(Oscillator::sine(440.0, 0.5));
     let filter = graph.add_node(TptFilter::new(1200.0, 0.707));
-    
+
     // Connect oscillator to filter
     graph.connect(osc.output(), filter.input());
-    
+
     // Return graph and the final output node
     (graph, filter.output())
 }
@@ -27,7 +27,7 @@ fn main() {
             sample_rate: default_config.sample_rate(),
             buffer_size: cpal::BufferSize::Fixed(512),
         };
-        
+
         let sample_rate = config.sample_rate.0 as f32;
         let channels = config.channels as usize;
 
@@ -45,7 +45,7 @@ fn main() {
                         if let Err(e) = graph.process() {
                             eprintln!("Graph process error: {}", e);
                         }
-                        
+
                         // Get the output value and write to all channels
                         if let Some(value) = graph.get_value(&output) {
                             for sample in frame.iter_mut() {
@@ -61,10 +61,12 @@ fn main() {
 
         // Start playback
         stream.play().unwrap();
-        
+
         // Keep the thread alive
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
-    }).join().unwrap();
+    })
+    .join()
+    .unwrap();
 }
