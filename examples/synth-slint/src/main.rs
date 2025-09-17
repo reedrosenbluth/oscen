@@ -38,12 +38,12 @@ struct AudioContext {
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     let mut graph = Graph::new(sample_rate);
 
-    let osc = graph.add_node(PolyBlepOscillator::square(440.0, 1.0));
+    let osc = graph.add_node(PolyBlepOscillator::saw(440.0, 0.2));
     let filter = graph.add_node(TptFilter::new(3000.0, 0.707));
 
     graph.connect(osc.output(), filter.input());
 
-    let output = graph.transform(filter.output(), |x| x * 0.5);
+    let output = graph.transform(filter.output(), |x| x * 0.8);
 
     let osc_freq_input = graph
         .insert_value_input(osc.frequency(), 440.0)
