@@ -9,5 +9,5 @@ pub use delay::Delay;
 pub use filters::tpt::TptFilter;
 pub use graph::*;
 pub use oscen_macros::Node;
-pub use oscillators::Oscillator;
+pub use oscillators::{Oscillator, PolyBlepOscillator};
 pub use value::Value;

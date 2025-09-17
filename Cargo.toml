@@ -4,6 +4,7 @@ members = [
     "examples",
     "examples/nih-twin-peaks",
     "examples/simple-echo",
+    "examples/synth-slint",
     "oscen-lib",
     "oscen-macros",
     "xtask"
