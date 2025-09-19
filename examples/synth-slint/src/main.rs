@@ -1,5 +1,5 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::{Graph, OutputEndpoint, PolyBlepOscillator, TptFilter, ValueKey};
+use oscen::{Graph, OutputEndpoint, PolyBlepOscillator, TptFilter, Value, ValueKey};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Sender};
@@ -14,6 +14,7 @@ struct SynthParams {
     carrier_frequency: f32,
     cutoff_frequency: f32,
     q_factor: f32,
+    volume: f32,
 }
 
 impl Default for SynthParams {
@@ -22,6 +23,7 @@ impl Default for SynthParams {
             carrier_frequency: 440.0,
             cutoff_frequency: 3000.0,
             q_factor: 0.707,
+            volume: 0.8,
         }
     }
 }
@@ -31,6 +33,7 @@ struct AudioContext {
     osc_freq_input: ValueKey,
     cutoff_freq_input: ValueKey,
     q_input: ValueKey,
+    volume_input: ValueKey,
     output: OutputEndpoint,
     channels: usize,
 }
@@ -40,10 +43,11 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
 
     let osc = graph.add_node(PolyBlepOscillator::saw(440.0, 0.2));
     let filter = graph.add_node(TptFilter::new(3000.0, 0.707));
+    let volume = graph.add_node(Value::new(0.8));
 
     graph.connect(osc.output(), filter.input());
 
-    let output = graph.transform(filter.output(), |x| x * 0.8);
+    let output = graph.combine(filter.output(), volume.output(), |x, v| x * v);
 
     let osc_freq_input = graph
         .insert_value_input(osc.frequency(), 440.0)
@@ -54,12 +58,16 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     let q_input = graph
         .insert_value_input(filter.q(), 0.707)
         .expect("Failed to insert filter Q input");
+    let volume_input = graph
+        .insert_value_input(volume.input(), 0.8)
+        .expect("Failed to insert filter Q input");
 
     AudioContext {
         graph,
         osc_freq_input,
         cutoff_freq_input,
         q_input,
+        volume_input,
         output,
         channels,
     }
@@ -80,6 +88,7 @@ fn audio_callback(
             (context.osc_freq_input, params.carrier_frequency, 441),
             (context.cutoff_freq_input, params.cutoff_frequency, 1323),
             (context.q_input, params.q_factor, 441),
+            (context.volume_input, params.volume, 441),
         ];
 
         for (key, value, ramp) in updates {
@@ -164,10 +173,15 @@ fn run_ui(tx: Sender<SynthParams>) -> Result<(), slint::PlatformError> {
         |state: &mut SynthParams, value| state.q_factor = value,
         SynthWindow::on_q_factor_edited
     );
+    wire_knob!(
+        |state: &mut SynthParams, value| state.volume = value,
+        SynthWindow::on_volume_edited
+    );
 
     ui.set_carrier_frequency(440.0);
     ui.set_cutoff_frequency(3000.0);
     ui.set_q_factor(0.707);
+    ui.set_q_factor(0.8);
 
     ui.run()
 }

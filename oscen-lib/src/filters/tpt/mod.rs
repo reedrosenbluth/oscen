@@ -12,6 +12,8 @@ pub struct TptFilter {
     cutoff: f32,
     #[input]
     q: f32,
+    #[input(stream)]
+    f_mod: f32,
 
     #[output(stream)]
     output: f32,
@@ -72,8 +74,16 @@ impl SignalProcessor for TptFilter {
 
         if self.frame_counter == 0 {
             let nyquist = sample_rate * 0.5 - f32::EPSILON;
-            let cutoff = self.get_cutoff(inputs).clamp(20.0, nyquist);
+            let max_cutoff = nyquist.min(20_000.0);
+            let cutoff_base = self.get_cutoff(inputs).clamp(20.0, max_cutoff);
             let q = self.get_q(inputs).clamp(0.1, 10.0);
+
+            // Apply multiplicative modulation but clamp the factor so the result lives in [20 Hz, 20 kHz].
+            let f_mod = self.get_f_mod(inputs).clamp(-1.0, 1.0);
+            let min_factor = 20.0 / cutoff_base;
+            let max_factor = max_cutoff / cutoff_base;
+            let factor = (1.0 + f_mod).clamp(min_factor, max_factor);
+            let cutoff = (cutoff_base * factor).clamp(20.0, max_cutoff);
 
             if cutoff != self.cutoff || q != self.q {
                 self.cutoff = cutoff;
@@ -144,7 +154,7 @@ mod tests {
 
         for n in 0..8 {
             let input = if n == 0 { 1.0 } else { 0.0 };
-            outputs.push(filter.process(sample_rate, &[input, cutoff, q]));
+            outputs.push(filter.process(sample_rate, &[input, cutoff, q, 0.0]));
         }
 
         let expected = [

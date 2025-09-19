@@ -35,72 +35,102 @@ component RotaryKnob inherits Rectangle {
 
     callback value_edited(float);
 
-    width: 72px;
-    height: 92px;
-
+    private property <length> dial_size: 58px;
     private property <float> range: max(0.0001, root.maximum - root.minimum);
     private property <float> normalized: root.value_to_normalized(root.value);
     private property <angle> angle: 225deg - 270deg * root.normalized;
-    private property <float> marker_radius: (dial.width / 2 - 6px) / 1px;
+    private property <float> marker_radius: (root.dial_size / 2 - 6px) / 1px;
+    private property <string> minimum_text: root.format_value(root.minimum);
+    private property <string> maximum_text: root.format_value(root.maximum);
 
     VerticalLayout {
-        spacing: 6px;
+        spacing: 18px;
         padding: 0px;
 
         HorizontalLayout {
-            spacing: 0px;
-
             Rectangle {
                 horizontal-stretch: 1;
-                width: 0px;
                 height: 0px;
                 opacity: 0.0;
             }
 
-            dial := Rectangle {
-                width: 64px;
-                height: 64px;
-                border-radius: 32px;
-                border-width: 2px;
-                border-color: root.border_brush;
-                background: root.bg_brush;
+            knob_body := VerticalLayout {
+                spacing: 0px;
 
-                marker := Rectangle {
-                    width: 6px;
-                    height: 6px;
-                    border-radius: 4px;
-                    background: root.marker_brush;
-                    x: parent.width / 2 + Math.cos(root.angle) * (root.marker_radius * 1px) - self.width / 2;
-                    y: parent.height / 2 - Math.sin(root.angle) * (root.marker_radius * 1px) - self.height / 2;
-                }
+                HorizontalLayout {
+                    spacing: 4px;
 
-                TouchArea {
-                    width: 100%;
-                    height: 100%;
-                    property <float> start-value: root.value;
+                    left_margin := Rectangle {
+                        width: minimum_value_label.preferred-width;
+                        height: root.dial_size;
 
-                    pointer-event(event) => {
-                        if (event.button != PointerEventButton.left) {
-                            return;
-                        }
-                        if (event.kind == PointerEventKind.down) {
-                            self.start-value = root.value;
-                        } else if (event.kind == PointerEventKind.up) {
-                            root.value_edited(root.value);
+                        minimum_value_label := Text {
+                            text: root.minimum_text;
+                            font-size: 10px;
+                            color: root.title_brush;
+                            x: parent.width - self.width;
+                            y: parent.height - self.height;
                         }
                     }
 
-                    moved => {
-                        let delta_px = (self.pressed-y - self.mouse-y) / 1px;
-                        let delta = delta_px / 150.0;
-                        root.update_value_by_normalized_delta(self.start-value, delta);
+                    dial := Rectangle {
+                        width: root.dial_size;
+                        height: root.dial_size;
+                        border-radius: root.dial_size / 2;
+                        border-width: 2px;
+                        border-color: root.border_brush;
+                        background: root.bg_brush;
+
+                        marker := Rectangle {
+                            width: 6px;
+                            height: 6px;
+                            border-radius: 4px;
+                            background: root.marker_brush;
+                            x: parent.width / 2 + Math.cos(root.angle) * (root.marker_radius * 1px) - self.width / 2;
+                            y: parent.height / 2 - Math.sin(root.angle) * (root.marker_radius * 1px) - self.height / 2;
+                        }
+
+                        TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            property <float> start-value: root.value;
+
+                            pointer-event(event) => {
+                                if (event.button != PointerEventButton.left) {
+                                    return;
+                                }
+                                if (event.kind == PointerEventKind.down) {
+                                    self.start-value = root.value;
+                                } else if (event.kind == PointerEventKind.up) {
+                                    root.value_edited(root.value);
+                                }
+                            }
+
+                            moved => {
+                                let delta_px = (self.pressed-y - self.mouse-y) / 1px;
+                                let delta = delta_px / 150.0;
+                                root.update_value_by_normalized_delta(self.start-value, delta);
+                            }
+                        }
+                    }
+
+                    right_margin := Rectangle {
+                        width: maximum_value_label.preferred-width;
+                        height: root.dial_size;
+
+                        maximum_value_label := Text {
+                            text: root.maximum_text;
+                            font-size: 10px;
+                            color: root.title_brush;
+                            x: 0px;
+                            y: parent.height - self.height;
+                        }
                     }
                 }
             }
 
             Rectangle {
                 horizontal-stretch: 1;
-                width: 0px;
                 height: 0px;
                 opacity: 0.0;
             }
@@ -108,7 +138,7 @@ component RotaryKnob inherits Rectangle {
 
         Text {
             text: root.label;
-            horizontal-alignment: left;
+            horizontal-alignment: center;
             font-size: 12px;
             font-weight: 500;
             color: root.title_brush;
@@ -164,13 +194,31 @@ component RotaryKnob inherits Rectangle {
         }
         return root.minimum + clamped * root.range;
     }
+
+    function format_value(value: float) -> string {
+        if (Math.abs(value) >= 1000.0) {
+            let scaled = value / 1000.0;
+            let rounded = root.format_number(scaled);
+            return rounded + "k";
+        }
+        return root.format_number(value);
+    }
+
+    function format_number(value: float) -> string {
+        let rounded = Math.round(value * 100.0) / 100.0;
+        let as_int = Math.round(rounded);
+        if (Math.abs(rounded - as_int) < 0.0001) {
+            return @tr("{0}", as_int);
+        }
+        return @tr("{0}", rounded);
+    }
 }
 
 component Panel inherits Rectangle {
     in property <string> title: "";
-    in property <length> content_padding: 16px;
+    in property <length> content_padding: 12px;
     in property <length> content_spacing: 12px;
-    in property <length> corner_radius: 8px;
+    in property <length> corner_radius: 6px;
     in property <length> border_thickness: 3px;
     in property <brush> bg_brush: PanelPalette.background;
     in property <brush> border_brush: PanelPalette.border;
@@ -182,10 +230,7 @@ component Panel inherits Rectangle {
     background: root.bg_brush;
 
     layout := VerticalLayout {
-        padding-left: root.content_padding;
-        padding-right: root.content_padding;
-        padding-top: root.content_padding;
-        padding-bottom: root.content_padding;
+        padding: root.content_padding;
         spacing: root.content_spacing;
 
         if root.title != "": Text {
@@ -195,10 +240,12 @@ component Panel inherits Rectangle {
             color: root.title_brush;
         }
 
-        @children
-    }
+        HorizontalLayout {
+            spacing: 12px;
 
-    height: layout.preferred-height;
+            @children
+        }
+    }
 }
 
 export component SynthWindow inherits Window {
@@ -209,26 +256,24 @@ export component SynthWindow inherits Window {
     in-out property <float> modulator_frequency: 100.0;
     in-out property <float> cutoff_frequency: 3000.0;
     in-out property <float> q_factor: 0.707;
+    in-out property <float> volume: 0.8;
 
     callback carrier_frequency_edited(float);
     callback modulator_frequency_edited(float);
     callback cutoff_frequency_edited(float);
     callback q_factor_edited(float);
+    callback volume_edited(float);
 
     root_layout := VerticalLayout {
-        padding-left: 16px;
-        padding-right: 16px;
-        padding-top: 16px;
-        padding-bottom: 16px;
+        padding: 22px;
         spacing: 16px;
 
         HorizontalLayout {
-            spacing: 16px;
+            spacing: 12px;
             alignment: start;
 
             Panel {
                 horizontal-stretch: 1;
-                min-width: 240px;
                 vertical-stretch: 0;
                 title: "Oscillator";
 
@@ -248,7 +293,6 @@ export component SynthWindow inherits Window {
 
             Panel {
                 horizontal-stretch: 1;
-                min-width: 240px;
                 vertical-stretch: 0;
                 title: "Filter";
                 bg_brush: #629460;
@@ -279,6 +323,28 @@ export component SynthWindow inherits Window {
                     value_edited(value) => {
                         root.q_factor = value;
                         root.q_factor_edited(value);
+                    }
+                }
+            }
+
+            Panel {
+                horizontal-stretch: 1;
+                vertical-stretch: 0;
+                title: "Level";
+                bg_brush: #629460;
+                border_brush: #96BE8C;
+                title_brush: #C9F2C7;
+
+                RotaryKnob {
+                    label: "Level";
+                    minimum: 0.0;
+                    maximum: 1.0;
+                    step: 0.01;
+                    vertical-stretch: 0;
+                    value: root.volume;
+                    value_edited(value) => {
+                        root.volume = value;
+                        root.volume_edited(value);
                     }
                 }
             }
