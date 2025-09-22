@@ -1,0 +1,14 @@
+[package]
+name = "supersaw"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+oscen = { path = "../../oscen-lib" }
+cpal = "0.15.2"
+slint = { version = "1.13.1", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-skia"] }
+arrayvec = "0.7"
+
+[build-dependencies]
+slint-build = "1.13.1"

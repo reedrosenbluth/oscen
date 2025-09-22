@@ -5192,6 +5192,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "supersaw"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "cpal",
+ "oscen",
+ "slint",
+ "slint-build",
+]
+
+[[package]]
 name = "svgtypes"
 version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
