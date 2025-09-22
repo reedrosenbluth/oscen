@@ -87,17 +87,10 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     let mut graph = Graph::new(sample_rate);
 
     let base_frequency = graph.add_node(Value::new(440.0));
-    let base_freq_input = graph
-        .insert_value_input(base_frequency.input(), 440.0)
-        .expect("Failed to insert base frequency input");
-
     let spread = graph.add_node(Value::new(0.0));
-    let spread_input = graph
-        .insert_value_input(spread.input(), 0.0)
-        .expect("Failed to insert spread input");
 
     let mut summed_osc_output: Option<OutputEndpoint> = None;
-    let osc_amplitude = 0.2 / NUM_OSCILLATORS as f32;
+    let osc_amplitude = 1.0 / NUM_OSCILLATORS as f32;
 
     for &offset_steps in DETUNE_OFFSETS.iter() {
         let detune = graph.add_node(DetuneFrequency::new(offset_steps));
@@ -115,7 +108,7 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     }
 
     let filter = graph.add_node(TptFilter::new(3000.0, 0.707));
-    let volume = graph.add_node(Value::new(0.8));
+    let volume = graph.add_node(Value::new(0.4));
 
     let summed_osc_output = summed_osc_output.expect("No oscillators were created");
 
@@ -123,6 +116,12 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
 
     let output = graph.combine(filter.output(), volume.output(), |x, v| x * v);
 
+    let base_freq_input = graph
+        .insert_value_input(base_frequency.input(), 440.0)
+        .expect("Failed to insert base frequency input");
+    let spread_input = graph
+        .insert_value_input(spread.input(), 0.0)
+        .expect("Failed to insert spread input");
     let cutoff_freq_input = graph
         .insert_value_input(filter.cutoff(), 3000.0)
         .expect("Failed to insert filter cutoff input");
@@ -130,7 +129,7 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
         .insert_value_input(filter.q(), 0.707)
         .expect("Failed to insert filter Q input");
     let volume_input = graph
-        .insert_value_input(volume.input(), 0.8)
+        .insert_value_input(volume.input(), 0.4)
         .expect("Failed to insert filter Q input");
 
     AudioContext {
