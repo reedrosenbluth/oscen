@@ -8,10 +8,11 @@ use slotmap::{SecondaryMap, SlotMap};
 
 use super::audio_input::AudioInput;
 use super::helpers::{BinaryFunctionNode, FunctionNode};
-use super::traits::{ProcessingNode, SignalProcessor};
+use super::traits::{PendingEvent, ProcessingContext, ProcessingNode, SignalProcessor};
 use super::types::{
-    Connection, ConnectionBuilder, EndpointType, InputEndpoint, NodeKey, OutputEndpoint, ValueKey,
-    MAX_CONNECTIONS_PER_OUTPUT, MAX_NODE_ENDPOINTS,
+    Connection, ConnectionBuilder, EndpointState, EndpointType, EventInstance, EventPayload,
+    InputEndpoint, NodeKey, OutputEndpoint, ValueData, ValueKey, MAX_CONNECTIONS_PER_OUTPUT,
+    MAX_NODE_ENDPOINTS,
 };
 
 pub struct NodeData {
@@ -44,7 +45,7 @@ impl Error for GraphError {}
 pub struct Graph {
     pub sample_rate: f32,
     pub nodes: SlotMap<NodeKey, NodeData>,
-    pub values: SlotMap<ValueKey, f32>,
+    pub endpoints: SlotMap<ValueKey, EndpointState>,
     pub connections: SecondaryMap<ValueKey, ArrayVec<ValueKey, MAX_CONNECTIONS_PER_OUTPUT>>,
     pub endpoint_types: SecondaryMap<ValueKey, EndpointType>,
     node_order: Vec<NodeKey>,
@@ -52,6 +53,8 @@ pub struct Graph {
     value_to_node: SecondaryMap<ValueKey, NodeKey>,
     active_ramps: Vec<ActiveRamp>,
     ramp_indices: SecondaryMap<ValueKey, usize>,
+    current_frame: u32,
+    pending_events: Vec<PendingEvent>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -67,7 +70,7 @@ impl Graph {
         Self {
             sample_rate,
             nodes: SlotMap::with_key(),
-            values: SlotMap::with_key(),
+            endpoints: SlotMap::with_key(),
             connections: SecondaryMap::new(),
             endpoint_types: SecondaryMap::new(),
             node_order: Vec::new(),
@@ -75,6 +78,8 @@ impl Graph {
             value_to_node: SecondaryMap::new(),
             active_ramps: Vec::new(),
             ramp_indices: SecondaryMap::new(),
+            current_frame: 0,
+            pending_events: Vec::new(),
         }
     }
 
@@ -86,15 +91,13 @@ impl Graph {
 
         let mut inputs = ArrayVec::<ValueKey, MAX_NODE_ENDPOINTS>::new();
         for endpoint_type in T::INPUT_TYPES.iter() {
-            let key = self.values.insert(0.0);
-            self.endpoint_types.insert(key, *endpoint_type);
+            let key = self.allocate_endpoint(*endpoint_type);
             inputs.push(key);
         }
 
         let mut outputs = ArrayVec::<ValueKey, MAX_NODE_ENDPOINTS>::new();
         for endpoint_type in T::OUTPUT_TYPES.iter() {
-            let key = self.values.insert(0.0);
-            self.endpoint_types.insert(key, *endpoint_type);
+            let key = self.allocate_endpoint(*endpoint_type);
             outputs.push(key);
         }
 
@@ -142,16 +145,23 @@ impl Graph {
         initial_value: f32,
     ) -> Option<ValueKey> {
         let key = input.key();
-        let value = self.values.get_mut(key)?;
         if let Some(existing) = self.endpoint_types.get(key) {
             if *existing != EndpointType::Value {
                 return None;
             }
         }
-        *value = initial_value;
-        self.endpoint_types.insert(key, EndpointType::Value);
-        self.remove_active_ramp(key);
-        Some(key)
+
+        let endpoint = self.endpoints.get_mut(key)?;
+        match endpoint {
+            EndpointState::Value(value) => {
+                value.set_scalar(initial_value);
+                self.endpoint_types.insert(key, EndpointType::Value);
+                self.remove_active_ramp(key);
+                Some(key)
+            }
+            //TODO: error here?
+            EndpointState::Stream(_) | EndpointState::Event(_) => None,
+        }
     }
 
     pub fn connect(&mut self, from: OutputEndpoint, to: InputEndpoint) {
@@ -176,13 +186,11 @@ impl Graph {
         let node = FunctionNode::new(f);
         let processor: Box<dyn SignalProcessor> = Box::new(node);
 
-        let input_key = self.values.insert(0.0);
-        self.endpoint_types.insert(input_key, EndpointType::Stream);
+        let input_key = self.allocate_endpoint(EndpointType::Stream);
         let mut input_keys = ArrayVec::new();
         input_keys.push(input_key);
 
-        let output_key = self.values.insert(0.0);
-        self.endpoint_types.insert(output_key, EndpointType::Stream);
+        let output_key = self.allocate_endpoint(EndpointType::Stream);
         let mut output_keys = ArrayVec::new();
         output_keys.push(output_key);
 
@@ -214,16 +222,13 @@ impl Graph {
         let node = BinaryFunctionNode::new(f);
         let processor: Box<dyn SignalProcessor> = Box::new(node);
 
-        let input_key1 = self.values.insert(0.0);
-        self.endpoint_types.insert(input_key1, EndpointType::Stream);
-        let input_key2 = self.values.insert(0.0);
-        self.endpoint_types.insert(input_key2, EndpointType::Stream);
+        let input_key1 = self.allocate_endpoint(EndpointType::Stream);
+        let input_key2 = self.allocate_endpoint(EndpointType::Stream);
         let mut input_keys = ArrayVec::new();
         input_keys.push(input_key1);
         input_keys.push(input_key2);
 
-        let output_key = self.values.insert(0.0);
-        self.endpoint_types.insert(output_key, EndpointType::Stream);
+        let output_key = self.allocate_endpoint(EndpointType::Stream);
         let mut output_keys = ArrayVec::new();
         output_keys.push(output_key);
 
@@ -257,10 +262,55 @@ impl Graph {
 
     pub fn set_value(&mut self, input: ValueKey, value: f32) {
         if matches!(self.endpoint_types.get(input), Some(EndpointType::Value)) {
-            if let Some(slot) = self.values.get_mut(input) {
-                *slot = value;
+            if let Some(state) = self.endpoints.get_mut(input) {
+                state.set_scalar(value);
             }
             self.remove_active_ramp(input);
+        }
+    }
+
+    pub fn queue_event(
+        &mut self,
+        input: InputEndpoint,
+        frame_offset: u32,
+        payload: EventPayload,
+    ) -> bool {
+        let key = input.key();
+
+        if !matches!(self.endpoint_types.get(key), Some(EndpointType::Event)) {
+            return false;
+        }
+
+        if let Some(state) = self.endpoints.get_mut(key) {
+            if let Some(event_state) = state.as_event_mut() {
+                return event_state.queue_mut().push(EventInstance {
+                    frame_offset,
+                    payload,
+                });
+            }
+        }
+
+        false
+    }
+
+    pub fn drain_events<F>(&mut self, output: OutputEndpoint, mut handler: F)
+    where
+        F: FnMut(&EventInstance),
+    {
+        let key = output.key();
+
+        if !matches!(self.endpoint_types.get(key), Some(EndpointType::Event)) {
+            return;
+        }
+
+        if let Some(state) = self.endpoints.get_mut(key) {
+            if let Some(event_state) = state.as_event_mut() {
+                let queue = event_state.queue_mut();
+                for event in queue.events() {
+                    handler(event);
+                }
+                queue.clear();
+            }
         }
     }
 
@@ -273,7 +323,11 @@ impl Graph {
             return;
         }
 
-        let current = *self.values.get(input).unwrap_or(&0.0);
+        let current = self
+            .endpoints
+            .get(input)
+            .and_then(EndpointState::as_scalar)
+            .unwrap_or(0.0);
         let step = (value - current) / (ramp_samples as f32);
 
         if let Some(&idx) = self.ramp_indices.get(input) {
@@ -295,7 +349,9 @@ impl Graph {
     }
 
     pub fn get_value(&self, endpoint: &OutputEndpoint) -> Option<f32> {
-        self.values.get(endpoint.key()).copied()
+        self.endpoints
+            .get(endpoint.key())
+            .and_then(EndpointState::as_scalar)
     }
 
     pub fn process(&mut self) -> Result<(), GraphError> {
@@ -305,15 +361,19 @@ impl Graph {
         while i < self.active_ramps.len() {
             let mut finished_key: Option<ValueKey> = None;
             if let Some(r) = self.active_ramps.get_mut(i) {
-                if let Some(slot) = self.values.get_mut(r.key) {
-                    *slot += r.step;
+                if let Some(state) = self.endpoints.get_mut(r.key) {
+                    if let Some(slot) = state.as_scalar_mut() {
+                        *slot += r.step;
+                    }
                 }
                 if r.remaining > 0 {
                     r.remaining -= 1;
                 }
                 if r.remaining == 0 {
-                    if let Some(slot) = self.values.get_mut(r.key) {
-                        *slot = r.target;
+                    if let Some(state) = self.endpoints.get_mut(r.key) {
+                        if let Some(slot) = state.as_scalar_mut() {
+                            *slot = r.target;
+                        }
                     }
                     finished_key = Some(r.key);
                 }
@@ -328,25 +388,145 @@ impl Graph {
 
         for &node_key in &self.node_order {
             if let Some(node) = self.nodes.get_mut(node_key) {
-                let mut input_values = ArrayVec::<f32, MAX_NODE_ENDPOINTS>::new();
+                let output = {
+                    let mut input_values = ArrayVec::<f32, MAX_NODE_ENDPOINTS>::new();
+                    let mut value_inputs =
+                        ArrayVec::<Option<&ValueData>, MAX_NODE_ENDPOINTS>::new();
+                    let mut event_inputs = ArrayVec::<&[EventInstance], MAX_NODE_ENDPOINTS>::new();
 
-                for &input_key in &node.inputs {
-                    input_values.push(self.values[input_key]);
-                }
+                    for &input_key in &node.inputs {
+                        let endpoint_type = self
+                            .endpoint_types
+                            .get(input_key)
+                            .copied()
+                            .unwrap_or(EndpointType::Stream);
 
-                let output = node.processor.process(self.sample_rate, &input_values);
+                        let endpoint_state = self.endpoints.get(input_key);
+
+                        match endpoint_type {
+                            EndpointType::Event => {
+                                let events = endpoint_state
+                                    .and_then(EndpointState::as_event)
+                                    .map(|state| state.queue().events())
+                                    .unwrap_or(&[]);
+
+                                event_inputs.push(events);
+                                input_values.push(0.0);
+                                value_inputs.push(None);
+                            }
+                            EndpointType::Stream => {
+                                let scalar = endpoint_state
+                                    .and_then(EndpointState::as_scalar)
+                                    .unwrap_or(0.0);
+
+                                input_values.push(scalar);
+                                event_inputs.push(&[]);
+                                value_inputs.push(None);
+                            }
+                            EndpointType::Value => {
+                                let (scalar, value_ref) = endpoint_state
+                                    .map(|state| {
+                                        let scalar = state.as_scalar().unwrap_or(0.0);
+                                        let value_ref = match state {
+                                            EndpointState::Value(data) => Some(data),
+                                            _ => None,
+                                        };
+                                        (scalar, value_ref)
+                                    })
+                                    .unwrap_or((0.0, None));
+
+                                input_values.push(scalar);
+                                event_inputs.push(&[]);
+                                value_inputs.push(value_ref);
+                            }
+                        }
+                    }
+
+                    self.pending_events.clear();
+
+                    let mut context = ProcessingContext::new(
+                        input_values.as_slice(),
+                        value_inputs.as_slice(),
+                        event_inputs.as_slice(),
+                        &mut self.pending_events,
+                    );
+
+                    let result = node
+                        .processor
+                        .process_with_context(self.sample_rate, &mut context);
+                    result
+                };
 
                 if let Some(&output_key) = node.outputs.first() {
-                    self.values[output_key] = output;
+                    if let Some(state) = self.endpoints.get_mut(output_key) {
+                        state.set_scalar(output);
+                    }
 
                     if let Some(connections) = self.connections.get(output_key) {
                         for &target_input in connections {
-                            self.values[target_input] = output;
+                            if let Some(target_state) = self.endpoints.get_mut(target_input) {
+                                target_state.set_scalar(output);
+                            }
+                        }
+                    }
+                }
+
+                if !self.pending_events.is_empty() {
+                    for pending in self.pending_events.iter() {
+                        if let Some(&event_output_key) = node.outputs.get(pending.output_index) {
+                            if !matches!(
+                                self.endpoint_types.get(event_output_key),
+                                Some(EndpointType::Event)
+                            ) {
+                                continue;
+                            }
+
+                            if let Some(state) = self.endpoints.get_mut(event_output_key) {
+                                if let Some(event_state) = state.as_event_mut() {
+                                    let _ = event_state.queue_mut().push(pending.event.clone());
+                                }
+                            }
+
+                            if let Some(targets) = self.connections.get(event_output_key) {
+                                for &target_input in targets {
+                                    if !matches!(
+                                        self.endpoint_types.get(target_input),
+                                        Some(EndpointType::Event)
+                                    ) {
+                                        continue;
+                                    }
+
+                                    if let Some(target_state) = self.endpoints.get_mut(target_input)
+                                    {
+                                        if let Some(event_state) = target_state.as_event_mut() {
+                                            let _ =
+                                                event_state.queue_mut().push(pending.event.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                self.pending_events.clear();
+
+                for &input_key in &node.inputs {
+                    if matches!(
+                        self.endpoint_types.get(input_key),
+                        Some(EndpointType::Event)
+                    ) {
+                        if let Some(state) = self.endpoints.get_mut(input_key) {
+                            if let Some(event_state) = state.as_event_mut() {
+                                event_state.queue_mut().clear();
+                            }
                         }
                     }
                 }
             }
         }
+
+        self.current_frame = self.current_frame.wrapping_add(1);
 
         Ok(())
     }
@@ -514,6 +694,19 @@ impl Graph {
         Ok(())
     }
 
+    fn allocate_endpoint(&mut self, endpoint_type: EndpointType) -> ValueKey {
+        let state = match endpoint_type {
+            EndpointType::Stream => EndpointState::stream(0.0),
+            EndpointType::Value => EndpointState::value(0.0),
+            EndpointType::Event => EndpointState::event(),
+        };
+
+        let key = self.endpoints.insert(state);
+        self.endpoint_types.insert(key, endpoint_type);
+
+        key
+    }
+
     fn remove_active_ramp(&mut self, key: ValueKey) {
         if let Some(&idx) = self.ramp_indices.get(key) {
             let removed = self.active_ramps.swap_remove(idx);
@@ -553,7 +746,11 @@ impl Graph {
                 .and_then(|node_data| node_data.outputs.first())
                 .copied()
             {
-                if let Some(&value) = self.values.get(output_key) {
+                if let Some(value) = self
+                    .endpoints
+                    .get(output_key)
+                    .and_then(EndpointState::as_scalar)
+                {
                     writer.write_sample(value)?;
                     writer.write_sample(value)?;
                 }

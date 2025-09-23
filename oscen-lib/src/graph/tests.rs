@@ -1,7 +1,12 @@
+use super::traits::ProcessingContext;
+use super::types::EventPayload;
 use super::*;
 use crate::delay::Delay;
 use crate::filters::tpt::TptFilter;
 use crate::oscillators::Oscillator;
+use arrayvec::ArrayVec;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 #[test]
 fn test_simple_chain_topology() {
@@ -103,4 +108,231 @@ fn test_audio_endpoints_are_streams() {
 
     assert!(graph.insert_value_input(filter.cutoff(), 2000.0).is_some());
     assert!(graph.insert_value_input(filter.input(), 0.0).is_none());
+}
+
+#[derive(Debug)]
+struct ContextProbeNode;
+
+#[derive(Copy, Clone)]
+struct ProbeEndpoints {
+    input: InputEndpoint,
+    output: OutputEndpoint,
+}
+
+impl ProbeEndpoints {
+    fn input(&self) -> InputEndpoint {
+        self.input
+    }
+
+    fn output(&self) -> OutputEndpoint {
+        self.output
+    }
+}
+
+impl ContextProbeNode {
+    fn new() -> Self {
+        Self
+    }
+}
+
+impl SignalProcessor for ContextProbeNode {
+    fn process(&mut self, _: f32, _: &[f32]) -> f32 {
+        panic!("legacy process path should not be used for context-aware nodes");
+    }
+
+    fn process_with_context<'a>(
+        &mut self,
+        _sample_rate: f32,
+        context: &mut ProcessingContext<'a>,
+    ) -> f32 {
+        let value_ref = context
+            .value(0)
+            .expect("value input should provide ValueRef");
+        value_ref.as_scalar().unwrap_or(0.0)
+    }
+}
+
+impl ProcessingNode for ContextProbeNode {
+    type Endpoints = ProbeEndpoints;
+
+    const INPUT_TYPES: &'static [EndpointType] = &[EndpointType::Value];
+    const OUTPUT_TYPES: &'static [EndpointType] = &[EndpointType::Stream];
+
+    fn create_endpoints(
+        _node_key: NodeKey,
+        inputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
+        outputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
+    ) -> Self::Endpoints {
+        let input_key = inputs[0];
+        let output_key = outputs[0];
+        ProbeEndpoints {
+            input: InputEndpoint::new(input_key),
+            output: OutputEndpoint::new(output_key),
+        }
+    }
+}
+
+#[test]
+fn test_processing_context_invocation() {
+    let mut graph = Graph::new(44100.0);
+
+    let endpoints = graph.add_node(ContextProbeNode::new());
+    graph
+        .insert_value_input(endpoints.input(), 0.75)
+        .expect("value endpoint");
+
+    graph.process().expect("graph processes successfully");
+
+    let output = graph
+        .get_value(&endpoints.output())
+        .expect("output value available");
+    assert!((output - 0.75).abs() < f32::EPSILON);
+}
+
+#[derive(Debug)]
+struct EventEmitterNode;
+
+#[derive(Copy, Clone)]
+struct EventEmitterEndpoints {
+    output: OutputEndpoint,
+}
+
+impl EventEmitterEndpoints {
+    fn output(&self) -> OutputEndpoint {
+        self.output
+    }
+}
+
+impl SignalProcessor for EventEmitterNode {
+    fn process(&mut self, _: f32, _: &[f32]) -> f32 {
+        0.0
+    }
+
+    fn process_with_context<'a>(
+        &mut self,
+        _sample_rate: f32,
+        context: &mut ProcessingContext<'a>,
+    ) -> f32 {
+        context.emit_scalar_event(0, 0, 1.25);
+        0.0
+    }
+}
+
+impl ProcessingNode for EventEmitterNode {
+    type Endpoints = EventEmitterEndpoints;
+
+    const INPUT_TYPES: &'static [EndpointType] = &[];
+    const OUTPUT_TYPES: &'static [EndpointType] = &[EndpointType::Event];
+
+    fn create_endpoints(
+        _node_key: NodeKey,
+        _inputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
+        outputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
+    ) -> Self::Endpoints {
+        let output_key = outputs[0];
+        EventEmitterEndpoints {
+            output: OutputEndpoint::new(output_key),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct EventSinkNode {
+    counter: Arc<AtomicUsize>,
+}
+
+#[derive(Copy, Clone)]
+struct EventSinkEndpoints {
+    input: InputEndpoint,
+}
+
+impl EventSinkEndpoints {
+    fn input(&self) -> InputEndpoint {
+        self.input
+    }
+}
+
+impl EventSinkNode {
+    fn new(counter: Arc<AtomicUsize>) -> Self {
+        Self { counter }
+    }
+}
+
+impl SignalProcessor for EventSinkNode {
+    fn process(&mut self, _: f32, _: &[f32]) -> f32 {
+        0.0
+    }
+
+    fn process_with_context<'a>(
+        &mut self,
+        _sample_rate: f32,
+        context: &mut ProcessingContext<'a>,
+    ) -> f32 {
+        let events = context.events(0);
+        self.counter.store(events.len(), Ordering::SeqCst);
+        0.0
+    }
+}
+
+impl ProcessingNode for EventSinkNode {
+    type Endpoints = EventSinkEndpoints;
+
+    const INPUT_TYPES: &'static [EndpointType] = &[EndpointType::Event];
+    const OUTPUT_TYPES: &'static [EndpointType] = &[];
+
+    fn create_endpoints(
+        _node_key: NodeKey,
+        inputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
+        _outputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
+    ) -> Self::Endpoints {
+        let input_key = inputs[0];
+        EventSinkEndpoints {
+            input: InputEndpoint::new(input_key),
+        }
+    }
+}
+
+#[test]
+fn test_event_emission_and_drain() {
+    let mut graph = Graph::new(44100.0);
+
+    let emitter_endpoints = graph.add_node(EventEmitterNode);
+    let sink_counter = Arc::new(AtomicUsize::new(0));
+    let sink_endpoints = graph.add_node(EventSinkNode::new(sink_counter.clone()));
+
+    graph.connect(emitter_endpoints.output(), sink_endpoints.input());
+
+    graph.process().expect("graph processes successfully");
+
+    let mut drained = Vec::new();
+    graph.drain_events(emitter_endpoints.output(), |event| {
+        drained.push(event.payload.as_scalar().unwrap_or(0.0));
+    });
+
+    assert_eq!(drained.len(), 1);
+    assert!((drained[0] - 1.25).abs() < f32::EPSILON);
+    assert_eq!(sink_counter.load(Ordering::SeqCst), 1);
+
+    drained.clear();
+    graph.drain_events(emitter_endpoints.output(), |event| {
+        drained.push(event.payload.as_scalar().unwrap_or(0.0));
+    });
+    assert!(drained.is_empty());
+}
+
+#[test]
+fn test_queue_event_host_to_node() {
+    let mut graph = Graph::new(44100.0);
+
+    let sink_counter = Arc::new(AtomicUsize::new(0));
+    let sink_endpoints = graph.add_node(EventSinkNode::new(sink_counter.clone()));
+
+    let queued = graph.queue_event(sink_endpoints.input(), 0, EventPayload::scalar(3.5));
+    assert!(queued);
+
+    graph.process().expect("graph processes successfully");
+    assert_eq!(sink_counter.load(Ordering::SeqCst), 1);
+
+    graph.process().expect("graph processes successfully");
+    assert_eq!(sink_counter.load(Ordering::SeqCst), 0);
 }
