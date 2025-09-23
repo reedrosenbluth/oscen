@@ -5,7 +5,7 @@ use eframe::egui;
 //     ProcessingNode, SignalProcessor, ValueKey,
 // };
 use oscen::graph::*;
-use oscen::Node;
+use oscen::{Node, ProcessingContext, SignalProcessor};
 use std::f32::consts::PI;
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
@@ -46,10 +46,10 @@ impl SVSine {
 }
 
 impl SignalProcessor for SVSine {
-    fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
-        // Get frequency from input or use default
-        let frequency = if !inputs.is_empty() && inputs[0] != 0.0 {
-            inputs[0]
+    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+        let freq_input = self.get_frequency(context);
+        let frequency = if freq_input != 0.0 {
+            freq_input
         } else {
             self.frequency
         };

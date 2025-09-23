@@ -1,4 +1,4 @@
-use super::traits::SignalProcessor;
+use super::traits::{ProcessingContext, SignalProcessor};
 use super::{EndpointType, InputEndpoint, NodeKey, OutputEndpoint, ProcessingNode, ValueKey};
 use crate::Node;
 
@@ -27,8 +27,8 @@ impl Default for AudioInput {
 }
 
 impl SignalProcessor for AudioInput {
-    fn process(&mut self, _sample_rate: f32, inputs: &[f32]) -> f32 {
-        let input_val = if !inputs.is_empty() { inputs[0] } else { 0.0 };
+    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+        let input_val = self.get_input_value(context);
         self.output = input_val;
         self.output
     }

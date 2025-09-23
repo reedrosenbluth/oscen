@@ -14,7 +14,9 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut output_fields = Vec::new();
     let mut input_types = Vec::new();
     let mut output_types = Vec::new();
-    let mut input_getters = Vec::new();
+    let mut input_scalar_getters = Vec::new();
+    let mut input_value_ref_getters = Vec::new();
+    let mut input_event_getters = Vec::new();
     let mut input_idents = Vec::new();
     let mut output_idents = Vec::new();
 
@@ -27,16 +29,18 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             for field in fields.named {
                 let field_name = field.ident.unwrap();
                 let mut input_type = None;
+                let mut input_type_kind = None;
                 let mut output_type = None;
 
                 for attr in field.attrs.iter() {
                     if attr.path().is_ident("input") {
-                        let ty = parse_endpoint_type(attr)
-                            .unwrap_or_else(|| quote! { EndpointType::Value });
+                        let kind = parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
+                        let ty = endpoint_type_tokens(kind);
                         input_type = Some(ty);
+                        input_type_kind = Some(kind);
                     } else if attr.path().is_ident("output") {
-                        let ty = parse_endpoint_type(attr)
-                            .unwrap_or_else(|| quote! { EndpointType::Value });
+                        let kind = parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
+                        let ty = endpoint_type_tokens(kind);
                         output_type = Some(ty);
                     }
                 }
@@ -48,15 +52,44 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         }
                     });
 
-                    let getter_name = format_ident!("get_{}", field_name);
-                    input_getters.push(quote! {
-                        pub fn #getter_name(&self, inputs: &[f32]) -> f32 {
-                            inputs[#input_idx]
-                        }
-                    });
-
                     input_types.push(endpoint_ty.clone());
                     input_idents.push(field_name.clone());
+
+                    if let Some(kind) = input_type_kind {
+                        let read_name = format_ident!("get_{}", field_name);
+                        match kind {
+                            EndpointTypeAttr::Stream => {
+                                input_scalar_getters.push(quote! {
+                                    pub fn #read_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> f32 {
+                                        context.stream(#input_idx)
+                                    }
+                                });
+                            }
+                            EndpointTypeAttr::Value => {
+                                input_scalar_getters.push(quote! {
+                                    pub fn #read_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> f32 {
+                                        context.value_scalar(#input_idx)
+                                    }
+                                });
+
+                                let value_ref_name = format_ident!("value_ref_{}", field_name);
+                                input_value_ref_getters.push(quote! {
+                                    pub fn #value_ref_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> Option<::oscen::graph::ValueRef<'a>> {
+                                        context.value(#input_idx)
+                                    }
+                                });
+                            }
+                            EndpointTypeAttr::Event => {
+                                let events_name = format_ident!("events_{}", field_name);
+                                input_event_getters.push(quote! {
+                                    pub fn #events_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> &[::oscen::graph::EventInstance] {
+                                        context.events(#input_idx)
+                                    }
+                                });
+                            }
+                        }
+                    }
+
                     input_idx += 1;
                 }
 
@@ -93,7 +126,9 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         }
 
         impl #name {
-            #(#input_getters)*
+            #(#input_scalar_getters)*
+            #(#input_value_ref_getters)*
+            #(#input_event_getters)*
 
             #[allow(dead_code)]
             fn __oscen_suppress_unused(&self) {
@@ -126,16 +161,19 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-fn parse_endpoint_type(attr: &syn::Attribute) -> Option<TokenStream2> {
-    attr.parse_args::<EndpointTypeAttr>()
-        .ok()
-        .map(|attr| match attr {
-            EndpointTypeAttr::Stream => quote! { EndpointType::Stream },
-            EndpointTypeAttr::Value => quote! { EndpointType::Value },
-            EndpointTypeAttr::Event => quote! { EndpointType::Event },
-        })
+fn parse_endpoint_attr(attr: &syn::Attribute) -> Option<EndpointTypeAttr> {
+    attr.parse_args::<EndpointTypeAttr>().ok()
 }
 
+fn endpoint_type_tokens(attr: EndpointTypeAttr) -> TokenStream2 {
+    match attr {
+        EndpointTypeAttr::Stream => quote! { EndpointType::Stream },
+        EndpointTypeAttr::Value => quote! { EndpointType::Value },
+        EndpointTypeAttr::Event => quote! { EndpointType::Event },
+    }
+}
+
+#[derive(Clone, Copy)]
 enum EndpointTypeAttr {
     Stream,
     Value,

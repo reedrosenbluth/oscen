@@ -102,23 +102,11 @@ impl<'a> ProcessingContext<'a> {
     pub fn emit_scalar_event(&mut self, output_index: usize, frame_offset: u32, payload: f32) {
         self.emit_timed_event(output_index, frame_offset, EventPayload::scalar(payload));
     }
-
-    pub fn legacy_inputs(&self) -> &[f32] {
-        self.scalar_inputs
-    }
 }
 
 pub trait SignalProcessor: Send + std::fmt::Debug {
     fn init(&mut self, _sample_rate: f32) {}
-    fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32;
-
-    fn process_with_context<'a>(
-        &mut self,
-        sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) -> f32 {
-        self.process(sample_rate, context.legacy_inputs())
-    }
+    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32;
 
     fn allows_feedback(&self) -> bool {
         false

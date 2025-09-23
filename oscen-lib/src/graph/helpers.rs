@@ -1,6 +1,6 @@
 use arrayvec::ArrayVec;
 
-use super::traits::{ProcessingNode, SignalProcessor};
+use super::traits::{ProcessingContext, ProcessingNode, SignalProcessor};
 use super::types::{EndpointType, NodeKey, ValueKey, MAX_NODE_ENDPOINTS};
 
 #[derive(Debug)]
@@ -15,8 +15,8 @@ impl FunctionNode {
 }
 
 impl SignalProcessor for FunctionNode {
-    fn process(&mut self, _sample_rate: f32, inputs: &[f32]) -> f32 {
-        (self.f)(inputs[0])
+    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+        (self.f)(context.stream(0))
     }
 }
 
@@ -47,8 +47,8 @@ impl BinaryFunctionNode {
 }
 
 impl SignalProcessor for BinaryFunctionNode {
-    fn process(&mut self, _sample_rate: f32, inputs: &[f32]) -> f32 {
-        (self.f)(inputs[0], inputs[1])
+    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+        (self.f)(context.stream(0), context.stream(1))
     }
 }
 

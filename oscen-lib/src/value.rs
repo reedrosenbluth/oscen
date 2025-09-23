@@ -1,5 +1,6 @@
 use crate::graph::{
-    EndpointType, InputEndpoint, NodeKey, OutputEndpoint, ProcessingNode, SignalProcessor, ValueKey,
+    EndpointType, InputEndpoint, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
+    SignalProcessor, ValueKey,
 };
 use oscen_macros::Node;
 
@@ -24,9 +25,8 @@ impl Value {
 }
 
 impl SignalProcessor for Value {
-    fn process(&mut self, _sample_rate: f32, inputs: &[f32]) -> f32 {
-        // Simply pass through the input value
-        self.output = self.get_input(inputs);
+    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+        self.output = self.get_input(context);
         self.output
     }
 }

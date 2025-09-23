@@ -1,5 +1,6 @@
 use crate::graph::{
-    EndpointType, InputEndpoint, NodeKey, OutputEndpoint, ProcessingNode, SignalProcessor, ValueKey,
+    EndpointType, InputEndpoint, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
+    SignalProcessor, ValueKey,
 };
 use crate::ring_buffer::RingBuffer;
 use oscen_macros::Node;
@@ -42,6 +43,27 @@ impl Delay {
             frame_counter: 0,
         }
     }
+
+    fn apply_parameter_updates(&mut self, delay_time: f32, feedback: f32) {
+        if self.frame_counter == 0 {
+            self.delay_time = delay_time.clamp(0.0, 2.0);
+            self.feedback = feedback.clamp(0.0, 0.99);
+        }
+
+        self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
+    }
+
+    fn process_sample(&mut self, sample_rate: f32, input: f32) -> f32 {
+        let delay_samples = self.delay_time * sample_rate;
+        let max_delay = self.buffer.capacity() as f32 - 1.0;
+        let clamped_delay = delay_samples.min(max_delay).max(0.0);
+
+        let delayed = self.buffer.get(clamped_delay);
+        self.buffer.push(input + delayed * self.feedback);
+
+        self.output = delayed;
+        self.output
+    }
 }
 
 impl SignalProcessor for Delay {
@@ -63,34 +85,12 @@ impl SignalProcessor for Delay {
         true // Delay nodes can break feedback cycles
     }
 
-    fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
-        let input = self.get_input(inputs);
+    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+        let input = self.get_input(context);
+        let delay_time = self.get_delay_time(context);
+        let feedback = self.get_feedback(context);
 
-        if self.frame_counter == 0 {
-            let delay_time = self.get_delay_time(inputs).clamp(0.0, 2.0);
-            let feedback = self.get_feedback(inputs).clamp(0.0, 0.99);
-
-            // Update parameters
-            self.delay_time = delay_time;
-            self.feedback = feedback;
-        }
-
-        self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
-
-        // Calculate delay in samples
-        let delay_samples = self.delay_time * sample_rate;
-
-        // Ensure delay_samples doesn't exceed the buffer capacity
-        let max_delay = self.buffer.capacity() as f32 - 1.0;
-        let clamped_delay = delay_samples.min(max_delay).max(0.0);
-
-        // Read delayed sample using get() method
-        let delayed = self.buffer.get(clamped_delay);
-
-        // Write input + feedback to buffer using push() method
-        self.buffer.push(input + delayed * self.feedback);
-
-        self.output = delayed;
-        self.output
+        self.apply_parameter_updates(delay_time, feedback);
+        self.process_sample(sample_rate, input)
     }
 }

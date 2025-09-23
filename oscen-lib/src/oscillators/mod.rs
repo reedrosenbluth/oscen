@@ -1,6 +1,6 @@
 use crate::{
-    EndpointType, InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingNode, SignalProcessor,
-    ValueKey,
+    EndpointType, InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
+    SignalProcessor, ValueKey,
 };
 use std::f32::consts::{PI, TAU};
 
@@ -23,6 +23,31 @@ pub struct Oscillator {
 }
 
 impl Oscillator {
+    fn process_internal(
+        &mut self,
+        sample_rate: f32,
+        phase_mod: f32,
+        freq_offset: f32,
+        freq_mod: f32,
+        amp_mod: f32,
+    ) -> f32 {
+        let base_freq = if freq_offset == 0.0 {
+            self.frequency
+        } else {
+            freq_offset
+        };
+        let frequency = base_freq * (1.0 + freq_mod);
+        let amplitude = self.amplitude * (1.0 + amp_mod);
+
+        let modulated_phase = (self.phase + phase_mod) % 1.0;
+        self.output = (self.waveform)(modulated_phase) * amplitude;
+
+        self.phase += frequency / sample_rate;
+        self.phase %= 1.0;
+
+        self.output
+    }
+
     pub fn new(frequency: f32, amplitude: f32, waveform: fn(f32) -> f32) -> Self {
         Self {
             phase: 0.0,
@@ -63,28 +88,12 @@ impl Oscillator {
 }
 
 impl SignalProcessor for Oscillator {
-    fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
-        let phase_mod = self.get_phase(inputs);
-        let freq_mod = self.get_frequency_mod(inputs);
-        let freq_offset = self.get_frequency(inputs);
-        let amp_mod = self.get_amplitude(inputs);
-
-        // Use the initial frequency value when no input is connected
-        let base_freq = if freq_offset == 0.0 {
-            self.frequency
-        } else {
-            freq_offset
-        };
-        let frequency = base_freq * (1.0 + freq_mod);
-        let amplitude = self.amplitude * (1.0 + amp_mod);
-
-        let modulated_phase = (self.phase + phase_mod) % 1.0;
-        self.output = (self.waveform)(modulated_phase) * amplitude;
-
-        self.phase += frequency / sample_rate;
-        self.phase %= 1.0; // Keep phase between 0 and 1
-
-        self.output
+    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+        let phase_mod = self.get_phase(context);
+        let freq_mod = self.get_frequency_mod(context);
+        let freq_offset = self.get_frequency(context);
+        let amp_mod = self.get_amplitude(context);
+        self.process_internal(sample_rate, phase_mod, freq_offset, freq_mod, amp_mod)
     }
 }
 
@@ -180,16 +189,16 @@ impl PolyBlepOscillator {
     fn wrap_phase(phase: f32) -> f32 {
         phase.rem_euclid(1.0)
     }
-}
 
-impl SignalProcessor for PolyBlepOscillator {
-    fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
-        let phase_mod = self.get_phase(inputs);
-        let freq_mod = self.get_frequency_mod(inputs);
-        let freq_override = self.get_frequency(inputs);
-        let amp_mod = self.get_amplitude(inputs);
-        let pulse_mod = self.get_pulse_width(inputs);
-
+    fn process_internal(
+        &mut self,
+        sample_rate: f32,
+        phase_mod: f32,
+        freq_mod: f32,
+        freq_override: f32,
+        amp_mod: f32,
+        pulse_mod: f32,
+    ) -> f32 {
         let base_freq = if freq_override == 0.0 {
             self.frequency
         } else {
@@ -250,9 +259,30 @@ impl SignalProcessor for PolyBlepOscillator {
     }
 }
 
+impl SignalProcessor for PolyBlepOscillator {
+    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+        let phase_mod = self.get_phase(context);
+        let freq_mod = self.get_frequency_mod(context);
+        let freq_override = self.get_frequency(context);
+        let amp_mod = self.get_amplitude(context);
+        let pulse_mod = self.get_pulse_width(context);
+
+        self.process_internal(
+            sample_rate,
+            phase_mod,
+            freq_mod,
+            freq_override,
+            amp_mod,
+            pulse_mod,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{PolyBlepOscillator, PolyBlepWaveform, SignalProcessor};
+    use crate::graph::types::{EventInstance, ValueData};
+    use crate::graph::{PendingEvent, ProcessingContext};
 
     #[test]
     fn test_poly_blep_saw_stays_bounded() {
@@ -260,10 +290,25 @@ mod tests {
         let mut osc = PolyBlepOscillator::saw(440.0, 1.0);
         let mut min = f32::MAX;
         let mut max = f32::MIN;
-        let inputs = [0.0; 5];
+        let value_template: Vec<Option<ValueData>> = vec![
+            Some(ValueData::scalar(0.0)), // phase
+            Some(ValueData::scalar(0.0)), // frequency override
+            None,                         // frequency mod (stream)
+            Some(ValueData::scalar(0.0)), // amplitude mod
+            Some(ValueData::scalar(0.0)), // pulse width mod
+        ];
 
         for _ in 0..(sample_rate as usize / 10) {
-            let value = osc.process(sample_rate, &inputs);
+            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+            let value_storage = value_template.clone();
+            let value_refs: Vec<Option<&ValueData>> =
+                value_storage.iter().map(|opt| opt.as_ref()).collect();
+            let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
+            let mut pending = Vec::<PendingEvent>::new();
+            let mut context =
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
+
+            let value = osc.process(sample_rate, &mut context);
             min = min.min(value);
             max = max.max(value);
         }
@@ -278,11 +323,36 @@ mod tests {
     fn test_poly_blep_square_continuity() {
         let sample_rate = 48_000.0;
         let mut osc = PolyBlepOscillator::square(880.0, 0.8);
-        let inputs = [0.0; 5];
+        let value_template: Vec<Option<ValueData>> = vec![
+            Some(ValueData::scalar(0.0)),
+            Some(ValueData::scalar(0.0)),
+            None,
+            Some(ValueData::scalar(0.0)),
+            Some(ValueData::scalar(0.0)),
+        ];
 
-        let mut previous = osc.process(sample_rate, &inputs);
+        let mut previous = {
+            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+            let value_storage = value_template.clone();
+            let value_refs: Vec<Option<&ValueData>> =
+                value_storage.iter().map(|opt| opt.as_ref()).collect();
+            let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
+            let mut pending = Vec::<PendingEvent>::new();
+            let mut context =
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
+            osc.process(sample_rate, &mut context)
+        };
         for _ in 0..1024 {
-            let current = osc.process(sample_rate, &inputs);
+            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+            let value_storage = value_template.clone();
+            let value_refs: Vec<Option<&ValueData>> =
+                value_storage.iter().map(|opt| opt.as_ref()).collect();
+            let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
+            let mut pending = Vec::<PendingEvent>::new();
+            let mut context =
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
+
+            let current = osc.process(sample_rate, &mut context);
             let delta = (current - previous).abs();
             assert!(delta <= 1.6, "square produced discontinuity of {delta}");
             previous = current;
@@ -293,11 +363,25 @@ mod tests {
     fn test_poly_blep_triangle_shape() {
         let sample_rate = 48_000.0;
         let mut osc = PolyBlepOscillator::new(220.0, 1.0, PolyBlepWaveform::Triangle);
-        let inputs = [0.0; 5];
+        let value_template: Vec<Option<ValueData>> = vec![
+            Some(ValueData::scalar(0.0)),
+            Some(ValueData::scalar(0.0)),
+            None,
+            Some(ValueData::scalar(0.0)),
+            Some(ValueData::scalar(0.0)),
+        ];
 
         let mut samples = [0.0; 4];
         for i in 0..samples.len() {
-            samples[i] = osc.process(sample_rate, &inputs);
+            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+            let value_storage = value_template.clone();
+            let value_refs: Vec<Option<&ValueData>> =
+                value_storage.iter().map(|opt| opt.as_ref()).collect();
+            let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
+            let mut pending = Vec::<PendingEvent>::new();
+            let mut context =
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
+            samples[i] = osc.process(sample_rate, &mut context);
         }
 
         assert!(samples[0].abs() < 0.25);

@@ -1,6 +1,6 @@
 use crate::{
-    EndpointType, InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingNode, SignalProcessor,
-    ValueKey,
+    EndpointType, InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
+    SignalProcessor, ValueKey,
 };
 use std::f32::consts::PI;
 
@@ -62,27 +62,18 @@ impl TptFilter {
         self.r = inv_q;
         self.k = self.g + self.r;
     }
-}
 
-impl SignalProcessor for TptFilter {
-    fn init(&mut self, sample_rate: f32) {
-        self.update_coefficients(sample_rate);
-    }
-
-    fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
-        let input = self.get_input(inputs);
-
+    fn apply_parameter_updates(&mut self, sample_rate: f32, cutoff_in: f32, q_in: f32, f_mod: f32) {
         if self.frame_counter == 0 {
             let nyquist = sample_rate * 0.5 - f32::EPSILON;
             let max_cutoff = nyquist.min(20_000.0);
-            let cutoff_base = self.get_cutoff(inputs).clamp(20.0, max_cutoff);
-            let q = self.get_q(inputs).clamp(0.1, 10.0);
+            let cutoff_base = cutoff_in.clamp(20.0, max_cutoff);
+            let q = q_in.clamp(0.1, 10.0);
 
-            // Apply multiplicative modulation but clamp the factor so the result lives in [20 Hz, 20 kHz].
-            let f_mod = self.get_f_mod(inputs).clamp(-1.0, 1.0);
+            let modulation = f_mod.clamp(-1.0, 1.0);
             let min_factor = 20.0 / cutoff_base;
             let max_factor = max_cutoff / cutoff_base;
-            let factor = (1.0 + f_mod).clamp(min_factor, max_factor);
+            let factor = (1.0 + modulation).clamp(min_factor, max_factor);
             let cutoff = (cutoff_base * factor).clamp(20.0, max_cutoff);
 
             if cutoff != self.cutoff || q != self.q {
@@ -93,7 +84,9 @@ impl SignalProcessor for TptFilter {
         }
 
         self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
+    }
 
+    fn process_sample(&mut self, input: f32) -> f32 {
         let high = (input - self.k * self.z[0] - self.z[1]) * self.h;
         let band = self.g * high + self.z[0];
         let low = self.g * band + self.z[1];
@@ -106,9 +99,27 @@ impl SignalProcessor for TptFilter {
     }
 }
 
+impl SignalProcessor for TptFilter {
+    fn init(&mut self, sample_rate: f32) {
+        self.update_coefficients(sample_rate);
+    }
+
+    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+        let input = self.get_input(context);
+        let cutoff = self.get_cutoff(context);
+        let q = self.get_q(context);
+        let f_mod = self.get_f_mod(context);
+
+        self.apply_parameter_updates(sample_rate, cutoff, q, f_mod);
+        self.process_sample(input)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::types::{EventInstance, ValueData};
+    use crate::graph::{PendingEvent, ProcessingContext};
 
     const EPSILON: f32 = 1e-6;
 
@@ -154,7 +165,20 @@ mod tests {
 
         for n in 0..8 {
             let input = if n == 0 { 1.0 } else { 0.0 };
-            outputs.push(filter.process(sample_rate, &[input, cutoff, q, 0.0]));
+            let scalars = vec![input, cutoff, q, 0.0];
+            let value_storage = vec![
+                None,
+                Some(ValueData::scalar(cutoff)),
+                Some(ValueData::scalar(q)),
+                None,
+            ];
+            let value_refs: Vec<Option<&ValueData>> =
+                value_storage.iter().map(|opt| opt.as_ref()).collect();
+            let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
+            let mut pending = Vec::<PendingEvent>::new();
+            let mut context =
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
+            outputs.push(filter.process(sample_rate, &mut context));
         }
 
         let expected = [

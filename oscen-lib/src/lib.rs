@@ -1,3 +1,5 @@
+extern crate self as oscen;
+
 pub mod delay;
 pub mod filters;
 pub mod graph;

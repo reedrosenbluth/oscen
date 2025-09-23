@@ -451,9 +451,7 @@ impl Graph {
                         &mut self.pending_events,
                     );
 
-                    let result = node
-                        .processor
-                        .process_with_context(self.sample_rate, &mut context);
+                    let result = node.processor.process(self.sample_rate, &mut context);
                     result
                 };
 

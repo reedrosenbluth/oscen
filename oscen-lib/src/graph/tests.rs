@@ -136,15 +136,7 @@ impl ContextProbeNode {
 }
 
 impl SignalProcessor for ContextProbeNode {
-    fn process(&mut self, _: f32, _: &[f32]) -> f32 {
-        panic!("legacy process path should not be used for context-aware nodes");
-    }
-
-    fn process_with_context<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) -> f32 {
+    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
         let value_ref = context
             .value(0)
             .expect("value input should provide ValueRef");
@@ -204,15 +196,7 @@ impl EventEmitterEndpoints {
 }
 
 impl SignalProcessor for EventEmitterNode {
-    fn process(&mut self, _: f32, _: &[f32]) -> f32 {
-        0.0
-    }
-
-    fn process_with_context<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) -> f32 {
+    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
         context.emit_scalar_event(0, 0, 1.25);
         0.0
     }
@@ -259,15 +243,7 @@ impl EventSinkNode {
 }
 
 impl SignalProcessor for EventSinkNode {
-    fn process(&mut self, _: f32, _: &[f32]) -> f32 {
-        0.0
-    }
-
-    fn process_with_context<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) -> f32 {
+    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
         let events = context.events(0);
         self.counter.store(events.len(), Ordering::SeqCst);
         0.0

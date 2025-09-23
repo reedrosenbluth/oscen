@@ -1,6 +1,6 @@
 use oscen::{
-    EndpointType, InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingNode, SignalProcessor,
-    ValueKey,
+    EndpointType, InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
+    SignalProcessor, ValueKey,
 };
 use std::f32::consts::PI;
 
@@ -66,11 +66,11 @@ impl SignalProcessor for LP18Filter {
         self.update_resonance_coefficient();
     }
 
-    fn process(&mut self, sample_rate: f32, inputs: &[f32]) -> f32 {
-        let input = self.get_input(inputs);
-        let cutoff = self.get_cutoff(inputs);
-        let fmod = self.get_fmod(inputs);
-        let resonance = self.get_resonance(inputs);
+    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+        let input = self.get_input(context);
+        let cutoff = self.get_cutoff(context);
+        let fmod = self.get_fmod(context);
+        let resonance = self.get_resonance(context);
 
         let modulated_cutoff = cutoff + fmod;
 
