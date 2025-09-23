@@ -305,14 +305,8 @@ mod tests {
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
-            let mut context = ProcessingContext::new(
-                &scalars,
-                &value_refs,
-                &event_inputs,
-                &mut pending,
-                0,
-                1,
-            );
+            let mut context =
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending, 0, 1);
 
             let value = osc.process(sample_rate, &mut context);
             min = min.min(value);
@@ -344,14 +338,8 @@ mod tests {
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
-            let mut context = ProcessingContext::new(
-                &scalars,
-                &value_refs,
-                &event_inputs,
-                &mut pending,
-                0,
-                1,
-            );
+            let mut context =
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending, 0, 1);
             osc.process(sample_rate, &mut context)
         };
         for _ in 0..1024 {
@@ -361,14 +349,8 @@ mod tests {
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
-            let mut context = ProcessingContext::new(
-                &scalars,
-                &value_refs,
-                &event_inputs,
-                &mut pending,
-                0,
-                1,
-            );
+            let mut context =
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending, 0, 1);
 
             let current = osc.process(sample_rate, &mut context);
             let delta = (current - previous).abs();
@@ -397,14 +379,8 @@ mod tests {
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
-            let mut context = ProcessingContext::new(
-                &scalars,
-                &value_refs,
-                &event_inputs,
-                &mut pending,
-                0,
-                1,
-            );
+            let mut context =
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending, 0, 1);
             samples[i] = osc.process(sample_rate, &mut context);
         }
 
