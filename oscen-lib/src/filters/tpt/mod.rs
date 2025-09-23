@@ -176,8 +176,14 @@ mod tests {
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
-            let mut context =
-                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
+            let mut context = ProcessingContext::new(
+                &scalars,
+                &value_refs,
+                &event_inputs,
+                &mut pending,
+                0,
+                1,
+            );
             outputs.push(filter.process(sample_rate, &mut context));
         }
 

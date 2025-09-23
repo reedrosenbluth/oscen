@@ -40,6 +40,8 @@ pub struct ProcessingContext<'a> {
     value_inputs: &'a [Option<&'a ValueData>],
     event_inputs: &'a [&'a [EventInstance]],
     emitted_events: &'a mut Vec<PendingEvent>,
+    frame_index: usize,
+    block_length: usize,
 }
 
 impl<'a> ProcessingContext<'a> {
@@ -48,12 +50,16 @@ impl<'a> ProcessingContext<'a> {
         value_inputs: &'a [Option<&'a ValueData>],
         event_inputs: &'a [&'a [EventInstance]],
         emitted_events: &'a mut Vec<PendingEvent>,
+        frame_index: usize,
+        block_length: usize,
     ) -> Self {
         Self {
             scalar_inputs,
             value_inputs,
             event_inputs,
             emitted_events,
+            frame_index,
+            block_length,
         }
     }
 
@@ -101,6 +107,14 @@ impl<'a> ProcessingContext<'a> {
 
     pub fn emit_scalar_event(&mut self, output_index: usize, frame_offset: u32, payload: f32) {
         self.emit_timed_event(output_index, frame_offset, EventPayload::scalar(payload));
+    }
+
+    pub fn frame_index(&self) -> usize {
+        self.frame_index
+    }
+
+    pub fn block_length(&self) -> usize {
+        self.block_length
     }
 }
 

@@ -355,6 +355,21 @@ impl Graph {
     }
 
     pub fn process(&mut self) -> Result<(), GraphError> {
+        self.process_block(1)
+    }
+
+    pub fn process_block(&mut self, block_length: usize) -> Result<(), GraphError> {
+        for frame_index in 0..block_length {
+            self.process_single_sample(frame_index, block_length)?;
+        }
+        Ok(())
+    }
+
+    fn process_single_sample(
+        &mut self,
+        frame_index: usize,
+        block_length: usize,
+    ) -> Result<(), GraphError> {
         self.update_topology_if_needed()?;
 
         let mut i = 0;
@@ -449,6 +464,8 @@ impl Graph {
                         value_inputs.as_slice(),
                         event_inputs.as_slice(),
                         &mut self.pending_events,
+                        frame_index,
+                        block_length,
                     );
 
                     let result = node.processor.process(self.sample_rate, &mut context);
