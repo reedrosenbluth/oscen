@@ -212,15 +212,9 @@ pub struct EventInstance {
     pub payload: EventPayload,
 }
 
-#[derive(Clone, Debug)]
-pub struct ScheduledEvent {
-    pub timestamp: u64,
-    pub payload: EventPayload,
-}
-
 #[derive(Debug, Clone)]
 pub struct EventQueue {
-    events: Vec<ScheduledEvent>,
+    events: Vec<EventInstance>,
     max_events: usize,
 }
 
@@ -236,7 +230,7 @@ impl EventQueue {
         self.events.clear();
     }
 
-    pub fn push(&mut self, event: ScheduledEvent) -> bool {
+    pub fn push(&mut self, event: EventInstance) -> bool {
         if self.events.len() < self.max_events {
             self.events.push(event);
             true
@@ -245,15 +239,15 @@ impl EventQueue {
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &ScheduledEvent> {
+    pub fn iter(&self) -> impl Iterator<Item = &EventInstance> {
         self.events.iter()
     }
 
-    pub fn events(&self) -> &[ScheduledEvent] {
+    pub fn events(&self) -> &[EventInstance] {
         &self.events
     }
 
-    pub fn events_mut(&mut self) -> &mut Vec<ScheduledEvent> {
+    pub fn events_mut(&mut self) -> &mut Vec<EventInstance> {
         &mut self.events
     }
 

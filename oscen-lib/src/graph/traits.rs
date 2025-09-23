@@ -32,8 +32,7 @@ impl<'a> ValueRef<'a> {
 #[derive(Debug, Clone)]
 pub struct PendingEvent {
     pub output_index: usize,
-    pub frame_offset: u32,
-    pub payload: EventPayload,
+    pub event: EventInstance,
 }
 
 pub struct ProcessingContext<'a> {
@@ -87,8 +86,7 @@ impl<'a> ProcessingContext<'a> {
     pub fn emit_event(&mut self, output_index: usize, event: EventInstance) {
         self.emitted_events.push(PendingEvent {
             output_index,
-            frame_offset: event.frame_offset,
-            payload: event.payload,
+            event,
         });
     }
 

@@ -11,8 +11,8 @@ use super::helpers::{BinaryFunctionNode, FunctionNode};
 use super::traits::{PendingEvent, ProcessingContext, ProcessingNode, SignalProcessor};
 use super::types::{
     Connection, ConnectionBuilder, EndpointState, EndpointType, EventInstance, EventPayload,
-    InputEndpoint, NodeKey, OutputEndpoint, ScheduledEvent, ValueData, ValueKey,
-    MAX_CONNECTIONS_PER_OUTPUT, MAX_EVENTS, MAX_NODE_ENDPOINTS,
+    InputEndpoint, NodeKey, OutputEndpoint, ValueData, ValueKey, MAX_CONNECTIONS_PER_OUTPUT,
+    MAX_NODE_ENDPOINTS,
 };
 
 pub struct NodeData {
@@ -53,7 +53,7 @@ pub struct Graph {
     value_to_node: SecondaryMap<ValueKey, NodeKey>,
     active_ramps: Vec<ActiveRamp>,
     ramp_indices: SecondaryMap<ValueKey, usize>,
-    current_frame: u64,
+    current_frame: u32,
     pending_events: Vec<PendingEvent>,
 }
 
@@ -283,9 +283,8 @@ impl Graph {
 
         if let Some(state) = self.endpoints.get_mut(key) {
             if let Some(event_state) = state.as_event_mut() {
-                let target_timestamp = self.current_frame.saturating_add(frame_offset as u64);
-                return event_state.queue_mut().push(ScheduledEvent {
-                    timestamp: target_timestamp,
+                return event_state.queue_mut().push(EventInstance {
+                    frame_offset,
                     payload,
                 });
             }
@@ -296,7 +295,7 @@ impl Graph {
 
     pub fn drain_events<F>(&mut self, output: OutputEndpoint, mut handler: F)
     where
-        F: FnMut(u64, &EventPayload),
+        F: FnMut(&EventInstance),
     {
         let key = output.key();
 
@@ -307,10 +306,10 @@ impl Graph {
         if let Some(state) = self.endpoints.get_mut(key) {
             if let Some(event_state) = state.as_event_mut() {
                 let queue = event_state.queue_mut();
-                let mut drained = queue.events_mut().drain(..);
-                while let Some(event) = drained.next() {
-                    handler(event.timestamp, &event.payload);
+                for event in queue.events() {
+                    handler(event);
                 }
+                queue.clear();
             }
         }
     }
@@ -360,23 +359,18 @@ impl Graph {
     }
 
     pub fn process_block(&mut self, block_length: usize) -> Result<(), GraphError> {
-        let block_start_frame = self.current_frame;
         for frame_index in 0..block_length {
-            self.process_single_sample(block_start_frame, frame_index, block_length)?;
+            self.process_single_sample(frame_index, block_length)?;
         }
-        self.current_frame = block_start_frame.saturating_add(block_length as u64);
         Ok(())
     }
 
     fn process_single_sample(
         &mut self,
-        block_start_frame: u64,
         frame_index: usize,
         block_length: usize,
     ) -> Result<(), GraphError> {
         self.update_topology_if_needed()?;
-
-        let absolute_frame = block_start_frame + frame_index as u64;
 
         let mut i = 0;
         while i < self.active_ramps.len() {
@@ -411,10 +405,9 @@ impl Graph {
             if let Some(node) = self.nodes.get_mut(node_key) {
                 let output = {
                     let mut input_values = ArrayVec::<f32, MAX_NODE_ENDPOINTS>::new();
-                    let mut value_keys = ArrayVec::<Option<ValueKey>, MAX_NODE_ENDPOINTS>::new();
-                    let mut event_indices = ArrayVec::<Option<usize>, MAX_NODE_ENDPOINTS>::new();
-                    let mut event_scratch =
-                        ArrayVec::<ArrayVec<EventInstance, MAX_EVENTS>, MAX_NODE_ENDPOINTS>::new();
+                    let mut value_inputs =
+                        ArrayVec::<Option<&ValueData>, MAX_NODE_ENDPOINTS>::new();
+                    let mut event_inputs = ArrayVec::<&[EventInstance], MAX_NODE_ENDPOINTS>::new();
 
                     for &input_key in &node.inputs {
                         let endpoint_type = self
@@ -423,83 +416,44 @@ impl Graph {
                             .copied()
                             .unwrap_or(EndpointType::Stream);
 
+                        let endpoint_state = self.endpoints.get(input_key);
+
                         match endpoint_type {
                             EndpointType::Event => {
-                                let mut due_events = ArrayVec::<EventInstance, MAX_EVENTS>::new();
+                                let events = endpoint_state
+                                    .and_then(EndpointState::as_event)
+                                    .map(|state| state.queue().events())
+                                    .unwrap_or(&[]);
 
-                                if let Some(state) = self.endpoints.get_mut(input_key) {
-                                    if let Some(event_state) = state.as_event_mut() {
-                                        let events = event_state.queue_mut().events_mut();
-
-                                        let mut idx = 0;
-                                        while idx < events.len() {
-                                            if events[idx].timestamp <= absolute_frame {
-                                                let scheduled = events.remove(idx);
-                                                let relative = absolute_frame
-                                                    .saturating_sub(scheduled.timestamp)
-                                                    as u32;
-                                                due_events.push(EventInstance {
-                                                    frame_offset: relative,
-                                                    payload: scheduled.payload,
-                                                });
-                                            } else {
-                                                idx += 1;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                let scratch_index = event_scratch.len();
-                                event_scratch.push(due_events);
+                                event_inputs.push(events);
                                 input_values.push(0.0);
-                                value_keys.push(None);
-                                event_indices.push(Some(scratch_index));
+                                value_inputs.push(None);
                             }
                             EndpointType::Stream => {
-                                let scalar = self
-                                    .endpoints
-                                    .get(input_key)
+                                let scalar = endpoint_state
                                     .and_then(EndpointState::as_scalar)
                                     .unwrap_or(0.0);
 
                                 input_values.push(scalar);
-                                value_keys.push(None);
-                                event_indices.push(None);
+                                event_inputs.push(&[]);
+                                value_inputs.push(None);
                             }
                             EndpointType::Value => {
-                                let scalar = self
-                                    .endpoints
-                                    .get(input_key)
-                                    .and_then(EndpointState::as_scalar)
-                                    .unwrap_or(0.0);
+                                let (scalar, value_ref) = endpoint_state
+                                    .map(|state| {
+                                        let scalar = state.as_scalar().unwrap_or(0.0);
+                                        let value_ref = match state {
+                                            EndpointState::Value(data) => Some(data),
+                                            _ => None,
+                                        };
+                                        (scalar, value_ref)
+                                    })
+                                    .unwrap_or((0.0, None));
 
                                 input_values.push(scalar);
-                                value_keys.push(Some(input_key));
-                                event_indices.push(None);
+                                event_inputs.push(&[]);
+                                value_inputs.push(value_ref);
                             }
-                        }
-                    }
-
-                    let mut event_slices = ArrayVec::<&[EventInstance], MAX_NODE_ENDPOINTS>::new();
-                    for entry in event_indices.iter() {
-                        if let Some(idx) = entry {
-                            event_slices.push(event_scratch[*idx].as_slice());
-                        } else {
-                            event_slices.push(&[]);
-                        }
-                    }
-
-                    let mut value_refs = ArrayVec::<Option<&ValueData>, MAX_NODE_ENDPOINTS>::new();
-                    for entry in value_keys.iter() {
-                        if let Some(key) = entry {
-                            let reference =
-                                self.endpoints.get(*key).and_then(|state| match state {
-                                    EndpointState::Value(data) => Some(data),
-                                    _ => None,
-                                });
-                            value_refs.push(reference);
-                        } else {
-                            value_refs.push(None);
                         }
                     }
 
@@ -507,8 +461,8 @@ impl Graph {
 
                     let mut context = ProcessingContext::new(
                         input_values.as_slice(),
-                        value_refs.as_slice(),
-                        event_slices.as_slice(),
+                        value_inputs.as_slice(),
+                        event_inputs.as_slice(),
                         &mut self.pending_events,
                         frame_index,
                         block_length,
@@ -544,10 +498,7 @@ impl Graph {
 
                             if let Some(state) = self.endpoints.get_mut(event_output_key) {
                                 if let Some(event_state) = state.as_event_mut() {
-                                    let _ = event_state.queue_mut().push(ScheduledEvent {
-                                        timestamp: absolute_frame + pending.frame_offset as u64,
-                                        payload: pending.payload.clone(),
-                                    });
+                                    let _ = event_state.queue_mut().push(pending.event.clone());
                                 }
                             }
 
@@ -563,11 +514,8 @@ impl Graph {
                                     if let Some(target_state) = self.endpoints.get_mut(target_input)
                                     {
                                         if let Some(event_state) = target_state.as_event_mut() {
-                                            let _ = event_state.queue_mut().push(ScheduledEvent {
-                                                timestamp: absolute_frame
-                                                    + pending.frame_offset as u64,
-                                                payload: pending.payload.clone(),
-                                            });
+                                            let _ =
+                                                event_state.queue_mut().push(pending.event.clone());
                                         }
                                     }
                                 }
@@ -577,8 +525,23 @@ impl Graph {
                 }
 
                 self.pending_events.clear();
+
+                for &input_key in &node.inputs {
+                    if matches!(
+                        self.endpoint_types.get(input_key),
+                        Some(EndpointType::Event)
+                    ) {
+                        if let Some(state) = self.endpoints.get_mut(input_key) {
+                            if let Some(event_state) = state.as_event_mut() {
+                                event_state.queue_mut().clear();
+                            }
+                        }
+                    }
+                }
             }
         }
+
+        self.current_frame = self.current_frame.wrapping_add(1);
 
         Ok(())
     }

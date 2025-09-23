@@ -281,9 +281,8 @@ fn test_event_emission_and_drain() {
     graph.process().expect("graph processes successfully");
 
     let mut drained = Vec::new();
-    graph.drain_events(emitter_endpoints.output(), |timestamp, payload| {
-        assert_eq!(timestamp, 0);
-        drained.push(payload.as_scalar().unwrap_or(0.0));
+    graph.drain_events(emitter_endpoints.output(), |event| {
+        drained.push(event.payload.as_scalar().unwrap_or(0.0));
     });
 
     assert_eq!(drained.len(), 1);
@@ -291,9 +290,8 @@ fn test_event_emission_and_drain() {
     assert_eq!(sink_counter.load(Ordering::SeqCst), 1);
 
     drained.clear();
-    graph.drain_events(emitter_endpoints.output(), |timestamp, payload| {
-        drained.push(payload.as_scalar().unwrap_or(0.0));
-        assert_eq!(timestamp, 0);
+    graph.drain_events(emitter_endpoints.output(), |event| {
+        drained.push(event.payload.as_scalar().unwrap_or(0.0));
     });
     assert!(drained.is_empty());
 }
@@ -312,17 +310,5 @@ fn test_queue_event_host_to_node() {
     assert_eq!(sink_counter.load(Ordering::SeqCst), 1);
 
     graph.process().expect("graph processes successfully");
-    assert_eq!(sink_counter.load(Ordering::SeqCst), 0);
-
-    let queued_future = graph.queue_event(sink_endpoints.input(), 2, EventPayload::scalar(2.0));
-    assert!(queued_future);
-
-    graph.process_block(2).expect("first two frames processed");
-    assert_eq!(sink_counter.load(Ordering::SeqCst), 0);
-
-    graph.process_block(1).expect("deliver future event");
-    assert_eq!(sink_counter.load(Ordering::SeqCst), 1);
-
-    graph.process_block(1).expect("clear counter after event");
     assert_eq!(sink_counter.load(Ordering::SeqCst), 0);
 }
