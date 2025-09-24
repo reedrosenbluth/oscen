@@ -82,7 +82,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             EndpointTypeAttr::Event => {
                                 let events_name = format_ident!("events_{}", field_name);
                                 input_event_getters.push(quote! {
-                                    pub fn #events_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> &[::oscen::graph::EventInstance] {
+                                    pub fn #events_name<'a>(&self, context: &'a ::oscen::graph::ProcessingContext<'a>) -> &'a [::oscen::graph::EventInstance] {
                                         context.events(#input_idx)
                                     }
                                 });

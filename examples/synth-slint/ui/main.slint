@@ -252,17 +252,21 @@ export component SynthWindow inherits Window {
     title: "Oscen";
     background: #666666;
 
-    in-out property <float> carrier_frequency: 440.0;
-    in-out property <float> modulator_frequency: 100.0;
     in-out property <float> cutoff_frequency: 3000.0;
     in-out property <float> q_factor: 0.707;
     in-out property <float> volume: 0.8;
+    in-out property <float> attack: 0.01;
+    in-out property <float> decay: 0.1;
+    in-out property <float> sustain: 0.7;
+    in-out property <float> release: 0.2;
 
-    callback carrier_frequency_edited(float);
-    callback modulator_frequency_edited(float);
     callback cutoff_frequency_edited(float);
     callback q_factor_edited(float);
     callback volume_edited(float);
+    callback attack_edited(float);
+    callback decay_edited(float);
+    callback sustain_edited(float);
+    callback release_edited(float);
 
     root_layout := VerticalLayout {
         padding: 22px;
@@ -271,25 +275,6 @@ export component SynthWindow inherits Window {
         HorizontalLayout {
             spacing: 12px;
             alignment: start;
-
-            Panel {
-                horizontal-stretch: 1;
-                vertical-stretch: 0;
-                title: "Oscillator";
-
-                RotaryKnob {
-                    label: "Frequency";
-                    minimum: 10.0;
-                    maximum: 2000.0;
-                    step: 1.0;
-                    vertical-stretch: 0;
-                    value: root.carrier_frequency;
-                    value_edited(value) => {
-                        root.carrier_frequency = value;
-                        root.carrier_frequency_edited(value);
-                    }
-                }
-            }
 
             Panel {
                 horizontal-stretch: 1;
@@ -323,6 +308,66 @@ export component SynthWindow inherits Window {
                     value_edited(value) => {
                         root.q_factor = value;
                         root.q_factor_edited(value);
+                    }
+                }
+            }
+
+            Panel {
+                horizontal-stretch: 1;
+                vertical-stretch: 0;
+                title: "Envelope";
+                bg_brush: #629460;
+                border_brush: #96BE8C;
+                title_brush: #C9F2C7;
+
+                RotaryKnob {
+                    label: "Attack";
+                    minimum: 0.001;
+                    maximum: 1.0;
+                    step: 0.001;
+                    curve: KnobCurve.logarithmic;
+                    value: root.attack;
+                    value_edited(value) => {
+                        root.attack = value;
+                        root.attack_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "Decay";
+                    minimum: 0.001;
+                    maximum: 1.5;
+                    step: 0.001;
+                    curve: KnobCurve.logarithmic;
+                    value: root.decay;
+                    value_edited(value) => {
+                        root.decay = value;
+                        root.decay_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "Sustain";
+                    minimum: 0.0;
+                    maximum: 1.0;
+                    step: 0.01;
+                    value: root.sustain;
+                    value_edited(value) => {
+                        root.sustain = value;
+                        root.sustain_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "Release";
+                    minimum: 0.001;
+                    maximum: 2.0;
+                    step: 0.001;
+                    curve: KnobCurve.logarithmic;
+                    value: root.release;
+                    value_edited(value) => {
+                        root.release = value;
+                        root.release_edited(value);
                     }
                 }
             }

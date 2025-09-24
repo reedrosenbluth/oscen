@@ -1202,6 +1202,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "coremidi"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e871f9d188bba3d90cecf78222327ab5d73c4503bf5a5f82c3b520bacb865ff7"
+dependencies = [
+ "block",
+ "core-foundation 0.9.4",
+ "core-foundation-sys",
+ "coremidi-sys",
+]
+
+[[package]]
+name = "coremidi-sys"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc9504310988d938e49fff1b5f1e56e3dafe39bb1bae580c19660b58b83a191e"
+dependencies = [
+ "core-foundation-sys",
+]
+
+[[package]]
 name = "countme"
 version = "3.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4095,6 +4116,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oscen-midi-synth"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "coremidi",
+ "cpal",
+ "oscen",
+]
+
+[[package]]
 name = "owned_ttf_parser"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4252,6 +4283,19 @@ dependencies = [
  "rustix 0.38.44",
  "tracing",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "polyphonic"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrayvec",
+ "coremidi",
+ "cpal",
+ "oscen",
+ "slint",
+ "slint-build",
 ]
 
 [[package]]
@@ -5249,6 +5293,8 @@ dependencies = [
 name = "synth-slint"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "coremidi",
  "cpal",
  "oscen",
  "slint",

@@ -1,6 +1,7 @@
 extern crate self as oscen;
 
 pub mod delay;
+pub mod envelope;
 pub mod filters;
 pub mod graph;
 pub mod oscillators;
@@ -8,6 +9,7 @@ pub mod ring_buffer;
 pub mod value;
 
 pub use delay::Delay;
+pub use envelope::AdsrEnvelope;
 pub use filters::tpt::TptFilter;
 pub use graph::*;
 pub use oscen_macros::Node;

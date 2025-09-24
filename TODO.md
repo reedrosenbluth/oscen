@@ -11,5 +11,6 @@
 ### Big todos
 - blocks
 - investigate Graph implementing SignalProcessor
+  - graph flattening
 - windowed sinc interpolation for buffer
 - events
