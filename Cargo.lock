@@ -4116,16 +4116,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oscen-midi-synth"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "coremidi",
- "cpal",
- "oscen",
-]
-
-[[package]]
 name = "owned_ttf_parser"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4283,19 +4273,6 @@ dependencies = [
  "rustix 0.38.44",
  "tracing",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "polyphonic"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrayvec",
- "coremidi",
- "cpal",
- "oscen",
- "slint",
- "slint-build",
 ]
 
 [[package]]

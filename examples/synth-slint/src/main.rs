@@ -136,10 +136,10 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     graph.connect(osc.output(), filter.input());
     graph.connect(envelope.output(), filter.f_mod());
 
-    let filtered = filter.output();
-    let shaped = graph.multiply(filtered, envelope.output());
-    let output = graph.multiply(shaped, gain.output());
+    let enveloped = graph.multiply(filter.output(), envelope.output());
+    let output = graph.multiply(enveloped, gain.output());
 
+    //TODO: can this code be taken care of by graph.add_node?
     let osc_freq_input = graph
         .insert_value_input(osc.frequency(), 440.0)
         .expect("oscillator frequency endpoint");

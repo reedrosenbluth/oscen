@@ -63,6 +63,7 @@ impl TptFilter {
         self.k = self.g + self.r;
     }
 
+    //TODO: why do we need this function?
     fn apply_parameter_updates(&mut self, sample_rate: f32, cutoff_in: f32, q_in: f32, f_mod: f32) {
         if self.frame_counter == 0 {
             let nyquist = sample_rate * 0.5 - f32::EPSILON;

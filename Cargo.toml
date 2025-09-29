@@ -5,9 +5,7 @@ members = [
     "examples/nih-twin-peaks",
     "examples/simple-echo",
     "examples/supersaw",
-    "examples/midi-synth",
     "examples/synth-slint",
-    "examples/polyphonic",
     "oscen-lib",
     "oscen-macros",
     "xtask"
