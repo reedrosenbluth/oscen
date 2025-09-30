@@ -306,7 +306,12 @@ mod tests {
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending, 0, 1);
+                ProcessingContext::new(
+                    &scalars,
+                    &value_refs,
+                    &event_inputs,
+                    &mut pending,
+                );
 
             let value = osc.process(sample_rate, &mut context);
             min = min.min(value);
@@ -339,7 +344,12 @@ mod tests {
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending, 0, 1);
+                ProcessingContext::new(
+                    &scalars,
+                    &value_refs,
+                    &event_inputs,
+                    &mut pending,
+                );
             osc.process(sample_rate, &mut context)
         };
         for _ in 0..1024 {
@@ -350,7 +360,12 @@ mod tests {
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending, 0, 1);
+                ProcessingContext::new(
+                    &scalars,
+                    &value_refs,
+                    &event_inputs,
+                    &mut pending,
+                );
 
             let current = osc.process(sample_rate, &mut context);
             let delta = (current - previous).abs();
@@ -380,7 +395,12 @@ mod tests {
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending, 0, 1);
+                ProcessingContext::new(
+                    &scalars,
+                    &value_refs,
+                    &event_inputs,
+                    &mut pending,
+                );
             samples[i] = osc.process(sample_rate, &mut context);
         }
 

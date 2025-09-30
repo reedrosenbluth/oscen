@@ -302,7 +302,9 @@ mod tests {
             .expect("release input available");
 
         graph.queue_event(env.gate(), 0, EventPayload::scalar(1.0));
-        graph.process_block(4_800).expect("graph processes"); // 100 ms
+        for _ in 0..4_800 {
+            graph.process().expect("graph processes");
+        } // 100 ms
 
         let value = graph.get_value(&env.output()).unwrap();
         assert!(
@@ -331,13 +333,13 @@ mod tests {
             .expect("release input available");
 
         graph.queue_event(env.gate(), 0, EventPayload::scalar(1.0));
-        graph
-            .process_block(100)
-            .expect("graph processes on note on");
+        for _ in 0..100 {
+            graph.process().expect("graph processes on note on");
+        }
         graph.queue_event(env.gate(), 0, EventPayload::scalar(0.0));
-        graph
-            .process_block(4_800)
-            .expect("graph processes on release");
+        for _ in 0..4_800 {
+            graph.process().expect("graph processes on release");
+        }
 
         let value = graph.get_value(&env.output()).unwrap();
         assert!(value <= 0.01, "value {} not near zero", value);
@@ -362,7 +364,9 @@ mod tests {
             .expect("release input available");
 
         graph.queue_event(env.gate(), 0, EventPayload::scalar(0.5));
-        graph.process_block(100).expect("graph processes");
+        for _ in 0..100 {
+            graph.process().expect("graph processes");
+        }
 
         let value = graph.get_value(&env.output()).unwrap();
         assert!(

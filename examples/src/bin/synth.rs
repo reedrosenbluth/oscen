@@ -63,7 +63,7 @@ fn audio_callback(
     }
 
     for frame in data.chunks_mut(context.channels) {
-        context.graph.process();
+        let _ = context.graph.process();
 
         if let Some(value) = context.graph.get_value(&context.output) {
             for sample in frame.iter_mut() {

@@ -263,7 +263,7 @@ impl Plugin for TwinPeaks {
                     .set_value(audio_context.input_endpoint, input_sample);
 
                 // Process the graph
-                audio_context.graph.process();
+                let _ = audio_context.graph.process();
 
                 // Write output to all channels
                 if let Some(output_value) = audio_context.graph.get_value(&audio_context.output) {
