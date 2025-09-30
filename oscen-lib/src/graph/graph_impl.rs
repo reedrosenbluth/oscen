@@ -355,10 +355,6 @@ impl Graph {
     }
 
     pub fn process(&mut self) -> Result<(), GraphError> {
-        self.process_single_sample()
-    }
-
-    fn process_single_sample(&mut self) -> Result<(), GraphError> {
         self.update_topology_if_needed()?;
 
         let mut i = 0;
