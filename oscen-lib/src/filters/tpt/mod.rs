@@ -1,5 +1,5 @@
 use crate::{
-    EndpointType, InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
+    InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
     SignalProcessor, ValueKey,
 };
 use std::f32::consts::PI;
@@ -177,12 +177,8 @@ mod tests {
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
-            let mut context = ProcessingContext::new(
-                &scalars,
-                &value_refs,
-                &event_inputs,
-                &mut pending,
-            );
+            let mut context =
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
             outputs.push(filter.process(sample_rate, &mut context));
         }
 

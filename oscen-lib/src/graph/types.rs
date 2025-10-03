@@ -19,6 +19,40 @@ pub enum EndpointType {
     Event,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum EndpointDirection {
+    Input,
+    Output,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct EndpointAnnotations {
+    // Placeholder for future UI/validation metadata.
+}
+
+#[derive(Clone, Debug)]
+pub struct EndpointDescriptor {
+    pub name: &'static str,
+    pub endpoint_type: EndpointType,
+    pub direction: EndpointDirection,
+    pub annotations: EndpointAnnotations,
+}
+
+impl EndpointDescriptor {
+    pub const fn new(
+        name: &'static str,
+        endpoint_type: EndpointType,
+        direction: EndpointDirection,
+    ) -> Self {
+        Self {
+            name,
+            endpoint_type,
+            direction,
+            annotations: EndpointAnnotations {},
+        }
+    }
+}
+
 pub trait ValueObject: Send + Sync + 'static + fmt::Debug {}
 
 impl<T> ValueObject for T where T: Send + Sync + 'static + fmt::Debug {}
@@ -272,6 +306,135 @@ impl InputEndpoint {
 }
 
 #[derive(Copy, Clone, Debug)]
+pub struct ValueInputHandle {
+    endpoint: InputEndpoint,
+}
+
+impl ValueInputHandle {
+    pub fn new(endpoint: InputEndpoint) -> Self {
+        Self { endpoint }
+    }
+
+    pub fn endpoint(&self) -> InputEndpoint {
+        self.endpoint
+    }
+
+    pub fn key(&self) -> ValueKey {
+        self.endpoint.key()
+    }
+}
+
+impl From<ValueInputHandle> for ValueKey {
+    fn from(handle: ValueInputHandle) -> Self {
+        handle.key()
+    }
+}
+
+impl From<&ValueInputHandle> for ValueKey {
+    fn from(handle: &ValueInputHandle) -> Self {
+        handle.key()
+    }
+}
+
+impl From<ValueInputHandle> for InputEndpoint {
+    fn from(handle: ValueInputHandle) -> Self {
+        handle.endpoint()
+    }
+}
+
+impl From<&ValueInputHandle> for InputEndpoint {
+    fn from(handle: &ValueInputHandle) -> Self {
+        handle.endpoint()
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct StreamInputHandle {
+    endpoint: InputEndpoint,
+}
+
+impl StreamInputHandle {
+    pub fn new(endpoint: InputEndpoint) -> Self {
+        Self { endpoint }
+    }
+
+    pub fn endpoint(&self) -> InputEndpoint {
+        self.endpoint
+    }
+
+    pub fn key(&self) -> ValueKey {
+        self.endpoint.key()
+    }
+}
+
+impl From<StreamInputHandle> for ValueKey {
+    fn from(handle: StreamInputHandle) -> Self {
+        handle.key()
+    }
+}
+
+impl From<&StreamInputHandle> for ValueKey {
+    fn from(handle: &StreamInputHandle) -> Self {
+        handle.key()
+    }
+}
+
+impl From<StreamInputHandle> for InputEndpoint {
+    fn from(handle: StreamInputHandle) -> Self {
+        handle.endpoint()
+    }
+}
+
+impl From<&StreamInputHandle> for InputEndpoint {
+    fn from(handle: &StreamInputHandle) -> Self {
+        handle.endpoint()
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct EventInputHandle {
+    endpoint: InputEndpoint,
+}
+
+impl EventInputHandle {
+    pub fn new(endpoint: InputEndpoint) -> Self {
+        Self { endpoint }
+    }
+
+    pub fn endpoint(&self) -> InputEndpoint {
+        self.endpoint
+    }
+
+    pub fn key(&self) -> ValueKey {
+        self.endpoint.key()
+    }
+}
+
+impl From<EventInputHandle> for ValueKey {
+    fn from(handle: EventInputHandle) -> Self {
+        handle.key()
+    }
+}
+
+impl From<&EventInputHandle> for ValueKey {
+    fn from(handle: &EventInputHandle) -> Self {
+        handle.key()
+    }
+}
+
+impl From<EventInputHandle> for InputEndpoint {
+    fn from(handle: EventInputHandle) -> Self {
+        handle.endpoint()
+    }
+}
+
+impl From<&EventInputHandle> for InputEndpoint {
+    fn from(handle: &EventInputHandle) -> Self {
+        handle.endpoint()
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
 pub struct OutputEndpoint {
     key: ValueKey,
 }
@@ -301,10 +464,13 @@ pub struct ConnectionBuilder {
 }
 
 impl ConnectionBuilder {
-    pub fn and(mut self, to: InputEndpoint) -> Self {
+    pub fn and<I>(mut self, to: I) -> Self
+    where
+        I: Into<InputEndpoint>,
+    {
         self.connections.push(Connection {
             from: self.from,
-            to,
+            to: to.into(),
         });
         self
     }
@@ -319,6 +485,54 @@ impl Shr<InputEndpoint> for OutputEndpoint {
             connections: ArrayVec::new(),
         };
         builder.connections.push(Connection { from: self, to });
+        builder
+    }
+}
+
+impl Shr<StreamInputHandle> for OutputEndpoint {
+    type Output = ConnectionBuilder;
+
+    fn shr(self, to: StreamInputHandle) -> ConnectionBuilder {
+        let mut builder = ConnectionBuilder {
+            from: self,
+            connections: ArrayVec::new(),
+        };
+        builder.connections.push(Connection {
+            from: self,
+            to: InputEndpoint::from(to),
+        });
+        builder
+    }
+}
+
+impl Shr<ValueInputHandle> for OutputEndpoint {
+    type Output = ConnectionBuilder;
+
+    fn shr(self, to: ValueInputHandle) -> ConnectionBuilder {
+        let mut builder = ConnectionBuilder {
+            from: self,
+            connections: ArrayVec::new(),
+        };
+        builder.connections.push(Connection {
+            from: self,
+            to: InputEndpoint::from(to),
+        });
+        builder
+    }
+}
+
+impl Shr<EventInputHandle> for OutputEndpoint {
+    type Output = ConnectionBuilder;
+
+    fn shr(self, to: EventInputHandle) -> ConnectionBuilder {
+        let mut builder = ConnectionBuilder {
+            from: self,
+            connections: ArrayVec::new(),
+        };
+        builder.connections.push(Connection {
+            from: self,
+            to: InputEndpoint::from(to),
+        });
         builder
     }
 }

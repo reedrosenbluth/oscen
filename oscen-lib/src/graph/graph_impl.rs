@@ -10,9 +10,9 @@ use super::audio_input::AudioInput;
 use super::helpers::{BinaryFunctionNode, FunctionNode};
 use super::traits::{PendingEvent, ProcessingContext, ProcessingNode, SignalProcessor};
 use super::types::{
-    Connection, ConnectionBuilder, EndpointState, EndpointType, EventInstance, EventPayload,
-    InputEndpoint, NodeKey, OutputEndpoint, ValueData, ValueKey, MAX_CONNECTIONS_PER_OUTPUT,
-    MAX_NODE_ENDPOINTS,
+    Connection, ConnectionBuilder, EndpointDescriptor, EndpointDirection, EndpointState,
+    EndpointType, EventInstance, EventPayload, InputEndpoint, NodeKey, OutputEndpoint, ValueData,
+    ValueInputHandle, ValueKey, MAX_CONNECTIONS_PER_OUTPUT, MAX_NODE_ENDPOINTS,
 };
 
 pub struct NodeData {
@@ -48,6 +48,7 @@ pub struct Graph {
     pub endpoints: SlotMap<ValueKey, EndpointState>,
     pub connections: SecondaryMap<ValueKey, ArrayVec<ValueKey, MAX_CONNECTIONS_PER_OUTPUT>>,
     pub endpoint_types: SecondaryMap<ValueKey, EndpointType>,
+    pub endpoint_descriptors: SecondaryMap<ValueKey, &'static EndpointDescriptor>,
     node_order: Vec<NodeKey>,
     topology_dirty: bool,
     value_to_node: SecondaryMap<ValueKey, NodeKey>,
@@ -73,6 +74,7 @@ impl Graph {
             endpoints: SlotMap::with_key(),
             connections: SecondaryMap::new(),
             endpoint_types: SecondaryMap::new(),
+            endpoint_descriptors: SecondaryMap::new(),
             node_order: Vec::new(),
             topology_dirty: true,
             value_to_node: SecondaryMap::new(),
@@ -90,15 +92,15 @@ impl Graph {
         node.init(self.sample_rate);
 
         let mut inputs = ArrayVec::<ValueKey, MAX_NODE_ENDPOINTS>::new();
-        for endpoint_type in T::INPUT_TYPES.iter() {
-            let key = self.allocate_endpoint(*endpoint_type);
-            inputs.push(key);
-        }
-
         let mut outputs = ArrayVec::<ValueKey, MAX_NODE_ENDPOINTS>::new();
-        for endpoint_type in T::OUTPUT_TYPES.iter() {
-            let key = self.allocate_endpoint(*endpoint_type);
-            outputs.push(key);
+
+        for descriptor in T::ENDPOINT_DESCRIPTORS.iter() {
+            let key = self.allocate_endpoint(descriptor.endpoint_type);
+            match descriptor.direction {
+                EndpointDirection::Input => inputs.push(key),
+                EndpointDirection::Output => outputs.push(key),
+            }
+            self.set_endpoint_descriptor(key, descriptor);
         }
 
         let node_key = self.nodes.insert(NodeData {
@@ -116,12 +118,14 @@ impl Graph {
         T::create_endpoints(node_key, inputs, outputs)
     }
 
-    pub fn add_audio_input(&mut self) -> (<AudioInput as ProcessingNode>::Endpoints, ValueKey) {
+    pub fn add_audio_input(
+        &mut self,
+    ) -> (<AudioInput as ProcessingNode>::Endpoints, ValueInputHandle) {
         let input_node = self.add_node(AudioInput::new());
-        let input_key = self
-            .insert_value_input(input_node.input_value(), 0.0)
+        let input_handle = input_node.input_value();
+        self.insert_value_input(input_handle, 0.0)
             .expect("Failed to insert audio input value");
-        (input_node, input_key)
+        (input_node, input_handle)
     }
 
     //TODO: should this return type be Option or Result?
@@ -141,10 +145,10 @@ impl Graph {
 
     pub fn insert_value_input(
         &mut self,
-        input: InputEndpoint,
+        input: ValueInputHandle,
         initial_value: f32,
     ) -> Option<ValueKey> {
-        let key = input.key();
+        let key: ValueKey = input.into();
         if let Some(existing) = self.endpoint_types.get(key) {
             if *existing != EndpointType::Value {
                 return None;
@@ -164,12 +168,17 @@ impl Graph {
         }
     }
 
-    pub fn connect(&mut self, from: OutputEndpoint, to: InputEndpoint) {
+    pub fn connect<I>(&mut self, from: OutputEndpoint, to: I)
+    where
+        I: Into<InputEndpoint>,
+    {
+        let to_endpoint = to.into();
+
         self.connections
             .entry(from.key())
             .unwrap()
             .or_default()
-            .push(to.key());
+            .push(to_endpoint.key());
 
         self.topology_dirty = true;
     }
@@ -180,6 +189,18 @@ impl Graph {
                 self.connect(from, to);
             }
         }
+    }
+
+    pub fn set_endpoint_descriptor(
+        &mut self,
+        key: ValueKey,
+        descriptor: &'static EndpointDescriptor,
+    ) {
+        self.endpoint_descriptors.insert(key, descriptor);
+    }
+
+    pub fn endpoint_descriptor(&self, key: ValueKey) -> Option<&EndpointDescriptor> {
+        self.endpoint_descriptors.get(key).copied()
     }
 
     pub fn transform(&mut self, from: OutputEndpoint, f: fn(f32) -> f32) -> OutputEndpoint {
@@ -260,22 +281,25 @@ impl Graph {
         self.combine(a, b, |x, y| x + y)
     }
 
-    pub fn set_value(&mut self, input: ValueKey, value: f32) {
-        if matches!(self.endpoint_types.get(input), Some(EndpointType::Value)) {
-            if let Some(state) = self.endpoints.get_mut(input) {
+    pub fn set_value<I>(&mut self, input: I, value: f32)
+    where
+        I: Into<ValueKey>,
+    {
+        let key = input.into();
+
+        if matches!(self.endpoint_types.get(key), Some(EndpointType::Value)) {
+            if let Some(state) = self.endpoints.get_mut(key) {
                 state.set_scalar(value);
             }
-            self.remove_active_ramp(input);
+            self.remove_active_ramp(key);
         }
     }
 
-    pub fn queue_event(
-        &mut self,
-        input: InputEndpoint,
-        frame_offset: u32,
-        payload: EventPayload,
-    ) -> bool {
-        let key = input.key();
+    pub fn queue_event<I>(&mut self, input: I, frame_offset: u32, payload: EventPayload) -> bool
+    where
+        I: Into<InputEndpoint>,
+    {
+        let key = input.into().key();
 
         if !matches!(self.endpoint_types.get(key), Some(EndpointType::Event)) {
             return false;
@@ -314,23 +338,28 @@ impl Graph {
         }
     }
 
-    pub fn set_value_with_ramp(&mut self, input: ValueKey, value: f32, ramp_samples: u32) {
-        if !matches!(self.endpoint_types.get(input), Some(EndpointType::Value)) {
+    pub fn set_value_with_ramp<I>(&mut self, input: I, value: f32, ramp_samples: u32)
+    where
+        I: Into<ValueKey>,
+    {
+        let key = input.into();
+
+        if !matches!(self.endpoint_types.get(key), Some(EndpointType::Value)) {
             return;
         }
         if ramp_samples == 0 {
-            self.set_value(input, value);
+            self.set_value(key, value);
             return;
         }
 
         let current = self
             .endpoints
-            .get(input)
+            .get(key)
             .and_then(EndpointState::as_scalar)
             .unwrap_or(0.0);
         let step = (value - current) / (ramp_samples as f32);
 
-        if let Some(&idx) = self.ramp_indices.get(input) {
+        if let Some(&idx) = self.ramp_indices.get(key) {
             if let Some(r) = self.active_ramps.get_mut(idx) {
                 r.step = step;
                 r.remaining = ramp_samples;
@@ -339,12 +368,12 @@ impl Graph {
         } else {
             let idx = self.active_ramps.len();
             self.active_ramps.push(ActiveRamp {
-                key: input,
+                key,
                 step,
                 remaining: ramp_samples,
                 target: value,
             });
-            self.ramp_indices.insert(input, idx);
+            self.ramp_indices.insert(key, idx);
         }
     }
 
@@ -701,6 +730,7 @@ impl Graph {
 
         let key = self.endpoints.insert(state);
         self.endpoint_types.insert(key, endpoint_type);
+        self.endpoint_descriptors.remove(key);
 
         key
     }

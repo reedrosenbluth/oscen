@@ -1,6 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
-use oscen::{Graph, Oscillator, OutputEndpoint, TptFilter, ValueKey};
+use oscen::{Graph, Oscillator, OutputEndpoint, TptFilter, ValueInputHandle};
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
@@ -25,10 +25,10 @@ impl Default for SynthParams {
 
 struct AudioContext {
     graph: Graph,
-    carrier_freq_input: ValueKey,
-    modulator_freq_input: ValueKey,
-    cutoff_freq_input: ValueKey,
-    q_input: ValueKey,
+    carrier_freq_input: ValueInputHandle,
+    modulator_freq_input: ValueInputHandle,
+    cutoff_freq_input: ValueInputHandle,
+    q_input: ValueInputHandle,
     output: OutputEndpoint,
     channels: usize,
 }
@@ -229,26 +229,31 @@ fn main() -> Result<(), eframe::Error> {
         let output = limited;
 
         // create value input endpoints for the UI
-        let carrier_freq_input = graph
-            .insert_value_input(carrier.frequency(), 440.0)
+        let carrier_freq = carrier.frequency();
+        let modulator_freq = modulator.frequency();
+        let cutoff = filter.cutoff();
+        let q = filter.q();
+
+        let _ = graph
+            .insert_value_input(carrier_freq, 440.0)
             .expect("Failed to insert carrier frequency input");
-        let modulator_freq_input = graph
-            .insert_value_input(modulator.frequency(), 100.0)
+        let _ = graph
+            .insert_value_input(modulator_freq, 100.0)
             .expect("Failed to insert modulator frequency input");
-        let cutoff_freq_input = graph
-            .insert_value_input(filter.cutoff(), 3000.0)
+        let _ = graph
+            .insert_value_input(cutoff, 3000.0)
             .expect("Failed to insert filter cutoff input");
-        let q_input = graph
-            .insert_value_input(filter.q(), 0.707)
+        let _ = graph
+            .insert_value_input(q, 0.707)
             .expect("Failed to insert filter Q input");
         // ==========================================================
 
         let mut audio_context = AudioContext {
             graph,
-            carrier_freq_input,
-            modulator_freq_input,
-            cutoff_freq_input,
-            q_input,
+            carrier_freq_input: carrier_freq,
+            modulator_freq_input: modulator_freq,
+            cutoff_freq_input: cutoff,
+            q_input: q,
             output,
             channels: config.channels as usize,
         };

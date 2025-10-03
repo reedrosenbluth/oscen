@@ -9,7 +9,9 @@ use coremidi::{Client, InputPort, Source, Sources};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use oscen::envelope::AdsrEnvelope;
 use oscen::graph::types::EventPayload;
-use oscen::{Graph, InputEndpoint, OutputEndpoint, PolyBlepOscillator, TptFilter, Value, ValueKey};
+use oscen::{
+    EventInputHandle, Graph, OutputEndpoint, PolyBlepOscillator, TptFilter, Value, ValueInputHandle,
+};
 use slint::ComponentHandle;
 
 slint::include_modules!();
@@ -111,15 +113,15 @@ impl MidiConnection {
 
 struct AudioContext {
     graph: Graph,
-    osc_freq_input: ValueKey,
-    cutoff_freq_input: ValueKey,
-    q_input: ValueKey,
-    volume_input: ValueKey,
-    attack_input: ValueKey,
-    decay_input: ValueKey,
-    sustain_input: ValueKey,
-    release_input: ValueKey,
-    gate_input: InputEndpoint,
+    osc_freq_input: ValueInputHandle,
+    cutoff_freq_input: ValueInputHandle,
+    q_input: ValueInputHandle,
+    volume_input: ValueInputHandle,
+    attack_input: ValueInputHandle,
+    decay_input: ValueInputHandle,
+    sustain_input: ValueInputHandle,
+    release_input: ValueInputHandle,
+    gate_input: EventInputHandle,
     output: OutputEndpoint,
     channels: usize,
     current_note: Option<u8>,
@@ -140,42 +142,52 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     let output = graph.multiply(enveloped, gain.output());
 
     //TODO: can this code be taken care of by graph.add_node?
-    let osc_freq_input = graph
-        .insert_value_input(osc.frequency(), 440.0)
+    let oscillator_freq = osc.frequency();
+    let cutoff = filter.cutoff();
+    let q = filter.q();
+    let gain_input = gain.input();
+
+    let attack = envelope.attack();
+    let decay = envelope.decay();
+    let sustain = envelope.sustain();
+    let release = envelope.release();
+
+    let _ = graph
+        .insert_value_input(oscillator_freq, 440.0)
         .expect("oscillator frequency endpoint");
-    let cutoff_freq_input = graph
-        .insert_value_input(filter.cutoff(), 3_000.0)
+    let _ = graph
+        .insert_value_input(cutoff, 3_000.0)
         .expect("filter cutoff endpoint");
-    let q_input = graph
-        .insert_value_input(filter.q(), 0.707)
+    let _ = graph
+        .insert_value_input(q, 0.707)
         .expect("filter Q endpoint");
-    let volume_input = graph
-        .insert_value_input(gain.input(), 0.8)
+    let _ = graph
+        .insert_value_input(gain_input, 0.8)
         .expect("gain endpoint");
 
-    let attack_input = graph
-        .insert_value_input(envelope.attack(), 0.01)
+    let _ = graph
+        .insert_value_input(attack, 0.01)
         .expect("attack endpoint");
-    let decay_input = graph
-        .insert_value_input(envelope.decay(), 0.1)
+    let _ = graph
+        .insert_value_input(decay, 0.1)
         .expect("decay endpoint");
-    let sustain_input = graph
-        .insert_value_input(envelope.sustain(), 0.7)
+    let _ = graph
+        .insert_value_input(sustain, 0.7)
         .expect("sustain endpoint");
-    let release_input = graph
-        .insert_value_input(envelope.release(), 0.2)
+    let _ = graph
+        .insert_value_input(release, 0.2)
         .expect("release endpoint");
 
     AudioContext {
         graph,
-        osc_freq_input,
-        cutoff_freq_input,
-        q_input,
-        volume_input,
-        attack_input,
-        decay_input,
-        sustain_input,
-        release_input,
+        osc_freq_input: oscillator_freq,
+        cutoff_freq_input: cutoff,
+        q_input: q,
+        volume_input: gain_input,
+        attack_input: attack,
+        decay_input: decay,
+        sustain_input: sustain,
+        release_input: release,
         gate_input: envelope.gate(),
         output,
         channels,

@@ -1,5 +1,7 @@
 use super::traits::ProcessingContext;
-use super::types::EventPayload;
+use super::types::{
+    EndpointDescriptor, EndpointDirection, EndpointType, EventPayload, ValueInputHandle,
+};
 use super::*;
 use crate::delay::Delay;
 use crate::filters::tpt::TptFilter;
@@ -107,7 +109,8 @@ fn test_audio_endpoints_are_streams() {
     );
 
     assert!(graph.insert_value_input(filter.cutoff(), 2000.0).is_some());
-    assert!(graph.insert_value_input(filter.input(), 0.0).is_none());
+    let bogus_value_handle = ValueInputHandle::new(filter.input().endpoint());
+    assert!(graph.insert_value_input(bogus_value_handle, 0.0).is_none());
 }
 
 #[derive(Debug)]
@@ -115,12 +118,12 @@ struct ContextProbeNode;
 
 #[derive(Copy, Clone)]
 struct ProbeEndpoints {
-    input: InputEndpoint,
+    input: ValueInputHandle,
     output: OutputEndpoint,
 }
 
 impl ProbeEndpoints {
-    fn input(&self) -> InputEndpoint {
+    fn input(&self) -> ValueInputHandle {
         self.input
     }
 
@@ -147,8 +150,10 @@ impl SignalProcessor for ContextProbeNode {
 impl ProcessingNode for ContextProbeNode {
     type Endpoints = ProbeEndpoints;
 
-    const INPUT_TYPES: &'static [EndpointType] = &[EndpointType::Value];
-    const OUTPUT_TYPES: &'static [EndpointType] = &[EndpointType::Stream];
+    const ENDPOINT_DESCRIPTORS: &'static [EndpointDescriptor] = &[
+        EndpointDescriptor::new("input", EndpointType::Value, EndpointDirection::Input),
+        EndpointDescriptor::new("output", EndpointType::Stream, EndpointDirection::Output),
+    ];
 
     fn create_endpoints(
         _node_key: NodeKey,
@@ -158,7 +163,7 @@ impl ProcessingNode for ContextProbeNode {
         let input_key = inputs[0];
         let output_key = outputs[0];
         ProbeEndpoints {
-            input: InputEndpoint::new(input_key),
+            input: ValueInputHandle::new(InputEndpoint::new(input_key)),
             output: OutputEndpoint::new(output_key),
         }
     }
@@ -205,8 +210,11 @@ impl SignalProcessor for EventEmitterNode {
 impl ProcessingNode for EventEmitterNode {
     type Endpoints = EventEmitterEndpoints;
 
-    const INPUT_TYPES: &'static [EndpointType] = &[];
-    const OUTPUT_TYPES: &'static [EndpointType] = &[EndpointType::Event];
+    const ENDPOINT_DESCRIPTORS: &'static [EndpointDescriptor] = &[EndpointDescriptor::new(
+        "output",
+        EndpointType::Event,
+        EndpointDirection::Output,
+    )];
 
     fn create_endpoints(
         _node_key: NodeKey,
@@ -253,8 +261,11 @@ impl SignalProcessor for EventSinkNode {
 impl ProcessingNode for EventSinkNode {
     type Endpoints = EventSinkEndpoints;
 
-    const INPUT_TYPES: &'static [EndpointType] = &[EndpointType::Event];
-    const OUTPUT_TYPES: &'static [EndpointType] = &[];
+    const ENDPOINT_DESCRIPTORS: &'static [EndpointDescriptor] = &[EndpointDescriptor::new(
+        "input",
+        EndpointType::Event,
+        EndpointDirection::Input,
+    )];
 
     fn create_endpoints(
         _node_key: NodeKey,

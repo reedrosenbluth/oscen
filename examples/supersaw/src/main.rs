@@ -1,7 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use oscen::{
-    EndpointType, Graph, InputEndpoint, Node, NodeKey, OutputEndpoint, PolyBlepOscillator,
-    ProcessingContext, ProcessingNode, SignalProcessor, TptFilter, Value, ValueKey,
+    Graph, InputEndpoint, Node, NodeKey, OutputEndpoint, PolyBlepOscillator, ProcessingContext,
+    ProcessingNode, SignalProcessor, TptFilter, Value, ValueInputHandle, ValueKey,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -74,11 +74,11 @@ impl Default for SynthParams {
 
 struct AudioContext {
     graph: Graph,
-    base_freq_input: ValueKey,
-    spread_input: ValueKey,
-    cutoff_freq_input: ValueKey,
-    q_input: ValueKey,
-    volume_input: ValueKey,
+    base_freq_input: ValueInputHandle,
+    spread_input: ValueInputHandle,
+    cutoff_freq_input: ValueInputHandle,
+    q_input: ValueInputHandle,
+    volume_input: ValueInputHandle,
     output: OutputEndpoint,
     channels: usize,
 }
@@ -116,29 +116,32 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
 
     let output = graph.combine(filter.output(), volume.output(), |x, v| x * v);
 
-    let base_freq_input = graph
-        .insert_value_input(base_frequency.input(), 440.0)
-        .expect("Failed to insert base frequency input");
-    let spread_input = graph
-        .insert_value_input(spread.input(), 0.0)
-        .expect("Failed to insert spread input");
-    let cutoff_freq_input = graph
-        .insert_value_input(filter.cutoff(), 3000.0)
-        .expect("Failed to insert filter cutoff input");
-    let q_input = graph
-        .insert_value_input(filter.q(), 0.707)
-        .expect("Failed to insert filter Q input");
-    let volume_input = graph
-        .insert_value_input(volume.input(), 0.4)
-        .expect("Failed to insert filter Q input");
+    // if graph
+    //     .insert_value_input(base_frequency.input(), 440.0)
+    //     .is_none()
+    // {
+    //     panic!("Failed to insert base frequency input");
+    // }
+    // if graph.insert_value_input(spread.input(), 0.0).is_none() {
+    //     panic!("Failed to insert spread input");
+    // }
+    // if graph.insert_value_input(filter.cutoff(), 3000.0).is_none() {
+    //     panic!("Failed to insert filter cutoff input");
+    // }
+    // if graph.insert_value_input(filter.q(), 0.707).is_none() {
+    //     panic!("Failed to insert filter Q input");
+    // }
+    // if graph.insert_value_input(volume.input(), 0.4).is_none() {
+    //     panic!("Failed to insert volume input");
+    // }
 
     AudioContext {
         graph,
-        base_freq_input,
-        spread_input,
-        cutoff_freq_input,
-        q_input,
-        volume_input,
+        base_freq_input: base_frequency.input(),
+        spread_input: spread.input(),
+        cutoff_freq_input: filter.cutoff(),
+        q_input: filter.q(),
+        volume_input: volume.input(),
         output,
         channels,
     }

@@ -12,13 +12,12 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
     let mut input_fields = Vec::new();
     let mut output_fields = Vec::new();
-    let mut input_types = Vec::new();
-    let mut output_types = Vec::new();
     let mut input_scalar_getters = Vec::new();
     let mut input_value_ref_getters = Vec::new();
     let mut input_event_getters = Vec::new();
     let mut input_idents = Vec::new();
     let mut output_idents = Vec::new();
+    let mut endpoint_descriptors = Vec::new();
 
     // Extract field information
     if let Data::Struct(data_struct) = input.data {
@@ -28,7 +27,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
             for field in fields.named {
                 let field_name = field.ident.unwrap();
-                let mut input_type = None;
+                let field_name_str = field_name.to_string();
+                let mut input_type: Option<(TokenStream2, EndpointTypeAttr)> = None;
                 let mut input_type_kind = None;
                 let mut output_type = None;
 
@@ -36,7 +36,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     if attr.path().is_ident("input") {
                         let kind = parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
                         let ty = endpoint_type_tokens(kind);
-                        input_type = Some(ty);
+                        input_type = Some((ty, kind));
                         input_type_kind = Some(kind);
                     } else if attr.path().is_ident("output") {
                         let kind = parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
@@ -45,15 +45,36 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
                 }
 
-                if let Some(endpoint_ty) = input_type {
-                    input_fields.push(quote! {
-                        pub fn #field_name(&self) -> InputEndpoint {
-                            InputEndpoint::new(self.inputs[#input_idx])
-                        }
-                    });
+                if let Some((endpoint_ty, _kind_tag)) = input_type {
+                    let descriptor_ty = endpoint_ty.clone();
+                    let accessor_kind = input_type_kind.unwrap_or(EndpointTypeAttr::Value);
+                    let accessor = match accessor_kind {
+                        EndpointTypeAttr::Stream => quote! {
+                            pub fn #field_name(&self) -> ::oscen::graph::types::StreamInputHandle {
+                                ::oscen::graph::types::StreamInputHandle::new(InputEndpoint::new(self.inputs[#input_idx]))
+                            }
+                        },
+                        EndpointTypeAttr::Event => quote! {
+                            pub fn #field_name(&self) -> ::oscen::graph::types::EventInputHandle {
+                                ::oscen::graph::types::EventInputHandle::new(InputEndpoint::new(self.inputs[#input_idx]))
+                            }
+                        },
+                        EndpointTypeAttr::Value => quote! {
+                            pub fn #field_name(&self) -> ::oscen::graph::types::ValueInputHandle {
+                                ::oscen::graph::types::ValueInputHandle::new(InputEndpoint::new(self.inputs[#input_idx]))
+                            }
+                        },
+                    };
+                    input_fields.push(accessor);
 
-                    input_types.push(endpoint_ty.clone());
                     input_idents.push(field_name.clone());
+                    endpoint_descriptors.push(quote! {
+                        ::oscen::graph::types::EndpointDescriptor::new(
+                            #field_name_str,
+                            #descriptor_ty,
+                            ::oscen::graph::types::EndpointDirection::Input,
+                        )
+                    });
 
                     if let Some(kind) = input_type_kind {
                         let read_name = format_ident!("get_{}", field_name);
@@ -94,13 +115,20 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 }
 
                 if let Some(endpoint_ty) = output_type {
+                    let descriptor_ty = endpoint_ty.clone();
                     output_fields.push(quote! {
                         pub fn #field_name(&self) -> OutputEndpoint {
                             OutputEndpoint::new(self.outputs[#output_idx])
                         }
                     });
-                    output_types.push(endpoint_ty.clone());
                     output_idents.push(field_name.clone());
+                    endpoint_descriptors.push(quote! {
+                        ::oscen::graph::types::EndpointDescriptor::new(
+                            #field_name_str,
+                            #descriptor_ty,
+                            ::oscen::graph::types::EndpointDirection::Output,
+                        )
+                    });
                     output_idx += 1;
                 }
             }
@@ -140,9 +168,9 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         impl ProcessingNode for #name {
             type Endpoints = #endpoints_name;
 
-            const INPUT_TYPES: &'static [EndpointType] = &[#(#input_types),*];
-
-            const OUTPUT_TYPES: &'static [EndpointType] = &[#(#output_types),*];
+            const ENDPOINT_DESCRIPTORS: &'static [::oscen::graph::types::EndpointDescriptor] = &[
+                #(#endpoint_descriptors),*
+            ];
 
             fn create_endpoints(
                 node_key: NodeKey,
@@ -167,9 +195,9 @@ fn parse_endpoint_attr(attr: &syn::Attribute) -> Option<EndpointTypeAttr> {
 
 fn endpoint_type_tokens(attr: EndpointTypeAttr) -> TokenStream2 {
     match attr {
-        EndpointTypeAttr::Stream => quote! { EndpointType::Stream },
-        EndpointTypeAttr::Value => quote! { EndpointType::Value },
-        EndpointTypeAttr::Event => quote! { EndpointType::Event },
+        EndpointTypeAttr::Stream => quote! { ::oscen::graph::EndpointType::Stream },
+        EndpointTypeAttr::Value => quote! { ::oscen::graph::EndpointType::Value },
+        EndpointTypeAttr::Event => quote! { ::oscen::graph::EndpointType::Event },
     }
 }
 

@@ -79,7 +79,7 @@ impl SignalProcessor for SVSine {
 fn audio_callback(
     data: &mut [f32],
     graph: &mut Graph,
-    freq_input: &ValueKey,
+    freq_input: ValueInputHandle,
     output: &OutputEndpoint,
     rx: &std::sync::mpsc::Receiver<SynthParams>,
     channels: usize,
@@ -90,7 +90,7 @@ fn audio_callback(
     }
 
     if let Some(params) = latest_params {
-        graph.set_value_with_ramp(*freq_input, params.frequency, 441);
+        graph.set_value_with_ramp(freq_input, params.frequency, 441);
     }
 
     for frame in data.chunks_mut(channels) {
@@ -178,8 +178,9 @@ fn main() -> Result<(), eframe::Error> {
         let output = low;
 
         // create value input endpoints for the UI
-        let freq_input = graph
-            .insert_value_input(oscillator.frequency(), 440.0)
+        let frequency = oscillator.frequency();
+        let _ = graph
+            .insert_value_input(frequency, 440.0)
             .expect("Failed to insert carrier frequency input");
         // ==========================================================
 
@@ -189,7 +190,7 @@ fn main() -> Result<(), eframe::Error> {
             .build_output_stream(
                 &config.clone(),
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    audio_callback(data, &mut graph, &freq_input, &output, &rx, channels);
+                    audio_callback(data, &mut graph, frequency, &output, &rx, channels);
                 },
                 |err| eprintln!("Audio stream error: {}", err),
                 None,

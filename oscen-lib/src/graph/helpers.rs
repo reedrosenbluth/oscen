@@ -1,7 +1,9 @@
 use arrayvec::ArrayVec;
 
 use super::traits::{ProcessingContext, ProcessingNode, SignalProcessor};
-use super::types::{EndpointType, NodeKey, ValueKey, MAX_NODE_ENDPOINTS};
+use super::types::{
+    EndpointDescriptor, EndpointDirection, EndpointType, NodeKey, ValueKey, MAX_NODE_ENDPOINTS,
+};
 
 #[derive(Debug)]
 pub struct FunctionNode {
@@ -23,8 +25,10 @@ impl SignalProcessor for FunctionNode {
 impl ProcessingNode for FunctionNode {
     type Endpoints = NodeKey;
 
-    const INPUT_TYPES: &'static [EndpointType] = &[EndpointType::Stream];
-    const OUTPUT_TYPES: &'static [EndpointType] = &[EndpointType::Stream];
+    const ENDPOINT_DESCRIPTORS: &'static [EndpointDescriptor] = &[
+        EndpointDescriptor::new("input", EndpointType::Stream, EndpointDirection::Input),
+        EndpointDescriptor::new("output", EndpointType::Stream, EndpointDirection::Output),
+    ];
 
     fn create_endpoints(
         node_key: NodeKey,
@@ -55,8 +59,11 @@ impl SignalProcessor for BinaryFunctionNode {
 impl ProcessingNode for BinaryFunctionNode {
     type Endpoints = NodeKey;
 
-    const INPUT_TYPES: &'static [EndpointType] = &[EndpointType::Stream, EndpointType::Stream];
-    const OUTPUT_TYPES: &'static [EndpointType] = &[EndpointType::Stream];
+    const ENDPOINT_DESCRIPTORS: &'static [EndpointDescriptor] = &[
+        EndpointDescriptor::new("lhs", EndpointType::Stream, EndpointDirection::Input),
+        EndpointDescriptor::new("rhs", EndpointType::Stream, EndpointDirection::Input),
+        EndpointDescriptor::new("output", EndpointType::Stream, EndpointDirection::Output),
+    ];
 
     fn create_endpoints(
         node_key: NodeKey,

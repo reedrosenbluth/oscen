@@ -3,7 +3,7 @@ mod lp18_filter;
 use lp18_filter::LP18Filter;
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
-use oscen::{Graph, OutputEndpoint, ValueKey};
+use oscen::{graph::ValueInputHandle, Graph, OutputEndpoint};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -76,12 +76,12 @@ impl Default for TwinPeaksParams {
 
 pub struct AudioContext {
     graph: Graph,
-    cutoff_input_a: ValueKey,
-    cutoff_input_b: ValueKey,
-    resonance_input_a: ValueKey,
-    resonance_input_b: ValueKey,
+    cutoff_input_a: ValueInputHandle,
+    cutoff_input_b: ValueInputHandle,
+    resonance_input_a: ValueInputHandle,
+    resonance_input_b: ValueInputHandle,
     output: OutputEndpoint,
-    input_endpoint: ValueKey,
+    input_endpoint: ValueInputHandle,
 }
 
 impl AudioContext {
@@ -109,28 +109,40 @@ impl AudioContext {
         let output = graph.transform(limited_output, |x| x * OUTPUT_GAIN);
 
         // Connect graph
-        let cutoff_input_a = graph
+        if graph
             .insert_value_input(filter_a.cutoff(), params.cutoff_a.value())
-            .ok_or("Failed to insert filter A cutoff input")?;
+            .is_none()
+        {
+            return Err("Failed to insert filter A cutoff input");
+        }
 
-        let cutoff_input_b = graph
+        if graph
             .insert_value_input(filter_b.cutoff(), params.cutoff_b.value())
-            .ok_or("Failed to insert filter B cutoff input")?;
+            .is_none()
+        {
+            return Err("Failed to insert filter B cutoff input");
+        }
 
-        let resonance_input_a = graph
+        if graph
             .insert_value_input(filter_a.resonance(), params.resonance.value())
-            .ok_or("Failed to insert filter A Q input")?;
+            .is_none()
+        {
+            return Err("Failed to insert filter A Q input");
+        }
 
-        let resonance_input_b = graph
+        if graph
             .insert_value_input(filter_b.resonance(), params.resonance.value())
-            .ok_or("Failed to insert filter B Q input")?;
+            .is_none()
+        {
+            return Err("Failed to insert filter B Q input");
+        }
 
         Ok(Self {
             graph,
-            cutoff_input_a,
-            cutoff_input_b,
-            resonance_input_a,
-            resonance_input_b,
+            cutoff_input_a: filter_a.cutoff(),
+            cutoff_input_b: filter_b.cutoff(),
+            resonance_input_a: filter_a.resonance(),
+            resonance_input_b: filter_b.resonance(),
             output,
             input_endpoint,
         })

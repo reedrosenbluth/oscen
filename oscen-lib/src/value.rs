@@ -1,6 +1,6 @@
 use crate::graph::{
-    EndpointType, InputEndpoint, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
-    SignalProcessor, ValueKey,
+    InputEndpoint, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode, SignalProcessor,
+    ValueKey,
 };
 use oscen_macros::Node;
 

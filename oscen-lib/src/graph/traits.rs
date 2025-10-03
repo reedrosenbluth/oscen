@@ -2,7 +2,8 @@ use arrayvec::ArrayVec;
 
 use super::types::NodeKey;
 use super::types::{
-    EndpointType, EventInstance, EventPayload, ValueData, ValueKey, ValueObject, MAX_NODE_ENDPOINTS,
+    EndpointDescriptor, EventInstance, EventPayload, ValueData, ValueKey, ValueObject,
+    MAX_NODE_ENDPOINTS,
 };
 
 #[derive(Copy, Clone)]
@@ -116,8 +117,7 @@ pub trait SignalProcessor: Send + std::fmt::Debug {
 pub trait ProcessingNode: SignalProcessor {
     type Endpoints;
 
-    const INPUT_TYPES: &'static [EndpointType] = &[];
-    const OUTPUT_TYPES: &'static [EndpointType] = &[];
+    const ENDPOINT_DESCRIPTORS: &'static [EndpointDescriptor] = &[];
 
     fn create_endpoints(
         node_key: NodeKey,

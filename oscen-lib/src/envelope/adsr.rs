@@ -1,7 +1,7 @@
 use crate::graph::types::EventPayload;
 use crate::graph::{
-    EndpointType, EventInstance, InputEndpoint, NodeKey, OutputEndpoint, ProcessingContext,
-    ProcessingNode, SignalProcessor, ValueKey,
+    EventInstance, InputEndpoint, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
+    SignalProcessor, ValueKey,
 };
 use crate::Node;
 

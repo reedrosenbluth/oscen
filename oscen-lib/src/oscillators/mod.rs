@@ -1,5 +1,5 @@
 use crate::{
-    EndpointType, InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
+    InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
     SignalProcessor, ValueKey,
 };
 use std::f32::consts::{PI, TAU};
@@ -195,17 +195,11 @@ impl PolyBlepOscillator {
         sample_rate: f32,
         phase_mod: f32,
         freq_mod: f32,
-        freq_override: f32,
+        freq_input: f32,
         amp_mod: f32,
         pulse_mod: f32,
     ) -> f32 {
-        let base_freq = if freq_override == 0.0 {
-            self.frequency
-        } else {
-            freq_override
-        };
-
-        let frequency = (base_freq * (1.0 + freq_mod)).max(0.0);
+        let frequency = (freq_input * (1.0 + freq_mod)).max(0.0);
         let amplitude = self.amplitude * (1.0 + amp_mod);
         let mut pulse_width = (self.pulse_width + pulse_mod).clamp(0.0001, 0.9999);
 
@@ -263,7 +257,7 @@ impl SignalProcessor for PolyBlepOscillator {
     fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
         let phase_mod = self.get_phase(context);
         let freq_mod = self.get_frequency_mod(context);
-        let freq_override = self.get_frequency(context);
+        let freq_input = self.get_frequency(context);
         let amp_mod = self.get_amplitude(context);
         let pulse_mod = self.get_pulse_width(context);
 
@@ -271,7 +265,7 @@ impl SignalProcessor for PolyBlepOscillator {
             sample_rate,
             phase_mod,
             freq_mod,
-            freq_override,
+            freq_input,
             amp_mod,
             pulse_mod,
         )
@@ -306,12 +300,7 @@ mod tests {
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(
-                    &scalars,
-                    &value_refs,
-                    &event_inputs,
-                    &mut pending,
-                );
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
 
             let value = osc.process(sample_rate, &mut context);
             min = min.min(value);
@@ -344,12 +333,7 @@ mod tests {
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(
-                    &scalars,
-                    &value_refs,
-                    &event_inputs,
-                    &mut pending,
-                );
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
             osc.process(sample_rate, &mut context)
         };
         for _ in 0..1024 {
@@ -360,12 +344,7 @@ mod tests {
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(
-                    &scalars,
-                    &value_refs,
-                    &event_inputs,
-                    &mut pending,
-                );
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
 
             let current = osc.process(sample_rate, &mut context);
             let delta = (current - previous).abs();
@@ -395,12 +374,7 @@ mod tests {
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(
-                    &scalars,
-                    &value_refs,
-                    &event_inputs,
-                    &mut pending,
-                );
+                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
             samples[i] = osc.process(sample_rate, &mut context);
         }
 

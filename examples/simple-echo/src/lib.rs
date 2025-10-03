@@ -1,6 +1,8 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
-use oscen::{filters::tpt::TptFilter, Delay, Graph, OutputEndpoint, Value, ValueKey};
+use oscen::{
+    filters::tpt::TptFilter, graph::ValueInputHandle, Delay, Graph, OutputEndpoint, Value,
+};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -77,12 +79,12 @@ impl Default for SimpleEchoParams {
 
 pub struct ChannelContext {
     graph: Graph,
-    delay_time_input: ValueKey,
-    filter_cutoff_input: ValueKey,
-    feedback_input: ValueKey,
-    mix_input: ValueKey,
+    delay_time_input: ValueInputHandle,
+    filter_cutoff_input: ValueInputHandle,
+    feedback_input: ValueInputHandle,
+    mix_input: ValueInputHandle,
     output: OutputEndpoint,
-    input_endpoint: ValueKey,
+    input_endpoint: ValueInputHandle,
 }
 
 pub struct AudioContext {
@@ -136,28 +138,40 @@ fn build_channel_graph(
     let output = graph.combine(dry_mixed, wet_mixed, |dry, wet| dry + wet);
 
     // Set up parameter controls
-    let delay_time_input = graph
+    if graph
         .insert_value_input(delay.delay_time(), params.delay_time.value())
-        .ok_or("Failed to insert delay time input")?;
+        .is_none()
+    {
+        return Err("Failed to insert delay time input");
+    }
 
-    let filter_cutoff_input = graph
+    if graph
         .insert_value_input(filter.cutoff(), params.filter_cutoff.value())
-        .ok_or("Failed to insert filter cutoff input")?;
+        .is_none()
+    {
+        return Err("Failed to insert filter cutoff input");
+    }
 
-    let feedback_input = graph
+    if graph
         .insert_value_input(feedback_node.input(), params.feedback.value())
-        .ok_or("Failed to insert feedback input")?;
+        .is_none()
+    {
+        return Err("Failed to insert feedback input");
+    }
 
-    let mix_input = graph
+    if graph
         .insert_value_input(mix_node.input(), params.mix.value())
-        .ok_or("Failed to insert mix input")?;
+        .is_none()
+    {
+        return Err("Failed to insert mix input");
+    }
 
     Ok(ChannelContext {
         graph,
-        delay_time_input,
-        filter_cutoff_input,
-        feedback_input,
-        mix_input,
+        delay_time_input: delay.delay_time(),
+        filter_cutoff_input: filter.cutoff(),
+        feedback_input: feedback_node.input(),
+        mix_input: mix_node.input(),
         output,
         input_endpoint,
     })
