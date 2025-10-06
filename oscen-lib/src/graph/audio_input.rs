@@ -1,5 +1,5 @@
 use super::traits::{ProcessingContext, SignalProcessor};
-use super::{InputEndpoint, NodeKey, OutputEndpoint, ProcessingNode, ValueKey};
+use super::{InputEndpoint, NodeKey, ProcessingNode, ValueKey};
 use crate::Node;
 
 #[derive(Debug, Node)]

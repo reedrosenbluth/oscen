@@ -10,11 +10,12 @@
 - audio thread allocation fixes
   - AdsrEnvelope::process clones gate events into a new Vec every audio callback
   - The graph stores pending_events: Vec<PendingEvent> initialized with Vec::new(). The first emitted event on the audio thread will grow this buffer, causing an allocation in realtime code. this can be preallocated
-  -
+- Graph::connect always pushes the wiring without verifying that the source/destination endpoint types are compatible, so wiring errors fail silently at runtime.
 
 ### Big todos
 - multi-output nodes
 - investigate Graph implementing SignalProcessor
-  - graph flattening
   - more explicit endpoint declarations/hoisting
+- graph flattening
+  -
 - windowed sinc interpolation for buffer

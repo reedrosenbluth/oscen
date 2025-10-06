@@ -305,12 +305,16 @@ impl InputEndpoint {
     }
 }
 
+// ============================================================================
+// Typed Input Handles
+// ============================================================================
+
 #[derive(Copy, Clone, Debug)]
-pub struct ValueInputHandle {
+pub struct ValueInput {
     endpoint: InputEndpoint,
 }
 
-impl ValueInputHandle {
+impl ValueInput {
     pub fn new(endpoint: InputEndpoint) -> Self {
         Self { endpoint }
     }
@@ -324,36 +328,36 @@ impl ValueInputHandle {
     }
 }
 
-impl From<ValueInputHandle> for ValueKey {
-    fn from(handle: ValueInputHandle) -> Self {
+impl From<ValueInput> for ValueKey {
+    fn from(handle: ValueInput) -> Self {
         handle.key()
     }
 }
 
-impl From<&ValueInputHandle> for ValueKey {
-    fn from(handle: &ValueInputHandle) -> Self {
+impl From<&ValueInput> for ValueKey {
+    fn from(handle: &ValueInput) -> Self {
         handle.key()
     }
 }
 
-impl From<ValueInputHandle> for InputEndpoint {
-    fn from(handle: ValueInputHandle) -> Self {
+impl From<ValueInput> for InputEndpoint {
+    fn from(handle: ValueInput) -> Self {
         handle.endpoint()
     }
 }
 
-impl From<&ValueInputHandle> for InputEndpoint {
-    fn from(handle: &ValueInputHandle) -> Self {
+impl From<&ValueInput> for InputEndpoint {
+    fn from(handle: &ValueInput) -> Self {
         handle.endpoint()
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct StreamInputHandle {
+pub struct StreamInput {
     endpoint: InputEndpoint,
 }
 
-impl StreamInputHandle {
+impl StreamInput {
     pub fn new(endpoint: InputEndpoint) -> Self {
         Self { endpoint }
     }
@@ -367,36 +371,36 @@ impl StreamInputHandle {
     }
 }
 
-impl From<StreamInputHandle> for ValueKey {
-    fn from(handle: StreamInputHandle) -> Self {
+impl From<StreamInput> for ValueKey {
+    fn from(handle: StreamInput) -> Self {
         handle.key()
     }
 }
 
-impl From<&StreamInputHandle> for ValueKey {
-    fn from(handle: &StreamInputHandle) -> Self {
+impl From<&StreamInput> for ValueKey {
+    fn from(handle: &StreamInput) -> Self {
         handle.key()
     }
 }
 
-impl From<StreamInputHandle> for InputEndpoint {
-    fn from(handle: StreamInputHandle) -> Self {
+impl From<StreamInput> for InputEndpoint {
+    fn from(handle: StreamInput) -> Self {
         handle.endpoint()
     }
 }
 
-impl From<&StreamInputHandle> for InputEndpoint {
-    fn from(handle: &StreamInputHandle) -> Self {
+impl From<&StreamInput> for InputEndpoint {
+    fn from(handle: &StreamInput) -> Self {
         handle.endpoint()
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct EventInputHandle {
+pub struct EventInput {
     endpoint: InputEndpoint,
 }
 
-impl EventInputHandle {
+impl EventInput {
     pub fn new(endpoint: InputEndpoint) -> Self {
         Self { endpoint }
     }
@@ -410,42 +414,47 @@ impl EventInputHandle {
     }
 }
 
-impl From<EventInputHandle> for ValueKey {
-    fn from(handle: EventInputHandle) -> Self {
+impl From<EventInput> for ValueKey {
+    fn from(handle: EventInput) -> Self {
         handle.key()
     }
 }
 
-impl From<&EventInputHandle> for ValueKey {
-    fn from(handle: &EventInputHandle) -> Self {
+impl From<&EventInput> for ValueKey {
+    fn from(handle: &EventInput) -> Self {
         handle.key()
     }
 }
 
-impl From<EventInputHandle> for InputEndpoint {
-    fn from(handle: EventInputHandle) -> Self {
+impl From<EventInput> for InputEndpoint {
+    fn from(handle: EventInput) -> Self {
         handle.endpoint()
     }
 }
 
-impl From<&EventInputHandle> for InputEndpoint {
-    fn from(handle: &EventInputHandle) -> Self {
+impl From<&EventInput> for InputEndpoint {
+    fn from(handle: &EventInput) -> Self {
         handle.endpoint()
     }
+}
+
+// ============================================================================
+// Typed Output Handles
+// ============================================================================
+
+/// Trait for output endpoints - allows generic functions over all output types
+pub trait Output {
+    fn key(&self) -> ValueKey;
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct OutputEndpoint {
+pub struct StreamOutput {
     key: ValueKey,
 }
 
-impl OutputEndpoint {
+impl StreamOutput {
     pub fn new(key: ValueKey) -> Self {
         Self { key }
-    }
-
-    pub fn to(self, input: InputEndpoint) -> ConnectionBuilder {
-        self.shr(input)
     }
 
     pub fn key(&self) -> ValueKey {
@@ -453,13 +462,103 @@ impl OutputEndpoint {
     }
 }
 
+impl Output for StreamOutput {
+    fn key(&self) -> ValueKey {
+        self.key
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct ValueOutput {
+    key: ValueKey,
+}
+
+impl ValueOutput {
+    pub fn new(key: ValueKey) -> Self {
+        Self { key }
+    }
+
+    pub fn key(&self) -> ValueKey {
+        self.key
+    }
+}
+
+impl Output for ValueOutput {
+    fn key(&self) -> ValueKey {
+        self.key
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct EventOutput {
+    key: ValueKey,
+}
+
+impl EventOutput {
+    pub fn new(key: ValueKey) -> Self {
+        Self { key }
+    }
+
+    pub fn key(&self) -> ValueKey {
+        self.key
+    }
+}
+
+impl Output for EventOutput {
+    fn key(&self) -> ValueKey {
+        self.key
+    }
+}
+
+// ============================================================================
+// ValueParam - Opaque parameter handle
+// ============================================================================
+
+/// An opaque handle to a value parameter that can be both updated and connected.
+/// Created by `Graph::value_param()`.
+#[derive(Copy, Clone, Debug)]
+pub struct ValueParam {
+    pub(crate) input: ValueInput,
+    pub(crate) output: ValueOutput,
+}
+
+impl ValueParam {
+    pub fn new(input: ValueInput, output: ValueOutput) -> Self {
+        Self { input, output }
+    }
+}
+
+impl Output for ValueParam {
+    fn key(&self) -> ValueKey {
+        self.output.key()
+    }
+}
+
+// Allow ValueParam to be used where ValueKey is expected (for set_value, set_value_with_ramp, etc)
+impl From<ValueParam> for ValueKey {
+    fn from(param: ValueParam) -> Self {
+        param.input.key()
+    }
+}
+
+impl From<&ValueParam> for ValueKey {
+    fn from(param: &ValueParam) -> Self {
+        param.input.key()
+    }
+}
+
+// ============================================================================
+// Connections
+// ============================================================================
+
+/// Internal representation of a connection (stores keys, not typed handles)
 pub struct Connection {
-    pub(crate) from: OutputEndpoint,
-    pub(crate) to: InputEndpoint,
+    pub(crate) from: ValueKey,
+    pub(crate) to: ValueKey,
 }
 
 pub struct ConnectionBuilder {
-    pub(crate) from: OutputEndpoint,
+    pub(crate) from: ValueKey,
     pub(crate) connections: ArrayVec<Connection, MAX_CONNECTIONS_PER_OUTPUT>,
 }
 
@@ -470,75 +569,83 @@ impl ConnectionBuilder {
     {
         self.connections.push(Connection {
             from: self.from,
-            to: to.into(),
+            to: to.into().key(),
         });
         self
-    }
-}
-
-impl Shr<InputEndpoint> for OutputEndpoint {
-    type Output = ConnectionBuilder;
-
-    fn shr(self, to: InputEndpoint) -> ConnectionBuilder {
-        let mut builder = ConnectionBuilder {
-            from: self,
-            connections: ArrayVec::new(),
-        };
-        builder.connections.push(Connection { from: self, to });
-        builder
-    }
-}
-
-impl Shr<StreamInputHandle> for OutputEndpoint {
-    type Output = ConnectionBuilder;
-
-    fn shr(self, to: StreamInputHandle) -> ConnectionBuilder {
-        let mut builder = ConnectionBuilder {
-            from: self,
-            connections: ArrayVec::new(),
-        };
-        builder.connections.push(Connection {
-            from: self,
-            to: InputEndpoint::from(to),
-        });
-        builder
-    }
-}
-
-impl Shr<ValueInputHandle> for OutputEndpoint {
-    type Output = ConnectionBuilder;
-
-    fn shr(self, to: ValueInputHandle) -> ConnectionBuilder {
-        let mut builder = ConnectionBuilder {
-            from: self,
-            connections: ArrayVec::new(),
-        };
-        builder.connections.push(Connection {
-            from: self,
-            to: InputEndpoint::from(to),
-        });
-        builder
-    }
-}
-
-impl Shr<EventInputHandle> for OutputEndpoint {
-    type Output = ConnectionBuilder;
-
-    fn shr(self, to: EventInputHandle) -> ConnectionBuilder {
-        let mut builder = ConnectionBuilder {
-            from: self,
-            connections: ArrayVec::new(),
-        };
-        builder.connections.push(Connection {
-            from: self,
-            to: InputEndpoint::from(to),
-        });
-        builder
     }
 }
 
 impl From<ConnectionBuilder> for ArrayVec<Connection, MAX_CONNECTIONS_PER_OUTPUT> {
     fn from(builder: ConnectionBuilder) -> Self {
         builder.connections
+    }
+}
+
+// ============================================================================
+// Type-safe Stream connections (audio-rate)
+// ============================================================================
+
+impl Shr<StreamInput> for StreamOutput {
+    type Output = ConnectionBuilder;
+
+    fn shr(self, to: StreamInput) -> ConnectionBuilder {
+        let mut builder = ConnectionBuilder {
+            from: self.key(),
+            connections: ArrayVec::new(),
+        };
+        builder.connections.push(Connection {
+            from: self.key(),
+            to: to.key(),
+        });
+        builder
+    }
+}
+
+// ============================================================================
+// Type-safe Value connections (control-rate)
+// ============================================================================
+
+impl Shr<ValueInput> for ValueOutput {
+    type Output = ConnectionBuilder;
+
+    fn shr(self, to: ValueInput) -> ConnectionBuilder {
+        let mut builder = ConnectionBuilder {
+            from: self.key(),
+            connections: ArrayVec::new(),
+        };
+        builder.connections.push(Connection {
+            from: self.key(),
+            to: to.key(),
+        });
+        builder
+    }
+}
+
+// ValueParam can be connected as if it were a ValueOutput
+impl Shr<ValueInput> for ValueParam {
+    type Output = ConnectionBuilder;
+
+    fn shr(self, to: ValueInput) -> ConnectionBuilder {
+        self.output >> to
+    }
+}
+
+// ============================================================================
+// Type-safe Event connections
+// ============================================================================
+
+impl Shr<EventInput> for EventOutput {
+    type Output = ConnectionBuilder;
+
+    fn shr(self, to: EventInput) -> ConnectionBuilder {
+        let mut builder = ConnectionBuilder {
+            from: self.key(),
+            connections: ArrayVec::new(),
+        };
+        builder.connections.push(Connection {
+            from: self.key(),
+            to: to.key(),
+        });
+        builder
     }
 }

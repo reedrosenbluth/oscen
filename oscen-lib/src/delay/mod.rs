@@ -1,5 +1,5 @@
 use crate::graph::{
-    InputEndpoint, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode, SignalProcessor,
+    InputEndpoint, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor,
     ValueKey,
 };
 use crate::ring_buffer::RingBuffer;

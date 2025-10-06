@@ -9,9 +9,7 @@ use coremidi::{Client, InputPort, Source, Sources};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use oscen::envelope::AdsrEnvelope;
 use oscen::graph::types::EventPayload;
-use oscen::{
-    EventInputHandle, Graph, OutputEndpoint, PolyBlepOscillator, TptFilter, Value, ValueInputHandle,
-};
+use oscen::{EventInput, Graph, PolyBlepOscillator, StreamOutput, TptFilter};
 use slint::ComponentHandle;
 
 slint::include_modules!();
@@ -111,18 +109,20 @@ impl MidiConnection {
     }
 }
 
+use oscen::ValueParam;
+
 struct AudioContext {
     graph: Graph,
-    osc_freq_input: ValueInputHandle,
-    cutoff_freq_input: ValueInputHandle,
-    q_input: ValueInputHandle,
-    volume_input: ValueInputHandle,
-    attack_input: ValueInputHandle,
-    decay_input: ValueInputHandle,
-    sustain_input: ValueInputHandle,
-    release_input: ValueInputHandle,
-    gate_input: EventInputHandle,
-    output: OutputEndpoint,
+    osc_freq: ValueParam,
+    cutoff: ValueParam,
+    q: ValueParam,
+    volume: ValueParam,
+    attack: ValueParam,
+    decay: ValueParam,
+    sustain: ValueParam,
+    release: ValueParam,
+    gate_input: EventInput,
+    output: StreamOutput,
     channels: usize,
     current_note: Option<u8>,
 }
@@ -130,64 +130,48 @@ struct AudioContext {
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     let mut graph = Graph::new(sample_rate);
 
+    // Create UI-controllable parameters
+    let osc_freq = graph.value_param(440.0);
+    let cutoff = graph.value_param(3000.0);
+    let q = graph.value_param(0.707);
+    let volume = graph.value_param(0.8);
+    let attack = graph.value_param(0.01);
+    let decay = graph.value_param(0.1);
+    let sustain = graph.value_param(0.7);
+    let release = graph.value_param(0.2);
+
+    // Create processing nodes
     let osc = graph.add_node(PolyBlepOscillator::saw(440.0, 0.6));
     let filter = graph.add_node(TptFilter::new(3_000.0, 0.707));
     let envelope = graph.add_node(AdsrEnvelope::new(0.01, 0.1, 0.7, 0.2));
-    let gain = graph.add_node(Value::new(0.8));
 
-    graph.connect(osc.output(), filter.input());
-    graph.connect(envelope.output(), filter.f_mod());
+    graph.connect_all(vec![
+        //Connect parameters to nodes
+        osc_freq >> osc.frequency(),
+        cutoff >> filter.cutoff(),
+        q >> filter.q(),
+        attack >> envelope.attack(),
+        decay >> envelope.decay(),
+        sustain >> envelope.sustain(),
+        release >> envelope.release(),
+        // Connect audio signal path
+        osc.output() >> filter.input(),
+        envelope.output() >> filter.f_mod(),
+    ]);
 
     let enveloped = graph.multiply(filter.output(), envelope.output());
-    let output = graph.multiply(enveloped, gain.output());
-
-    //TODO: can this code be taken care of by graph.add_node?
-    let oscillator_freq = osc.frequency();
-    let cutoff = filter.cutoff();
-    let q = filter.q();
-    let gain_input = gain.input();
-
-    let attack = envelope.attack();
-    let decay = envelope.decay();
-    let sustain = envelope.sustain();
-    let release = envelope.release();
-
-    let _ = graph
-        .insert_value_input(oscillator_freq, 440.0)
-        .expect("oscillator frequency endpoint");
-    let _ = graph
-        .insert_value_input(cutoff, 3_000.0)
-        .expect("filter cutoff endpoint");
-    let _ = graph
-        .insert_value_input(q, 0.707)
-        .expect("filter Q endpoint");
-    let _ = graph
-        .insert_value_input(gain_input, 0.8)
-        .expect("gain endpoint");
-
-    let _ = graph
-        .insert_value_input(attack, 0.01)
-        .expect("attack endpoint");
-    let _ = graph
-        .insert_value_input(decay, 0.1)
-        .expect("decay endpoint");
-    let _ = graph
-        .insert_value_input(sustain, 0.7)
-        .expect("sustain endpoint");
-    let _ = graph
-        .insert_value_input(release, 0.2)
-        .expect("release endpoint");
+    let output = graph.multiply(enveloped, volume);
 
     AudioContext {
         graph,
-        osc_freq_input: oscillator_freq,
-        cutoff_freq_input: cutoff,
-        q_input: q,
-        volume_input: gain_input,
-        attack_input: attack,
-        decay_input: decay,
-        sustain_input: sustain,
-        release_input: release,
+        osc_freq,
+        cutoff,
+        q,
+        volume,
+        attack,
+        decay,
+        sustain,
+        release,
         gate_input: envelope.gate(),
         output,
         channels,
@@ -205,7 +189,7 @@ fn handle_midi_message(context: &mut AudioContext, message: MidiMessage) {
         MidiMessage::NoteOn { note, velocity } => {
             let velocity = (velocity as f32 / 127.0).clamp(0.0, 1.0);
             let freq = midi_note_to_freq(note);
-            context.graph.set_value(context.osc_freq_input, freq);
+            context.graph.set_value(context.osc_freq, freq);
             let _ =
                 context
                     .graph
@@ -240,20 +224,20 @@ fn audio_callback(
 
     if let Some(params) = latest_params {
         let updates = [
-            (context.cutoff_freq_input, params.cutoff_frequency, 1323),
-            (context.q_input, params.q_factor, 441),
-            (context.volume_input, params.volume, 441),
-            (context.attack_input, params.attack, 0),
-            (context.decay_input, params.decay, 0),
-            (context.sustain_input, params.sustain, 0),
-            (context.release_input, params.release, 0),
+            (context.cutoff, params.cutoff_frequency, 1323),
+            (context.q, params.q_factor, 441),
+            (context.volume, params.volume, 441),
+            (context.attack, params.attack, 0),
+            (context.decay, params.decay, 0),
+            (context.sustain, params.sustain, 0),
+            (context.release, params.release, 0),
         ];
 
-        for (key, value, ramp) in updates {
+        for (param, value, ramp) in updates {
             if ramp == 0 {
-                context.graph.set_value(key, value);
+                context.graph.set_value(param, value);
             } else {
-                context.graph.set_value_with_ramp(key, value, ramp);
+                context.graph.set_value_with_ramp(param, value, ramp);
             }
         }
     }

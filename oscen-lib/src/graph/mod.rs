@@ -11,7 +11,7 @@ pub use audio_input::AudioInput;
 pub use graph_impl::{Graph, GraphError, NodeData};
 pub use traits::{PendingEvent, ProcessingContext, ProcessingNode, SignalProcessor, ValueRef};
 pub use types::{
-    Connection, ConnectionBuilder, EndpointType, EventInputHandle, EventInstance, EventPayload,
-    InputEndpoint, NodeKey, OutputEndpoint, StreamInputHandle, ValueInputHandle, ValueKey,
-    MAX_CONNECTIONS_PER_OUTPUT, MAX_EVENTS, MAX_NODE_ENDPOINTS,
+    Connection, ConnectionBuilder, EndpointType, EventInput, EventInstance, EventOutput,
+    EventPayload, InputEndpoint, NodeKey, Output, StreamInput, StreamOutput, ValueInput, ValueKey,
+    ValueOutput, ValueParam, MAX_CONNECTIONS_PER_OUTPUT, MAX_EVENTS, MAX_NODE_ENDPOINTS,
 };

@@ -1,6 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
-use oscen::{Graph, Oscillator, OutputEndpoint, TptFilter, ValueInputHandle};
+use oscen::{Graph, Oscillator, StreamOutput, TptFilter, ValueInput};
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
@@ -25,11 +25,11 @@ impl Default for SynthParams {
 
 struct AudioContext {
     graph: Graph,
-    carrier_freq_input: ValueInputHandle,
-    modulator_freq_input: ValueInputHandle,
-    cutoff_freq_input: ValueInputHandle,
-    q_input: ValueInputHandle,
-    output: OutputEndpoint,
+    carrier_freq_input: ValueInput,
+    modulator_freq_input: ValueInput,
+    cutoff_freq_input: ValueInput,
+    q_input: ValueInput,
+    output: StreamOutput,
     channels: usize,
 }
 

@@ -11,8 +11,8 @@ use super::helpers::{BinaryFunctionNode, FunctionNode};
 use super::traits::{PendingEvent, ProcessingContext, ProcessingNode, SignalProcessor};
 use super::types::{
     Connection, ConnectionBuilder, EndpointDescriptor, EndpointDirection, EndpointState,
-    EndpointType, EventInstance, EventPayload, InputEndpoint, NodeKey, OutputEndpoint, ValueData,
-    ValueInputHandle, ValueKey, MAX_CONNECTIONS_PER_OUTPUT, MAX_NODE_ENDPOINTS,
+    EndpointType, EventInstance, EventPayload, InputEndpoint, NodeKey, Output, StreamOutput,
+    ValueData, ValueInput, ValueKey, ValueParam, MAX_CONNECTIONS_PER_OUTPUT, MAX_NODE_ENDPOINTS,
 };
 
 pub struct NodeData {
@@ -120,7 +120,7 @@ impl Graph {
 
     pub fn add_audio_input(
         &mut self,
-    ) -> (<AudioInput as ProcessingNode>::Endpoints, ValueInputHandle) {
+    ) -> (<AudioInput as ProcessingNode>::Endpoints, ValueInput) {
         let input_node = self.add_node(AudioInput::new());
         let input_handle = input_node.input_value();
         self.insert_value_input(input_handle, 0.0)
@@ -143,11 +143,7 @@ impl Graph {
             .copied()
     }
 
-    pub fn insert_value_input(
-        &mut self,
-        input: ValueInputHandle,
-        initial_value: f32,
-    ) -> Option<ValueKey> {
+    pub fn insert_value_input(&mut self, input: ValueInput, initial_value: f32) -> Option<ValueKey> {
         let key: ValueKey = input.into();
         if let Some(existing) = self.endpoint_types.get(key) {
             if *existing != EndpointType::Value {
@@ -168,8 +164,9 @@ impl Graph {
         }
     }
 
-    pub fn connect<I>(&mut self, from: OutputEndpoint, to: I)
+    pub fn connect<O, I>(&mut self, from: O, to: I)
     where
+        O: Output,
         I: Into<InputEndpoint>,
     {
         let to_endpoint = to.into();
@@ -186,7 +183,12 @@ impl Graph {
     pub fn connect_all(&mut self, connections: Vec<ConnectionBuilder>) {
         for builder in connections {
             for Connection { from, to } in builder.connections {
-                self.connect(from, to);
+                self.connections
+                    .entry(from)
+                    .unwrap()
+                    .or_default()
+                    .push(to);
+                self.topology_dirty = true;
             }
         }
     }
@@ -203,7 +205,10 @@ impl Graph {
         self.endpoint_descriptors.get(key).copied()
     }
 
-    pub fn transform(&mut self, from: OutputEndpoint, f: fn(f32) -> f32) -> OutputEndpoint {
+    pub fn transform<O>(&mut self, from: O, f: fn(f32) -> f32) -> StreamOutput
+    where
+        O: Output,
+    {
         let node = FunctionNode::new(f);
         let processor: Box<dyn SignalProcessor> = Box::new(node);
 
@@ -227,19 +232,23 @@ impl Graph {
 
         self.topology_dirty = true;
 
-        let output = OutputEndpoint::new(output_key);
+        let output = StreamOutput::new(output_key);
 
         self.connect(from, InputEndpoint::new(input_key));
 
         output
     }
 
-    pub fn combine(
+    pub fn combine<O1, O2>(
         &mut self,
-        from1: OutputEndpoint,
-        from2: OutputEndpoint,
+        from1: O1,
+        from2: O2,
         f: fn(f32, f32) -> f32,
-    ) -> OutputEndpoint {
+    ) -> StreamOutput
+    where
+        O1: Output,
+        O2: Output,
+    {
         let node = BinaryFunctionNode::new(f);
         let processor: Box<dyn SignalProcessor> = Box::new(node);
 
@@ -265,7 +274,7 @@ impl Graph {
 
         self.topology_dirty = true;
 
-        let output = OutputEndpoint::new(output_key);
+        let output = StreamOutput::new(output_key);
 
         self.connect(from1, InputEndpoint::new(input_key1));
         self.connect(from2, InputEndpoint::new(input_key2));
@@ -273,11 +282,19 @@ impl Graph {
         output
     }
 
-    pub fn multiply(&mut self, a: OutputEndpoint, b: OutputEndpoint) -> OutputEndpoint {
+    pub fn multiply<O1, O2>(&mut self, a: O1, b: O2) -> StreamOutput
+    where
+        O1: Output,
+        O2: Output,
+    {
         self.combine(a, b, |x, y| x * y)
     }
 
-    pub fn add(&mut self, a: OutputEndpoint, b: OutputEndpoint) -> OutputEndpoint {
+    pub fn add<O1, O2>(&mut self, a: O1, b: O2) -> StreamOutput
+    where
+        O1: Output,
+        O2: Output,
+    {
         self.combine(a, b, |x, y| x + y)
     }
 
@@ -293,6 +310,22 @@ impl Graph {
             }
             self.remove_active_ramp(key);
         }
+    }
+
+    /// Convenience method for updating a ValueParam
+    pub fn set_param(&mut self, param: ValueParam, value: f32) {
+        self.set_value(param.input, value);
+    }
+
+    /// Create a value parameter node and return an opaque handle that can be both
+    /// updated via `set_param` and connected to other nodes.
+    pub fn value_param(&mut self, default: f32) -> ValueParam {
+        use crate::value::Value;
+
+        let node = self.add_node(Value::new(default));
+        let input = node.input();
+        self.insert_value_input(input, default);
+        ValueParam::new(input, node.output())
     }
 
     pub fn queue_event<I>(&mut self, input: I, frame_offset: u32, payload: EventPayload) -> bool
@@ -317,8 +350,9 @@ impl Graph {
         false
     }
 
-    pub fn drain_events<F>(&mut self, output: OutputEndpoint, mut handler: F)
+    pub fn drain_events<O, F>(&mut self, output: O, mut handler: F)
     where
+        O: Output,
         F: FnMut(&EventInstance),
     {
         let key = output.key();
@@ -377,7 +411,10 @@ impl Graph {
         }
     }
 
-    pub fn get_value(&self, endpoint: &OutputEndpoint) -> Option<f32> {
+    pub fn get_value<O>(&self, endpoint: &O) -> Option<f32>
+    where
+        O: Output,
+    {
         self.endpoints
             .get(endpoint.key())
             .and_then(EndpointState::as_scalar)

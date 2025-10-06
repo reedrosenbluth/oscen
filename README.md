@@ -18,10 +18,10 @@ connect (or patch) the output of one module into the input of another.
 
 ```Rust
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::{Graph, Oscillator, TptFilter, OutputEndpoint};
+use oscen::{Graph, Oscillator, TptFilter, StreamOutput};
 use std::thread;
 
-fn create_audio_graph(sample_rate: f32) -> (Graph, OutputEndpoint) {
+fn create_audio_graph(sample_rate: f32) -> (Graph, StreamOutput) {
     // Create oscen audio graph
     let mut graph = Graph::new(sample_rate);
     

@@ -1,7 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use oscen::{
-    Graph, InputEndpoint, Node, NodeKey, OutputEndpoint, PolyBlepOscillator, ProcessingContext,
-    ProcessingNode, SignalProcessor, TptFilter, Value, ValueInputHandle, ValueKey,
+    Graph, InputEndpoint, Node, NodeKey, StreamOutput, PolyBlepOscillator,
+    ProcessingContext, ProcessingNode, SignalProcessor, TptFilter, ValueKey,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -12,9 +12,9 @@ use slint::ComponentHandle;
 
 slint::include_modules!();
 
-const NUM_OSCILLATORS: usize = 7;
-const DETUNE_OFFSETS: [f32; NUM_OSCILLATORS] = [-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0];
-const DETUNE_STEP_CENTS: f32 = 6.0;
+const NUM_OSCILLATORS: usize = 5;
+const DETUNE_OFFSETS: [f32; NUM_OSCILLATORS] = [-4.0, -2.0, 0.0, 2.0, 4.0];
+const DETUNE_STEP_CENTS: f32 = 300.0;
 
 #[derive(Debug, Node)]
 struct DetuneFrequency {
@@ -72,33 +72,40 @@ impl Default for SynthParams {
     }
 }
 
+use oscen::ValueParam;
+
 struct AudioContext {
     graph: Graph,
-    base_freq_input: ValueInputHandle,
-    spread_input: ValueInputHandle,
-    cutoff_freq_input: ValueInputHandle,
-    q_input: ValueInputHandle,
-    volume_input: ValueInputHandle,
-    output: OutputEndpoint,
+    base_freq_param: ValueParam,
+    spread_param: ValueParam,
+    cutoff_param: ValueParam,
+    q_param: ValueParam,
+    volume_param: ValueParam,
+    output: StreamOutput,
     channels: usize,
 }
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     let mut graph = Graph::new(sample_rate);
 
-    let base_frequency = graph.add_node(Value::new(440.0));
-    let spread = graph.add_node(Value::new(0.0));
+    let base_param = graph.value_param(440.0);
+    let spread_param = graph.value_param(0.0);
+    let cutoff_param = graph.value_param(3000.0);
+    let q_param = graph.value_param(0.707);
+    let volume_param = graph.value_param(0.4);
 
-    let mut summed_osc_output: Option<OutputEndpoint> = None;
+    let mut summed_osc_output: Option<StreamOutput> = None;
     let osc_amplitude = 1.0 / NUM_OSCILLATORS as f32;
 
     for &offset_steps in DETUNE_OFFSETS.iter() {
         let detune = graph.add_node(DetuneFrequency::new(offset_steps));
-        graph.connect(base_frequency.output(), detune.base_frequency());
-        graph.connect(spread.output(), detune.spread());
-
         let osc = graph.add_node(PolyBlepOscillator::saw(440.0, osc_amplitude));
-        graph.connect(detune.frequency(), osc.frequency());
+
+        graph.connect_all(vec![
+            base_param >> detune.base_frequency(),
+            spread_param >> detune.spread(),
+            detune.frequency() >> osc.frequency(),
+        ]);
 
         let osc_output = osc.output();
         summed_osc_output = Some(match summed_osc_output {
@@ -108,40 +115,23 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     }
 
     let filter = graph.add_node(TptFilter::new(3000.0, 0.707));
-    let volume = graph.add_node(Value::new(0.4));
-
     let summed_osc_output = summed_osc_output.expect("No oscillators were created");
 
-    graph.connect(summed_osc_output, filter.input());
+    graph.connect_all(vec![
+        cutoff_param >> filter.cutoff(),
+        q_param >> filter.q(),
+        summed_osc_output >> filter.input(),
+    ]);
 
-    let output = graph.combine(filter.output(), volume.output(), |x, v| x * v);
-
-    // if graph
-    //     .insert_value_input(base_frequency.input(), 440.0)
-    //     .is_none()
-    // {
-    //     panic!("Failed to insert base frequency input");
-    // }
-    // if graph.insert_value_input(spread.input(), 0.0).is_none() {
-    //     panic!("Failed to insert spread input");
-    // }
-    // if graph.insert_value_input(filter.cutoff(), 3000.0).is_none() {
-    //     panic!("Failed to insert filter cutoff input");
-    // }
-    // if graph.insert_value_input(filter.q(), 0.707).is_none() {
-    //     panic!("Failed to insert filter Q input");
-    // }
-    // if graph.insert_value_input(volume.input(), 0.4).is_none() {
-    //     panic!("Failed to insert volume input");
-    // }
+    let output = graph.combine(filter.output(), volume_param, |x, v| x * v);
 
     AudioContext {
         graph,
-        base_freq_input: base_frequency.input(),
-        spread_input: spread.input(),
-        cutoff_freq_input: filter.cutoff(),
-        q_input: filter.q(),
-        volume_input: volume.input(),
+        base_freq_param: base_param,
+        spread_param: spread_param,
+        cutoff_param: cutoff_param,
+        q_param: q_param,
+        volume_param: volume_param,
         output,
         channels,
     }
@@ -160,14 +150,14 @@ fn audio_callback(
     if let Some(params) = latest_params {
         let updates = [
             (
-                context.base_freq_input,
+                context.base_freq_param,
                 params.carrier_frequency.max(0.0),
                 441,
             ),
-            (context.spread_input, params.spread.clamp(0.0, 1.0), 441),
-            (context.cutoff_freq_input, params.cutoff_frequency, 1323),
-            (context.q_input, params.q_factor, 441),
-            (context.volume_input, params.volume, 441),
+            (context.spread_param, params.spread.clamp(0.0, 1.0), 441),
+            (context.cutoff_param, params.cutoff_frequency, 1323),
+            (context.q_param, params.q_factor, 441),
+            (context.volume_param, params.volume, 441),
         ];
 
         for (key, value, ramp) in updates {

@@ -1,7 +1,7 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
 use oscen::{
-    filters::tpt::TptFilter, graph::ValueInputHandle, Delay, Graph, OutputEndpoint, Value,
+    filters::tpt::TptFilter, graph::ValueInput, Delay, Graph, StreamOutput, Value,
 };
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -79,12 +79,12 @@ impl Default for SimpleEchoParams {
 
 pub struct ChannelContext {
     graph: Graph,
-    delay_time_input: ValueInputHandle,
-    filter_cutoff_input: ValueInputHandle,
-    feedback_input: ValueInputHandle,
-    mix_input: ValueInputHandle,
-    output: OutputEndpoint,
-    input_endpoint: ValueInputHandle,
+    delay_time_input: ValueInput,
+    filter_cutoff_input: ValueInput,
+    feedback_input: ValueInput,
+    mix_input: ValueInput,
+    output: StreamOutput,
+    input_endpoint: ValueInput,
 }
 
 pub struct AudioContext {

@@ -18,6 +18,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut input_idents = Vec::new();
     let mut output_idents = Vec::new();
     let mut endpoint_descriptors = Vec::new();
+    let mut output_type_kinds = Vec::new();
 
     // Extract field information
     if let Data::Struct(data_struct) = input.data {
@@ -50,18 +51,18 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     let accessor_kind = input_type_kind.unwrap_or(EndpointTypeAttr::Value);
                     let accessor = match accessor_kind {
                         EndpointTypeAttr::Stream => quote! {
-                            pub fn #field_name(&self) -> ::oscen::graph::types::StreamInputHandle {
-                                ::oscen::graph::types::StreamInputHandle::new(InputEndpoint::new(self.inputs[#input_idx]))
+                            pub fn #field_name(&self) -> ::oscen::graph::types::StreamInput {
+                                ::oscen::graph::types::StreamInput::new(InputEndpoint::new(self.inputs[#input_idx]))
                             }
                         },
                         EndpointTypeAttr::Event => quote! {
-                            pub fn #field_name(&self) -> ::oscen::graph::types::EventInputHandle {
-                                ::oscen::graph::types::EventInputHandle::new(InputEndpoint::new(self.inputs[#input_idx]))
+                            pub fn #field_name(&self) -> ::oscen::graph::types::EventInput {
+                                ::oscen::graph::types::EventInput::new(InputEndpoint::new(self.inputs[#input_idx]))
                             }
                         },
                         EndpointTypeAttr::Value => quote! {
-                            pub fn #field_name(&self) -> ::oscen::graph::types::ValueInputHandle {
-                                ::oscen::graph::types::ValueInputHandle::new(InputEndpoint::new(self.inputs[#input_idx]))
+                            pub fn #field_name(&self) -> ::oscen::graph::types::ValueInput {
+                                ::oscen::graph::types::ValueInput::new(InputEndpoint::new(self.inputs[#input_idx]))
                             }
                         },
                     };
@@ -116,9 +117,25 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
                 if let Some(endpoint_ty) = output_type {
                     let descriptor_ty = endpoint_ty.clone();
+
+                    // Determine output type from endpoint_ty
+                    let mut output_kind = EndpointTypeAttr::Value; // default
+                    for attr in field.attrs.iter() {
+                        if attr.path().is_ident("output") {
+                            output_kind = parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
+                        }
+                    }
+                    output_type_kinds.push(output_kind);
+
+                    let output_type_token = match output_kind {
+                        EndpointTypeAttr::Stream => quote! { ::oscen::graph::types::StreamOutput },
+                        EndpointTypeAttr::Value => quote! { ::oscen::graph::types::ValueOutput },
+                        EndpointTypeAttr::Event => quote! { ::oscen::graph::types::EventOutput },
+                    };
+
                     output_fields.push(quote! {
-                        pub fn #field_name(&self) -> OutputEndpoint {
-                            OutputEndpoint::new(self.outputs[#output_idx])
+                        pub fn #field_name(&self) -> #output_type_token {
+                            #output_type_token::new(self.outputs[#output_idx])
                         }
                     });
                     output_idents.push(field_name.clone());

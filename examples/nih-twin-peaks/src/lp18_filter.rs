@@ -1,5 +1,5 @@
 use oscen::{
-    InputEndpoint, Node, NodeKey, OutputEndpoint, ProcessingContext, ProcessingNode,
+    InputEndpoint, Node, NodeKey, ProcessingContext, ProcessingNode,
     SignalProcessor, ValueKey,
 };
 use std::f32::consts::PI;

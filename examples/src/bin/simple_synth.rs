@@ -1,8 +1,8 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::{Graph, Oscillator, OutputEndpoint, TptFilter};
+use oscen::{Graph, Oscillator, StreamOutput, TptFilter};
 use std::thread;
 
-fn create_audio_graph(sample_rate: f32) -> (Graph, OutputEndpoint) {
+fn create_audio_graph(sample_rate: f32) -> (Graph, StreamOutput) {
     let mut graph = Graph::new(sample_rate);
 
     // Create a sine oscillator and low-pass filter

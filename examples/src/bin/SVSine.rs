@@ -1,9 +1,5 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
-// use oscen::{
-//     EndpointDefinition, EndpointMetadata, Graph, InputEndpoint, NodeKey, OutputEndpoint,
-//     ProcessingNode, SignalProcessor, ValueKey,
-// };
 use oscen::graph::*;
 use oscen::{Node, ProcessingContext, SignalProcessor};
 use std::f32::consts::PI;
@@ -79,8 +75,8 @@ impl SignalProcessor for SVSine {
 fn audio_callback(
     data: &mut [f32],
     graph: &mut Graph,
-    freq_input: ValueInputHandle,
-    output: &OutputEndpoint,
+    freq_input: ValueInput,
+    output: &StreamOutput,
     rx: &std::sync::mpsc::Receiver<SynthParams>,
     channels: usize,
 ) {

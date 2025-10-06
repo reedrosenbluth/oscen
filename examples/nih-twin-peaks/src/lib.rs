@@ -3,7 +3,7 @@ mod lp18_filter;
 use lp18_filter::LP18Filter;
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
-use oscen::{graph::ValueInputHandle, Graph, OutputEndpoint};
+use oscen::{graph::ValueInput, Graph, StreamOutput};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -76,12 +76,12 @@ impl Default for TwinPeaksParams {
 
 pub struct AudioContext {
     graph: Graph,
-    cutoff_input_a: ValueInputHandle,
-    cutoff_input_b: ValueInputHandle,
-    resonance_input_a: ValueInputHandle,
-    resonance_input_b: ValueInputHandle,
-    output: OutputEndpoint,
-    input_endpoint: ValueInputHandle,
+    cutoff_input_a: ValueInput,
+    cutoff_input_b: ValueInput,
+    resonance_input_a: ValueInput,
+    resonance_input_b: ValueInput,
+    output: StreamOutput,
+    input_endpoint: ValueInput,
 }
 
 impl AudioContext {

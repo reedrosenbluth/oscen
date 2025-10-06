@@ -1,6 +1,6 @@
 use super::traits::ProcessingContext;
 use super::types::{
-    EndpointDescriptor, EndpointDirection, EndpointType, EventPayload, ValueInputHandle,
+    EndpointDescriptor, EndpointDirection, EndpointType, EventPayload, ValueInput,
 };
 use super::*;
 use crate::delay::Delay;
@@ -109,7 +109,7 @@ fn test_audio_endpoints_are_streams() {
     );
 
     assert!(graph.insert_value_input(filter.cutoff(), 2000.0).is_some());
-    let bogus_value_handle = ValueInputHandle::new(filter.input().endpoint());
+    let bogus_value_handle = ValueInput::new(filter.input().endpoint());
     assert!(graph.insert_value_input(bogus_value_handle, 0.0).is_none());
 }
 
@@ -118,16 +118,16 @@ struct ContextProbeNode;
 
 #[derive(Copy, Clone)]
 struct ProbeEndpoints {
-    input: ValueInputHandle,
-    output: OutputEndpoint,
+    input: ValueInput,
+    output: StreamOutput,
 }
 
 impl ProbeEndpoints {
-    fn input(&self) -> ValueInputHandle {
+    fn input(&self) -> ValueInput {
         self.input
     }
 
-    fn output(&self) -> OutputEndpoint {
+    fn output(&self) -> StreamOutput {
         self.output
     }
 }
@@ -163,8 +163,8 @@ impl ProcessingNode for ContextProbeNode {
         let input_key = inputs[0];
         let output_key = outputs[0];
         ProbeEndpoints {
-            input: ValueInputHandle::new(InputEndpoint::new(input_key)),
-            output: OutputEndpoint::new(output_key),
+            input: ValueInput::new(InputEndpoint::new(input_key)),
+            output: StreamOutput::new(output_key),
         }
     }
 }
@@ -191,11 +191,11 @@ struct EventEmitterNode;
 
 #[derive(Copy, Clone)]
 struct EventEmitterEndpoints {
-    output: OutputEndpoint,
+    output: StreamOutput,
 }
 
 impl EventEmitterEndpoints {
-    fn output(&self) -> OutputEndpoint {
+    fn output(&self) -> StreamOutput {
         self.output
     }
 }
@@ -223,7 +223,7 @@ impl ProcessingNode for EventEmitterNode {
     ) -> Self::Endpoints {
         let output_key = outputs[0];
         EventEmitterEndpoints {
-            output: OutputEndpoint::new(output_key),
+            output: StreamOutput::new(output_key),
         }
     }
 }
