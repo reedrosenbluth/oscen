@@ -265,8 +265,7 @@ impl SignalProcessor for AdsrEnvelope {
         let release = self.get_release(context);
         self.apply_parameters(attack, decay, sustain, release);
 
-        let gate_events: Vec<EventInstance> = self.events_gate(&*context).iter().cloned().collect();
-        for event in gate_events.iter() {
+        for event in self.events_gate(&*context).iter() {
             self.handle_gate_event(event);
         }
 

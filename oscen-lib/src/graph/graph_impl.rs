@@ -81,7 +81,7 @@ impl Graph {
             active_ramps: Vec::new(),
             ramp_indices: SecondaryMap::new(),
             current_frame: 0,
-            pending_events: Vec::new(),
+            pending_events: Vec::with_capacity(64),
         }
     }
 
