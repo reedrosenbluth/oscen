@@ -11,7 +11,10 @@ use oscen::envelope::adsr::{AdsrEnvelope, AdsrEnvelopeEndpoints};
 use oscen::filters::tpt::{TptFilter, TptFilterEndpoints};
 use oscen::midi::{MidiParserEndpoints, MidiVoiceHandlerEndpoints};
 use oscen::oscillators::PolyBlepOscillatorEndpoints;
-use oscen::{graph, queue_raw_midi, MidiParser, MidiVoiceHandler, PolyBlepOscillator};
+use oscen::{
+    graph, queue_raw_midi, MidiParser, MidiVoiceHandler, PolyBlepOscillator, VoiceAllocator4,
+    VoiceAllocator4Endpoints,
+};
 use slint::ComponentHandle;
 
 use midi_input::MidiConnection;
@@ -29,8 +32,47 @@ enum ParamChange {
     Release(f32),
 }
 
+// Define a Voice subgraph that encapsulates osc, filter, and envelope
 graph! {
-    name: SynthGraph;
+    name: Voice;
+
+    input value frequency = 440.0;
+    input event gate;
+    input value cutoff = 3000.0;
+    input value q = 0.707;
+    input value attack = 0.01;
+    input value decay = 0.1;
+    input value sustain = 0.7;
+    input value release = 0.2;
+
+    output stream audio;
+
+    node {
+        osc = PolyBlepOscillator::saw(440.0, 0.6);
+        filter = TptFilter::new(3000.0, 0.707);
+        envelope = AdsrEnvelope::new(0.01, 0.1, 0.7, 0.2);
+    }
+
+    connection {
+        frequency -> osc.frequency();
+        gate -> envelope.gate();
+        cutoff -> filter.cutoff();
+        q -> filter.q();
+        attack -> envelope.attack();
+        decay -> envelope.decay();
+        sustain -> envelope.sustain();
+        release -> envelope.release();
+
+        osc.output() -> filter.input();
+        envelope.output() -> filter.f_mod();
+
+        filter.output() * envelope.output() -> audio;
+    }
+}
+
+// Main polyphonic synth with 4 voices using VoiceAllocator
+graph! {
+    name: PolySynthGraph;
 
     input value cutoff = 3000.0;
     input value q = 0.707;
@@ -44,43 +86,90 @@ graph! {
 
     node {
         midi_parser = MidiParser::new();
-        voice_handler = MidiVoiceHandler::new();
-        osc = PolyBlepOscillator::saw(440.0, 0.6);
-        filter = TptFilter::new(3000.0, 0.707);
-        envelope = AdsrEnvelope::new(0.01, 0.1, 0.7, 0.2);
+        voice_allocator = VoiceAllocator4::new();
+
+        // Create 4 voice handlers using array syntax
+        voice_handlers = [MidiVoiceHandler::new(); 4];
+
+        // Create 4 voice instances using array syntax
+        voices = [Voice::new(48000.0); 4];
     }
 
     connection {
-        // Connect MIDI parser to voice handler
-        midi_parser.note_on() -> voice_handler.note_on();
-        midi_parser.note_off() -> voice_handler.note_off();
+        // Connect MIDI parser to voice allocator
+        midi_parser.note_on() -> voice_allocator.note_on();
+        midi_parser.note_off() -> voice_allocator.note_off();
 
-        // Connect voice handler outputs
-        voice_handler.frequency() -> osc.frequency();
-        voice_handler.gate() -> envelope.gate();
+        // Connect voice allocator outputs to individual voice handlers
+        voice_allocator.voice_0() -> voice_handlers[0].note_on();
+        voice_allocator.voice_0() -> voice_handlers[0].note_off();
 
-        cutoff -> filter.cutoff();
-        q -> filter.q();
-        attack -> envelope.attack();
-        decay -> envelope.decay();
-        sustain -> envelope.sustain();
-        release -> envelope.release();
+        voice_allocator.voice_1() -> voice_handlers[1].note_on();
+        voice_allocator.voice_1() -> voice_handlers[1].note_off();
 
-        osc.output() -> filter.input();
-        envelope.output() -> filter.f_mod();
+        voice_allocator.voice_2() -> voice_handlers[2].note_on();
+        voice_allocator.voice_2() -> voice_handlers[2].note_off();
 
-        filter.output() * envelope.output() * volume -> audio_out;
+        voice_allocator.voice_3() -> voice_handlers[3].note_on();
+        voice_allocator.voice_3() -> voice_handlers[3].note_off();
+
+        // Connect voice handlers to voices
+        voice_handlers[0].frequency() -> voices[0].frequency();
+        voice_handlers[0].gate() -> voices[0].gate();
+
+        voice_handlers[1].frequency() -> voices[1].frequency();
+        voice_handlers[1].gate() -> voices[1].gate();
+
+        voice_handlers[2].frequency() -> voices[2].frequency();
+        voice_handlers[2].gate() -> voices[2].gate();
+
+        voice_handlers[3].frequency() -> voices[3].frequency();
+        voice_handlers[3].gate() -> voices[3].gate();
+
+        // Connect shared parameters to all voices
+        cutoff -> voices[0].cutoff();
+        cutoff -> voices[1].cutoff();
+        cutoff -> voices[2].cutoff();
+        cutoff -> voices[3].cutoff();
+
+        q -> voices[0].q();
+        q -> voices[1].q();
+        q -> voices[2].q();
+        q -> voices[3].q();
+
+        attack -> voices[0].attack();
+        attack -> voices[1].attack();
+        attack -> voices[2].attack();
+        attack -> voices[3].attack();
+
+        decay -> voices[0].decay();
+        decay -> voices[1].decay();
+        decay -> voices[2].decay();
+        decay -> voices[3].decay();
+
+        sustain -> voices[0].sustain();
+        sustain -> voices[1].sustain();
+        sustain -> voices[2].sustain();
+        sustain -> voices[3].sustain();
+
+        release -> voices[0].release();
+        release -> voices[1].release();
+        release -> voices[2].release();
+        release -> voices[3].release();
+
+        // Mix all voice outputs and apply master volume
+        (voices[0].audio() + voices[1].audio() + voices[2].audio() + voices[3].audio()) * volume -> audio_out;
     }
 }
 
 struct AudioContext {
-    synth: SynthGraph,
+    synth: PolySynthGraph,
     channels: usize,
 }
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     AudioContext {
-        synth: SynthGraph::new(sample_rate),
+        synth: PolySynthGraph::new(sample_rate),
         channels,
     }
 }

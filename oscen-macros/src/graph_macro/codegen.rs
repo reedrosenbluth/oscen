@@ -153,7 +153,13 @@ impl CodegenContext {
                 // Construct the Endpoints type by appending "Endpoints" to the node type
                 // E.g., PolyBlepOscillator -> PolyBlepOscillatorEndpoints
                 let endpoints_type = Self::construct_endpoints_type(node_type);
-                fields.push(quote! { pub #name: #endpoints_type });
+                if let Some(array_size) = node.array_size {
+                    // Array of endpoints
+                    fields.push(quote! { pub #name: [#endpoints_type; #array_size] });
+                } else {
+                    // Single endpoint
+                    fields.push(quote! { pub #name: #endpoints_type });
+                }
             }
         }
 
@@ -235,12 +241,26 @@ impl CodegenContext {
     }
 
     fn generate_node_creation(&self) -> Vec<TokenStream> {
-        self.nodes.iter().map(|node| {
+        self.nodes.iter().flat_map(|node| {
             let name = &node.name;
             let constructor = &node.constructor;
 
-            quote! {
-                let #name = graph.add_node(#constructor);
+            if let Some(array_size) = node.array_size {
+                // Generate multiple instances with indexed names
+                (0..array_size).map(|i| {
+                    let indexed_name = syn::Ident::new(
+                        &format!("{}_{}", name, i),
+                        name.span()
+                    );
+                    quote! {
+                        let #indexed_name = graph.add_node(#constructor);
+                    }
+                }).collect::<Vec<_>>()
+            } else {
+                // Single instance
+                vec![quote! {
+                    let #name = graph.add_node(#constructor);
+                }]
             }
         }).collect()
     }
@@ -331,6 +351,21 @@ impl CodegenContext {
         match expr {
             ConnectionExpr::Ident(ident) => {
                 Ok(quote! { #ident })
+            }
+            ConnectionExpr::ArrayIndex(array_expr, index) => {
+                // For array[idx], we need to check if the base is an identifier
+                // If it is, translate to base_idx (e.g., voices[0] -> voices_0)
+                if let ConnectionExpr::Ident(base_name) = &**array_expr {
+                    let indexed_name = syn::Ident::new(
+                        &format!("{}_{}", base_name, index),
+                        base_name.span()
+                    );
+                    Ok(quote! { #indexed_name })
+                } else {
+                    // For more complex expressions, use actual array indexing
+                    let array = self.generate_connection_expr(array_expr)?;
+                    Ok(quote! { #array[#index] })
+                }
             }
             ConnectionExpr::Method(obj, method, args) => {
                 let obj_expr = self.generate_connection_expr(obj)?;
@@ -434,10 +469,294 @@ impl CodegenContext {
         // Add node handles
         for node in &self.nodes {
             let name = &node.name;
-            fields.push(quote! { #name });
+            if let Some(array_size) = node.array_size {
+                // Generate array initializer: [name_0, name_1, ...]
+                let indexed_names: Vec<_> = (0..array_size)
+                    .map(|i| {
+                        syn::Ident::new(&format!("{}_{}", name, i), name.span())
+                    })
+                    .collect();
+                fields.push(quote! { #name: [#(#indexed_names),*] });
+            } else {
+                fields.push(quote! { #name });
+            }
         }
 
         quote! { #(#fields),* }
+    }
+
+    /// Generate the Endpoints struct for a graph (e.g., VoiceEndpoints)
+    fn generate_endpoints_struct(&self, graph_name: &syn::Ident) -> TokenStream {
+        let endpoints_name = syn::Ident::new(
+            &format!("{}Endpoints", graph_name),
+            graph_name.span()
+        );
+
+        let mut fields = vec![
+            quote! { node_key: ::oscen::NodeKey }
+        ];
+
+        let mut accessor_methods = Vec::new();
+
+        // Add input fields and accessor methods
+        for input in &self.inputs {
+            let field_name = &input.name;
+            let method_name = &input.name;
+            let (ty, accessor_ty) = match input.kind {
+                EndpointKind::Value => (
+                    quote! { ::oscen::ValueInput },
+                    quote! { ::oscen::ValueInput }
+                ),
+                EndpointKind::Event => (
+                    quote! { ::oscen::EventInput },
+                    quote! { ::oscen::EventInput }
+                ),
+                EndpointKind::Stream => (
+                    quote! { ::oscen::StreamInput },
+                    quote! { ::oscen::StreamInput }
+                ),
+            };
+            fields.push(quote! { #field_name: #ty });
+            accessor_methods.push(quote! {
+                pub fn #method_name(&self) -> #accessor_ty {
+                    self.#field_name
+                }
+            });
+        }
+
+        // Add output fields and accessor methods
+        for output in &self.outputs {
+            let field_name = &output.name;
+            let method_name = &output.name;
+            let (ty, accessor_ty) = match output.kind {
+                EndpointKind::Value => (
+                    quote! { ::oscen::ValueOutput },
+                    quote! { ::oscen::ValueOutput }
+                ),
+                EndpointKind::Event => (
+                    quote! { ::oscen::EventOutput },
+                    quote! { ::oscen::EventOutput }
+                ),
+                EndpointKind::Stream => (
+                    quote! { ::oscen::StreamOutput },
+                    quote! { ::oscen::StreamOutput }
+                ),
+            };
+            fields.push(quote! { #field_name: #ty });
+            accessor_methods.push(quote! {
+                pub fn #method_name(&self) -> #accessor_ty {
+                    self.#field_name
+                }
+            });
+        }
+
+        quote! {
+            #[allow(dead_code)]
+            #[derive(Debug)]
+            pub struct #endpoints_name {
+                #(#fields),*
+            }
+
+            impl #endpoints_name {
+                #(#accessor_methods)*
+            }
+        }
+    }
+
+    /// Generate SignalProcessor implementation for graph
+    fn generate_signal_processor_impl(&self, name: &syn::Ident) -> TokenStream {
+        // Generate code to route inputs from context to internal graph
+        let mut input_routing = Vec::new();
+        for (idx, input) in self.inputs.iter().enumerate() {
+            let field_name = &input.name;
+            let routing_code = match input.kind {
+                EndpointKind::Stream => {
+                    quote! {
+                        let value = context.stream(#idx);
+                        if let Some(state) = self.graph.endpoints.get_mut(self.#field_name.key()) {
+                            state.set_scalar(value);
+                        }
+                    }
+                }
+                EndpointKind::Value => {
+                    quote! {
+                        let value = context.value_scalar(#idx);
+                        self.graph.set_value(self.#field_name, value);
+                    }
+                }
+                EndpointKind::Event => {
+                    quote! {
+                        for event in context.events(#idx) {
+                            self.graph.queue_event(
+                                self.#field_name,
+                                event.frame_offset,
+                                event.payload.clone()
+                            );
+                        }
+                    }
+                }
+            };
+            input_routing.push(routing_code);
+        }
+
+        // Get the first output to return (required by SignalProcessor)
+        let return_expr = if let Some(first_output) = self.outputs.first() {
+            let field_name = &first_output.name;
+            quote! {
+                self.graph.get_value(&self.#field_name).unwrap_or(0.0)
+            }
+        } else {
+            quote! { 0.0 }
+        };
+
+        // Generate code to emit event outputs
+        let mut event_output_routing = Vec::new();
+        for (idx, output) in self.outputs.iter().enumerate() {
+            if output.kind == EndpointKind::Event {
+                let field_name = &output.name;
+                event_output_routing.push(quote! {
+                    self.graph.drain_events(self.#field_name, |event| {
+                        context.emit_event(#idx, event.clone());
+                    });
+                });
+            }
+        }
+
+        quote! {
+            impl ::oscen::SignalProcessor for #name {
+                fn process<'a>(
+                    &mut self,
+                    _sample_rate: f32,
+                    context: &mut ::oscen::ProcessingContext<'a>
+                ) -> f32 {
+                    // Route external inputs to internal graph endpoints
+                    #(#input_routing)*
+
+                    // Process internal graph
+                    let _ = self.graph.process();
+
+                    // Route event outputs from internal graph to external context
+                    #(#event_output_routing)*
+
+                    // Return primary output
+                    #return_expr
+                }
+            }
+        }
+    }
+
+    /// Generate ProcessingNode implementation for graph
+    fn generate_processing_node_impl(&self, name: &syn::Ident) -> TokenStream {
+        let endpoints_name = syn::Ident::new(
+            &format!("{}Endpoints", name),
+            name.span()
+        );
+
+        // Generate ENDPOINT_DESCRIPTORS
+        let mut descriptors = Vec::new();
+        for input in &self.inputs {
+            let input_name = input.name.to_string();
+            let endpoint_type = match input.kind {
+                EndpointKind::Stream => quote! { ::oscen::graph::EndpointType::Stream },
+                EndpointKind::Value => quote! { ::oscen::graph::EndpointType::Value },
+                EndpointKind::Event => quote! { ::oscen::graph::EndpointType::Event },
+            };
+            descriptors.push(quote! {
+                ::oscen::graph::EndpointDescriptor::new(
+                    #input_name,
+                    #endpoint_type,
+                    ::oscen::graph::EndpointDirection::Input
+                )
+            });
+        }
+
+        for output in &self.outputs {
+            let output_name = output.name.to_string();
+            let endpoint_type = match output.kind {
+                EndpointKind::Stream => quote! { ::oscen::graph::EndpointType::Stream },
+                EndpointKind::Value => quote! { ::oscen::graph::EndpointType::Value },
+                EndpointKind::Event => quote! { ::oscen::graph::EndpointType::Event },
+            };
+            descriptors.push(quote! {
+                ::oscen::graph::EndpointDescriptor::new(
+                    #output_name,
+                    #endpoint_type,
+                    ::oscen::graph::EndpointDirection::Output
+                )
+            });
+        }
+
+        // Generate create_endpoints implementation
+        let mut endpoint_fields = vec![quote! { node_key }];
+        let mut input_assignments = Vec::new();
+        let mut output_assignments = Vec::new();
+
+        for (idx, input) in self.inputs.iter().enumerate() {
+            let field_name = &input.name;
+            let constructor = match input.kind {
+                EndpointKind::Stream => quote! {
+                    ::oscen::StreamInput::new(::oscen::graph::InputEndpoint::new(inputs[#idx]))
+                },
+                EndpointKind::Value => quote! {
+                    ::oscen::ValueInput::new(::oscen::graph::InputEndpoint::new(inputs[#idx]))
+                },
+                EndpointKind::Event => quote! {
+                    ::oscen::EventInput::new(::oscen::graph::InputEndpoint::new(inputs[#idx]))
+                },
+            };
+            input_assignments.push(quote! {
+                let #field_name = #constructor;
+            });
+            endpoint_fields.push(quote! { #field_name });
+        }
+
+        for (idx, output) in self.outputs.iter().enumerate() {
+            let field_name = &output.name;
+            let constructor = match output.kind {
+                EndpointKind::Stream => quote! {
+                    ::oscen::StreamOutput::new(outputs[#idx])
+                },
+                EndpointKind::Value => quote! {
+                    ::oscen::ValueOutput::new(outputs[#idx])
+                },
+                EndpointKind::Event => quote! {
+                    ::oscen::EventOutput::new(outputs[#idx])
+                },
+            };
+            output_assignments.push(quote! {
+                let #field_name = #constructor;
+            });
+            endpoint_fields.push(quote! { #field_name });
+        }
+
+        quote! {
+            impl ::oscen::ProcessingNode for #name {
+                type Endpoints = #endpoints_name;
+
+                const ENDPOINT_DESCRIPTORS: &'static [::oscen::graph::EndpointDescriptor] = &[
+                    #(#descriptors),*
+                ];
+
+                fn create_endpoints(
+                    node_key: ::oscen::NodeKey,
+                    inputs: arrayvec::ArrayVec<
+                        ::oscen::ValueKey,
+                        { ::oscen::graph::MAX_NODE_ENDPOINTS }
+                    >,
+                    outputs: arrayvec::ArrayVec<
+                        ::oscen::ValueKey,
+                        { ::oscen::graph::MAX_NODE_ENDPOINTS }
+                    >,
+                ) -> Self::Endpoints {
+                    #(#input_assignments)*
+                    #(#output_assignments)*
+
+                    #endpoints_name {
+                        #(#endpoint_fields),*
+                    }
+                }
+            }
+        }
     }
 
     /// Generate a module-level struct definition with a constructor
@@ -473,7 +792,13 @@ impl CodegenContext {
             let field_name = &node.name;
             if let Some(node_type) = &node.node_type {
                 let endpoints_type = Self::construct_endpoints_type(node_type);
-                fields.push(quote! { pub #field_name: #endpoints_type });
+                if let Some(array_size) = node.array_size {
+                    // Array of endpoints
+                    fields.push(quote! { pub #field_name: [#endpoints_type; #array_size] });
+                } else {
+                    // Single endpoint
+                    fields.push(quote! { pub #field_name: #endpoints_type });
+                }
             }
         }
 
@@ -482,8 +807,14 @@ impl CodegenContext {
         let connections = self.generate_connections()?;
         let struct_init = self.generate_struct_init();
 
+        // Generate the additional trait implementations
+        let endpoints_struct = self.generate_endpoints_struct(name);
+        let signal_processor_impl = self.generate_signal_processor_impl(name);
+        let processing_node_impl = self.generate_processing_node_impl(name);
+
         Ok(quote! {
             #[allow(dead_code)]
+            #[derive(Debug)]
             pub struct #name {
                 #(#fields),*
             }
@@ -508,6 +839,15 @@ impl CodegenContext {
                     }
                 }
             }
+
+            // Generate Endpoints struct
+            #endpoints_struct
+
+            // Generate SignalProcessor implementation
+            #signal_processor_impl
+
+            // Generate ProcessingNode implementation
+            #processing_node_impl
         })
     }
 }
@@ -539,6 +879,7 @@ impl Clone for NodeDecl {
             name: self.name.clone(),
             constructor: self.constructor.clone(),
             node_type: self.node_type.clone(),
+            array_size: self.array_size,
         }
     }
 }
@@ -556,6 +897,7 @@ impl Clone for ConnectionExpr {
     fn clone(&self) -> Self {
         match self {
             Self::Ident(i) => Self::Ident(i.clone()),
+            Self::ArrayIndex(expr, idx) => Self::ArrayIndex(expr.clone(), *idx),
             Self::Method(obj, method, args) => {
                 Self::Method(obj.clone(), method.clone(), args.clone())
             }

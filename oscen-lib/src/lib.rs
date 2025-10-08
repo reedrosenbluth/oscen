@@ -9,6 +9,7 @@ pub mod midi;
 pub mod oscillators;
 pub mod ring_buffer;
 pub mod value;
+pub mod voice_allocator;
 
 pub use delay::Delay;
 pub use envelope::AdsrEnvelope;
@@ -20,5 +21,8 @@ pub use midi::{
     RawMidiMessage,
 };
 pub use oscen_macros::{graph, Node};
-pub use oscillators::{Oscillator, PolyBlepOscillator};
+pub use oscillators::{
+    Oscillator, OscillatorEndpoints, PolyBlepOscillator, PolyBlepOscillatorEndpoints,
+};
 pub use value::Value;
+pub use voice_allocator::{VoiceAllocator, VoiceAllocator4, VoiceAllocator4Endpoints};

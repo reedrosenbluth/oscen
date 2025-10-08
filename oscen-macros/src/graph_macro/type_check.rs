@@ -1,5 +1,4 @@
 use super::ast::*;
-use quote::ToTokens;
 use std::collections::HashMap;
 use syn::{Ident, Result};
 
@@ -36,6 +35,10 @@ impl TypeContext {
                 let name = ident.to_string();
                 // Check if it's a known input or output
                 self.inputs.get(&name).or_else(|| self.outputs.get(&name)).copied()
+            }
+            ConnectionExpr::ArrayIndex(array_expr, _idx) => {
+                // Array indexing preserves the type of the base expression
+                self.infer_type(array_expr)
             }
             ConnectionExpr::Method(obj, method, _args) => {
                 // Try to infer based on common method names

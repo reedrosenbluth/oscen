@@ -1,0 +1,405 @@
+
+global MathConstants {
+    out property <float> natural_log_base: 2.718281828459045;
+}
+
+global KnobPalette {
+    in-out property <brush> dial_bg: #A9A9A9;
+    in-out property <brush> border: #BABABA;
+    in-out property <brush> marker: #777777;
+    in-out property <brush> title: #BABABA;
+}
+
+global PanelPalette {
+    in-out property <brush> background: #777777;
+    in-out property <brush> border: #888888;
+    in-out property <brush> title: #BABABA;
+}
+
+enum KnobCurve {
+    linear,
+    logarithmic,
+}
+
+component RotaryKnob inherits Rectangle {
+    in property <float> minimum: 0.0;
+    in property <float> maximum: 1.0;
+    in property <float> step: 0.01;
+    in-out property <float> value: minimum;
+    in property <KnobCurve> curve: KnobCurve.linear;
+    in property <string> label: "";
+    in property <brush> bg_brush: KnobPalette.dial_bg;
+    in property <brush> border_brush: KnobPalette.border;
+    in property <brush> marker_brush: KnobPalette.marker;
+    in property <brush> title_brush: KnobPalette.title;
+
+    callback value_edited(float);
+
+    private property <length> dial_size: 58px;
+    private property <float> range: max(0.0001, root.maximum - root.minimum);
+    private property <float> normalized: root.value_to_normalized(root.value);
+    private property <angle> angle: 225deg - 270deg * root.normalized;
+    private property <float> marker_radius: (root.dial_size / 2 - 6px) / 1px;
+    private property <string> minimum_text: root.format_value(root.minimum);
+    private property <string> maximum_text: root.format_value(root.maximum);
+
+    VerticalLayout {
+        spacing: 18px;
+        padding: 0px;
+
+        HorizontalLayout {
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 0px;
+                opacity: 0.0;
+            }
+
+            knob_body := VerticalLayout {
+                spacing: 0px;
+
+                HorizontalLayout {
+                    spacing: 4px;
+
+                    left_margin := Rectangle {
+                        width: minimum_value_label.preferred-width;
+                        height: root.dial_size;
+
+                        minimum_value_label := Text {
+                            text: root.minimum_text;
+                            font-size: 10px;
+                            color: root.title_brush;
+                            x: parent.width - self.width;
+                            y: parent.height - self.height;
+                        }
+                    }
+
+                    dial := Rectangle {
+                        width: root.dial_size;
+                        height: root.dial_size;
+                        border-radius: root.dial_size / 2;
+                        border-width: 2px;
+                        border-color: root.border_brush;
+                        background: root.bg_brush;
+
+                        marker := Rectangle {
+                            width: 6px;
+                            height: 6px;
+                            border-radius: 4px;
+                            background: root.marker_brush;
+                            x: parent.width / 2 + Math.cos(root.angle) * (root.marker_radius * 1px) - self.width / 2;
+                            y: parent.height / 2 - Math.sin(root.angle) * (root.marker_radius * 1px) - self.height / 2;
+                        }
+
+                        TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            property <float> start-value: root.value;
+
+                            pointer-event(event) => {
+                                if (event.button != PointerEventButton.left) {
+                                    return;
+                                }
+                                if (event.kind == PointerEventKind.down) {
+                                    self.start-value = root.value;
+                                } else if (event.kind == PointerEventKind.up) {
+                                    root.value_edited(root.value);
+                                }
+                            }
+
+                            moved => {
+                                let delta_px = (self.pressed-y - self.mouse-y) / 1px;
+                                let delta = delta_px / 150.0;
+                                root.update_value_by_normalized_delta(self.start-value, delta);
+                            }
+                        }
+                    }
+
+                    right_margin := Rectangle {
+                        width: maximum_value_label.preferred-width;
+                        height: root.dial_size;
+
+                        maximum_value_label := Text {
+                            text: root.maximum_text;
+                            font-size: 10px;
+                            color: root.title_brush;
+                            x: 0px;
+                            y: parent.height - self.height;
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 0px;
+                opacity: 0.0;
+            }
+        }
+
+        Text {
+            text: root.label;
+            horizontal-alignment: center;
+            font-size: 12px;
+            font-weight: 500;
+            color: root.title_brush;
+        }
+    }
+
+    function update_value(new-value: float) {
+        let clamped = max(root.minimum, min(root.maximum, new-value));
+        let snapped = quantize(clamped);
+
+        if (snapped == root.value) {
+            return;
+        }
+        root.value = snapped;
+        root.value_edited(root.value);
+    }
+
+    function update_value_by_normalized_delta(start_value: float, delta: float) {
+        let start_normalized = root.value_to_normalized(start_value);
+        let normalized = max(0.0, min(1.0, start_normalized + delta));
+        let new_value = root.normalized_to_value(normalized);
+        root.update_value(new_value);
+    }
+
+    function quantize(value: float) -> float {
+        if (root.step <= 0) {
+            return value;
+        }
+        let steps = Math.round((value - root.minimum) / root.step);
+        return root.minimum + steps * root.step;
+    }
+
+    function value_to_normalized(value: float) -> float {
+        let clamped = max(root.minimum, min(root.maximum, value));
+        if (root.curve == KnobCurve.logarithmic && root.minimum > 0 && root.maximum > 0) {
+            let min_log = Math.log(root.minimum, MathConstants.natural_log_base);
+            let max_log = Math.log(root.maximum, MathConstants.natural_log_base);
+            if (min_log != max_log) {
+                return max(0.0, min(1.0, (Math.log(clamped, MathConstants.natural_log_base) - min_log) / (max_log - min_log)));
+            }
+        }
+        return max(0.0, min(1.0, (clamped - root.minimum) / root.range));
+    }
+
+    function normalized_to_value(normalized: float) -> float {
+        let clamped = max(0.0, min(1.0, normalized));
+        if (root.curve == KnobCurve.logarithmic && root.minimum > 0 && root.maximum > 0) {
+            let min_log = Math.log(root.minimum, MathConstants.natural_log_base);
+            let max_log = Math.log(root.maximum, MathConstants.natural_log_base);
+            if (min_log != max_log) {
+                return Math.exp(min_log + (max_log - min_log) * clamped);
+            }
+        }
+        return root.minimum + clamped * root.range;
+    }
+
+    function format_value(value: float) -> string {
+        if (Math.abs(value) >= 1000.0) {
+            let scaled = value / 1000.0;
+            let rounded = root.format_number(scaled);
+            return rounded + "k";
+        }
+        return root.format_number(value);
+    }
+
+    function format_number(value: float) -> string {
+        let rounded = Math.round(value * 100.0) / 100.0;
+        let as_int = Math.round(rounded);
+        if (Math.abs(rounded - as_int) < 0.0001) {
+            return @tr("{0}", as_int);
+        }
+        return @tr("{0}", rounded);
+    }
+}
+
+component Panel inherits Rectangle {
+    in property <string> title: "";
+    in property <length> content_padding: 12px;
+    in property <length> content_spacing: 12px;
+    in property <length> corner_radius: 6px;
+    in property <length> border_thickness: 3px;
+    in property <brush> bg_brush: PanelPalette.background;
+    in property <brush> border_brush: PanelPalette.border;
+    in property <brush> title_brush: PanelPalette.title;
+
+    border-radius: root.corner_radius;
+    border-width: root.border_thickness;
+    border-color: root.border_brush;
+    background: root.bg_brush;
+
+    layout := VerticalLayout {
+        padding: root.content_padding;
+        spacing: root.content_spacing;
+
+        if root.title != "": Text {
+            text: root.title;
+            font-weight: 600;
+            font-size: 14px;
+            color: root.title_brush;
+        }
+
+        HorizontalLayout {
+            spacing: 12px;
+
+            @children
+        }
+    }
+}
+
+export component SynthWindow inherits Window {
+    title: "Oscen PolySynth (4 voices)";
+    background: #666666;
+
+    in-out property <float> cutoff_frequency: 3000.0;
+    in-out property <float> q_factor: 0.707;
+    in-out property <float> volume: 0.8;
+    in-out property <float> attack: 0.01;
+    in-out property <float> decay: 0.1;
+    in-out property <float> sustain: 0.7;
+    in-out property <float> release: 0.2;
+
+    callback cutoff_frequency_edited(float);
+    callback q_factor_edited(float);
+    callback volume_edited(float);
+    callback attack_edited(float);
+    callback decay_edited(float);
+    callback sustain_edited(float);
+    callback release_edited(float);
+
+    root_layout := VerticalLayout {
+        padding: 22px;
+        spacing: 16px;
+
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: start;
+
+            Panel {
+                horizontal-stretch: 1;
+                vertical-stretch: 0;
+                title: "Filter";
+                bg_brush: #629460;
+                border_brush: #96BE8C;
+                title_brush: #C9F2C7;
+
+                RotaryKnob {
+                    label: "Cutoff";
+                    minimum: 20.0;
+                    maximum: 20000.0;
+                    step: 1.0;
+                    curve: KnobCurve.logarithmic;
+                    vertical-stretch: 0;
+                    value: root.cutoff_frequency;
+                    value_edited(value) => {
+                        root.cutoff_frequency = value;
+                        root.cutoff_frequency_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "Q";
+                    minimum: 0.1;
+                    maximum: 10.0;
+                    step: 0.001;
+                    vertical-stretch: 0;
+                    value: root.q_factor;
+                    value_edited(value) => {
+                        root.q_factor = value;
+                        root.q_factor_edited(value);
+                    }
+                }
+            }
+
+            Panel {
+                horizontal-stretch: 1;
+                vertical-stretch: 0;
+                title: "Envelope";
+                bg_brush: #629460;
+                border_brush: #96BE8C;
+                title_brush: #C9F2C7;
+
+                RotaryKnob {
+                    label: "Attack";
+                    minimum: 0.001;
+                    maximum: 1.0;
+                    step: 0.001;
+                    curve: KnobCurve.logarithmic;
+                    value: root.attack;
+                    value_edited(value) => {
+                        root.attack = value;
+                        root.attack_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "Decay";
+                    minimum: 0.001;
+                    maximum: 1.5;
+                    step: 0.001;
+                    curve: KnobCurve.logarithmic;
+                    value: root.decay;
+                    value_edited(value) => {
+                        root.decay = value;
+                        root.decay_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "Sustain";
+                    minimum: 0.0;
+                    maximum: 1.0;
+                    step: 0.01;
+                    value: root.sustain;
+                    value_edited(value) => {
+                        root.sustain = value;
+                        root.sustain_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "Release";
+                    minimum: 0.001;
+                    maximum: 2.0;
+                    step: 0.001;
+                    curve: KnobCurve.logarithmic;
+                    value: root.release;
+                    value_edited(value) => {
+                        root.release = value;
+                        root.release_edited(value);
+                    }
+                }
+            }
+
+            Panel {
+                horizontal-stretch: 1;
+                vertical-stretch: 0;
+                title: "Level";
+                bg_brush: #629460;
+                border_brush: #96BE8C;
+                title_brush: #C9F2C7;
+
+                RotaryKnob {
+                    label: "Level";
+                    minimum: 0.0;
+                    maximum: 1.0;
+                    step: 0.01;
+                    vertical-stretch: 0;
+                    value: root.volume;
+                    value_edited(value) => {
+                        root.volume = value;
+                        root.volume_edited(value);
+                    }
+                }
+            }
+        }
+    }
+
+    preferred-width: root_layout.preferred-width;
+    preferred-height: root_layout.preferred-height;
+    min-width: root_layout.preferred-width;
+    min-height: root_layout.preferred-height;
+    max-width: root_layout.preferred-width;
+    max-height: root_layout.preferred-height;
+}

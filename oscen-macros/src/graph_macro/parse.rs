@@ -2,7 +2,6 @@ use super::ast::*;
 use syn::{
     braced, bracketed, parenthesized,
     parse::{Parse, ParseStream},
-    punctuated::Punctuated,
     token, Expr, Ident, Result, Token,
 };
 
@@ -146,10 +145,24 @@ impl Parse for NodeDecl {
         let name = input.parse()?;
         input.parse::<Token![=]>()?;
         let constructor: Expr = input.parse()?;
+
+        // Check if constructor is an array literal: [Type::new(); N]
+        let (actual_constructor, array_size) = if let Expr::Repeat(repeat_expr) = constructor {
+            // Extract the repeated expression and count
+            let count = if let Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(count), .. }) = &*repeat_expr.len {
+                Some(count.base10_parse::<usize>()?)
+            } else {
+                None
+            };
+            (*repeat_expr.expr, count)
+        } else {
+            (constructor, None)
+        };
+
         input.parse::<Token![;]>()?;
 
-        let node_type = extract_node_type(&constructor);
-        Ok(NodeDecl { name, constructor, node_type })
+        let node_type = extract_node_type(&actual_constructor);
+        Ok(NodeDecl { name, constructor: actual_constructor, node_type, array_size })
     }
 }
 
@@ -170,10 +183,24 @@ fn parse_node_block(input: ParseStream) -> Result<Vec<NodeDecl>> {
         let name = content.parse()?;
         content.parse::<Token![=]>()?;
         let constructor: Expr = content.parse()?;
+
+        // Check if constructor is an array literal: [Type::new(); N]
+        let (actual_constructor, array_size) = if let Expr::Repeat(repeat_expr) = constructor {
+            // Extract the repeated expression and count
+            let count = if let Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(count), .. }) = &*repeat_expr.len {
+                Some(count.base10_parse::<usize>()?)
+            } else {
+                None
+            };
+            (*repeat_expr.expr, count)
+        } else {
+            (constructor, None)
+        };
+
         content.parse::<Token![;]>()?;
 
-        let node_type = extract_node_type(&constructor);
-        nodes.push(NodeDecl { name, constructor, node_type });
+        let node_type = extract_node_type(&actual_constructor);
+        nodes.push(NodeDecl { name, constructor: actual_constructor, node_type, array_size });
     }
 
     Ok(nodes)
@@ -322,7 +349,14 @@ fn parse_primary_expr(input: ParseStream) -> Result<ConnectionExpr> {
     let mut expr = ConnectionExpr::Ident(ident.clone());
 
     loop {
-        if input.peek(Token![.]) {
+        if input.peek(token::Bracket) {
+            // Array indexing
+            let content;
+            bracketed!(content in input);
+            let index: syn::LitInt = content.parse()?;
+            let index_val = index.base10_parse::<usize>()?;
+            expr = ConnectionExpr::ArrayIndex(Box::new(expr), index_val);
+        } else if input.peek(Token![.]) {
             input.parse::<Token![.]>()?;
             let method_name: Ident = input.parse()?;
 

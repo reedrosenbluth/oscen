@@ -41,6 +41,7 @@ pub struct NodeDecl {
     pub name: Ident,
     pub constructor: Expr,
     pub node_type: Option<syn::Path>,
+    pub array_size: Option<usize>, // For Voice[4] syntax
 }
 
 /// Connection statement
@@ -53,6 +54,8 @@ pub struct ConnectionStmt {
 pub enum ConnectionExpr {
     /// Simple identifier (parameter or node name)
     Ident(Ident),
+    /// Array index (e.g., voices[0])
+    ArrayIndex(Box<ConnectionExpr>, usize),
     /// Method call (e.g., filter.cutoff())
     Method(Box<ConnectionExpr>, Ident, Vec<Expr>),
     /// Binary operation (e.g., a * b)

@@ -16,6 +16,16 @@ use super::types::{
     MAX_NODE_ENDPOINTS,
 };
 
+impl fmt::Debug for NodeData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NodeData")
+            .field("processor", &"<SignalProcessor>")
+            .field("inputs", &self.inputs)
+            .field("outputs", &self.outputs)
+            .finish()
+    }
+}
+
 pub struct NodeData {
     pub processor: Box<dyn SignalProcessor>,
     pub inputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
@@ -43,6 +53,7 @@ impl fmt::Display for GraphError {
 
 impl Error for GraphError {}
 
+#[derive(Debug)]
 pub struct Graph {
     pub sample_rate: f32,
     pub nodes: SlotMap<NodeKey, NodeData>,

@@ -4293,6 +4293,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "polysynth"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrayvec",
+ "cpal",
+ "midir",
+ "oscen",
+ "slint",
+ "slint-build",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5288,6 +5301,7 @@ name = "synth-slint"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrayvec",
  "cpal",
  "midir",
  "oscen",

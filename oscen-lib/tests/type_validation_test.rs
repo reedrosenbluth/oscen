@@ -1,13 +1,20 @@
-use oscen::{graph, PolyBlepOscillator, TptFilter};
+use oscen::{
+    filters::tpt::TptFilterEndpoints, graph, PolyBlepOscillator, PolyBlepOscillatorEndpoints,
+    TptFilter,
+};
 
 // This test verifies that type validation catches common mistakes
 
 // Test 1: Valid connections - should compile
 graph! {
+    name: ValidGraph;
+
     input value freq = 440.0;
 
-    node osc = PolyBlepOscillator::saw(440.0, 0.6);
-    node filter = TptFilter::new(1000.0, 0.707);
+    node {
+        osc = PolyBlepOscillator::saw(440.0, 0.6);
+        filter = TptFilter::new(1000.0, 0.707);
+    }
 
     connection {
         freq -> osc.frequency();
@@ -17,7 +24,7 @@ graph! {
 
 #[test]
 fn test_valid_connections() {
-    let _ctx = GraphContext::new(44100.0);
+    let _ctx = ValidGraph::new(44100.0);
 }
 
 // Uncomment these to test error messages:
