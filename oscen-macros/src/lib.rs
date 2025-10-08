@@ -3,6 +3,8 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
+mod graph_macro;
+
 #[proc_macro_derive(Node, attributes(input, output))]
 pub fn derive_node(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -242,4 +244,30 @@ impl syn::parse::Parse for EndpointTypeAttr {
             )),
         }
     }
+}
+
+/// Declarative macro for defining audio processing graphs.
+///
+/// # Example
+/// ```ignore
+/// graph! {
+///     input value cutoff = 3000.0 [20.0..20000.0, log, ramp(1323)];
+///     input event gate;
+///     output stream out;
+///
+///     nodes {
+///         osc = PolyBlepOscillator::saw(440.0, 0.6);
+///         filter = TptFilter::new(3000.0, 0.707);
+///     }
+///
+///     connection {
+///         cutoff -> filter.cutoff();
+///         osc.output() -> filter.input();
+///         filter.output() -> out;
+///     }
+/// }
+/// ```
+#[proc_macro]
+pub fn graph(input: TokenStream) -> TokenStream {
+    graph_macro::graph_impl(input)
 }

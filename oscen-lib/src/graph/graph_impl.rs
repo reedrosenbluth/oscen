@@ -11,8 +11,9 @@ use super::helpers::{BinaryFunctionNode, FunctionNode};
 use super::traits::{PendingEvent, ProcessingContext, ProcessingNode, SignalProcessor};
 use super::types::{
     Connection, ConnectionBuilder, EndpointDescriptor, EndpointDirection, EndpointState,
-    EndpointType, EventInstance, EventPayload, InputEndpoint, NodeKey, Output, StreamOutput,
-    ValueData, ValueInput, ValueKey, ValueParam, MAX_CONNECTIONS_PER_OUTPUT, MAX_NODE_ENDPOINTS,
+    EndpointType, EventInstance, EventParam, EventPayload, InputEndpoint, NodeKey, Output,
+    StreamOutput, ValueData, ValueInput, ValueKey, ValueParam, MAX_CONNECTIONS_PER_OUTPUT,
+    MAX_NODE_ENDPOINTS,
 };
 
 pub struct NodeData {
@@ -326,6 +327,15 @@ impl Graph {
         let input = node.input();
         self.insert_value_input(input, default);
         ValueParam::new(input, node.output())
+    }
+
+    /// Create an event parameter node and return an opaque handle that can be both
+    /// queued via `queue_event` and connected to other nodes.
+    pub fn event_param(&mut self) -> EventParam {
+        use crate::event_passthrough::EventPassthrough;
+
+        let node = self.add_node(EventPassthrough::new());
+        EventParam::new(node.input(), node.output())
     }
 
     pub fn queue_event<I>(&mut self, input: I, frame_offset: u32, payload: EventPayload) -> bool
@@ -758,7 +768,7 @@ impl Graph {
         Ok(())
     }
 
-    fn allocate_endpoint(&mut self, endpoint_type: EndpointType) -> ValueKey {
+    pub fn allocate_endpoint(&mut self, endpoint_type: EndpointType) -> ValueKey {
         let state = match endpoint_type {
             EndpointType::Stream => EndpointState::stream(0.0),
             EndpointType::Value => EndpointState::value(0.0),

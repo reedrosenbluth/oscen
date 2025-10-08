@@ -1,249 +1,143 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+mod midi_input;
+
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
-use coremidi::{Client, InputPort, Source, Sources};
+use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::envelope::AdsrEnvelope;
-use oscen::graph::types::EventPayload;
-use oscen::{EventInput, Graph, PolyBlepOscillator, StreamOutput, TptFilter};
+use oscen::envelope::adsr::{AdsrEnvelope, AdsrEnvelopeEndpoints};
+use oscen::filters::tpt::{TptFilter, TptFilterEndpoints};
+use oscen::midi::{MidiParserEndpoints, MidiVoiceHandlerEndpoints};
+use oscen::oscillators::PolyBlepOscillatorEndpoints;
+use oscen::{graph, queue_raw_midi, MidiParser, MidiVoiceHandler, PolyBlepOscillator};
 use slint::ComponentHandle;
+
+use midi_input::MidiConnection;
 
 slint::include_modules!();
 
 #[derive(Clone, Copy, Debug)]
-struct SynthParams {
-    cutoff_frequency: f32,
-    q_factor: f32,
-    volume: f32,
-    attack: f32,
-    decay: f32,
-    sustain: f32,
-    release: f32,
+enum ParamChange {
+    Cutoff(f32),
+    Q(f32),
+    Volume(f32),
+    Attack(f32),
+    Decay(f32),
+    Sustain(f32),
+    Release(f32),
 }
 
-impl Default for SynthParams {
-    fn default() -> Self {
-        Self {
-            cutoff_frequency: 3_000.0,
-            q_factor: 0.707,
-            volume: 0.8,
-            attack: 0.01,
-            decay: 0.1,
-            sustain: 0.7,
-            release: 0.2,
-        }
+graph! {
+    name: SynthGraph;
+
+    input value cutoff = 3000.0;
+    input value q = 0.707;
+    input value volume = 0.8;
+    input value attack = 0.01;
+    input value decay = 0.1;
+    input value sustain = 0.7;
+    input value release = 0.2;
+
+    output stream audio_out;
+
+    node {
+        midi_parser = MidiParser::new();
+        voice_handler = MidiVoiceHandler::new();
+        osc = PolyBlepOscillator::saw(440.0, 0.6);
+        filter = TptFilter::new(3000.0, 0.707);
+        envelope = AdsrEnvelope::new(0.01, 0.1, 0.7, 0.2);
+    }
+
+    connection {
+        // Connect MIDI parser to voice handler
+        midi_parser.note_on() -> voice_handler.note_on();
+        midi_parser.note_off() -> voice_handler.note_off();
+
+        // Connect voice handler outputs
+        voice_handler.frequency() -> osc.frequency();
+        voice_handler.gate() -> envelope.gate();
+
+        cutoff -> filter.cutoff();
+        q -> filter.q();
+        attack -> envelope.attack();
+        decay -> envelope.decay();
+        sustain -> envelope.sustain();
+        release -> envelope.release();
+
+        osc.output() -> filter.input();
+        envelope.output() -> filter.f_mod();
+
+        filter.output() * envelope.output() * volume -> audio_out;
     }
 }
-
-#[derive(Debug)]
-enum MidiMessage {
-    NoteOn { note: u8, velocity: u8 },
-    NoteOff { note: u8 },
-}
-
-struct MidiConnection {
-    _client: Client,
-    _port: InputPort,
-    _sources: Vec<Source>,
-}
-
-impl MidiConnection {
-    fn new(tx: Sender<MidiMessage>) -> Result<Self> {
-        let client = Client::new("oscen-midi-client")
-            .map_err(|status| anyhow!("failed to create MIDI client: {status}"))?;
-
-        let port = client
-            .input_port("oscen-midi-input", move |packet_list| {
-                for packet in packet_list.iter() {
-                    let data = packet.data();
-                    if data.len() < 3 {
-                        continue;
-                    }
-
-                    let status = data[0] & 0xF0;
-                    let note = data[1];
-                    let velocity = data[2];
-
-                    let message = match status {
-                        0x80 => Some(MidiMessage::NoteOff { note }),
-                        0x90 => {
-                            if velocity == 0 {
-                                Some(MidiMessage::NoteOff { note })
-                            } else {
-                                Some(MidiMessage::NoteOn { note, velocity })
-                            }
-                        }
-                        _ => None,
-                    };
-
-                    if let Some(msg) = message {
-                        let _ = tx.send(msg);
-                    }
-                }
-            })
-            .map_err(|status| anyhow!("failed to create MIDI input port: {status}"))?;
-
-        if Sources::count() == 0 {
-            println!("No MIDI sources detected. Connect a device to trigger notes.");
-        }
-
-        let mut sources = Vec::new();
-        for source in Sources {
-            if let Some(name) = source.display_name() {
-                println!("Connecting to MIDI source: {}", name);
-            }
-            port.connect_source(&source)
-                .map_err(|status| anyhow!("failed to connect MIDI source: {status}"))?;
-            sources.push(source);
-        }
-
-        Ok(Self {
-            _client: client,
-            _port: port,
-            _sources: sources,
-        })
-    }
-}
-
-use oscen::ValueParam;
 
 struct AudioContext {
-    graph: Graph,
-    osc_freq: ValueParam,
-    cutoff: ValueParam,
-    q: ValueParam,
-    volume: ValueParam,
-    attack: ValueParam,
-    decay: ValueParam,
-    sustain: ValueParam,
-    release: ValueParam,
-    gate_input: EventInput,
-    output: StreamOutput,
+    synth: SynthGraph,
     channels: usize,
-    current_note: Option<u8>,
 }
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
-    let mut graph = Graph::new(sample_rate);
-
-    // Create UI-controllable parameters
-    let osc_freq = graph.value_param(440.0);
-    let cutoff = graph.value_param(3000.0);
-    let q = graph.value_param(0.707);
-    let volume = graph.value_param(0.8);
-    let attack = graph.value_param(0.01);
-    let decay = graph.value_param(0.1);
-    let sustain = graph.value_param(0.7);
-    let release = graph.value_param(0.2);
-
-    // Create processing nodes
-    let osc = graph.add_node(PolyBlepOscillator::saw(440.0, 0.6));
-    let filter = graph.add_node(TptFilter::new(3_000.0, 0.707));
-    let envelope = graph.add_node(AdsrEnvelope::new(0.01, 0.1, 0.7, 0.2));
-
-    graph.connect_all(vec![
-        //Connect parameters to nodes
-        osc_freq >> osc.frequency(),
-        cutoff >> filter.cutoff(),
-        q >> filter.q(),
-        attack >> envelope.attack(),
-        decay >> envelope.decay(),
-        sustain >> envelope.sustain(),
-        release >> envelope.release(),
-        // Connect audio signal path
-        osc.output() >> filter.input(),
-        envelope.output() >> filter.f_mod(),
-    ]);
-
-    let enveloped = graph.multiply(filter.output(), envelope.output());
-    let output = graph.multiply(enveloped, volume);
-
     AudioContext {
-        graph,
-        osc_freq,
-        cutoff,
-        q,
-        volume,
-        attack,
-        decay,
-        sustain,
-        release,
-        gate_input: envelope.gate(),
-        output,
+        synth: SynthGraph::new(sample_rate),
         channels,
-        current_note: None,
-    }
-}
-
-fn midi_note_to_freq(note: u8) -> f32 {
-    let semitone_offset = note as f32 - 69.0;
-    440.0 * 2f32.powf(semitone_offset / 12.0)
-}
-
-fn handle_midi_message(context: &mut AudioContext, message: MidiMessage) {
-    match message {
-        MidiMessage::NoteOn { note, velocity } => {
-            let velocity = (velocity as f32 / 127.0).clamp(0.0, 1.0);
-            let freq = midi_note_to_freq(note);
-            context.graph.set_value(context.osc_freq, freq);
-            let _ =
-                context
-                    .graph
-                    .queue_event(context.gate_input, 0, EventPayload::scalar(velocity));
-            context.current_note = Some(note);
-        }
-        MidiMessage::NoteOff { note } => {
-            if context.current_note == Some(note) {
-                let _ = context
-                    .graph
-                    .queue_event(context.gate_input, 0, EventPayload::scalar(0.0));
-                context.current_note = None;
-            }
-        }
     }
 }
 
 fn audio_callback(
     data: &mut [f32],
     context: &mut AudioContext,
-    param_rx: &Receiver<SynthParams>,
-    midi_rx: &Receiver<MidiMessage>,
+    param_rx: &Receiver<ParamChange>,
+    midi_rx: &Receiver<midi_input::RawMidiBytes>,
 ) {
-    while let Ok(message) = midi_rx.try_recv() {
-        handle_midi_message(context, message);
+    // Handle incoming MIDI events
+    while let Ok(raw_midi) = midi_rx.try_recv() {
+        queue_raw_midi(
+            &mut context.synth.graph,
+            context.synth.midi_parser.midi_in(),
+            0,
+            &raw_midi.bytes,
+        );
     }
 
-    let mut latest_params = None;
-    while let Ok(params) = param_rx.try_recv() {
-        latest_params = Some(params);
-    }
-
-    if let Some(params) = latest_params {
-        let updates = [
-            (context.cutoff, params.cutoff_frequency, 1323),
-            (context.q, params.q_factor, 441),
-            (context.volume, params.volume, 441),
-            (context.attack, params.attack, 0),
-            (context.decay, params.decay, 0),
-            (context.sustain, params.sustain, 0),
-            (context.release, params.release, 0),
-        ];
-
-        for (param, value, ramp) in updates {
-            if ramp == 0 {
-                context.graph.set_value(param, value);
-            } else {
-                context.graph.set_value_with_ramp(param, value, ramp);
+    // Handle parameter changes
+    while let Ok(change) = param_rx.try_recv() {
+        match change {
+            ParamChange::Cutoff(value) => {
+                context
+                    .synth
+                    .graph
+                    .set_value_with_ramp(context.synth.cutoff, value, 1323);
+            }
+            ParamChange::Q(value) => {
+                context
+                    .synth
+                    .graph
+                    .set_value_with_ramp(context.synth.q, value, 441);
+            }
+            ParamChange::Volume(value) => {
+                context
+                    .synth
+                    .graph
+                    .set_value_with_ramp(context.synth.volume, value, 441);
+            }
+            ParamChange::Attack(value) => {
+                context.synth.graph.set_value(context.synth.attack, value);
+            }
+            ParamChange::Decay(value) => {
+                context.synth.graph.set_value(context.synth.decay, value);
+            }
+            ParamChange::Sustain(value) => {
+                context.synth.graph.set_value(context.synth.sustain, value);
+            }
+            ParamChange::Release(value) => {
+                context.synth.graph.set_value(context.synth.release, value);
             }
         }
     }
 
     for frame in data.chunks_mut(context.channels) {
-        if let Err(err) = context.graph.process() {
+        if let Err(err) = context.synth.graph.process() {
             eprintln!("Graph processing error: {}", err);
             for sample in frame.iter_mut() {
                 *sample = 0.0;
@@ -251,7 +145,12 @@ fn audio_callback(
             continue;
         }
 
-        let value = context.graph.get_value(&context.output).unwrap_or(0.0);
+        let value = context
+            .synth
+            .graph
+            .get_value(&context.synth.audio_out)
+            .unwrap_or(0.0);
+
         for sample in frame.iter_mut() {
             *sample = value;
         }
@@ -319,59 +218,73 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_ui(tx: Sender<SynthParams>) -> Result<()> {
+fn run_ui(tx: Sender<ParamChange>) -> Result<()> {
     let ui = SynthWindow::new()?;
-    let params_state = Rc::new(RefCell::new(SynthParams::default()));
 
-    macro_rules! wire_knob {
-        ($setter:expr, $register:expr) => {{
-            let params = params_state.clone();
-            let tx = tx.clone();
-            $register(&ui, move |value| {
-                let mut state = params.borrow_mut();
-                $setter(&mut state, value);
-                let _ = tx.send(*state);
-            });
-        }};
+    // Wire up cutoff frequency knob
+    {
+        let tx = tx.clone();
+        ui.on_cutoff_frequency_edited(move |value| {
+            let _ = tx.send(ParamChange::Cutoff(value));
+        });
     }
 
-    wire_knob!(
-        |state: &mut SynthParams, value| state.cutoff_frequency = value,
-        SynthWindow::on_cutoff_frequency_edited
-    );
-    wire_knob!(
-        |state: &mut SynthParams, value| state.q_factor = value,
-        SynthWindow::on_q_factor_edited
-    );
-    wire_knob!(
-        |state: &mut SynthParams, value| state.volume = value,
-        SynthWindow::on_volume_edited
-    );
-    wire_knob!(
-        |state: &mut SynthParams, value| state.attack = value,
-        SynthWindow::on_attack_edited
-    );
-    wire_knob!(
-        |state: &mut SynthParams, value| state.decay = value,
-        SynthWindow::on_decay_edited
-    );
-    wire_knob!(
-        |state: &mut SynthParams, value| state.sustain = value,
-        SynthWindow::on_sustain_edited
-    );
-    wire_knob!(
-        |state: &mut SynthParams, value| state.release = value,
-        SynthWindow::on_release_edited
-    );
+    // Wire up Q factor knob
+    {
+        let tx = tx.clone();
+        ui.on_q_factor_edited(move |value| {
+            let _ = tx.send(ParamChange::Q(value));
+        });
+    }
 
-    let defaults = SynthParams::default();
-    ui.set_cutoff_frequency(defaults.cutoff_frequency);
-    ui.set_q_factor(defaults.q_factor);
-    ui.set_volume(defaults.volume);
-    ui.set_attack(defaults.attack);
-    ui.set_decay(defaults.decay);
-    ui.set_sustain(defaults.sustain);
-    ui.set_release(defaults.release);
+    // Wire up volume knob
+    {
+        let tx = tx.clone();
+        ui.on_volume_edited(move |value| {
+            let _ = tx.send(ParamChange::Volume(value));
+        });
+    }
+
+    // Wire up attack knob
+    {
+        let tx = tx.clone();
+        ui.on_attack_edited(move |value| {
+            let _ = tx.send(ParamChange::Attack(value));
+        });
+    }
+
+    // Wire up decay knob
+    {
+        let tx = tx.clone();
+        ui.on_decay_edited(move |value| {
+            let _ = tx.send(ParamChange::Decay(value));
+        });
+    }
+
+    // Wire up sustain knob
+    {
+        let tx = tx.clone();
+        ui.on_sustain_edited(move |value| {
+            let _ = tx.send(ParamChange::Sustain(value));
+        });
+    }
+
+    // Wire up release knob
+    {
+        let tx = tx.clone();
+        ui.on_release_edited(move |value| {
+            let _ = tx.send(ParamChange::Release(value));
+        });
+    }
+
+    // Set default values
+    ui.set_cutoff_frequency(3000.0);
+    ui.set_q_factor(0.707);
+    ui.set_volume(0.8);
+    ui.set_attack(0.01);
+    ui.set_decay(0.1);
+    ui.set_sustain(0.7);
+    ui.set_release(0.2);
 
     ui.run().context("failed to run UI")
 }

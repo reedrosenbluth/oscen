@@ -8,7 +8,7 @@ build = "build.rs"
 oscen = { path = "../../oscen-lib" }
 cpal = "0.15.2"
 anyhow = "1.0"
-coremidi = "0.7"
+midir = "0.10"
 slint = { version = "1.13.1", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-skia"] }
 
 [build-dependencies]

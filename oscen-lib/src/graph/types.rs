@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::fmt;
 use std::ops::Shr;
 use std::sync::Arc;
@@ -57,9 +58,18 @@ pub trait ValueObject: Send + Sync + 'static + fmt::Debug {}
 
 impl<T> ValueObject for T where T: Send + Sync + 'static + fmt::Debug {}
 
-pub trait EventObject: Send + Sync + 'static + fmt::Debug {}
+pub trait EventObject: Send + Sync + 'static + fmt::Debug {
+    fn as_any(&self) -> &dyn Any;
+}
 
-impl<T> EventObject for T where T: Send + Sync + 'static + fmt::Debug {}
+impl<T> EventObject for T
+where
+    T: Send + Sync + 'static + fmt::Debug,
+{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 #[derive(Clone)]
 pub enum ValueData {
@@ -547,6 +557,39 @@ impl From<&ValueParam> for ValueKey {
     }
 }
 
+/// An opaque handle to an event parameter that can be both queued and connected.
+/// Created by `Graph::event_param()`.
+#[derive(Copy, Clone, Debug)]
+pub struct EventParam {
+    pub(crate) input: EventInput,
+    pub(crate) output: EventOutput,
+}
+
+impl EventParam {
+    pub fn new(input: EventInput, output: EventOutput) -> Self {
+        Self { input, output }
+    }
+}
+
+impl Output for EventParam {
+    fn key(&self) -> ValueKey {
+        self.output.key()
+    }
+}
+
+// Allow EventParam to be used where InputEndpoint is expected (for queue_event)
+impl From<EventParam> for InputEndpoint {
+    fn from(param: EventParam) -> Self {
+        param.input.into()
+    }
+}
+
+impl From<&EventParam> for InputEndpoint {
+    fn from(param: &EventParam) -> Self {
+        param.input.into()
+    }
+}
+
 // ============================================================================
 // Connections
 // ============================================================================
@@ -647,5 +690,32 @@ impl Shr<EventInput> for EventOutput {
             to: to.key(),
         });
         builder
+    }
+}
+
+// Allow routing event inputs to other event inputs
+// This enables graph-level event inputs to be forwarded to node event inputs
+impl Shr<EventInput> for EventInput {
+    type Output = ConnectionBuilder;
+
+    fn shr(self, to: EventInput) -> ConnectionBuilder {
+        let mut builder = ConnectionBuilder {
+            from: self.key(),
+            connections: ArrayVec::new(),
+        };
+        builder.connections.push(Connection {
+            from: self.key(),
+            to: to.key(),
+        });
+        builder
+    }
+}
+
+// Allow EventParam to connect to EventInput (uses the output of the passthrough node)
+impl Shr<EventInput> for EventParam {
+    type Output = ConnectionBuilder;
+
+    fn shr(self, to: EventInput) -> ConnectionBuilder {
+        self.output >> to
     }
 }
