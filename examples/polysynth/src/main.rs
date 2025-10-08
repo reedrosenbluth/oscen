@@ -64,7 +64,7 @@ graph! {
         release -> envelope.release();
 
         osc.output() -> filter.input();
-        envelope.output() -> filter.f_mod();
+        // REMOVED for testing: envelope.output() -> filter.f_mod();
 
         filter.output() * envelope.output() -> audio;
     }
@@ -88,11 +88,9 @@ graph! {
         midi_parser = MidiParser::new();
         voice_allocator = VoiceAllocator4::new();
 
-        // Create 4 voice handlers using array syntax
+        // 4 voices to match VoiceAllocator4
         voice_handlers = [MidiVoiceHandler::new(); 4];
-
-        // Create 4 voice instances using array syntax
-        voices = [Voice::new(48000.0); 4];
+        voices = [Voice::new(sample_rate); 4];
     }
 
     connection {
@@ -100,7 +98,7 @@ graph! {
         midi_parser.note_on() -> voice_allocator.note_on();
         midi_parser.note_off() -> voice_allocator.note_off();
 
-        // Connect voice allocator outputs to individual voice handlers
+        // Connect all 4 voice allocator outputs
         voice_allocator.voice_0() -> voice_handlers[0].note_on();
         voice_allocator.voice_0() -> voice_handlers[0].note_off();
 
@@ -126,7 +124,7 @@ graph! {
         voice_handlers[3].frequency() -> voices[3].frequency();
         voice_handlers[3].gate() -> voices[3].gate();
 
-        // Connect shared parameters to all voices
+        // Connect shared parameters to all 4 voices
         cutoff -> voices[0].cutoff();
         cutoff -> voices[1].cutoff();
         cutoff -> voices[2].cutoff();
@@ -157,7 +155,7 @@ graph! {
         release -> voices[2].release();
         release -> voices[3].release();
 
-        // Mix all voice outputs and apply master volume
+        // Mix all 4 voices with master volume
         (voices[0].audio() + voices[1].audio() + voices[2].audio() + voices[3].audio()) * volume -> audio_out;
     }
 }
@@ -165,12 +163,16 @@ graph! {
 struct AudioContext {
     synth: PolySynthGraph,
     channels: usize,
+    frame_count: u64,
+    total_process_time_ns: u64,
 }
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     AudioContext {
         synth: PolySynthGraph::new(sample_rate),
         channels,
+        frame_count: 0,
+        total_process_time_ns: 0,
     }
 }
 
@@ -227,6 +229,8 @@ fn audio_callback(
     }
 
     for frame in data.chunks_mut(context.channels) {
+        let start = std::time::Instant::now();
+
         if let Err(err) = context.synth.graph.process() {
             eprintln!("Graph processing error: {}", err);
             for sample in frame.iter_mut() {
@@ -235,11 +239,27 @@ fn audio_callback(
             continue;
         }
 
+        let elapsed = start.elapsed();
+        context.total_process_time_ns += elapsed.as_nanos() as u64;
+        context.frame_count += 1;
+
+        // Print stats every 5 seconds
+        if context.frame_count % (48000 * 5) == 0 {
+            let avg_ns = context.total_process_time_ns / context.frame_count;
+            let avg_us = avg_ns as f64 / 1000.0;
+            eprintln!("Avg process time: {:.2} µs/frame ({} frames)", avg_us, context.frame_count);
+        }
+
         let value = context
             .synth
             .graph
             .get_value(&context.synth.audio_out)
             .unwrap_or(0.0);
+
+        // Debug: check for NaN or denormals
+        if context.frame_count < 100 && (value.is_nan() || value.abs() < 1e-20 && value != 0.0) {
+            eprintln!("Frame {}: suspicious value = {}", context.frame_count, value);
+        }
 
         for sample in frame.iter_mut() {
             *sample = value;
@@ -273,7 +293,7 @@ fn main() -> Result<()> {
         let config = cpal::StreamConfig {
             channels: default_config.channels(),
             sample_rate: default_config.sample_rate(),
-            buffer_size: cpal::BufferSize::Fixed(512),
+            buffer_size: cpal::BufferSize::Fixed(2048), // Increased from 512 to give 4x more time
         };
 
         let sample_rate = config.sample_rate.0 as f32;

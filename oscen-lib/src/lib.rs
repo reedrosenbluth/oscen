@@ -25,4 +25,7 @@ pub use oscillators::{
     Oscillator, OscillatorEndpoints, PolyBlepOscillator, PolyBlepOscillatorEndpoints,
 };
 pub use value::Value;
-pub use voice_allocator::{VoiceAllocator, VoiceAllocator4, VoiceAllocator4Endpoints};
+pub use voice_allocator::{
+    VoiceAllocator, VoiceAllocator2, VoiceAllocator2Endpoints, VoiceAllocator4,
+    VoiceAllocator4Endpoints,
+};

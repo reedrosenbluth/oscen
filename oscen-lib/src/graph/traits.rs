@@ -58,26 +58,31 @@ impl<'a> ProcessingContext<'a> {
         }
     }
 
+    #[inline]
     pub fn stream(&self, index: usize) -> f32 {
         self.scalar_inputs.get(index).copied().unwrap_or(0.0)
     }
 
+    #[inline]
     pub fn value(&self, index: usize) -> Option<ValueRef<'a>> {
         self.value_inputs
             .get(index)
             .and_then(|opt| opt.map(ValueRef::new))
     }
 
+    #[inline]
     pub fn value_scalar(&self, index: usize) -> f32 {
         self.value(index)
             .and_then(|value| value.as_scalar())
             .unwrap_or_else(|| self.stream(index))
     }
 
+    #[inline]
     pub fn events(&self, index: usize) -> &[EventInstance] {
         self.event_inputs.get(index).copied().unwrap_or_default()
     }
 
+    #[inline]
     pub fn emit_event(&mut self, output_index: usize, event: EventInstance) {
         self.emitted_events.push(PendingEvent {
             output_index,
@@ -109,8 +114,17 @@ pub trait SignalProcessor: Send + std::fmt::Debug {
     fn init(&mut self, _sample_rate: f32) {}
     fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32;
 
+    #[inline]
     fn allows_feedback(&self) -> bool {
         false
+    }
+
+    /// Returns whether this node is currently active and producing meaningful output.
+    /// Inactive nodes can be skipped during processing, with their outputs set to 0.0.
+    /// Default: true (always active)
+    #[inline]
+    fn is_active(&self) -> bool {
+        true
     }
 }
 

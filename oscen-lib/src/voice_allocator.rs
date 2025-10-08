@@ -84,33 +84,39 @@ impl<const NUM_VOICES: usize> Default for VoiceAllocator<NUM_VOICES> {
     }
 }
 
-// Type alias for 4-voice allocator (makes it easier to use with the graph macro)
+// Type aliases for common voice counts
+pub type VoiceAllocator2 = VoiceAllocator<2>;
 pub type VoiceAllocator4 = VoiceAllocator<4>;
 
 impl SignalProcessor for VoiceAllocator<4> {
     fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) -> f32 {
-        // Process note-on events
-        let note_on_events: Vec<_> = context.events(0).iter().cloned().collect();
-        for event in note_on_events {
-            if let EventPayload::Object(obj) = &event.payload {
-                if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
-                    let voice_idx = self.allocate_voice(note_on.note);
-
-                    // Emit note-on to the allocated voice (output index = voice_idx)
-                    context.emit_event(voice_idx, event);
+        // Fast path: check if there are any events before allocating ArrayVec
+        let note_on_slice = context.events(0);
+        if !note_on_slice.is_empty() {
+            use arrayvec::ArrayVec;
+            // Collect events into stack-allocated buffer to avoid borrow checker issues
+            let note_on_events: ArrayVec<_, 64> = note_on_slice.iter().cloned().collect();
+            for event in note_on_events {
+                if let EventPayload::Object(obj) = &event.payload {
+                    if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
+                        let voice_idx = self.allocate_voice(note_on.note);
+                        context.emit_event(voice_idx, event);
+                    }
                 }
             }
         }
 
-        // Process note-off events
-        let note_off_events: Vec<_> = context.events(1).iter().cloned().collect();
-        for event in note_off_events {
-            if let EventPayload::Object(obj) = &event.payload {
-                if let Some(note_off) = obj.as_any().downcast_ref::<NoteOffEvent>() {
-                    if let Some(voice_idx) = self.find_voice_for_note(note_off.note) {
-                        // Emit note-off to the voice playing this note
-                        context.emit_event(voice_idx, event);
-                        self.release_voice(voice_idx);
+        let note_off_slice = context.events(1);
+        if !note_off_slice.is_empty() {
+            use arrayvec::ArrayVec;
+            let note_off_events: ArrayVec<_, 64> = note_off_slice.iter().cloned().collect();
+            for event in note_off_events {
+                if let EventPayload::Object(obj) = &event.payload {
+                    if let Some(note_off) = obj.as_any().downcast_ref::<NoteOffEvent>() {
+                        if let Some(voice_idx) = self.find_voice_for_note(note_off.note) {
+                            context.emit_event(voice_idx, event);
+                            self.release_voice(voice_idx);
+                        }
                     }
                 }
             }
@@ -208,6 +214,117 @@ impl VoiceAllocator4Endpoints {
 
     pub fn voice_3(&self) -> crate::EventOutput {
         self.voice_3
+    }
+
+    pub fn node_key(&self) -> crate::NodeKey {
+        self.node_key
+    }
+}
+
+// Implementations for VoiceAllocator<2>
+impl SignalProcessor for VoiceAllocator<2> {
+    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) -> f32 {
+        // Fast path: check if there are any events before allocating ArrayVec
+        let note_on_slice = context.events(0);
+        if !note_on_slice.is_empty() {
+            use arrayvec::ArrayVec;
+            // Collect events into stack-allocated buffer to avoid borrow checker issues
+            let note_on_events: ArrayVec<_, 64> = note_on_slice.iter().cloned().collect();
+            for event in note_on_events {
+                if let EventPayload::Object(obj) = &event.payload {
+                    if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
+                        let voice_idx = self.allocate_voice(note_on.note);
+                        context.emit_event(voice_idx, event);
+                    }
+                }
+            }
+        }
+
+        let note_off_slice = context.events(1);
+        if !note_off_slice.is_empty() {
+            use arrayvec::ArrayVec;
+            let note_off_events: ArrayVec<_, 64> = note_off_slice.iter().cloned().collect();
+            for event in note_off_events {
+                if let EventPayload::Object(obj) = &event.payload {
+                    if let Some(note_off) = obj.as_any().downcast_ref::<NoteOffEvent>() {
+                        if let Some(voice_idx) = self.find_voice_for_note(note_off.note) {
+                            context.emit_event(voice_idx, event);
+                            self.release_voice(voice_idx);
+                        }
+                    }
+                }
+            }
+        }
+
+        0.0 // VoiceAllocator doesn't output audio
+    }
+}
+
+impl ProcessingNode for VoiceAllocator<2> {
+    type Endpoints = VoiceAllocator2Endpoints;
+
+    const ENDPOINT_DESCRIPTORS: &'static [crate::graph::EndpointDescriptor] = &[
+        crate::graph::EndpointDescriptor::new(
+            "note_on",
+            crate::graph::EndpointType::Event,
+            crate::graph::EndpointDirection::Input,
+        ),
+        crate::graph::EndpointDescriptor::new(
+            "note_off",
+            crate::graph::EndpointType::Event,
+            crate::graph::EndpointDirection::Input,
+        ),
+        crate::graph::EndpointDescriptor::new(
+            "voice_0",
+            crate::graph::EndpointType::Event,
+            crate::graph::EndpointDirection::Output,
+        ),
+        crate::graph::EndpointDescriptor::new(
+            "voice_1",
+            crate::graph::EndpointType::Event,
+            crate::graph::EndpointDirection::Output,
+        ),
+    ];
+
+    fn create_endpoints(
+        node_key: crate::NodeKey,
+        inputs: arrayvec::ArrayVec<crate::ValueKey, { crate::graph::MAX_NODE_ENDPOINTS }>,
+        outputs: arrayvec::ArrayVec<crate::ValueKey, { crate::graph::MAX_NODE_ENDPOINTS }>,
+    ) -> Self::Endpoints {
+        VoiceAllocator2Endpoints {
+            node_key,
+            note_on: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[0])),
+            note_off: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[1])),
+            voice_0: crate::EventOutput::new(outputs[0]),
+            voice_1: crate::EventOutput::new(outputs[1]),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct VoiceAllocator2Endpoints {
+    node_key: crate::NodeKey,
+    note_on: crate::EventInput,
+    note_off: crate::EventInput,
+    voice_0: crate::EventOutput,
+    voice_1: crate::EventOutput,
+}
+
+impl VoiceAllocator2Endpoints {
+    pub fn note_on(&self) -> crate::EventInput {
+        self.note_on
+    }
+
+    pub fn note_off(&self) -> crate::EventInput {
+        self.note_off
+    }
+
+    pub fn voice_0(&self) -> crate::EventOutput {
+        self.voice_0
+    }
+
+    pub fn voice_1(&self) -> crate::EventOutput {
+        self.voice_1
     }
 
     pub fn node_key(&self) -> crate::NodeKey {

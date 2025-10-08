@@ -274,6 +274,13 @@ impl SignalProcessor for AdsrEnvelope {
         self.output = self.level;
         self.output
     }
+
+    fn is_active(&self) -> bool {
+        // Envelope is inactive only when idle and level is zero
+        // We still process during Sustain stage even though it's static,
+        // since we need to handle gate-off events
+        !matches!(self.stage, Stage::Idle) || self.level > 0.0
+    }
 }
 
 #[cfg(test)]

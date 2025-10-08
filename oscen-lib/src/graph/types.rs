@@ -211,6 +211,7 @@ impl EndpointState {
         Self::Event(EventEndpointState::new(MAX_EVENTS))
     }
 
+    #[inline]
     pub fn as_scalar(&self) -> Option<f32> {
         match self {
             Self::Stream(v) => Some(*v),
@@ -219,6 +220,7 @@ impl EndpointState {
         }
     }
 
+    #[inline]
     pub fn as_scalar_mut(&mut self) -> Option<&mut f32> {
         match self {
             Self::Stream(v) => Some(v),
@@ -227,6 +229,7 @@ impl EndpointState {
         }
     }
 
+    #[inline]
     pub fn set_scalar(&mut self, value: f32) {
         match self {
             Self::Stream(slot) => *slot = value,
@@ -235,6 +238,7 @@ impl EndpointState {
         }
     }
 
+    #[inline]
     pub fn as_event(&self) -> Option<&EventEndpointState> {
         match self {
             Self::Event(state) => Some(state),
@@ -242,6 +246,7 @@ impl EndpointState {
         }
     }
 
+    #[inline]
     pub fn as_event_mut(&mut self) -> Option<&mut EventEndpointState> {
         match self {
             Self::Event(state) => Some(state),
