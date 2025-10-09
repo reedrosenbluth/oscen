@@ -64,7 +64,7 @@ graph! {
         release -> envelope.release();
 
         osc.output() -> filter.input();
-        // REMOVED for testing: envelope.output() -> filter.f_mod();
+        envelope.output() -> filter.f_mod();
 
         filter.output() * envelope.output() -> audio;
     }
@@ -229,7 +229,7 @@ fn audio_callback(
     }
 
     for frame in data.chunks_mut(context.channels) {
-        let start = std::time::Instant::now();
+        // let start = std::time::Instant::now();
 
         if let Err(err) = context.synth.graph.process() {
             eprintln!("Graph processing error: {}", err);
@@ -239,16 +239,19 @@ fn audio_callback(
             continue;
         }
 
-        let elapsed = start.elapsed();
-        context.total_process_time_ns += elapsed.as_nanos() as u64;
-        context.frame_count += 1;
+        // let elapsed = start.elapsed();
+        // context.total_process_time_ns += elapsed.as_nanos() as u64;
+        // context.frame_count += 1;
 
         // Print stats every 5 seconds
-        if context.frame_count % (48000 * 5) == 0 {
-            let avg_ns = context.total_process_time_ns / context.frame_count;
-            let avg_us = avg_ns as f64 / 1000.0;
-            eprintln!("Avg process time: {:.2} µs/frame ({} frames)", avg_us, context.frame_count);
-        }
+        // if context.frame_count % (48000 * 5) == 0 {
+        //     let avg_ns = context.total_process_time_ns / context.frame_count;
+        //     let avg_us = avg_ns as f64 / 1000.0;
+        //     eprintln!(
+        //         "Avg process time: {:.2} µs/frame ({} frames)",
+        //         avg_us, context.frame_count
+        //     );
+        // }
 
         let value = context
             .synth
@@ -258,7 +261,10 @@ fn audio_callback(
 
         // Debug: check for NaN or denormals
         if context.frame_count < 100 && (value.is_nan() || value.abs() < 1e-20 && value != 0.0) {
-            eprintln!("Frame {}: suspicious value = {}", context.frame_count, value);
+            eprintln!(
+                "Frame {}: suspicious value = {}",
+                context.frame_count, value
+            );
         }
 
         for sample in frame.iter_mut() {
