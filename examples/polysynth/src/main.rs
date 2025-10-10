@@ -12,8 +12,8 @@ use oscen::filters::tpt::{TptFilter, TptFilterEndpoints};
 use oscen::midi::{MidiParserEndpoints, MidiVoiceHandlerEndpoints};
 use oscen::oscillators::PolyBlepOscillatorEndpoints;
 use oscen::{
-    graph, queue_raw_midi, MidiParser, MidiVoiceHandler, PolyBlepOscillator, VoiceAllocator4,
-    VoiceAllocator4Endpoints,
+    graph, queue_raw_midi, MidiParser, MidiVoiceHandler, PolyBlepOscillator, VoiceAllocator,
+    VoiceAllocatorEndpoints,
 };
 use slint::ComponentHandle;
 
@@ -86,11 +86,11 @@ graph! {
 
     node {
         midi_parser = MidiParser::new();
-        voice_allocator = VoiceAllocator4::new();
+        voice_allocator = VoiceAllocator<8>::new();
 
         // 4 voices to match VoiceAllocator4
-        voice_handlers = [MidiVoiceHandler::new(); 4];
-        voices = [Voice::new(sample_rate); 4];
+        voice_handlers = [MidiVoiceHandler::new(); 8];
+        voices = [Voice::new(sample_rate); 8];
     }
 
     connection {
@@ -98,65 +98,24 @@ graph! {
         midi_parser.note_on() -> voice_allocator.note_on();
         midi_parser.note_off() -> voice_allocator.note_off();
 
-        // Connect all 4 voice allocator outputs
-        voice_allocator.voice_0() -> voice_handlers[0].note_on();
-        voice_allocator.voice_0() -> voice_handlers[0].note_off();
+        // Broadcast voice allocator outputs to all voice handlers
+        voice_allocator.voices() -> voice_handlers.note_on();
+        voice_allocator.voices() -> voice_handlers.note_off();
 
-        voice_allocator.voice_1() -> voice_handlers[1].note_on();
-        voice_allocator.voice_1() -> voice_handlers[1].note_off();
+        // Connect voice handlers to voices (array-to-array)
+        voice_handlers.frequency() -> voices.frequency();
+        voice_handlers.gate() -> voices.gate();
 
-        voice_allocator.voice_2() -> voice_handlers[2].note_on();
-        voice_allocator.voice_2() -> voice_handlers[2].note_off();
+        // Broadcast shared parameters to all voices (scalar-to-array)
+        cutoff -> voices.cutoff();
+        q -> voices.q();
+        attack -> voices.attack();
+        decay -> voices.decay();
+        sustain -> voices.sustain();
+        release -> voices.release();
 
-        voice_allocator.voice_3() -> voice_handlers[3].note_on();
-        voice_allocator.voice_3() -> voice_handlers[3].note_off();
-
-        // Connect voice handlers to voices
-        voice_handlers[0].frequency() -> voices[0].frequency();
-        voice_handlers[0].gate() -> voices[0].gate();
-
-        voice_handlers[1].frequency() -> voices[1].frequency();
-        voice_handlers[1].gate() -> voices[1].gate();
-
-        voice_handlers[2].frequency() -> voices[2].frequency();
-        voice_handlers[2].gate() -> voices[2].gate();
-
-        voice_handlers[3].frequency() -> voices[3].frequency();
-        voice_handlers[3].gate() -> voices[3].gate();
-
-        // Connect shared parameters to all 4 voices
-        cutoff -> voices[0].cutoff();
-        cutoff -> voices[1].cutoff();
-        cutoff -> voices[2].cutoff();
-        cutoff -> voices[3].cutoff();
-
-        q -> voices[0].q();
-        q -> voices[1].q();
-        q -> voices[2].q();
-        q -> voices[3].q();
-
-        attack -> voices[0].attack();
-        attack -> voices[1].attack();
-        attack -> voices[2].attack();
-        attack -> voices[3].attack();
-
-        decay -> voices[0].decay();
-        decay -> voices[1].decay();
-        decay -> voices[2].decay();
-        decay -> voices[3].decay();
-
-        sustain -> voices[0].sustain();
-        sustain -> voices[1].sustain();
-        sustain -> voices[2].sustain();
-        sustain -> voices[3].sustain();
-
-        release -> voices[0].release();
-        release -> voices[1].release();
-        release -> voices[2].release();
-        release -> voices[3].release();
-
-        // Mix all 4 voices with master volume
-        (voices[0].audio() + voices[1].audio() + voices[2].audio() + voices[3].audio()) * volume -> audio_out;
+        // Mix all voices with master volume
+        voices.audio() * volume -> audio_out;
     }
 }
 
@@ -164,7 +123,6 @@ struct AudioContext {
     synth: PolySynthGraph,
     channels: usize,
     frame_count: u64,
-    total_process_time_ns: u64,
 }
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
@@ -172,7 +130,6 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
         synth: PolySynthGraph::new(sample_rate),
         channels,
         frame_count: 0,
-        total_process_time_ns: 0,
     }
 }
 

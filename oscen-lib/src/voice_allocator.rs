@@ -88,7 +88,7 @@ impl<const NUM_VOICES: usize> Default for VoiceAllocator<NUM_VOICES> {
 pub type VoiceAllocator2 = VoiceAllocator<2>;
 pub type VoiceAllocator4 = VoiceAllocator<4>;
 
-impl SignalProcessor for VoiceAllocator<4> {
+impl<const NUM_VOICES: usize> SignalProcessor for VoiceAllocator<NUM_VOICES> {
     fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) -> f32 {
         // Fast path: check if there are any events before allocating ArrayVec
         let note_on_slice = context.events(0);
@@ -126,94 +126,36 @@ impl SignalProcessor for VoiceAllocator<4> {
     }
 }
 
-// Manually implement ProcessingNode for VoiceAllocator<4>
-impl ProcessingNode for VoiceAllocator<4> {
-    type Endpoints = VoiceAllocator4Endpoints;
-
-    const ENDPOINT_DESCRIPTORS: &'static [crate::graph::EndpointDescriptor] = &[
-        crate::graph::EndpointDescriptor::new(
-            "note_on",
-            crate::graph::EndpointType::Event,
-            crate::graph::EndpointDirection::Input,
-        ),
-        crate::graph::EndpointDescriptor::new(
-            "note_off",
-            crate::graph::EndpointType::Event,
-            crate::graph::EndpointDirection::Input,
-        ),
-        crate::graph::EndpointDescriptor::new(
-            "voice_0",
-            crate::graph::EndpointType::Event,
-            crate::graph::EndpointDirection::Output,
-        ),
-        crate::graph::EndpointDescriptor::new(
-            "voice_1",
-            crate::graph::EndpointType::Event,
-            crate::graph::EndpointDirection::Output,
-        ),
-        crate::graph::EndpointDescriptor::new(
-            "voice_2",
-            crate::graph::EndpointType::Event,
-            crate::graph::EndpointDirection::Output,
-        ),
-        crate::graph::EndpointDescriptor::new(
-            "voice_3",
-            crate::graph::EndpointType::Event,
-            crate::graph::EndpointDirection::Output,
-        ),
-    ];
-
-    fn create_endpoints(
-        node_key: crate::NodeKey,
-        inputs: arrayvec::ArrayVec<crate::ValueKey, { crate::graph::MAX_NODE_ENDPOINTS }>,
-        outputs: arrayvec::ArrayVec<crate::ValueKey, { crate::graph::MAX_NODE_ENDPOINTS }>,
-    ) -> Self::Endpoints {
-        VoiceAllocator4Endpoints {
-            node_key,
-            note_on: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[0])),
-            note_off: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[1])),
-            voice_0: crate::EventOutput::new(outputs[0]),
-            voice_1: crate::EventOutput::new(outputs[1]),
-            voice_2: crate::EventOutput::new(outputs[2]),
-            voice_3: crate::EventOutput::new(outputs[3]),
-        }
-    }
-}
-
+// Generic endpoints struct using arrays instead of separate fields
 #[derive(Debug)]
-pub struct VoiceAllocator4Endpoints {
+pub struct VoiceAllocatorEndpoints<const NUM_VOICES: usize> {
     node_key: crate::NodeKey,
-    note_on: crate::EventInput,
-    note_off: crate::EventInput,
-    voice_0: crate::EventOutput,
-    voice_1: crate::EventOutput,
-    voice_2: crate::EventOutput,
-    voice_3: crate::EventOutput,
+    note_on_input: crate::EventInput,
+    note_off_input: crate::EventInput,
+    voice_outputs: [crate::EventOutput; MAX_VOICES],
 }
 
-impl VoiceAllocator4Endpoints {
+impl<const NUM_VOICES: usize> VoiceAllocatorEndpoints<NUM_VOICES> {
     pub fn note_on(&self) -> crate::EventInput {
-        self.note_on
+        self.note_on_input
     }
 
     pub fn note_off(&self) -> crate::EventInput {
-        self.note_off
+        self.note_off_input
     }
 
-    pub fn voice_0(&self) -> crate::EventOutput {
-        self.voice_0
+    pub fn voice(&self, index: usize) -> crate::EventOutput {
+        assert!(index < NUM_VOICES, "Voice index {} out of range (max: {})", index, NUM_VOICES);
+        self.voice_outputs[index]
     }
 
-    pub fn voice_1(&self) -> crate::EventOutput {
-        self.voice_1
-    }
-
-    pub fn voice_2(&self) -> crate::EventOutput {
-        self.voice_2
-    }
-
-    pub fn voice_3(&self) -> crate::EventOutput {
-        self.voice_3
+    /// Broadcast marker for use in graph! macro
+    /// This method is recognized by the macro to expand broadcasting patterns
+    /// Example: `voice_allocator.voices() -> voice_handlers.note_on()`
+    /// expands to: `voice_allocator.voice(0) -> voice_handlers[0].note_on()`, etc.
+    #[allow(unused)]
+    pub fn voices(&self) -> () {
+        // This is just a marker method for the macro - never called at runtime
     }
 
     pub fn node_key(&self) -> crate::NodeKey {
@@ -221,116 +163,103 @@ impl VoiceAllocator4Endpoints {
     }
 }
 
-// Implementations for VoiceAllocator<2>
-impl SignalProcessor for VoiceAllocator<2> {
-    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) -> f32 {
-        // Fast path: check if there are any events before allocating ArrayVec
-        let note_on_slice = context.events(0);
-        if !note_on_slice.is_empty() {
-            use arrayvec::ArrayVec;
-            // Collect events into stack-allocated buffer to avoid borrow checker issues
-            let note_on_events: ArrayVec<_, 64> = note_on_slice.iter().cloned().collect();
-            for event in note_on_events {
-                if let EventPayload::Object(obj) = &event.payload {
-                    if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
-                        let voice_idx = self.allocate_voice(note_on.note);
-                        context.emit_event(voice_idx, event);
-                    }
-                }
-            }
-        }
+// Static descriptor array for all possible voices (up to MAX_VOICES)
+const ALL_VOICE_DESCRIPTORS: [crate::graph::EndpointDescriptor; MAX_VOICES + 2] = [
+    crate::graph::EndpointDescriptor::new(
+        "note_on",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Input,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "note_off",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Input,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_0",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_1",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_2",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_3",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_4",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_5",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_6",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_7",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+];
 
-        let note_off_slice = context.events(1);
-        if !note_off_slice.is_empty() {
-            use arrayvec::ArrayVec;
-            let note_off_events: ArrayVec<_, 64> = note_off_slice.iter().cloned().collect();
-            for event in note_off_events {
-                if let EventPayload::Object(obj) = &event.payload {
-                    if let Some(note_off) = obj.as_any().downcast_ref::<NoteOffEvent>() {
-                        if let Some(voice_idx) = self.find_voice_for_note(note_off.note) {
-                            context.emit_event(voice_idx, event);
-                            self.release_voice(voice_idx);
-                        }
-                    }
-                }
-            }
-        }
+// Generic implementation for any NUM_VOICES
+impl<const NUM_VOICES: usize> ProcessingNode for VoiceAllocator<NUM_VOICES> {
+    type Endpoints = VoiceAllocatorEndpoints<NUM_VOICES>;
 
-        0.0 // VoiceAllocator doesn't output audio
-    }
-}
-
-impl ProcessingNode for VoiceAllocator<2> {
-    type Endpoints = VoiceAllocator2Endpoints;
-
-    const ENDPOINT_DESCRIPTORS: &'static [crate::graph::EndpointDescriptor] = &[
-        crate::graph::EndpointDescriptor::new(
-            "note_on",
-            crate::graph::EndpointType::Event,
-            crate::graph::EndpointDirection::Input,
-        ),
-        crate::graph::EndpointDescriptor::new(
-            "note_off",
-            crate::graph::EndpointType::Event,
-            crate::graph::EndpointDirection::Input,
-        ),
-        crate::graph::EndpointDescriptor::new(
-            "voice_0",
-            crate::graph::EndpointType::Event,
-            crate::graph::EndpointDirection::Output,
-        ),
-        crate::graph::EndpointDescriptor::new(
-            "voice_1",
-            crate::graph::EndpointType::Event,
-            crate::graph::EndpointDirection::Output,
-        ),
-    ];
+    // Return a slice of descriptors for the actual number of voices (2 inputs + NUM_VOICES outputs)
+    const ENDPOINT_DESCRIPTORS: &'static [crate::graph::EndpointDescriptor] = {
+        // We can't use NUM_VOICES directly in a const context to create a slice,
+        // so we return the full array and the graph system will handle it
+        &ALL_VOICE_DESCRIPTORS
+    };
 
     fn create_endpoints(
         node_key: crate::NodeKey,
         inputs: arrayvec::ArrayVec<crate::ValueKey, { crate::graph::MAX_NODE_ENDPOINTS }>,
         outputs: arrayvec::ArrayVec<crate::ValueKey, { crate::graph::MAX_NODE_ENDPOINTS }>,
     ) -> Self::Endpoints {
-        VoiceAllocator2Endpoints {
+        use crate::ValueKey;
+
+        // Create voice outputs array - initialize with default
+        let default_key = if outputs.is_empty() {
+            ValueKey::default()
+        } else {
+            outputs[0]
+        };
+        let mut voice_outputs = [crate::EventOutput::new(default_key); MAX_VOICES];
+
+        // Fill in the actual voice outputs
+        for i in 0..NUM_VOICES.min(outputs.len()) {
+            voice_outputs[i] = crate::EventOutput::new(outputs[i]);
+        }
+
+        VoiceAllocatorEndpoints {
             node_key,
-            note_on: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[0])),
-            note_off: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[1])),
-            voice_0: crate::EventOutput::new(outputs[0]),
-            voice_1: crate::EventOutput::new(outputs[1]),
+            note_on_input: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[0])),
+            note_off_input: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[1])),
+            voice_outputs,
         }
     }
 }
 
-#[derive(Debug)]
-pub struct VoiceAllocator2Endpoints {
-    node_key: crate::NodeKey,
-    note_on: crate::EventInput,
-    note_off: crate::EventInput,
-    voice_0: crate::EventOutput,
-    voice_1: crate::EventOutput,
-}
-
-impl VoiceAllocator2Endpoints {
-    pub fn note_on(&self) -> crate::EventInput {
-        self.note_on
-    }
-
-    pub fn note_off(&self) -> crate::EventInput {
-        self.note_off
-    }
-
-    pub fn voice_0(&self) -> crate::EventOutput {
-        self.voice_0
-    }
-
-    pub fn voice_1(&self) -> crate::EventOutput {
-        self.voice_1
-    }
-
-    pub fn node_key(&self) -> crate::NodeKey {
-        self.node_key
-    }
-}
+// Keep type aliases and specific endpoint types for backward compatibility
+pub type VoiceAllocator2Endpoints = VoiceAllocatorEndpoints<2>;
+pub type VoiceAllocator4Endpoints = VoiceAllocatorEndpoints<4>;
 
 #[cfg(test)]
 mod tests {

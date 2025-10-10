@@ -144,24 +144,25 @@ impl Parse for NodeDecl {
         input.parse::<kw::node>()?;
         let name = input.parse()?;
         input.parse::<Token![=]>()?;
-        let constructor: Expr = input.parse()?;
+        let (constructor, extracted_type) = parse_constructor_with_type(input)?;
 
         // Check if constructor is an array literal: [Type::new(); N]
-        let (actual_constructor, array_size) = if let Expr::Repeat(repeat_expr) = constructor {
+        let (actual_constructor, array_size, node_type) = if let Expr::Repeat(repeat_expr) = constructor {
             // Extract the repeated expression and count
             let count = if let Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(count), .. }) = &*repeat_expr.len {
                 Some(count.base10_parse::<usize>()?)
             } else {
                 None
             };
-            (*repeat_expr.expr, count)
+            // For array repeats, try to extract type from the inner expression
+            let inner_type = extracted_type.or_else(|| extract_node_type(&repeat_expr.expr));
+            (*repeat_expr.expr, count, inner_type)
         } else {
-            (constructor, None)
+            (constructor, None, extracted_type)
         };
 
         input.parse::<Token![;]>()?;
 
-        let node_type = extract_node_type(&actual_constructor);
         Ok(NodeDecl { name, constructor: actual_constructor, node_type, array_size })
     }
 }
@@ -182,47 +183,187 @@ fn parse_node_block(input: ParseStream) -> Result<Vec<NodeDecl>> {
     while !content.is_empty() {
         let name = content.parse()?;
         content.parse::<Token![=]>()?;
-        let constructor: Expr = content.parse()?;
+        let (constructor, extracted_type) = parse_constructor_with_type(&content)?;
 
         // Check if constructor is an array literal: [Type::new(); N]
-        let (actual_constructor, array_size) = if let Expr::Repeat(repeat_expr) = constructor {
+        let (actual_constructor, array_size, node_type) = if let Expr::Repeat(repeat_expr) = constructor {
             // Extract the repeated expression and count
             let count = if let Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(count), .. }) = &*repeat_expr.len {
                 Some(count.base10_parse::<usize>()?)
             } else {
                 None
             };
-            (*repeat_expr.expr, count)
+            // For array repeats, try to extract type from the inner expression
+            let inner_type = extracted_type.or_else(|| extract_node_type(&repeat_expr.expr));
+            (*repeat_expr.expr, count, inner_type)
         } else {
-            (constructor, None)
+            (constructor, None, extracted_type)
         };
 
         content.parse::<Token![;]>()?;
 
-        let node_type = extract_node_type(&actual_constructor);
         nodes.push(NodeDecl { name, constructor: actual_constructor, node_type, array_size });
     }
 
     Ok(nodes)
 }
 
+/// Parse a constructor expression, handling generic type parameters
+/// Returns both the expression and the extracted type (if found)
+/// This supports syntax like `Type<N>::new()` in addition to `Type::new()`
+fn parse_constructor_with_type(input: ParseStream) -> Result<(Expr, Option<syn::Path>)> {
+    use proc_macro2::TokenTree;
+    use quote::quote;
+    use syn::parse::discouraged::Speculative;
+
+    // Fork to manually check for Type<...>::method() pattern
+    let fork = input.fork();
+
+    // Try to manually parse the generic type pattern
+    // This avoids the ambiguity issue with < being a comparison operator
+    if let Ok(type_name) = fork.parse::<Ident>() {
+        // Check if we have <...>
+        if fork.peek(Token![<]) {
+            // Manually consume tokens until we find the matching >
+            fork.parse::<Token![<]>()?;
+
+            let mut depth = 1;
+            let mut generic_tokens = Vec::new();
+
+            while depth > 0 && !fork.is_empty() {
+                if fork.peek(Token![<]) {
+                    fork.parse::<Token![<]>()?;
+                    generic_tokens.push(TokenTree::Punct(proc_macro2::Punct::new('<', proc_macro2::Spacing::Alone)));
+                    depth += 1;
+                } else if fork.peek(Token![>]) {
+                    depth -= 1;
+                    if depth > 0 {
+                        fork.parse::<Token![>]>()?;
+                        generic_tokens.push(TokenTree::Punct(proc_macro2::Punct::new('>', proc_macro2::Spacing::Alone)));
+                    } else {
+                        fork.parse::<Token![>]>()?; // consume the closing >
+                    }
+                } else {
+                    // Parse any token and add it to generic_tokens
+                    if let Ok(tt) = fork.parse::<TokenTree>() {
+                        generic_tokens.push(tt);
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            // Now check for ::method()
+            if fork.peek(Token![::]) {
+                fork.parse::<Token![::]>()?;
+                if let Ok(method) = fork.parse::<Ident>() {
+                    if fork.peek(token::Paren) {
+                        let args_content;
+                        parenthesized!(args_content in fork);
+
+                        if let Ok(args) = args_content.parse_terminated(Expr::parse, Token![,]) {
+                            // Successfully parsed! Construct the type with generics
+                            let generic_stream: proc_macro2::TokenStream =
+                                generic_tokens.into_iter().collect();
+
+                            let func = syn::parse2(quote! {
+                                <#type_name<#generic_stream>>::#method
+                            })?;
+
+                            let expr = Expr::Call(syn::ExprCall {
+                                attrs: vec![],
+                                func: Box::new(func),
+                                paren_token: syn::token::Paren::default(),
+                                args: args.into_iter().collect(),
+                            });
+
+                            // Build the type path for the node
+                            let type_path = syn::parse2(quote! { #type_name<#generic_stream> })?;
+                            let node_type = if let syn::Type::Path(type_path_parsed) = type_path {
+                                Some(type_path_parsed.path)
+                            } else {
+                                None
+                            };
+
+                            input.advance_to(&fork);
+                            return Ok((expr, node_type));
+                        }
+                    }
+                }
+            }
+        } else if fork.peek(Token![::]) {
+            // No generics, but still Type::method() pattern
+            fork.parse::<Token![::]>()?;
+            if let Ok(method) = fork.parse::<Ident>() {
+                if fork.peek(token::Paren) {
+                    let args_content;
+                    parenthesized!(args_content in fork);
+
+                    if let Ok(args) = args_content.parse_terminated(Expr::parse, Token![,]) {
+                        let func = syn::parse2(quote! {
+                            <#type_name>::#method
+                        })?;
+
+                        let expr = Expr::Call(syn::ExprCall {
+                            attrs: vec![],
+                            func: Box::new(func),
+                            paren_token: syn::token::Paren::default(),
+                            args: args.into_iter().collect(),
+                        });
+
+                        // Build simple type path
+                        let mut path = syn::Path {
+                            leading_colon: None,
+                            segments: syn::punctuated::Punctuated::new(),
+                        };
+                        path.segments.push(syn::PathSegment {
+                            ident: type_name,
+                            arguments: syn::PathArguments::None,
+                        });
+
+                        input.advance_to(&fork);
+                        return Ok((expr, Some(path)));
+                    }
+                }
+            }
+        }
+    }
+
+    // Fall back to regular expression parsing for other cases
+    let expr = input.parse::<Expr>()?;
+    let node_type = extract_node_type(&expr);
+    Ok((expr, node_type))
+}
+
 /// Extract the node type from a constructor expression
 /// E.g., `PolyBlepOscillator::saw(440.0, 0.6)` -> `PolyBlepOscillator`
+/// Also handles `<Type<Generic>>::method` syntax
 fn extract_node_type(expr: &Expr) -> Option<syn::Path> {
     match expr {
         Expr::Call(call) => {
-            // Check if the function is a path like Type::method
-            if let Expr::Path(path_expr) = &*call.func {
-                // Extract everything except the last segment (the method name)
-                let path = &path_expr.path;
-                if path.segments.len() >= 2 {
-                    // Clone all segments except the last one (which is the method name)
-                    let mut type_path = path.clone();
-                    type_path.segments.pop();
-                    return Some(type_path);
+            match &*call.func {
+                // Regular path like Type::method
+                Expr::Path(path_expr) => {
+                    // Extract everything except the last segment (the method name)
+                    let path = &path_expr.path;
+                    if path.segments.len() >= 2 {
+                        // Clone all segments except the last one (which is the method name)
+                        let mut type_path = path.clone();
+                        type_path.segments.pop();
+                        return Some(type_path);
+                    }
+                    None
+                }
+                // Qualified path like <Type>::method or <Type<T>>::method
+                _ => {
+                    // Try to extract the type from the generated code
+                    // The format is <Type>::method, so we need to extract Type
+                    // We can do this by converting to string and parsing, but that's fragile
+                    // Instead, let's return None and rely on the fact that we can
+                    // infer the type from the variable name or context
+                    None
                 }
             }
-            None
         }
         _ => None,
     }

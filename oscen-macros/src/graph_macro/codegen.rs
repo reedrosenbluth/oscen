@@ -42,6 +42,7 @@ impl CodegenContext {
 
     /// Construct the Endpoints type from a node type
     /// E.g., PolyBlepOscillator -> PolyBlepOscillatorEndpoints
+    ///       VoiceAllocator<4> -> VoiceAllocatorEndpoints<4>
     fn construct_endpoints_type(node_type: &syn::Path) -> TokenStream {
         // Build a new path with "Endpoints" appended to the last segment
         let segments: Vec<_> = node_type.segments.iter().collect();
@@ -61,12 +62,15 @@ impl CodegenContext {
             type_name.span()
         );
 
+        // Preserve generic arguments from the original type
+        let generic_args = &last_segment.arguments;
+
         if leading_segments.is_empty() {
-            // Simple type like PolyBlepOscillator
-            quote! { #endpoints_ident }
+            // Simple type like PolyBlepOscillator or VoiceAllocator<4>
+            quote! { #endpoints_ident #generic_args }
         } else {
             // Qualified type like oscen::PolyBlepOscillator
-            quote! { #(#leading_segments)::* :: #endpoints_ident }
+            quote! { #(#leading_segments)::* :: #endpoints_ident #generic_args }
         }
     }
 
@@ -288,6 +292,12 @@ impl CodegenContext {
                 }
             }
 
+            // Check for array broadcasting pattern
+            if let Some(expanded) = self.try_expand_array_broadcast(&conn.source, &conn.dest)? {
+                regular_connections.extend(expanded);
+                continue;
+            }
+
             // Regular connection
             let source = self.generate_connection_expr(&conn.source)?;
             let dest = self.generate_connection_expr(&conn.dest)?;
@@ -309,6 +319,127 @@ impl CodegenContext {
         result.extend(output_assignments);
 
         Ok(result)
+    }
+
+    /// Try to expand array broadcasting patterns:
+    /// 1. Broadcast marker: `voice_allocator.voices() -> voice_handlers.note_on()`
+    /// 2. Array-to-array: `voice_handlers.frequency() -> voices.frequency()`
+    /// 3. Scalar-to-array: `cutoff -> voices.cutoff()`
+    fn try_expand_array_broadcast(
+        &self,
+        source: &ConnectionExpr,
+        dest: &ConnectionExpr,
+    ) -> Result<Option<Vec<TokenStream>>> {
+        // Pattern 1 & 2: Destination is a method call on an array
+        if let ConnectionExpr::Method(dest_obj, dest_method, dest_args) = dest {
+            if let ConnectionExpr::Ident(dest_base) = &**dest_obj {
+                // Check if dest_base is an array node
+                if let Some(dest_array_size) = self.nodes.iter()
+                    .find(|n| n.name == *dest_base)
+                    .and_then(|n| n.array_size)
+                {
+                    // Pattern 1: Broadcast marker (e.g., voices())
+                    if let ConnectionExpr::Method(src_obj, src_method, _src_args) = source {
+                        if let ConnectionExpr::Ident(src_base) = &**src_obj {
+                            if src_method == "voices" {
+                                // Generate N connections: src.voice(i) -> dest[i].method()
+                                let mut connections = Vec::new();
+                                for i in 0..dest_array_size {
+                                    let src_indexed = quote! { #src_base.voice(#i) };
+                                    let dest_indexed_name = syn::Ident::new(
+                                        &format!("{}_{}", dest_base, i),
+                                        dest_base.span()
+                                    );
+
+                                    let dest_call = if dest_args.is_empty() {
+                                        quote! { #dest_indexed_name.#dest_method() }
+                                    } else {
+                                        quote! { #dest_indexed_name.#dest_method(#(#dest_args),*) }
+                                    };
+
+                                    connections.push(quote! {
+                                        #src_indexed >> #dest_call
+                                    });
+                                }
+                                return Ok(Some(connections));
+                            }
+                        }
+                    }
+
+                    // Pattern 2: Array-to-array (src is method on array, dest is method on array)
+                    if let ConnectionExpr::Method(src_obj, src_method, src_args) = source {
+                        if let ConnectionExpr::Ident(src_base) = &**src_obj {
+                            if let Some(src_array_size) = self.nodes.iter()
+                                .find(|n| n.name == *src_base)
+                                .and_then(|n| n.array_size)
+                            {
+                                // Arrays must have the same size
+                                if src_array_size == dest_array_size {
+                                    let mut connections = Vec::new();
+                                    for i in 0..src_array_size {
+                                        let src_indexed_name = syn::Ident::new(
+                                            &format!("{}_{}", src_base, i),
+                                            src_base.span()
+                                        );
+                                        let dest_indexed_name = syn::Ident::new(
+                                            &format!("{}_{}", dest_base, i),
+                                            dest_base.span()
+                                        );
+
+                                        let src_call = if src_args.is_empty() {
+                                            quote! { #src_indexed_name.#src_method() }
+                                        } else {
+                                            quote! { #src_indexed_name.#src_method(#(#src_args),*) }
+                                        };
+
+                                        let dest_call = if dest_args.is_empty() {
+                                            quote! { #dest_indexed_name.#dest_method() }
+                                        } else {
+                                            quote! { #dest_indexed_name.#dest_method(#(#dest_args),*) }
+                                        };
+
+                                        connections.push(quote! {
+                                            #src_call >> #dest_call
+                                        });
+                                    }
+                                    return Ok(Some(connections));
+                                }
+                            }
+                        }
+                    }
+
+                    // Pattern 3: Scalar-to-array (src is scalar, dest is method on array)
+                    if let ConnectionExpr::Ident(src_ident) = source {
+                        // Check if source is an input or output (scalar)
+                        let is_scalar = self.inputs.iter().any(|i| i.name == *src_ident) ||
+                                       self.outputs.iter().any(|o| o.name == *src_ident);
+
+                        if is_scalar {
+                            let mut connections = Vec::new();
+                            for i in 0..dest_array_size {
+                                let dest_indexed_name = syn::Ident::new(
+                                    &format!("{}_{}", dest_base, i),
+                                    dest_base.span()
+                                );
+
+                                let dest_call = if dest_args.is_empty() {
+                                    quote! { #dest_indexed_name.#dest_method() }
+                                } else {
+                                    quote! { #dest_indexed_name.#dest_method(#(#dest_args),*) }
+                                };
+
+                                connections.push(quote! {
+                                    #src_ident >> #dest_call
+                                });
+                            }
+                            return Ok(Some(connections));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     /// Generate an expression, extracting binary operations to temporary variables
@@ -339,8 +470,61 @@ impl CodegenContext {
 
                 Ok((stmts, quote! { #temp_name }))
             }
+            ConnectionExpr::Method(obj, method, args) => {
+                // Check if this is a method call on an array node that needs summing
+                if let ConnectionExpr::Ident(base_name) = &**obj {
+                    if let Some(array_size) = self.nodes.iter()
+                        .find(|n| n.name == *base_name)
+                        .and_then(|n| n.array_size)
+                    {
+                        // Generate temps for each addition to avoid nested mutable borrows
+                        let mut stmts = Vec::new();
+
+                        // First element
+                        let first_indexed_name = syn::Ident::new(
+                            &format!("{}_{}", base_name, 0),
+                            base_name.span()
+                        );
+
+                        let mut sum_temp = if args.is_empty() {
+                            quote! { #first_indexed_name.#method() }
+                        } else {
+                            quote! { #first_indexed_name.#method(#(#args),*) }
+                        };
+
+                        // Add remaining elements, creating a temp for each addition
+                        for i in 1..array_size {
+                            let indexed_name = syn::Ident::new(
+                                &format!("{}_{}", base_name, i),
+                                base_name.span()
+                            );
+
+                            let call_expr = if args.is_empty() {
+                                quote! { #indexed_name.#method() }
+                            } else {
+                                quote! { #indexed_name.#method(#(#args),*) }
+                            };
+
+                            let temp_name = syn::Ident::new(&format!("__temp_{}", counter), proc_macro2::Span::call_site());
+                            *counter += 1;
+
+                            stmts.push(quote! {
+                                let #temp_name = graph.add(#sum_temp, #call_expr);
+                            });
+
+                            sum_temp = quote! { #temp_name };
+                        }
+
+                        return Ok((stmts, sum_temp));
+                    }
+                }
+
+                // Not an array sum, generate normally
+                let expr_code = self.generate_connection_expr(expr)?;
+                Ok((vec![], expr_code))
+            }
             _ => {
-                // No binary operations, generate normally
+                // No binary operations or special cases, generate normally
                 let expr_code = self.generate_connection_expr(expr)?;
                 Ok((vec![], expr_code))
             }
@@ -368,6 +552,9 @@ impl CodegenContext {
                 }
             }
             ConnectionExpr::Method(obj, method, args) => {
+                // NOTE: Array method summing is handled in generate_expr_with_temps
+                // to properly extract operations into temps and avoid borrow checker issues.
+                // This path should only be reached for non-array method calls.
                 let obj_expr = self.generate_connection_expr(obj)?;
                 if args.is_empty() {
                     Ok(quote! { #obj_expr.#method() })

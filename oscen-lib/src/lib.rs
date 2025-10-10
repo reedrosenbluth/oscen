@@ -27,5 +27,5 @@ pub use oscillators::{
 pub use value::Value;
 pub use voice_allocator::{
     VoiceAllocator, VoiceAllocator2, VoiceAllocator2Endpoints, VoiceAllocator4,
-    VoiceAllocator4Endpoints,
+    VoiceAllocator4Endpoints, VoiceAllocatorEndpoints,
 };
