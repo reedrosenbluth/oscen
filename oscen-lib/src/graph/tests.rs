@@ -45,7 +45,7 @@ fn test_valid_cycle_with_delay() {
 
     let osc = graph.add_node(Oscillator::sine(440.0, 1.0));
     let filter = graph.add_node(TptFilter::new(1000.0, 0.7));
-    let delay = graph.add_node(Delay::new(0.5, 0.3));
+    let delay = graph.add_node(Delay::from_seconds(0.5, 0.3, 44100.0));
 
     graph.connect(osc.output(), filter.input());
     graph.connect(filter.output(), delay.input());

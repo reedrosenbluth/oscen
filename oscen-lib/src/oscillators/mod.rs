@@ -110,6 +110,8 @@ pub enum PolyBlepWaveform {
 pub struct PolyBlepOscillator {
     #[input(value)]
     phase: f32,
+    #[input(stream)]
+    phase_mod: f32,
     #[input(value)]
     frequency: f32,
     #[input(stream)]
@@ -129,6 +131,7 @@ impl PolyBlepOscillator {
     pub fn new(frequency: f32, amplitude: f32, waveform: PolyBlepWaveform) -> Self {
         Self {
             phase: 0.0,
+            phase_mod: 0.0,
             frequency,
             frequency_mod: 0.0,
             amplitude,
@@ -193,17 +196,23 @@ impl PolyBlepOscillator {
     fn process_internal(
         &mut self,
         sample_rate: f32,
-        phase_mod: f32,
+        phase_offset: f32,
+        phase_mod_stream: f32,
         freq_mod: f32,
         freq_input: f32,
         amp_mod: f32,
         pulse_mod: f32,
     ) -> f32 {
-        let frequency = (freq_input * (1.0 + freq_mod)).max(0.0);
+        let base_freq = if freq_input == 0.0 {
+            self.frequency
+        } else {
+            freq_input
+        };
+        let frequency = (base_freq * (1.0 + freq_mod)).max(0.0);
         let amplitude = self.amplitude * (1.0 + amp_mod);
         let mut pulse_width = (self.pulse_width + pulse_mod).clamp(0.0001, 0.9999);
 
-        let mut phase = Self::wrap_phase(self.phase + phase_mod);
+        let mut phase = Self::wrap_phase(self.phase + phase_offset + phase_mod_stream);
         let freq_per_sample = frequency / sample_rate.max(f32::EPSILON);
         let dt = freq_per_sample.min(1.0);
 
@@ -255,7 +264,8 @@ impl PolyBlepOscillator {
 
 impl SignalProcessor for PolyBlepOscillator {
     fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
-        let phase_mod = self.get_phase(context);
+        let phase_offset = self.get_phase(context);
+        let phase_mod_stream = self.get_phase_mod(context);
         let freq_mod = self.get_frequency_mod(context);
         let freq_input = self.get_frequency(context);
         let amp_mod = self.get_amplitude(context);
@@ -263,7 +273,8 @@ impl SignalProcessor for PolyBlepOscillator {
 
         self.process_internal(
             sample_rate,
-            phase_mod,
+            phase_offset,
+            phase_mod_stream,
             freq_mod,
             freq_input,
             amp_mod,
@@ -286,6 +297,7 @@ mod tests {
         let mut max = f32::MIN;
         let value_template: Vec<Option<ValueData>> = vec![
             Some(ValueData::scalar(0.0)), // phase
+            None,                         // phase_mod (stream)
             Some(ValueData::scalar(0.0)), // frequency override
             None,                         // frequency mod (stream)
             Some(ValueData::scalar(0.0)), // amplitude mod
@@ -293,7 +305,7 @@ mod tests {
         ];
 
         for _ in 0..(sample_rate as usize / 10) {
-            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
             let value_storage = value_template.clone();
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
@@ -319,6 +331,7 @@ mod tests {
         let mut osc = PolyBlepOscillator::square(880.0, 0.8);
         let value_template: Vec<Option<ValueData>> = vec![
             Some(ValueData::scalar(0.0)),
+            None,
             Some(ValueData::scalar(0.0)),
             None,
             Some(ValueData::scalar(0.0)),
@@ -326,7 +339,7 @@ mod tests {
         ];
 
         let mut previous = {
-            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
             let value_storage = value_template.clone();
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
@@ -337,7 +350,7 @@ mod tests {
             osc.process(sample_rate, &mut context)
         };
         for _ in 0..1024 {
-            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
             let value_storage = value_template.clone();
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
@@ -359,6 +372,7 @@ mod tests {
         let mut osc = PolyBlepOscillator::new(220.0, 1.0, PolyBlepWaveform::Triangle);
         let value_template: Vec<Option<ValueData>> = vec![
             Some(ValueData::scalar(0.0)),
+            None,
             Some(ValueData::scalar(0.0)),
             None,
             Some(ValueData::scalar(0.0)),
@@ -367,7 +381,7 @@ mod tests {
 
         let mut samples = [0.0; 4];
         for i in 0..samples.len() {
-            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
             let value_storage = value_template.clone();
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();

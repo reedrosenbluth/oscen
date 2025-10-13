@@ -1963,6 +1963,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "feedback-synth"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrayvec",
+ "cpal",
+ "midir",
+ "oscen",
+ "slint",
+ "slint-build",
+]
+
+[[package]]
 name = "field-offset"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

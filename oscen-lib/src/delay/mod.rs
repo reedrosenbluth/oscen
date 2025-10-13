@@ -10,7 +10,7 @@ pub struct Delay {
     #[input(stream)]
     input: f32,
     #[input]
-    delay_time: f32, // In seconds
+    delay_samples: f32,
     #[input]
     feedback: f32,
 
@@ -24,41 +24,41 @@ pub struct Delay {
 }
 
 impl Delay {
-    pub fn new(delay_time: f32, feedback: f32) -> Self {
-        // Use a small buffer size initially to prevent stack overflow during initialization
-        // The real buffer will be properly allocated in init() with the correct sample rate
-        let default_sample_rate = 44100.0;
-
+    /// Create a delay with delay time specified in samples/frames.
+    pub fn new(delay_samples: f32, feedback: f32) -> Self {
         // Start with a very small buffer to avoid excessive stack usage
         let initial_buffer_size = 1024;
 
         Self {
             input: 0.0,
-            delay_time,
+            delay_samples,
             feedback,
             output: 0.0,
             buffer: RingBuffer::new(initial_buffer_size),
-            sample_rate: default_sample_rate,
+            sample_rate: 44100.0, // Default, will be overwritten in init()
             frames_per_update: 32,
             frame_counter: 0,
         }
     }
 
-    fn apply_parameter_updates(&mut self, delay_time: f32, feedback: f32) {
+    /// Create a delay with delay time specified in seconds at a given sample rate.
+    pub fn from_seconds(delay_seconds: f32, feedback: f32, sample_rate: f32) -> Self {
+        let delay_samples = delay_seconds * sample_rate;
+        Self::new(delay_samples, feedback)
+    }
+
+    fn apply_parameter_updates(&mut self, delay_samples: f32, feedback: f32) {
         if self.frame_counter == 0 {
-            self.delay_time = delay_time.clamp(0.0, 2.0);
+            let max_delay = self.buffer.capacity() as f32 - 1.0;
+            self.delay_samples = delay_samples.clamp(0.0, max_delay);
             self.feedback = feedback.clamp(0.0, 0.99);
         }
 
         self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
     }
 
-    fn process_sample(&mut self, sample_rate: f32, input: f32) -> f32 {
-        let delay_samples = self.delay_time * sample_rate;
-        let max_delay = self.buffer.capacity() as f32 - 1.0;
-        let clamped_delay = delay_samples.min(max_delay).max(0.0);
-
-        let delayed = self.buffer.get(clamped_delay);
+    fn process_sample(&mut self, _sample_rate: f32, input: f32) -> f32 {
+        let delayed = self.buffer.get(self.delay_samples);
         self.buffer.push(input + delayed * self.feedback);
 
         self.output = delayed;
@@ -87,10 +87,10 @@ impl SignalProcessor for Delay {
 
     fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
         let input = self.get_input(context);
-        let delay_time = self.get_delay_time(context);
+        let delay_samples = self.get_delay_samples(context);
         let feedback = self.get_feedback(context);
 
-        self.apply_parameter_updates(delay_time, feedback);
+        self.apply_parameter_updates(delay_samples, feedback);
         self.process_sample(sample_rate, input)
     }
 }

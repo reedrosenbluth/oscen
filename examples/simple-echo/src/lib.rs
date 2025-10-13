@@ -101,7 +101,7 @@ fn build_channel_graph(
     let (input_signal, input_endpoint) = graph.add_audio_input();
 
     // Add nodes to graph
-    let delay = graph.add_node(Delay::new(params.delay_time.value(), 0.0));
+    let delay = graph.add_node(Delay::from_seconds(params.delay_time.value(), 0.0, sample_rate));
     let filter = graph.add_node(TptFilter::new(params.filter_cutoff.value(), 0.7));
 
     let feedback_node = graph.add_node(Value::new(params.feedback.value()));
@@ -138,8 +138,10 @@ fn build_channel_graph(
     let output = graph.combine(dry_mixed, wet_mixed, |dry, wet| dry + wet);
 
     // Set up parameter controls
+    // Convert delay time from seconds to samples
+    let delay_samples = params.delay_time.value() * sample_rate;
     if graph
-        .insert_value_input(delay.delay_time(), params.delay_time.value())
+        .insert_value_input(delay.delay_samples(), delay_samples)
         .is_none()
     {
         return Err("Failed to insert delay time input");
@@ -168,7 +170,7 @@ fn build_channel_graph(
 
     Ok(ChannelContext {
         graph,
-        delay_time_input: delay.delay_time(),
+        delay_time_input: delay.delay_samples(),
         filter_cutoff_input: filter.cutoff(),
         feedback_input: feedback_node.input(),
         mix_input: mix_node.input(),
@@ -191,10 +193,14 @@ impl AudioContext {
         let feedback = params.feedback.smoothed.next();
         let mix = params.mix.smoothed.next();
 
+        // Convert delay time from seconds to samples
+        let delay_samples_left = delay_time * self.left.graph.sample_rate;
+        let delay_samples_right = delay_time * self.right.graph.sample_rate;
+
         // Update left channel
         self.left
             .graph
-            .set_value(self.left.delay_time_input, delay_time);
+            .set_value(self.left.delay_time_input, delay_samples_left);
         self.left
             .graph
             .set_value(self.left.filter_cutoff_input, filter_cutoff);
@@ -206,7 +212,7 @@ impl AudioContext {
         // Update right channel
         self.right
             .graph
-            .set_value(self.right.delay_time_input, delay_time);
+            .set_value(self.right.delay_time_input, delay_samples_right);
         self.right
             .graph
             .set_value(self.right.filter_cutoff_input, filter_cutoff);

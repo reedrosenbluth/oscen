@@ -74,6 +74,7 @@ graph! {
 graph! {
     name: PolySynthGraph;
 
+    //TODD: hoisted endpoints
     input value cutoff = 3000.0;
     input value q = 0.707;
     input value volume = 0.8;
@@ -87,8 +88,6 @@ graph! {
     node {
         midi_parser = MidiParser::new();
         voice_allocator = VoiceAllocator<8>::new();
-
-        // 4 voices to match VoiceAllocator4
         voice_handlers = [MidiVoiceHandler::new(); 8];
         voices = [Voice::new(sample_rate); 8];
     }
@@ -123,6 +122,7 @@ struct AudioContext {
     synth: PolySynthGraph,
     channels: usize,
     frame_count: u64,
+    total_process_time_ns: u64,
 }
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
@@ -130,6 +130,7 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
         synth: PolySynthGraph::new(sample_rate),
         channels,
         frame_count: 0,
+        total_process_time_ns: 0,
     }
 }
 
@@ -186,7 +187,7 @@ fn audio_callback(
     }
 
     for frame in data.chunks_mut(context.channels) {
-        // let start = std::time::Instant::now();
+        let start = std::time::Instant::now();
 
         if let Err(err) = context.synth.graph.process() {
             eprintln!("Graph processing error: {}", err);
@@ -196,19 +197,19 @@ fn audio_callback(
             continue;
         }
 
-        // let elapsed = start.elapsed();
-        // context.total_process_time_ns += elapsed.as_nanos() as u64;
-        // context.frame_count += 1;
+        let elapsed = start.elapsed();
+        context.total_process_time_ns += elapsed.as_nanos() as u64;
+        context.frame_count += 1;
 
         // Print stats every 5 seconds
-        // if context.frame_count % (48000 * 5) == 0 {
-        //     let avg_ns = context.total_process_time_ns / context.frame_count;
-        //     let avg_us = avg_ns as f64 / 1000.0;
-        //     eprintln!(
-        //         "Avg process time: {:.2} µs/frame ({} frames)",
-        //         avg_us, context.frame_count
-        //     );
-        // }
+        if context.frame_count % (48000 * 5) == 0 {
+            let avg_ns = context.total_process_time_ns / context.frame_count;
+            let avg_us = avg_ns as f64 / 1000.0;
+            eprintln!(
+                "Avg process time: {:.2} µs/frame ({} frames)",
+                avg_us, context.frame_count
+            );
+        }
 
         let value = context
             .synth

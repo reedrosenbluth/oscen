@@ -60,7 +60,7 @@ fn complex_graph() -> Graph {
 
     // Mix and delay
     let final_mix = graph.add(filtered1, filtered2);
-    let delay = graph.add_node(Delay::new(0.5, 0.3));
+    let delay = graph.add_node(Delay::from_seconds(0.5, 0.3, 44100.0));
 
     graph.connect(final_mix, delay.input());
 

@@ -274,7 +274,8 @@ impl CodegenContext {
             return Ok(vec![]);
         }
 
-        let mut regular_connections = Vec::new();
+        let mut temp_stmts = Vec::new(); // Temporary variable declarations
+        let mut regular_connections = Vec::new(); // Connection expressions
         let mut output_assignments = Vec::new();
         let mut temp_counter = 0;
 
@@ -298,16 +299,22 @@ impl CodegenContext {
                 continue;
             }
 
-            // Regular connection
-            let source = self.generate_connection_expr(&conn.source)?;
+            // Regular connection - extract temps from source to avoid nested mutable borrows
+            let (source_stmts, source_expr) = self.generate_expr_with_temps(&conn.source, &mut temp_counter)?;
+            temp_stmts.extend(source_stmts);
+
             let dest = self.generate_connection_expr(&conn.dest)?;
             regular_connections.push(quote! {
-                #source >> #dest
+                #source_expr >> #dest
             });
         }
 
         let mut result = Vec::new();
 
+        // Add temp variable declarations first
+        result.extend(temp_stmts);
+
+        // Then add connections
         if !regular_connections.is_empty() {
             result.push(quote! {
                 graph.connect_all(vec![

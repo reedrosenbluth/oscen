@@ -1,7 +1,7 @@
 use crate::graph::{EventPayload, ProcessingContext, ProcessingNode, SignalProcessor};
 use crate::midi::{NoteOffEvent, NoteOnEvent};
 
-const MAX_VOICES: usize = 8;
+const MAX_VOICES: usize = 24;
 
 #[derive(Debug, Clone, Copy)]
 struct VoiceState {
@@ -145,7 +145,12 @@ impl<const NUM_VOICES: usize> VoiceAllocatorEndpoints<NUM_VOICES> {
     }
 
     pub fn voice(&self, index: usize) -> crate::EventOutput {
-        assert!(index < NUM_VOICES, "Voice index {} out of range (max: {})", index, NUM_VOICES);
+        assert!(
+            index < NUM_VOICES,
+            "Voice index {} out of range (max: {})",
+            index,
+            NUM_VOICES
+        );
         self.voice_outputs[index]
     }
 
@@ -215,18 +220,96 @@ const ALL_VOICE_DESCRIPTORS: [crate::graph::EndpointDescriptor; MAX_VOICES + 2] 
         crate::graph::EndpointType::Event,
         crate::graph::EndpointDirection::Output,
     ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_8",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_9",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_10",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_11",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_12",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_13",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_14",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_15",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_16",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_17",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_18",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_19",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_20",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_21",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_22",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
+    crate::graph::EndpointDescriptor::new(
+        "voice_23",
+        crate::graph::EndpointType::Event,
+        crate::graph::EndpointDirection::Output,
+    ),
 ];
 
 // Generic implementation for any NUM_VOICES
 impl<const NUM_VOICES: usize> ProcessingNode for VoiceAllocator<NUM_VOICES> {
     type Endpoints = VoiceAllocatorEndpoints<NUM_VOICES>;
 
-    // Return a slice of descriptors for the actual number of voices (2 inputs + NUM_VOICES outputs)
-    const ENDPOINT_DESCRIPTORS: &'static [crate::graph::EndpointDescriptor] = {
-        // We can't use NUM_VOICES directly in a const context to create a slice,
-        // so we return the full array and the graph system will handle it
-        &ALL_VOICE_DESCRIPTORS
-    };
+    // Return all descriptors (2 inputs + MAX_VOICES outputs)
+    // The graph system will only use the first NUM_VOICES + 2 descriptors
+    const ENDPOINT_DESCRIPTORS: &'static [crate::graph::EndpointDescriptor] =
+        &ALL_VOICE_DESCRIPTORS;
 
     fn create_endpoints(
         node_key: crate::NodeKey,

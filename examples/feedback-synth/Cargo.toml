@@ -1,0 +1,16 @@
+[package]
+name = "feedback-synth"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+oscen = { path = "../../oscen-lib" }
+arrayvec = "0.7.6"
+cpal = "0.15.2"
+anyhow = "1.0"
+midir = "0.10"
+slint = { version = "1.13.1", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-skia"] }
+
+[build-dependencies]
+slint-build = "1.13.1"
