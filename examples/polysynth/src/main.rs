@@ -54,19 +54,19 @@ graph! {
     }
 
     connection {
-        frequency -> osc.frequency();
-        gate -> envelope.gate();
-        cutoff -> filter.cutoff();
-        q -> filter.q();
-        attack -> envelope.attack();
-        decay -> envelope.decay();
-        sustain -> envelope.sustain();
-        release -> envelope.release();
+        frequency -> osc.frequency;
+        gate -> envelope.gate;
+        cutoff -> filter.cutoff;
+        q -> filter.q;
+        attack -> envelope.attack;
+        decay -> envelope.decay;
+        sustain -> envelope.sustain;
+        release -> envelope.release;
 
-        osc.output() -> filter.input();
-        envelope.output() -> filter.f_mod();
+        osc.output -> filter.input;
+        // envelope.output -> filter.f_mod;
 
-        filter.output() * envelope.output() -> audio;
+        filter.output * envelope.output -> audio;
     }
 }
 
@@ -94,27 +94,27 @@ graph! {
 
     connection {
         // Connect MIDI parser to voice allocator
-        midi_parser.note_on() -> voice_allocator.note_on();
-        midi_parser.note_off() -> voice_allocator.note_off();
+        midi_parser.note_on -> voice_allocator.note_on;
+        midi_parser.note_off -> voice_allocator.note_off;
 
         // Broadcast voice allocator outputs to all voice handlers
-        voice_allocator.voices() -> voice_handlers.note_on();
-        voice_allocator.voices() -> voice_handlers.note_off();
+        voice_allocator.voices() -> voice_handlers.note_on;
+        voice_allocator.voices() -> voice_handlers.note_off;
 
         // Connect voice handlers to voices (array-to-array)
-        voice_handlers.frequency() -> voices.frequency();
-        voice_handlers.gate() -> voices.gate();
+        voice_handlers.frequency -> voices.frequency;
+        voice_handlers.gate -> voices.gate;
 
         // Broadcast shared parameters to all voices (scalar-to-array)
-        cutoff -> voices.cutoff();
-        q -> voices.q();
-        attack -> voices.attack();
-        decay -> voices.decay();
-        sustain -> voices.sustain();
-        release -> voices.release();
+        cutoff -> voices.cutoff;
+        q -> voices.q;
+        attack -> voices.attack;
+        decay -> voices.decay;
+        sustain -> voices.sustain;
+        release -> voices.release;
 
         // Mix all voices with master volume
-        voices.audio() * volume -> audio_out;
+        voices.audio * volume -> audio_out;
     }
 }
 
@@ -144,7 +144,7 @@ fn audio_callback(
     while let Ok(raw_midi) = midi_rx.try_recv() {
         queue_raw_midi(
             &mut context.synth.graph,
-            context.synth.midi_parser.midi_in(),
+            context.synth.midi_parser.midi_in,
             0,
             &raw_midi.bytes,
         );

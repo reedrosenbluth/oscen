@@ -18,10 +18,10 @@ fn medium_graph() -> Graph {
     let filter = graph.add_node(TptFilter::new(1000.0, 0.7));
     let env = graph.add_node(AdsrEnvelope::new(0.01, 0.1, 0.7, 0.2));
 
-    let mixed = graph.add(osc1.output(), osc2.output());
-    graph.connect(mixed, filter.input());
+    let mixed = graph.add(osc1.output, osc2.output);
+    graph.connect(mixed, filter.input);
 
-    let _final_out = graph.multiply(filter.output(), env.output());
+    let _final_out = graph.multiply(filter.output, env.output);
 
     graph
 }
@@ -37,32 +37,32 @@ fn complex_graph() -> Graph {
     let osc5 = graph.add_node(Oscillator::sine(480.0, 0.3));
 
     // Mix first 3 oscillators
-    let mix1 = graph.add(osc1.output(), osc2.output());
-    let mix2 = graph.add(mix1, osc3.output());
+    let mix1 = graph.add(osc1.output, osc2.output);
+    let mix2 = graph.add(mix1, osc3.output);
 
     // Mix last 2 oscillators
-    let mix3 = graph.add(osc4.output(), osc5.output());
+    let mix3 = graph.add(osc4.output, osc5.output);
 
     // Filter each mix
     let filter1 = graph.add_node(TptFilter::new(800.0, 0.5));
     let filter2 = graph.add_node(TptFilter::new(1200.0, 0.5));
 
-    graph.connect(mix2, filter1.input());
-    graph.connect(mix3, filter2.input());
+    graph.connect(mix2, filter1.input);
+    graph.connect(mix3, filter2.input);
 
     // Envelopes
     let env1 = graph.add_node(AdsrEnvelope::new(0.01, 0.1, 0.7, 0.2));
     let env2 = graph.add_node(AdsrEnvelope::new(0.02, 0.15, 0.6, 0.3));
 
     // Apply envelopes
-    let filtered1 = graph.multiply(filter1.output(), env1.output());
-    let filtered2 = graph.multiply(filter2.output(), env2.output());
+    let filtered1 = graph.multiply(filter1.output, env1.output);
+    let filtered2 = graph.multiply(filter2.output, env2.output);
 
     // Mix and delay
     let final_mix = graph.add(filtered1, filtered2);
     let delay = graph.add_node(Delay::from_seconds(0.5, 0.3, 44100.0));
 
-    graph.connect(final_mix, delay.input());
+    graph.connect(final_mix, delay.input);
 
     graph
 }

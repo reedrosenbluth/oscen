@@ -295,24 +295,24 @@ mod tests {
         let env = graph.add_node(AdsrEnvelope::new(0.01, 0.02, 0.6, 0.05));
 
         let _ = graph
-            .insert_value_input(env.attack(), 0.01)
+            .insert_value_input(env.attack, 0.01)
             .expect("attack input available");
         let _ = graph
-            .insert_value_input(env.decay(), 0.02)
+            .insert_value_input(env.decay, 0.02)
             .expect("decay input available");
         let _ = graph
-            .insert_value_input(env.sustain(), 0.6)
+            .insert_value_input(env.sustain, 0.6)
             .expect("sustain input available");
         let _ = graph
-            .insert_value_input(env.release(), 0.05)
+            .insert_value_input(env.release, 0.05)
             .expect("release input available");
 
-        graph.queue_event(env.gate(), 0, EventPayload::scalar(1.0));
+        graph.queue_event(env.gate, 0, EventPayload::scalar(1.0));
         for _ in 0..4_800 {
             graph.process().expect("graph processes");
         } // 100 ms
 
-        let value = graph.get_value(&env.output()).unwrap();
+        let value = graph.get_value(&env.output).unwrap();
         assert!(
             value >= 0.5 && value <= 0.65,
             "value {} not near sustain",
@@ -326,28 +326,28 @@ mod tests {
         let env = graph.add_node(AdsrEnvelope::new(0.0, 0.0, 0.8, 0.01));
 
         let _ = graph
-            .insert_value_input(env.attack(), 0.0)
+            .insert_value_input(env.attack, 0.0)
             .expect("attack input available");
         let _ = graph
-            .insert_value_input(env.decay(), 0.0)
+            .insert_value_input(env.decay, 0.0)
             .expect("decay input available");
         let _ = graph
-            .insert_value_input(env.sustain(), 0.8)
+            .insert_value_input(env.sustain, 0.8)
             .expect("sustain input available");
         let _ = graph
-            .insert_value_input(env.release(), 0.01)
+            .insert_value_input(env.release, 0.01)
             .expect("release input available");
 
-        graph.queue_event(env.gate(), 0, EventPayload::scalar(1.0));
+        graph.queue_event(env.gate, 0, EventPayload::scalar(1.0));
         for _ in 0..100 {
             graph.process().expect("graph processes on note on");
         }
-        graph.queue_event(env.gate(), 0, EventPayload::scalar(0.0));
+        graph.queue_event(env.gate, 0, EventPayload::scalar(0.0));
         for _ in 0..4_800 {
             graph.process().expect("graph processes on release");
         }
 
-        let value = graph.get_value(&env.output()).unwrap();
+        let value = graph.get_value(&env.output).unwrap();
         assert!(value <= 0.01, "value {} not near zero", value);
     }
 
@@ -357,24 +357,24 @@ mod tests {
         let env = graph.add_node(AdsrEnvelope::new(0.0, 0.0, 1.0, 0.01));
 
         let _ = graph
-            .insert_value_input(env.attack(), 0.0)
+            .insert_value_input(env.attack, 0.0)
             .expect("attack input available");
         let _ = graph
-            .insert_value_input(env.decay(), 0.0)
+            .insert_value_input(env.decay, 0.0)
             .expect("decay input available");
         let _ = graph
-            .insert_value_input(env.sustain(), 1.0)
+            .insert_value_input(env.sustain, 1.0)
             .expect("sustain input available");
         let _ = graph
-            .insert_value_input(env.release(), 0.01)
+            .insert_value_input(env.release, 0.01)
             .expect("release input available");
 
-        graph.queue_event(env.gate(), 0, EventPayload::scalar(0.5));
+        graph.queue_event(env.gate, 0, EventPayload::scalar(0.5));
         for _ in 0..100 {
             graph.process().expect("graph processes");
         }
 
-        let value = graph.get_value(&env.output()).unwrap();
+        let value = graph.get_value(&env.output).unwrap();
         assert!(
             value >= 0.45 && value <= 0.55,
             "value {} not scaled by velocity",

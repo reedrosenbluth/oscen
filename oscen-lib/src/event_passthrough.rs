@@ -54,14 +54,14 @@ mod tests {
         let passthrough = graph.add_node(EventPassthrough::new());
 
         // Queue an event to the passthrough input
-        assert!(graph.queue_event(passthrough.input(), 0, EventPayload::scalar(1.0)));
+        assert!(graph.queue_event(passthrough.input, 0, EventPayload::scalar(1.0)));
 
         // Process the graph
         graph.process().expect("graph processes");
 
         // Verify event was forwarded to output
         let mut event_count = 0;
-        graph.drain_events(passthrough.output(), |event| {
+        graph.drain_events(passthrough.output, |event| {
             assert_eq!(event.frame_offset, 0);
             match event.payload {
                 EventPayload::Scalar(v) => assert_eq!(v, 1.0),
@@ -79,16 +79,16 @@ mod tests {
         let passthrough = graph.add_node(EventPassthrough::new());
 
         // Queue multiple events
-        assert!(graph.queue_event(passthrough.input(), 0, EventPayload::scalar(1.0)));
-        assert!(graph.queue_event(passthrough.input(), 10, EventPayload::scalar(2.0)));
-        assert!(graph.queue_event(passthrough.input(), 20, EventPayload::scalar(3.0)));
+        assert!(graph.queue_event(passthrough.input, 0, EventPayload::scalar(1.0)));
+        assert!(graph.queue_event(passthrough.input, 10, EventPayload::scalar(2.0)));
+        assert!(graph.queue_event(passthrough.input, 20, EventPayload::scalar(3.0)));
 
         // Process the graph
         graph.process().expect("graph processes");
 
         // Verify all events were forwarded
         let mut events = Vec::new();
-        graph.drain_events(passthrough.output(), |event| {
+        graph.drain_events(passthrough.output, |event| {
             events.push(event.clone());
         });
 

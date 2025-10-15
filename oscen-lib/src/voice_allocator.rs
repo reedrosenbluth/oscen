@@ -127,22 +127,15 @@ impl<const NUM_VOICES: usize> SignalProcessor for VoiceAllocator<NUM_VOICES> {
 }
 
 // Generic endpoints struct using arrays instead of separate fields
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct VoiceAllocatorEndpoints<const NUM_VOICES: usize> {
-    node_key: crate::NodeKey,
-    note_on_input: crate::EventInput,
-    note_off_input: crate::EventInput,
+    pub node_key: crate::NodeKey,
+    pub note_on: crate::EventInput,
+    pub note_off: crate::EventInput,
     voice_outputs: [crate::EventOutput; MAX_VOICES],
 }
 
 impl<const NUM_VOICES: usize> VoiceAllocatorEndpoints<NUM_VOICES> {
-    pub fn note_on(&self) -> crate::EventInput {
-        self.note_on_input
-    }
-
-    pub fn note_off(&self) -> crate::EventInput {
-        self.note_off_input
-    }
 
     pub fn voice(&self, index: usize) -> crate::EventOutput {
         assert!(
@@ -333,8 +326,8 @@ impl<const NUM_VOICES: usize> ProcessingNode for VoiceAllocator<NUM_VOICES> {
 
         VoiceAllocatorEndpoints {
             node_key,
-            note_on_input: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[0])),
-            note_off_input: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[1])),
+            note_on: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[0])),
+            note_off: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[1])),
             voice_outputs,
         }
     }

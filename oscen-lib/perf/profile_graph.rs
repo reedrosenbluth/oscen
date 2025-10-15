@@ -76,29 +76,29 @@ fn simple_graph() -> Graph {
     let osc5 = graph.add_node(Oscillator::sine(480.0, 0.3));
 
     // Mix oscillators
-    let mix1 = graph.add(osc1.output(), osc2.output());
-    let mix2 = graph.add(mix1, osc3.output());
-    let mix3 = graph.add(osc4.output(), osc5.output());
+    let mix1 = graph.add(osc1.output, osc2.output);
+    let mix2 = graph.add(mix1, osc3.output);
+    let mix3 = graph.add(osc4.output, osc5.output);
 
     // Apply filters
     let filter1 = graph.add_node(TptFilter::new(800.0, 0.5));
     let filter2 = graph.add_node(TptFilter::new(1200.0, 0.5));
 
-    graph.connect(mix2, filter1.input());
-    graph.connect(mix3, filter2.input());
+    graph.connect(mix2, filter1.input);
+    graph.connect(mix3, filter2.input);
 
     // Envelopes
     let env1 = graph.add_node(AdsrEnvelope::new(0.01, 0.1, 0.7, 0.2));
     let env2 = graph.add_node(AdsrEnvelope::new(0.02, 0.15, 0.6, 0.3));
 
-    let filtered1 = graph.multiply(filter1.output(), env1.output());
-    let filtered2 = graph.multiply(filter2.output(), env2.output());
+    let filtered1 = graph.multiply(filter1.output, env1.output);
+    let filtered2 = graph.multiply(filter2.output, env2.output);
 
     // Delay
     let final_mix = graph.add(filtered1, filtered2);
     let delay = graph.add_node(Delay::from_seconds(0.5, 0.3, 44100.0));
 
-    graph.connect(final_mix, delay.input());
+    graph.connect(final_mix, delay.input);
 
     graph
 }
@@ -116,14 +116,14 @@ fn main() {
         // Trigger some notes to simulate active voices
         synth
             .graph
-            .queue_event(synth.voices[0].gate(), 0, EventPayload::scalar(1.0));
+            .queue_event(synth.voices[0].gate, 0, EventPayload::scalar(1.0));
         synth
             .graph
-            .queue_event(synth.voices[2].gate(), 0, EventPayload::scalar(1.0));
+            .queue_event(synth.voices[2].gate, 0, EventPayload::scalar(1.0));
 
         // Set some frequencies
-        synth.graph.set_value(synth.voices[0].frequency(), 440.0);
-        synth.graph.set_value(synth.voices[2].frequency(), 554.37); // C#
+        synth.graph.set_value(synth.voices[0].frequency, 440.0);
+        synth.graph.set_value(synth.voices[2].frequency, 554.37); // C#
 
         synth.graph.validate().unwrap();
 

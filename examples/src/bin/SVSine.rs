@@ -168,13 +168,13 @@ fn main() -> Result<(), eframe::Error> {
         // create a few nodes
         let oscillator = graph.add_node(SVSine::new(100.0, 0.1));
 
-        let low = graph.transform(oscillator.output(), |x| x * 0.1);
+        let low = graph.transform(oscillator.output, |x| x * 0.1);
 
         // choose output endpoint
         let output = low;
 
         // create value input endpoints for the UI
-        let frequency = oscillator.frequency();
+        let frequency = oscillator.frequency;
         let _ = graph
             .insert_value_input(frequency, 440.0)
             .expect("Failed to insert carrier frequency input");

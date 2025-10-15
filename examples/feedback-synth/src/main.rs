@@ -25,14 +25,14 @@ graph! {
     output stream audio_out;
 
     node {
-        osc = PolyBlepOscillator::sine(440.0, 0.3);
+        osc = PolyBlepOscillator::sine(140.0, 0.3);
         delay = Delay::new(1.0, 0.0);
     }
 
     connection {
-        osc.output() -> delay.input();
-        delay.output() * feedback -> osc.phase_mod();
-        osc.output() -> audio_out;
+        osc.output -> delay.input;
+        delay.output * feedback -> osc.phase_mod;
+        osc.output -> audio_out;
     }
 }
 
@@ -43,13 +43,6 @@ struct AudioContext {
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     let mut synth = Synth::new(sample_rate);
-
-    // WORKAROUND: Manually initialize oscillator Value input parameters.
-    // The oscillator constructor sets struct fields (frequency: 440.0, amplitude: 0.6),
-    // but these values need to be copied to the graph's value endpoints.
-    // TODO: This should be handled automatically by the graph system or Node macro.
-    synth.graph.set_value(synth.osc.frequency(), 440.0);
-    synth.graph.set_value(synth.osc.amplitude(), 0.6);
 
     // Validate the graph
     if let Err(e) = synth.graph.validate() {

@@ -10,10 +10,10 @@ fn create_audio_graph(sample_rate: f32) -> (Graph, StreamOutput) {
     let filter = graph.add_node(TptFilter::new(1200.0, 0.707));
 
     // Connect oscillator to filter
-    graph.connect(osc.output(), filter.input());
+    graph.connect(osc.output, filter.input);
 
     // Return graph and the final output node
-    (graph, filter.output())
+    (graph, filter.output)
 }
 
 fn main() {

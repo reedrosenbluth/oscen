@@ -52,24 +52,24 @@ graph! {
 
     connection {
         // Connect MIDI parser to voice handler
-        midi_parser.note_on() -> voice_handler.note_on();
-        midi_parser.note_off() -> voice_handler.note_off();
+        midi_parser.note_on -> voice_handler.note_on;
+        midi_parser.note_off -> voice_handler.note_off;
 
         // Connect voice handler outputs
-        voice_handler.frequency() -> osc.frequency();
-        voice_handler.gate() -> envelope.gate();
+        voice_handler.frequency -> osc.frequency;
+        voice_handler.gate -> envelope.gate;
 
-        cutoff -> filter.cutoff();
-        q -> filter.q();
-        attack -> envelope.attack();
-        decay -> envelope.decay();
-        sustain -> envelope.sustain();
-        release -> envelope.release();
+        cutoff -> filter.cutoff;
+        q -> filter.q;
+        attack -> envelope.attack;
+        decay -> envelope.decay;
+        sustain -> envelope.sustain;
+        release -> envelope.release;
 
-        osc.output() -> filter.input();
-        envelope.output() -> filter.f_mod();
+        osc.output -> filter.input;
+        envelope.output -> filter.f_mod;
 
-        filter.output() * envelope.output() * volume -> audio_out;
+        filter.output * envelope.output * volume -> audio_out;
     }
 }
 
@@ -95,7 +95,7 @@ fn audio_callback(
     while let Ok(raw_midi) = midi_rx.try_recv() {
         queue_raw_midi(
             &mut context.synth.graph,
-            context.synth.midi_parser.midi_in(),
+            context.synth.midi_parser.midi_in,
             0,
             &raw_midi.bytes,
         );

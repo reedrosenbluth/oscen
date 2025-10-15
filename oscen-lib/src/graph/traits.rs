@@ -138,4 +138,10 @@ pub trait ProcessingNode: SignalProcessor {
         inputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
         outputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
     ) -> Self::Endpoints;
+
+    /// Returns initial values for value inputs as (input_index, value) pairs.
+    /// Called during node addition to initialize graph endpoints from constructor arguments.
+    fn default_values(&self) -> Vec<(usize, f32)> {
+        vec![]
+    }
 }

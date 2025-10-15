@@ -102,12 +102,12 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
         let osc = graph.add_node(PolyBlepOscillator::saw(440.0, osc_amplitude));
 
         graph.connect_all(vec![
-            base_param >> detune.base_frequency(),
-            spread_param >> detune.spread(),
-            detune.frequency() >> osc.frequency(),
+            base_param >> detune.base_frequency,
+            spread_param >> detune.spread,
+            detune.frequency >> osc.frequency,
         ]);
 
-        let osc_output = osc.output();
+        let osc_output = osc.output;
         summed_osc_output = Some(match summed_osc_output {
             Some(accum) => graph.combine(accum, osc_output, |a, b| a + b),
             None => osc_output,
@@ -118,12 +118,12 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     let summed_osc_output = summed_osc_output.expect("No oscillators were created");
 
     graph.connect_all(vec![
-        cutoff_param >> filter.cutoff(),
-        q_param >> filter.q(),
-        summed_osc_output >> filter.input(),
+        cutoff_param >> filter.cutoff,
+        q_param >> filter.q,
+        summed_osc_output >> filter.input,
     ]);
 
-    let output = graph.combine(filter.output(), volume_param, |x, v| x * v);
+    let output = graph.combine(filter.output, volume_param, |x, v| x * v);
 
     AudioContext {
         graph,

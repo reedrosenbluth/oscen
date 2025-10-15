@@ -100,38 +100,38 @@ impl AudioContext {
         ));
 
         // Connect input signal to both filters
-        graph.connect(input_signal.output(), filter_a.input());
-        graph.connect(input_signal.output(), filter_b.input());
+        graph.connect(input_signal.output, filter_a.input);
+        graph.connect(input_signal.output, filter_b.input);
 
         // Process through twin peak filters
-        let filter_diff = graph.combine(filter_a.output(), filter_b.output(), |x, y| x - y);
+        let filter_diff = graph.combine(filter_a.output, filter_b.output, |x, y| x - y);
         let limited_output = graph.transform(filter_diff, |x| x.tanh());
         let output = graph.transform(limited_output, |x| x * OUTPUT_GAIN);
 
         // Connect graph
         if graph
-            .insert_value_input(filter_a.cutoff(), params.cutoff_a.value())
+            .insert_value_input(filter_a.cutoff, params.cutoff_a.value())
             .is_none()
         {
             return Err("Failed to insert filter A cutoff input");
         }
 
         if graph
-            .insert_value_input(filter_b.cutoff(), params.cutoff_b.value())
+            .insert_value_input(filter_b.cutoff, params.cutoff_b.value())
             .is_none()
         {
             return Err("Failed to insert filter B cutoff input");
         }
 
         if graph
-            .insert_value_input(filter_a.resonance(), params.resonance.value())
+            .insert_value_input(filter_a.resonance, params.resonance.value())
             .is_none()
         {
             return Err("Failed to insert filter A Q input");
         }
 
         if graph
-            .insert_value_input(filter_b.resonance(), params.resonance.value())
+            .insert_value_input(filter_b.resonance, params.resonance.value())
             .is_none()
         {
             return Err("Failed to insert filter B Q input");
@@ -139,10 +139,10 @@ impl AudioContext {
 
         Ok(Self {
             graph,
-            cutoff_input_a: filter_a.cutoff(),
-            cutoff_input_b: filter_b.cutoff(),
-            resonance_input_a: filter_a.resonance(),
-            resonance_input_b: filter_b.resonance(),
+            cutoff_input_a: filter_a.cutoff,
+            cutoff_input_b: filter_b.cutoff,
+            resonance_input_a: filter_a.resonance,
+            resonance_input_b: filter_b.resonance,
             output,
             input_endpoint,
         })

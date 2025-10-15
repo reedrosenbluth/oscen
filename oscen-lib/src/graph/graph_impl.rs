@@ -130,6 +130,13 @@ impl Graph {
             self.set_endpoint_descriptor(key, descriptor);
         }
 
+        // Initialize value inputs with default values from the node
+        for (idx, value) in node.default_values() {
+            if let Some(&key) = inputs.get(idx) {
+                self.insert_value_input(ValueInput::new(InputEndpoint::new(key)), value);
+            }
+        }
+
         let node_key = self.nodes.insert(NodeData {
             processor: Box::new(node),
             inputs: inputs.clone(),
@@ -152,7 +159,7 @@ impl Graph {
         &mut self,
     ) -> (<AudioInput as ProcessingNode>::Endpoints, ValueInput) {
         let input_node = self.add_node(AudioInput::new());
-        let input_handle = input_node.input_value();
+        let input_handle = input_node.input_value;
         self.insert_value_input(input_handle, 0.0)
             .expect("Failed to insert audio input value");
         (input_node, input_handle)
@@ -372,9 +379,9 @@ impl Graph {
         use crate::value::Value;
 
         let node = self.add_node(Value::new(default));
-        let input = node.input();
+        let input = node.input;
         self.insert_value_input(input, default);
-        ValueParam::new(input, node.output())
+        ValueParam::new(input, node.output)
     }
 
     /// Create an event parameter node and return an opaque handle that can be both
@@ -383,7 +390,7 @@ impl Graph {
         use crate::event_passthrough::EventPassthrough;
 
         let node = self.add_node(EventPassthrough::new());
-        EventParam::new(node.input(), node.output())
+        EventParam::new(node.input, node.output)
     }
 
     pub fn queue_event<I>(&mut self, input: I, frame_offset: u32, payload: EventPayload) -> bool

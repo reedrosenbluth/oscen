@@ -219,20 +219,20 @@ fn main() -> Result<(), eframe::Error> {
         // });
 
         let routing = vec![
-            // modulator.output() >> carrier.frequency_mod(),
-            carrier.output() >> filter.input(),
+            // modulator.output >> carrier.frequency_mod,
+            carrier.output >> filter.input,
         ];
 
         graph.connect_all(routing);
 
-        let limited = graph.transform(filter.output(), |x| x.tanh());
+        let limited = graph.transform(filter.output, |x| x.tanh());
         let output = limited;
 
         // create value input endpoints for the UI
-        let carrier_freq = carrier.frequency();
-        let modulator_freq = modulator.frequency();
-        let cutoff = filter.cutoff();
-        let q = filter.q();
+        let carrier_freq = carrier.frequency;
+        let modulator_freq = modulator.frequency;
+        let cutoff = filter.cutoff;
+        let q = filter.q;
 
         let _ = graph
             .insert_value_input(carrier_freq, 440.0)

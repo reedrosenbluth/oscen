@@ -8,7 +8,7 @@ use slotmap::new_key_type;
 
 pub const MAX_EVENTS: usize = 256;
 pub const MAX_CONNECTIONS_PER_OUTPUT: usize = 1024;
-pub const MAX_NODE_ENDPOINTS: usize = 16;
+pub const MAX_NODE_ENDPOINTS: usize = 32;
 
 new_key_type! { pub struct NodeKey; }
 new_key_type! { pub struct ValueKey; }

@@ -359,7 +359,7 @@ impl CodegenContext {
                                     );
 
                                     let dest_call = if dest_args.is_empty() {
-                                        quote! { #dest_indexed_name.#dest_method() }
+                                        quote! { #dest_indexed_name.#dest_method }
                                     } else {
                                         quote! { #dest_indexed_name.#dest_method(#(#dest_args),*) }
                                     };
@@ -394,13 +394,13 @@ impl CodegenContext {
                                         );
 
                                         let src_call = if src_args.is_empty() {
-                                            quote! { #src_indexed_name.#src_method() }
+                                            quote! { #src_indexed_name.#src_method }
                                         } else {
                                             quote! { #src_indexed_name.#src_method(#(#src_args),*) }
                                         };
 
                                         let dest_call = if dest_args.is_empty() {
-                                            quote! { #dest_indexed_name.#dest_method() }
+                                            quote! { #dest_indexed_name.#dest_method }
                                         } else {
                                             quote! { #dest_indexed_name.#dest_method(#(#dest_args),*) }
                                         };
@@ -430,7 +430,7 @@ impl CodegenContext {
                                 );
 
                                 let dest_call = if dest_args.is_empty() {
-                                    quote! { #dest_indexed_name.#dest_method() }
+                                    quote! { #dest_indexed_name.#dest_method }
                                 } else {
                                     quote! { #dest_indexed_name.#dest_method(#(#dest_args),*) }
                                 };
@@ -494,7 +494,7 @@ impl CodegenContext {
                         );
 
                         let mut sum_temp = if args.is_empty() {
-                            quote! { #first_indexed_name.#method() }
+                            quote! { #first_indexed_name.#method }
                         } else {
                             quote! { #first_indexed_name.#method(#(#args),*) }
                         };
@@ -507,7 +507,7 @@ impl CodegenContext {
                             );
 
                             let call_expr = if args.is_empty() {
-                                quote! { #indexed_name.#method() }
+                                quote! { #indexed_name.#method }
                             } else {
                                 quote! { #indexed_name.#method(#(#args),*) }
                             };
@@ -564,8 +564,10 @@ impl CodegenContext {
                 // This path should only be reached for non-array method calls.
                 let obj_expr = self.generate_connection_expr(obj)?;
                 if args.is_empty() {
-                    Ok(quote! { #obj_expr.#method() })
+                    // Field access (no parentheses)
+                    Ok(quote! { #obj_expr.#method })
                 } else {
+                    // Method call with arguments
                     Ok(quote! { #obj_expr.#method(#(#args),*) })
                 }
             }

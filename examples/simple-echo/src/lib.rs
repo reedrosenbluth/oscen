@@ -108,31 +108,31 @@ fn build_channel_graph(
     let mix_node = graph.add_node(Value::new(params.mix.value()));
 
     // Connect delay output to filter
-    graph.connect(delay.output(), filter.input());
+    graph.connect(delay.output, filter.input);
 
     // Create feedback loop with controllable amount
     let feedback_scaled = graph.combine(
-        filter.output(),
-        feedback_node.output(),
+        filter.output,
+        feedback_node.output,
         |filtered, feedback| filtered * feedback, // Scale by feedback amount
     );
 
     // Mix input with feedback and send to delay (with limiter to prevent runaway)
-    let delay_input = graph.combine(input_signal.output(), feedback_scaled, |input, feedback| {
+    let delay_input = graph.combine(input_signal.output, feedback_scaled, |input, feedback| {
         (input + feedback).tanh()
     });
 
-    graph.connect(delay_input, delay.input());
+    graph.connect(delay_input, delay.input);
 
     // Mix dry and wet signals with controllable mix
-    let wet_signal = filter.output();
-    let dry_signal = input_signal.output();
+    let wet_signal = filter.output;
+    let dry_signal = input_signal.output;
 
     // Create dry component (input * (1 - mix))
-    let dry_mixed = graph.combine(dry_signal, mix_node.output(), |dry, mix| dry * (1.0 - mix));
+    let dry_mixed = graph.combine(dry_signal, mix_node.output, |dry, mix| dry * (1.0 - mix));
 
     // Create wet component (wet * mix)
-    let wet_mixed = graph.combine(wet_signal, mix_node.output(), |wet, mix| wet * mix);
+    let wet_mixed = graph.combine(wet_signal, mix_node.output, |wet, mix| wet * mix);
 
     // Combine dry and wet
     let output = graph.combine(dry_mixed, wet_mixed, |dry, wet| dry + wet);
@@ -141,28 +141,28 @@ fn build_channel_graph(
     // Convert delay time from seconds to samples
     let delay_samples = params.delay_time.value() * sample_rate;
     if graph
-        .insert_value_input(delay.delay_samples(), delay_samples)
+        .insert_value_input(delay.delay_samples, delay_samples)
         .is_none()
     {
         return Err("Failed to insert delay time input");
     }
 
     if graph
-        .insert_value_input(filter.cutoff(), params.filter_cutoff.value())
+        .insert_value_input(filter.cutoff, params.filter_cutoff.value())
         .is_none()
     {
         return Err("Failed to insert filter cutoff input");
     }
 
     if graph
-        .insert_value_input(feedback_node.input(), params.feedback.value())
+        .insert_value_input(feedback_node.input, params.feedback.value())
         .is_none()
     {
         return Err("Failed to insert feedback input");
     }
 
     if graph
-        .insert_value_input(mix_node.input(), params.mix.value())
+        .insert_value_input(mix_node.input, params.mix.value())
         .is_none()
     {
         return Err("Failed to insert mix input");
@@ -170,10 +170,10 @@ fn build_channel_graph(
 
     Ok(ChannelContext {
         graph,
-        delay_time_input: delay.delay_samples(),
-        filter_cutoff_input: filter.cutoff(),
-        feedback_input: feedback_node.input(),
-        mix_input: mix_node.input(),
+        delay_time_input: delay.delay_samples,
+        filter_cutoff_input: filter.cutoff,
+        feedback_input: feedback_node.input,
+        mix_input: mix_node.input,
         output,
         input_endpoint,
     })
