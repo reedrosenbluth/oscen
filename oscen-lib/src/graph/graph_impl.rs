@@ -93,7 +93,7 @@ impl Graph {
             node_order: Vec::new(),
             topology_dirty: true,
             value_to_node: SecondaryMap::new(),
-            active_ramps: Vec::new(),
+            active_ramps: Vec::with_capacity(32),
             ramp_indices: SecondaryMap::new(),
             current_frame: 0,
             pending_events: Vec::with_capacity(64),
@@ -517,9 +517,13 @@ impl Graph {
             }
         }
 
-        for &node_key in &self.node_order {
-            if let Some(node) = self.nodes.get_mut(node_key) {
-                let output = {
+        // Use index-based iteration to avoid cloning node_order
+        for node_idx in 0..self.node_order.len() {
+            let node_key = self.node_order[node_idx];
+
+            {
+                if let Some(node) = self.nodes.get_mut(node_key) {
+                    let output = {
                     // Use fixed arrays instead of ArrayVec to reduce initialization overhead
                     let mut input_values: [f32; MAX_NODE_ENDPOINTS] = [0.0; MAX_NODE_ENDPOINTS];
                     let mut value_inputs: [Option<&ValueData>; MAX_NODE_ENDPOINTS] =
@@ -534,27 +538,32 @@ impl Graph {
                         let input_key = node.inputs[idx];
                         let endpoint_type = node.input_types[idx];
 
-                        let endpoint_state = self.endpoints.get(input_key);
-
                         match endpoint_type {
                             EndpointType::Event => {
+                                let endpoint_state = self.endpoints.get(input_key);
                                 event_inputs[idx] = endpoint_state
                                     .and_then(EndpointState::as_event)
                                     .map(|state| state.queue().events())
                                     .unwrap_or(&[]);
                             }
                             EndpointType::Stream => {
+                                let endpoint_state = self.endpoints.get(input_key);
                                 input_values[idx] = endpoint_state
                                     .and_then(EndpointState::as_scalar)
                                     .unwrap_or(0.0);
                             }
                             EndpointType::Value => {
-                                if let Some(state) = endpoint_state {
-                                    input_values[idx] = state.as_scalar().unwrap_or(0.0);
+                                let endpoint_state = self.endpoints.get(input_key);
+                                value_inputs[idx] = endpoint_state.and_then(|state| {
                                     if let EndpointState::Value(data) = state {
-                                        value_inputs[idx] = Some(data);
+                                        Some(data)
+                                    } else {
+                                        None
                                     }
-                                }
+                                });
+                                input_values[idx] = endpoint_state
+                                    .and_then(EndpointState::as_scalar)
+                                    .unwrap_or(0.0);
                             }
                         }
                     }
@@ -632,6 +641,7 @@ impl Graph {
                             }
                         }
                     }
+                }
                 }
             }
         }
