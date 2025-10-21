@@ -7,8 +7,11 @@ use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use oscen::filters::tpt::{TptFilter, TptFilterEndpoints};
 use oscen::oscillators::PolyBlepOscillatorEndpoints;
-use oscen::{Graph, PolyBlepOscillator, StreamOutput, ValueParam};
-use slint::ComponentHandle;
+use oscen::{
+    Gain, GainEndpoints, Graph, Oscilloscope, OscilloscopeEndpoints, OscilloscopeHandle,
+    PolyBlepOscillator, StreamOutput, ValueParam, DEFAULT_SCOPE_CAPACITY,
+};
+use slint::{ComponentHandle, Image, Rgb8Pixel, SharedPixelBuffer, Timer, TimerMode};
 
 slint::include_modules!();
 
@@ -18,7 +21,8 @@ enum NodeId {
     SineOsc,
     SawOsc,
     Filter,
-    Volume,
+    Output,
+    Oscilloscope,
 }
 
 /// Identifies connection endpoints
@@ -29,8 +33,15 @@ enum EndpointId {
     FilterIn,
     FilterOut,
     VolumeIn,
-    VolumeOut,
+    ScopeIn,
+    ScopeOut,
 }
+
+const SCOPE_IMAGE_WIDTH: u32 = 160;
+const SCOPE_IMAGE_HEIGHT: u32 = 120;
+const SCOPE_BACKGROUND: [u8; 3] = [27, 36, 32];
+const SCOPE_AXIS_COLOR: [u8; 3] = [60, 72, 68];
+const SCOPE_WAVE_COLOR: [u8; 3] = [138, 198, 255];
 
 /// Represents a connection between two endpoints
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,78 +68,27 @@ struct NodeEndpoints {
     saw_osc: PolyBlepOscillatorEndpoints,
     filter: TptFilterEndpoints,
     volume_param: ValueParam,
-}
-
-#[derive(Default)]
-struct VolumeConnection {
-    active_source: Option<EndpointId>,
-    active_output: Option<StreamOutput>,
-    sine_route: Option<StreamOutput>,
-    saw_route: Option<StreamOutput>,
-    filter_route: Option<StreamOutput>,
-}
-
-impl VolumeConnection {
-    fn activate(
-        &mut self,
-        source: EndpointId,
-        graph: &mut Graph,
-        endpoints: &NodeEndpoints,
-    ) -> bool {
-        let slot = match source {
-            EndpointId::SineOut => &mut self.sine_route,
-            EndpointId::SawOut => &mut self.saw_route,
-            EndpointId::FilterOut => &mut self.filter_route,
-            _ => return false,
-        };
-
-        let output = if let Some(route) = *slot {
-            route
-        } else {
-            let route = match source {
-                EndpointId::SineOut => {
-                    graph.multiply(endpoints.sine_osc.output, endpoints.volume_param)
-                }
-                EndpointId::SawOut => {
-                    graph.multiply(endpoints.saw_osc.output, endpoints.volume_param)
-                }
-                EndpointId::FilterOut => {
-                    graph.multiply(endpoints.filter.output, endpoints.volume_param)
-                }
-                _ => unreachable!(),
-            };
-            *slot = Some(route);
-            route
-        };
-
-        self.active_source = Some(source);
-        self.active_output = Some(output);
-        true
-    }
-
-    fn deactivate(&mut self, source: EndpointId) {
-        if self.active_source == Some(source) {
-            self.active_source = None;
-            self.active_output = None;
-        }
-    }
-
-    fn current_output(&self) -> Option<StreamOutput> {
-        self.active_output
-    }
+    oscilloscope: OscilloscopeEndpoints,
+    gain: GainEndpoints,
 }
 
 /// Audio context containing the graph and all node endpoints
 struct AudioContext {
     graph: Graph,
     endpoints: NodeEndpoints,
-    volume_connection: VolumeConnection,
     connections: Vec<ConnectionState>,
     channels: usize,
+    scope_handle: OscilloscopeHandle,
+    scope_period_param: ValueParam,
+    scope_enable_param: ValueParam,
+    scope_source: Option<EndpointId>,
+    sample_rate: f32,
+    sine_freq: f32,
+    saw_freq: f32,
 }
 
 impl AudioContext {
-    fn new(sample_rate: f32, channels: usize) -> Self {
+    fn new(sample_rate: f32, channels: usize, scope_handle: OscilloscopeHandle) -> Self {
         let mut graph = Graph::new(sample_rate);
 
         // Create nodes with fixed parameters
@@ -147,23 +107,45 @@ impl AudioContext {
             0.707,  // Q
         ));
 
-        // Create a value parameter for volume control
+        let oscilloscope_node = Oscilloscope::with_handle(scope_handle.clone());
+        let oscilloscope = graph.add_node(oscilloscope_node);
+
+        // Create gain node for volume control
         let volume_param = graph.value_param(0.8);
+        let gain = graph.add_node(Gain::new(0.8));
+        graph.connect(volume_param, gain.gain);
+
+        let scope_period_param = graph.value_param(DEFAULT_SCOPE_CAPACITY as f32);
+        let scope_enable_param = graph.value_param(1.0);
+
+        graph.connect(scope_period_param, oscilloscope.trigger_period);
+        graph.connect(scope_enable_param, oscilloscope.trigger_enabled);
 
         let endpoints = NodeEndpoints {
             sine_osc,
             saw_osc,
             filter,
             volume_param,
+            oscilloscope,
+            gain,
         };
 
-        Self {
+        let mut context = Self {
             graph,
             endpoints,
-            volume_connection: VolumeConnection::default(),
             connections: Vec::new(),
             channels,
-        }
+            scope_handle,
+            scope_period_param,
+            scope_enable_param,
+            scope_source: None,
+            sample_rate,
+            sine_freq: 220.0,
+            saw_freq: 440.0,
+        };
+
+        context.update_scope_period();
+        context
     }
 
     fn apply_message(&mut self, msg: AudioMessage) {
@@ -171,22 +153,34 @@ impl AudioContext {
             AudioMessage::AddConnection(from, to) => {
                 let conn = ConnectionState { from, to };
                 if !self.connections.contains(&conn) && self.make_connection(from, to) {
+                    if to == EndpointId::VolumeIn {
+                        self.connections.retain(|c| c.to != EndpointId::VolumeIn);
+                    }
+                    if to == EndpointId::ScopeIn {
+                        self.connections.retain(|c| c.to != EndpointId::ScopeIn);
+                    }
                     self.connections.push(conn);
+                    self.update_scope_period();
                 }
             }
             AudioMessage::RemoveConnection(from, to) => {
                 let conn = ConnectionState { from, to };
                 if self.remove_connection(from, to) {
                     self.connections.retain(|c| c != &conn);
+                    self.update_scope_period();
                 }
             }
             AudioMessage::SetSineFreq(freq) => {
                 self.graph
                     .set_value_with_ramp(self.endpoints.sine_osc.frequency, freq, 441);
+                self.sine_freq = freq;
+                self.update_scope_period();
             }
             AudioMessage::SetSawFreq(freq) => {
                 self.graph
                     .set_value_with_ramp(self.endpoints.saw_osc.frequency, freq, 441);
+                self.saw_freq = freq;
+                self.update_scope_period();
             }
             AudioMessage::SetFilterCutoff(cutoff) => {
                 self.graph
@@ -212,23 +206,39 @@ impl AudioContext {
                     .connect(self.endpoints.sine_osc.output, self.endpoints.filter.input);
                 true
             }
-            (SineOut, VolumeIn) => {
-                self.volume_connection
-                    .activate(SineOut, &mut self.graph, &self.endpoints)
+            (SineOut, VolumeIn) => self.set_volume_source(SineOut),
+            (SineOut, ScopeIn) => {
+                self.graph.connect(
+                    self.endpoints.sine_osc.output,
+                    self.endpoints.oscilloscope.input,
+                );
+                self.scope_source = Some(SineOut);
+                true
             }
             (SawOut, FilterIn) => {
                 self.graph
                     .connect(self.endpoints.saw_osc.output, self.endpoints.filter.input);
                 true
             }
-            (SawOut, VolumeIn) => {
-                self.volume_connection
-                    .activate(SawOut, &mut self.graph, &self.endpoints)
+            (SawOut, VolumeIn) => self.set_volume_source(SawOut),
+            (SawOut, ScopeIn) => {
+                self.graph.connect(
+                    self.endpoints.saw_osc.output,
+                    self.endpoints.oscilloscope.input,
+                );
+                self.scope_source = Some(SawOut);
+                true
             }
-            (FilterOut, VolumeIn) => {
-                self.volume_connection
-                    .activate(FilterOut, &mut self.graph, &self.endpoints)
+            (FilterOut, ScopeIn) => {
+                self.graph.connect(
+                    self.endpoints.filter.output,
+                    self.endpoints.oscilloscope.input,
+                );
+                self.scope_source = Some(FilterOut);
+                true
             }
+            (FilterOut, VolumeIn) => self.set_volume_source(FilterOut),
+            (ScopeOut, VolumeIn) => self.set_volume_source(ScopeOut),
             _ => {
                 eprintln!("Invalid connection: {:?} -> {:?}", from, to);
                 false
@@ -243,21 +253,43 @@ impl AudioContext {
             (SineOut, FilterIn) => self
                 .graph
                 .disconnect(self.endpoints.sine_osc.output, self.endpoints.filter.input),
+            (SineOut, ScopeIn) => {
+                let result = self.graph.disconnect(
+                    self.endpoints.sine_osc.output,
+                    self.endpoints.oscilloscope.input,
+                );
+                if result && self.scope_source == Some(SineOut) {
+                    self.scope_source = None;
+                }
+                result
+            }
             (SawOut, FilterIn) => self
                 .graph
                 .disconnect(self.endpoints.saw_osc.output, self.endpoints.filter.input),
-            (SineOut, VolumeIn) => {
-                self.volume_connection.deactivate(SineOut);
-                true
+            (SawOut, ScopeIn) => {
+                let result = self.graph.disconnect(
+                    self.endpoints.saw_osc.output,
+                    self.endpoints.oscilloscope.input,
+                );
+                if result && self.scope_source == Some(SawOut) {
+                    self.scope_source = None;
+                }
+                result
             }
-            (SawOut, VolumeIn) => {
-                self.volume_connection.deactivate(SawOut);
-                true
+            (SineOut, VolumeIn) => self.clear_volume_source(SineOut),
+            (SawOut, VolumeIn) => self.clear_volume_source(SawOut),
+            (FilterOut, ScopeIn) => {
+                let result = self.graph.disconnect(
+                    self.endpoints.filter.output,
+                    self.endpoints.oscilloscope.input,
+                );
+                if result && self.scope_source == Some(FilterOut) {
+                    self.scope_source = None;
+                }
+                result
             }
-            (FilterOut, VolumeIn) => {
-                self.volume_connection.deactivate(FilterOut);
-                true
-            }
+            (FilterOut, VolumeIn) => self.clear_volume_source(FilterOut),
+            (ScopeOut, VolumeIn) => self.clear_volume_source(ScopeOut),
             _ => {
                 eprintln!("Invalid disconnection: {:?} -> {:?}", from, to);
                 false
@@ -265,15 +297,86 @@ impl AudioContext {
         }
     }
 
+    fn current_scope_frequency(&self) -> Option<f32> {
+        match self.scope_source? {
+            EndpointId::SineOut => Some(self.sine_freq),
+            EndpointId::SawOut => Some(self.saw_freq),
+            EndpointId::FilterOut => {
+                for conn in self.connections.iter().rev() {
+                    match (conn.from, conn.to) {
+                        (EndpointId::SineOut, EndpointId::FilterIn) => return Some(self.sine_freq),
+                        (EndpointId::SawOut, EndpointId::FilterIn) => return Some(self.saw_freq),
+                        _ => {}
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn update_scope_period(&mut self) {
+        if let Some(freq) = self.current_scope_frequency().filter(|f| *f > 0.0) {
+            let max_len = self.scope_handle.capacity() as f32;
+            let period_samples = (self.sample_rate / freq).clamp(1.0, max_len);
+            self.graph
+                .set_value(self.scope_period_param, period_samples);
+            self.graph.set_value(self.scope_enable_param, 1.0);
+        } else {
+            self.graph.set_value(self.scope_enable_param, 0.0);
+            self.scope_handle.clear_triggered();
+        }
+    }
+
+    fn stream_for_endpoint(&self, endpoint: EndpointId) -> Option<StreamOutput> {
+        match endpoint {
+            EndpointId::SineOut => Some(self.endpoints.sine_osc.output),
+            EndpointId::SawOut => Some(self.endpoints.saw_osc.output),
+            EndpointId::FilterOut => Some(self.endpoints.filter.output),
+            EndpointId::ScopeOut => Some(self.endpoints.oscilloscope.output),
+            _ => None,
+        }
+    }
+
+    fn current_volume_source(&self) -> Option<EndpointId> {
+        self.connections
+            .iter()
+            .find(|c| c.to == EndpointId::VolumeIn)
+            .map(|c| c.from)
+    }
+
+    fn set_volume_source(&mut self, source: EndpointId) -> bool {
+        if let Some(prev) = self.current_volume_source() {
+            if let Some(prev_stream) = self.stream_for_endpoint(prev) {
+                self.graph
+                    .disconnect(prev_stream, self.endpoints.gain.input);
+            }
+        }
+
+        if let Some(stream) = self.stream_for_endpoint(source) {
+            self.graph.connect(stream, self.endpoints.gain.input);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn clear_volume_source(&mut self, source: EndpointId) -> bool {
+        if self.current_volume_source() == Some(source) {
+            if let Some(stream) = self.stream_for_endpoint(source) {
+                self.graph.disconnect(stream, self.endpoints.gain.input);
+            }
+        }
+        true
+    }
+
     fn get_output(&mut self) -> Result<f32> {
         self.graph.process()?;
 
-        // Read from the volume output if something is connected, otherwise return 0
-        let value = if let Some(output) = self.volume_connection.current_output() {
-            self.graph.get_value(&output).unwrap_or(0.0)
-        } else {
-            0.0
-        };
+        let value = self
+            .graph
+            .get_value(&self.endpoints.gain.output)
+            .unwrap_or(0.0);
 
         Ok(value)
     }
@@ -307,6 +410,8 @@ fn main() -> Result<()> {
 
     // Store active connections for UI display
     let connections = Arc::new(Mutex::new(Vec::<ConnectionState>::new()));
+    let scope_handle = OscilloscopeHandle::new(DEFAULT_SCOPE_CAPACITY);
+    let audio_scope_handle = scope_handle.clone();
 
     thread::spawn(move || {
         let host = cpal::default_host();
@@ -333,7 +438,8 @@ fn main() -> Result<()> {
         };
 
         let sample_rate = config.sample_rate.0 as f32;
-        let mut audio_context = AudioContext::new(sample_rate, config.channels as usize);
+        let mut audio_context =
+            AudioContext::new(sample_rate, config.channels as usize, audio_scope_handle);
 
         let stream = match device.build_output_stream(
             &config,
@@ -360,11 +466,15 @@ fn main() -> Result<()> {
         }
     });
 
-    run_ui(msg_tx, connections)?;
+    run_ui(msg_tx, connections, scope_handle)?;
     Ok(())
 }
 
-fn run_ui(tx: Sender<AudioMessage>, connections: Arc<Mutex<Vec<ConnectionState>>>) -> Result<()> {
+fn run_ui(
+    tx: Sender<AudioMessage>,
+    connections: Arc<Mutex<Vec<ConnectionState>>>,
+    scope_handle: OscilloscopeHandle,
+) -> Result<()> {
     let ui = ModularWindow::new()?;
 
     // Handle connection requests from UI
@@ -459,6 +569,20 @@ fn run_ui(tx: Sender<AudioMessage>, connections: Arc<Mutex<Vec<ConnectionState>>
         });
     }
 
+    let scope_handle_for_timer = scope_handle.clone();
+    let scope_timer = Timer::default();
+    let ui_weak_for_timer = ui.as_weak();
+    scope_timer.start(TimerMode::Repeated, Duration::from_millis(33), move || {
+        if let Some(ui) = ui_weak_for_timer.upgrade() {
+            let buffer = render_scope_waveform(
+                &scope_handle_for_timer,
+                SCOPE_IMAGE_WIDTH,
+                SCOPE_IMAGE_HEIGHT,
+            );
+            ui.set_scope_waveform(Image::from_rgb8(buffer));
+        }
+    });
+
     ui.run().context("failed to run UI")
 }
 
@@ -470,7 +594,8 @@ fn endpoint_from_id(id: i32) -> Option<EndpointId> {
         2 => Some(EndpointId::FilterIn),
         3 => Some(EndpointId::FilterOut),
         4 => Some(EndpointId::VolumeIn),
-        5 => Some(EndpointId::VolumeOut),
+        5 => Some(EndpointId::ScopeIn),
+        6 => Some(EndpointId::ScopeOut),
         _ => None,
     }
 }
@@ -483,7 +608,8 @@ fn endpoint_to_id(endpoint: EndpointId) -> i32 {
         EndpointId::FilterIn => 2,
         EndpointId::FilterOut => 3,
         EndpointId::VolumeIn => 4,
-        EndpointId::VolumeOut => 5,
+        EndpointId::ScopeIn => 5,
+        EndpointId::ScopeOut => 6,
     }
 }
 
@@ -498,17 +624,177 @@ fn update_ui_connections(ui: &ModularWindow, connections: &Arc<Mutex<Vec<Connect
         ui.set_conn_saw_filter(false);
         ui.set_conn_saw_volume(false);
         ui.set_conn_filter_volume(false);
+        ui.set_conn_sine_scope(false);
+        ui.set_conn_saw_scope(false);
+        ui.set_conn_filter_scope(false);
+        ui.set_conn_scope_output(false);
 
         // Set active connections
         for conn in conns.iter() {
             match (conn.from, conn.to) {
                 (EndpointId::SineOut, EndpointId::FilterIn) => ui.set_conn_sine_filter(true),
                 (EndpointId::SineOut, EndpointId::VolumeIn) => ui.set_conn_sine_volume(true),
+                (EndpointId::SineOut, EndpointId::ScopeIn) => ui.set_conn_sine_scope(true),
                 (EndpointId::SawOut, EndpointId::FilterIn) => ui.set_conn_saw_filter(true),
                 (EndpointId::SawOut, EndpointId::VolumeIn) => ui.set_conn_saw_volume(true),
+                (EndpointId::SawOut, EndpointId::ScopeIn) => ui.set_conn_saw_scope(true),
                 (EndpointId::FilterOut, EndpointId::VolumeIn) => ui.set_conn_filter_volume(true),
+                (EndpointId::FilterOut, EndpointId::ScopeIn) => ui.set_conn_filter_scope(true),
+                (EndpointId::ScopeOut, EndpointId::VolumeIn) => ui.set_conn_scope_output(true),
                 _ => {}
             }
+        }
+    }
+}
+
+fn render_scope_waveform(
+    handle: &OscilloscopeHandle,
+    width: u32,
+    height: u32,
+) -> SharedPixelBuffer<Rgb8Pixel> {
+    let width = width.max(1);
+    let height = height.max(1);
+    let width_usize = width as usize;
+    let height_usize = height as usize;
+
+    let mut buffer = SharedPixelBuffer::<Rgb8Pixel>::new(width, height);
+    let snapshot = handle.snapshot((width_usize * 4).max(width_usize));
+
+    {
+        let pixels = buffer.make_mut_slice();
+        fill_background(pixels, SCOPE_BACKGROUND);
+        draw_axis(pixels, width_usize, height_usize, SCOPE_AXIS_COLOR);
+        let samples = if !snapshot.triggered().is_empty() {
+            snapshot.triggered()
+        } else {
+            snapshot.samples()
+        };
+        draw_waveform(pixels, width_usize, height_usize, samples, SCOPE_WAVE_COLOR);
+    }
+
+    buffer
+}
+
+fn fill_background(pixels: &mut [Rgb8Pixel], color: [u8; 3]) {
+    for px in pixels.iter_mut() {
+        *px = Rgb8Pixel::new(color[0], color[1], color[2]);
+    }
+}
+
+fn draw_axis(pixels: &mut [Rgb8Pixel], width: usize, height: usize, color: [u8; 3]) {
+    if height == 0 {
+        return;
+    }
+    let y = height / 2;
+    for x in 0..width {
+        let idx = y * width + x;
+        pixels[idx] = Rgb8Pixel::new(color[0], color[1], color[2]);
+    }
+}
+
+fn draw_waveform(
+    pixels: &mut [Rgb8Pixel],
+    width: usize,
+    height: usize,
+    samples: &[f32],
+    color: [u8; 3],
+) {
+    if width == 0 || height == 0 || samples.is_empty() {
+        return;
+    }
+
+    let center = (height as f32 - 1.0) / 2.0;
+    let scale = center * 0.85;
+    let mut prev_y = sample_to_y(samples[0], center, scale, height);
+    plot_pixel(pixels, width, height, 0, prev_y, color);
+
+    for x in 1..width {
+        let t = x as f32 / (width - 1) as f32;
+        let sample = sample_at(samples, t);
+        let current_y = sample_to_y(sample, center, scale, height);
+        draw_line_segment(
+            pixels,
+            width,
+            height,
+            (x - 1) as i32,
+            prev_y,
+            x as i32,
+            current_y,
+            color,
+        );
+        prev_y = current_y;
+    }
+}
+
+fn sample_at(samples: &[f32], t: f32) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let max_index = (samples.len() - 1) as f32;
+    let position = t * max_index;
+    let idx0 = position.floor() as usize;
+    let idx1 = position.ceil().min((samples.len() - 1) as f32) as usize;
+    let frac = position - idx0 as f32;
+    let s0 = samples[idx0];
+    let s1 = samples[idx1];
+    s0 + (s1 - s0) * frac
+}
+
+fn sample_to_y(sample: f32, center: f32, scale: f32, height: usize) -> i32 {
+    let clamped = sample.clamp(-1.0, 1.0);
+    let y = center - clamped * scale;
+    y.clamp(0.0, height as f32 - 1.0).round() as i32
+}
+
+fn plot_pixel(
+    pixels: &mut [Rgb8Pixel],
+    width: usize,
+    height: usize,
+    x: i32,
+    y: i32,
+    color: [u8; 3],
+) {
+    if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
+        return;
+    }
+    let idx = (y as usize) * width + (x as usize);
+    pixels[idx] = Rgb8Pixel::new(color[0], color[1], color[2]);
+}
+
+fn draw_line_segment(
+    pixels: &mut [Rgb8Pixel],
+    width: usize,
+    height: usize,
+    mut x0: i32,
+    mut y0: i32,
+    x1: i32,
+    y1: i32,
+    color: [u8; 3],
+) {
+    let mut x0 = x0.clamp(0, width as i32 - 1);
+    let mut y0 = y0.clamp(0, height as i32 - 1);
+    let x1 = x1.clamp(0, width as i32 - 1);
+    let y1 = y1.clamp(0, height as i32 - 1);
+
+    let dx = (x1 - x0).abs();
+    let dy = (y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx - dy;
+
+    loop {
+        plot_pixel(pixels, width, height, x0, y0, color);
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 > -dy {
+            err -= dy;
+            x0 += sx;
+        }
+        if e2 < dx {
+            err += dx;
+            y0 += sy;
         }
     }
 }

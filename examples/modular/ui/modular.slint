@@ -211,6 +211,7 @@ component ModuleNode inherits Rectangle {
     in property <string> node_title: "";
     in property <[{label: string, jack_id: int}]> inputs: [];
     in property <[{label: string, jack_id: int}]> outputs: [];
+    in property <length> extra_height: 0px;
 
     // Knob configurations - array of knobs
     in property <[{minimum: float, maximum: float, value: float, curve: KnobCurve, label: string, knob_index: int}]> knobs: [];
@@ -239,7 +240,7 @@ component ModuleNode inherits Rectangle {
 
     // Calculate heights
     private property <length> knobs_area_height: root.knob_rows * root.knob_height;
-    private property <length> jacks_y: root.knob_area_y + root.knobs_area_height + root.knobs_bottom_padding + root.jack_spacing;
+    private property <length> jacks_y: root.knob_area_y + root.knobs_area_height + root.knobs_bottom_padding + root.jack_spacing + root.extra_height;
 
     width: 160px;
     height: root.jacks_y + root.jack_height;
@@ -431,6 +432,12 @@ export component ModularWindow inherits Window {
     in-out property <bool> conn_saw_filter: false;
     in-out property <bool> conn_saw_volume: false;
     in-out property <bool> conn_filter_volume: false;
+    in-out property <bool> conn_sine_scope: false;
+    in-out property <bool> conn_saw_scope: false;
+    in-out property <bool> conn_filter_scope: false;
+    in-out property <bool> conn_scope_output: false;
+
+    in-out property <image> scope_waveform;
 
     // Title
     Text {
@@ -460,7 +467,7 @@ export component ModularWindow inherits Window {
     }
 
     function start_cable_drag(from_jack_id: int, start_x: length, start_y: length) {
-        if (!(from_jack_id == 0 || from_jack_id == 1 || from_jack_id == 3)) {
+        if (!(from_jack_id == 0 || from_jack_id == 1 || from_jack_id == 3 || from_jack_id == 6)) {
             return;
         }
 
@@ -485,7 +492,7 @@ export component ModularWindow inherits Window {
         let hovered = root.hit_test_input(cursor_x, cursor_y);
         root.hovered_input_jack = hovered;
 
-        if (hovered == 2 || hovered == 4) {
+        if (hovered == 2 || hovered == 4 || hovered == 5) {
             root.drag_cursor_x = root.jack_center_x(hovered);
             root.drag_cursor_y = root.jack_center_y(hovered);
         } else {
@@ -500,7 +507,7 @@ export component ModularWindow inherits Window {
         }
 
         let target = root.hovered_input_jack;
-        if (target == 2 || target == 4) {
+        if (target == 2 || target == 4 || target == 5) {
             root.drag_cursor_x = root.jack_center_x(target);
             root.drag_cursor_y = root.jack_center_y(target);
             root.handle_jack_click(target);
@@ -521,6 +528,8 @@ export component ModularWindow inherits Window {
         if (jack_id == 2) { return filter_x + filter_node.input_jack_x; }
         if (jack_id == 3) { return filter_x + filter_node.output_jack_x; }
         if (jack_id == 4) { return output_x + output_node.input_jack_x; }
+        if (jack_id == 5) { return scope_x + scope_node.input_jack_x; }
+        if (jack_id == 6) { return scope_x + scope_node.output_jack_x; }
         return 0px;
     }
 
@@ -530,6 +539,8 @@ export component ModularWindow inherits Window {
         if (jack_id == 2) { return filter_y + filter_node.input_jack_y; }
         if (jack_id == 3) { return filter_y + filter_node.output_jack_y; }
         if (jack_id == 4) { return output_y + output_node.input_jack_y; }
+        if (jack_id == 5) { return scope_y + scope_node.input_jack_y; }
+        if (jack_id == 6) { return scope_y + scope_node.output_jack_y; }
         return 0px;
     }
 
@@ -550,6 +561,17 @@ export component ModularWindow inherits Window {
             return 2;
         }
 
+        // Scope input (jack_id = 5)
+        let scope_center_x = root.jack_center_x(5);
+        let scope_center_y = root.jack_center_y(5);
+        let scope_left = scope_center_x - half_width;
+        let scope_top = scope_center_y - top_offset;
+
+        if (cursor_x >= scope_left && cursor_x <= scope_left + jack_width &&
+            cursor_y >= scope_top && cursor_y <= scope_top + jack_height) {
+            return 5;
+        }
+
         // Output input (jack_id = 4)
         let output_center_x = root.jack_center_x(4);
         let output_center_y = root.jack_center_y(4);
@@ -568,6 +590,7 @@ export component ModularWindow inherits Window {
         if (root.drag_from_jack_id == 0) { return #FF6B6B; }
         if (root.drag_from_jack_id == 1) { return #4ECDC4; }
         if (root.drag_from_jack_id == 3) { return #FFE66D; }
+        if (root.drag_from_jack_id == 6) { return #8AC6FF; }
         return #CCCCCC;
     }
 
@@ -578,8 +601,10 @@ export component ModularWindow inherits Window {
     property <length> saw_y: 310px;
     property <length> filter_x: 340px;
     property <length> filter_y: 220px;
+    property <length> scope_x: 580px;
+    property <length> scope_y: 80px;
     property <length> output_x: 580px;
-    property <length> output_y: 220px;
+    property <length> output_y: 320px;
 
     // Sine Oscillator Node
     sine_node := ModuleNode {
@@ -679,6 +704,45 @@ export component ModularWindow inherits Window {
         jack_drag_finished(id, gx, gy) => { root.finish_cable_drag(id, gx, gy); }
     }
 
+    // Oscilloscope Node
+    scope_node := ModuleNode {
+        x: scope_x;
+        y: scope_y;
+        node_title: "Scope";
+        inputs: [{label: "In", jack_id: 5}];
+        outputs: [{label: "Out", jack_id: 6}];
+        knobs: [];
+        extra_height: 120px;
+        jack_clicked(id) => { handle_jack_click(id); }
+        jack_drag_started(id, gx, gy) => { root.start_cable_drag(id, gx, gy); }
+        jack_dragged(id, gx, gy) => { root.update_cable_drag(id, gx, gy); }
+        jack_drag_finished(id, gx, gy) => { root.finish_cable_drag(id, gx, gy); }
+        position_changed(nx, ny) => {
+            let max_x = max(0px, root.width - scope_node.width);
+            let max_y = max(0px, root.height - scope_node.height);
+            scope_x = clamp_length(nx, 0px, max_x);
+            scope_y = clamp_length(ny, 0px, max_y);
+        }
+
+        Rectangle {
+            x: 10px;
+            y: 32px;
+            width: parent.width - 20px;
+            height: max(40px, parent.height - 74px);
+            background: #1B2420;
+            border-radius: 4px;
+            clip: true;
+
+            Image {
+                x: 0px;
+                y: 0px;
+                width: 100%;
+                height: 100%;
+                source: root.scope_waveform;
+            }
+        }
+    }
+
     // Output Node
     output_node := ModuleNode {
         x: output_x;
@@ -723,6 +787,14 @@ export component ModularWindow inherits Window {
         cable_color: #FF6B6B;
     }
 
+    if root.conn_sine_scope: Cable {
+        x1: sine_x + sine_node.output_jack_x;
+        y1: sine_y + sine_node.output_jack_y;
+        x2: scope_x + scope_node.input_jack_x;
+        y2: scope_y + scope_node.input_jack_y;
+        cable_color: #FF6B6B;
+    }
+
     if root.conn_saw_filter: Cable {
         x1: saw_x + saw_node.output_jack_x;
         y1: saw_y + saw_node.output_jack_y;
@@ -739,12 +811,36 @@ export component ModularWindow inherits Window {
         cable_color: #4ECDC4;
     }
 
+    if root.conn_saw_scope: Cable {
+        x1: saw_x + saw_node.output_jack_x;
+        y1: saw_y + saw_node.output_jack_y;
+        x2: scope_x + scope_node.input_jack_x;
+        y2: scope_y + scope_node.input_jack_y;
+        cable_color: #4ECDC4;
+    }
+
     if root.conn_filter_volume: Cable {
         x1: filter_x + filter_node.output_jack_x;
         y1: filter_y + filter_node.output_jack_y;
         x2: output_x + output_node.input_jack_x;
         y2: output_y + output_node.input_jack_y;
         cable_color: #FFE66D;
+    }
+
+    if root.conn_filter_scope: Cable {
+        x1: filter_x + filter_node.output_jack_x;
+        y1: filter_y + filter_node.output_jack_y;
+        x2: scope_x + scope_node.input_jack_x;
+        y2: scope_y + scope_node.input_jack_y;
+        cable_color: #FFE66D;
+    }
+
+    if root.conn_scope_output: Cable {
+        x1: scope_x + scope_node.output_jack_x;
+        y1: scope_y + scope_node.output_jack_y;
+        x2: output_x + output_node.input_jack_x;
+        y2: output_y + output_node.input_jack_y;
+        cable_color: #8AC6FF;
     }
 
     if root.active_jack_drag: Cable {
@@ -757,9 +853,10 @@ export component ModularWindow inherits Window {
 
     // Helper function to check if an output has any connections
     function output_has_connection(jack_id: int) -> bool {
-        if (jack_id == 0) { return root.conn_sine_filter || root.conn_sine_volume; }
-        if (jack_id == 1) { return root.conn_saw_filter || root.conn_saw_volume; }
-        if (jack_id == 3) { return root.conn_filter_volume; }
+        if (jack_id == 0) { return root.conn_sine_filter || root.conn_sine_volume || root.conn_sine_scope; }
+        if (jack_id == 1) { return root.conn_saw_filter || root.conn_saw_volume || root.conn_saw_scope; }
+        if (jack_id == 3) { return root.conn_filter_volume || root.conn_filter_scope; }
+        if (jack_id == 6) { return root.conn_scope_output; }
         return false;
     }
 
@@ -769,13 +866,18 @@ export component ModularWindow inherits Window {
             // Sine output
             if (root.conn_sine_filter) { root.disconnect(0, 2); }
             if (root.conn_sine_volume) { root.disconnect(0, 4); }
+            if (root.conn_sine_scope) { root.disconnect(0, 5); }
         } else if (jack_id == 1) {
             // Saw output
             if (root.conn_saw_filter) { root.disconnect(1, 2); }
             if (root.conn_saw_volume) { root.disconnect(1, 4); }
+            if (root.conn_saw_scope) { root.disconnect(1, 5); }
         } else if (jack_id == 3) {
             // Filter output
             if (root.conn_filter_volume) { root.disconnect(3, 4); }
+            if (root.conn_filter_scope) { root.disconnect(3, 5); }
+        } else if (jack_id == 6) {
+            if (root.conn_scope_output) { root.disconnect(6, 4); }
         }
     }
 
@@ -783,7 +885,7 @@ export component ModularWindow inherits Window {
     function handle_jack_click(jack_id: int) {
         debug("handle_jack_click called with:", jack_id);
 
-        let is_output = (jack_id == 0 || jack_id == 1 || jack_id == 3);
+        let is_output = (jack_id == 0 || jack_id == 1 || jack_id == 3 || jack_id == 6);
 
         if (root.drag_from_jack == -1) {
             // First click - check if it's an output with existing connections
@@ -802,8 +904,8 @@ export component ModularWindow inherits Window {
             debug("Completing connection:", from, "->", to);
 
             // Validate connection (outputs are 0,1,3,5; inputs are 2,4)
-            let from_is_output = (from == 0 || from == 1 || from == 3);
-            let to_is_input = (to == 2 || to == 4);
+            let from_is_output = (from == 0 || from == 1 || from == 3 || from == 6);
+            let to_is_input = (to == 2 || to == 4 || to == 5);
 
             if (from_is_output && to_is_input) {
                 // Send connection to backend
