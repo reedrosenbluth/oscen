@@ -37,8 +37,9 @@ enum EndpointId {
     ScopeOut,
 }
 
-const SCOPE_IMAGE_WIDTH: u32 = 160;
+const SCOPE_IMAGE_WIDTH: u32 = 320;
 const SCOPE_IMAGE_HEIGHT: u32 = 120;
+const SCOPE_SUPERSAMPLES_PER_COLUMN: usize = 6;
 const SCOPE_BACKGROUND: [u8; 3] = [27, 36, 32];
 const SCOPE_AXIS_COLOR: [u8; 3] = [60, 72, 68];
 const SCOPE_WAVE_COLOR: [u8; 3] = [138, 198, 255];
@@ -656,9 +657,12 @@ fn render_scope_waveform(
     let height = height.max(1);
     let width_usize = width as usize;
     let height_usize = height as usize;
+    let snapshot_len = width_usize
+        .saturating_mul(SCOPE_SUPERSAMPLES_PER_COLUMN.max(1))
+        .max(width_usize * 4);
 
     let mut buffer = SharedPixelBuffer::<Rgb8Pixel>::new(width, height);
-    let snapshot = handle.snapshot((width_usize * 4).max(width_usize));
+    let snapshot = handle.snapshot(snapshot_len.max(width_usize));
 
     {
         let pixels = buffer.make_mut_slice();
@@ -705,23 +709,20 @@ fn draw_waveform(
 
     let center = (height as f32 - 1.0) / 2.0;
     let scale = center * 0.85;
-    let mut prev_y = sample_to_y(samples[0], center, scale, height);
-    plot_pixel(pixels, width, height, 0, prev_y, color);
+    let supersamples = SCOPE_SUPERSAMPLES_PER_COLUMN.max(1);
+    let first_sample = average_column_sample(samples, 0, width, supersamples);
+    let mut prev_x = 0.0f32;
+    let mut prev_y = sample_to_y(first_sample, center, scale, height);
+    draw_line_segment(pixels, width, height, prev_x, prev_y, prev_x, prev_y, color);
 
     for x in 1..width {
-        let t = x as f32 / (width - 1) as f32;
-        let sample = sample_at(samples, t);
+        let sample = average_column_sample(samples, x, width, supersamples);
         let current_y = sample_to_y(sample, center, scale, height);
+        let current_x = x as f32;
         draw_line_segment(
-            pixels,
-            width,
-            height,
-            (x - 1) as i32,
-            prev_y,
-            x as i32,
-            current_y,
-            color,
+            pixels, width, height, prev_x, prev_y, current_x, current_y, color,
         );
+        prev_x = current_x;
         prev_y = current_y;
     }
 }
@@ -740,61 +741,247 @@ fn sample_at(samples: &[f32], t: f32) -> f32 {
     s0 + (s1 - s0) * frac
 }
 
-fn sample_to_y(sample: f32, center: f32, scale: f32, height: usize) -> i32 {
+fn sample_to_y(sample: f32, center: f32, scale: f32, height: usize) -> f32 {
     let clamped = sample.clamp(-1.0, 1.0);
     let y = center - clamped * scale;
-    y.clamp(0.0, height as f32 - 1.0).round() as i32
+    y.clamp(0.0, height as f32 - 1.0)
 }
 
-fn plot_pixel(
-    pixels: &mut [Rgb8Pixel],
-    width: usize,
-    height: usize,
-    x: i32,
-    y: i32,
-    color: [u8; 3],
-) {
-    if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
-        return;
+fn average_column_sample(samples: &[f32], column: usize, width: usize, supersamples: usize) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
     }
-    let idx = (y as usize) * width + (x as usize);
-    pixels[idx] = Rgb8Pixel::new(color[0], color[1], color[2]);
+    if width <= 1 || supersamples <= 1 {
+        let t = if width > 1 {
+            column as f32 / (width - 1) as f32
+        } else {
+            0.0
+        };
+        return sample_at(samples, t);
+    }
+
+    let max_column = (width - 1) as f32;
+    let denom = max_column.max(1.0);
+    let mut accum = 0.0;
+    let supersamples_f = supersamples as f32;
+    for i in 0..supersamples {
+        let offset = (i as f32 + 0.5) / supersamples_f - 0.5;
+        let sample_pos = (column as f32 + offset).clamp(0.0, max_column);
+        let t = sample_pos / denom;
+        accum += sample_at(samples, t);
+    }
+    accum / supersamples_f
 }
 
 fn draw_line_segment(
     pixels: &mut [Rgb8Pixel],
     width: usize,
     height: usize,
-    mut x0: i32,
-    mut y0: i32,
-    x1: i32,
-    y1: i32,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
     color: [u8; 3],
 ) {
-    let mut x0 = x0.clamp(0, width as i32 - 1);
-    let mut y0 = y0.clamp(0, height as i32 - 1);
-    let x1 = x1.clamp(0, width as i32 - 1);
-    let y1 = y1.clamp(0, height as i32 - 1);
-
-    let dx = (x1 - x0).abs();
-    let dy = (y1 - y0).abs();
-    let sx = if x0 < x1 { 1 } else { -1 };
-    let sy = if y0 < y1 { 1 } else { -1 };
-    let mut err = dx - dy;
-
-    loop {
-        plot_pixel(pixels, width, height, x0, y0, color);
-        if x0 == x1 && y0 == y1 {
-            break;
-        }
-        let e2 = 2 * err;
-        if e2 > -dy {
-            err -= dy;
-            x0 += sx;
-        }
-        if e2 < dx {
-            err += dx;
-            y0 += sy;
-        }
+    if width == 0 || height == 0 {
+        return;
     }
+
+    if (x0 - x1).abs() < f32::EPSILON && (y0 - y1).abs() < f32::EPSILON {
+        blend_pixel(
+            pixels,
+            width,
+            height,
+            x0.round() as i32,
+            y0.round() as i32,
+            color,
+            1.0,
+        );
+        return;
+    }
+
+    let mut x0 = x0;
+    let mut y0 = y0;
+    let mut x1 = x1;
+    let mut y1 = y1;
+
+    let steep = (y1 - y0).abs() > (x1 - x0).abs();
+    if steep {
+        std::mem::swap(&mut x0, &mut y0);
+        std::mem::swap(&mut x1, &mut y1);
+    }
+    if x0 > x1 {
+        std::mem::swap(&mut x0, &mut x1);
+        std::mem::swap(&mut y0, &mut y1);
+    }
+
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let gradient = if dx.abs() < f32::EPSILON {
+        0.0
+    } else {
+        dy / dx
+    };
+
+    // handle first endpoint
+    let x_end = x0.round();
+    let y_end = y0 + gradient * (x_end - x0);
+    let x_gap = rfpart(x0 + 0.5);
+    let xpxl1 = x_end as i32;
+    let ypxl1 = ipart(y_end);
+    if steep {
+        blend_pixel(
+            pixels,
+            width,
+            height,
+            ypxl1,
+            xpxl1,
+            color,
+            rfpart(y_end) * x_gap,
+        );
+        blend_pixel(
+            pixels,
+            width,
+            height,
+            ypxl1 + 1,
+            xpxl1,
+            color,
+            fpart(y_end) * x_gap,
+        );
+    } else {
+        blend_pixel(
+            pixels,
+            width,
+            height,
+            xpxl1,
+            ypxl1,
+            color,
+            rfpart(y_end) * x_gap,
+        );
+        blend_pixel(
+            pixels,
+            width,
+            height,
+            xpxl1,
+            ypxl1 + 1,
+            color,
+            fpart(y_end) * x_gap,
+        );
+    }
+    let mut intery = y_end + gradient;
+
+    // handle second endpoint
+    let x_end = x1.round();
+    let y_end = y1 + gradient * (x_end - x1);
+    let x_gap = fpart(x1 + 0.5);
+    let xpxl2 = x_end as i32;
+    let ypxl2 = ipart(y_end);
+    if steep {
+        blend_pixel(
+            pixels,
+            width,
+            height,
+            ypxl2,
+            xpxl2,
+            color,
+            rfpart(y_end) * x_gap,
+        );
+        blend_pixel(
+            pixels,
+            width,
+            height,
+            ypxl2 + 1,
+            xpxl2,
+            color,
+            fpart(y_end) * x_gap,
+        );
+    } else {
+        blend_pixel(
+            pixels,
+            width,
+            height,
+            xpxl2,
+            ypxl2,
+            color,
+            rfpart(y_end) * x_gap,
+        );
+        blend_pixel(
+            pixels,
+            width,
+            height,
+            xpxl2,
+            ypxl2 + 1,
+            color,
+            fpart(y_end) * x_gap,
+        );
+    }
+
+    // main loop
+    if xpxl1 + 1 >= xpxl2 {
+        return;
+    }
+
+    for x in (xpxl1 + 1)..xpxl2 {
+        if steep {
+            let y = ipart(intery);
+            blend_pixel(pixels, width, height, y, x, color, rfpart(intery));
+            blend_pixel(pixels, width, height, y + 1, x, color, fpart(intery));
+        } else {
+            let y = ipart(intery);
+            blend_pixel(pixels, width, height, x, y, color, rfpart(intery));
+            blend_pixel(pixels, width, height, x, y + 1, color, fpart(intery));
+        }
+        intery += gradient;
+    }
+}
+
+fn blend_pixel(
+    pixels: &mut [Rgb8Pixel],
+    width: usize,
+    height: usize,
+    x: i32,
+    y: i32,
+    color: [u8; 3],
+    alpha: f32,
+) {
+    if alpha <= 0.0 {
+        return;
+    }
+    if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
+        return;
+    }
+
+    let idx = (y as usize) * width + (x as usize);
+    let existing = pixels[idx];
+    let alpha = alpha.clamp(0.0, 1.0);
+    let inv_alpha = 1.0 - alpha;
+
+    let blended_r = (existing.r as f32 * inv_alpha + color[0] as f32 * alpha)
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    let blended_g = (existing.g as f32 * inv_alpha + color[1] as f32 * alpha)
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    let blended_b = (existing.b as f32 * inv_alpha + color[2] as f32 * alpha)
+        .round()
+        .clamp(0.0, 255.0) as u8;
+
+    pixels[idx] = Rgb8Pixel::new(blended_r, blended_g, blended_b);
+}
+
+fn ipart(x: f32) -> i32 {
+    x.floor() as i32
+}
+
+fn fpart(x: f32) -> f32 {
+    let frac = x - x.floor();
+    if frac < 0.0 {
+        frac + 1.0
+    } else {
+        frac
+    }
+}
+
+fn rfpart(x: f32) -> f32 {
+    1.0 - fpart(x)
 }
