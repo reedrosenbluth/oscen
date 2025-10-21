@@ -8,6 +8,7 @@ members = [
     "examples/supersaw",
     "examples/synth-slint",
     "examples/feedback-synth",
+    "examples/modular",
     "oscen-lib",
     "oscen-macros",
     "xtask"

@@ -1,0 +1,571 @@
+
+global MathConstants {
+    out property <float> natural_log_base: 2.718281828459045;
+}
+
+global PanelPalette {
+    in-out property <brush> background: #777777;
+    in-out property <brush> border: #888888;
+    in-out property <brush> title: #BABABA;
+    in-out property <brush> jack: #D4AF37;
+    in-out property <brush> jack_border: #B8960A;
+}
+
+enum KnobCurve {
+    linear,
+    logarithmic,
+}
+
+component Knob inherits Rectangle {
+    in property <float> minimum: 0.0;
+    in property <float> maximum: 1.0;
+    in-out property <float> value: minimum;
+    in property <KnobCurve> curve: KnobCurve.linear;
+    in property <string> label: "";
+
+    callback value_edited(float);
+
+    private property <length> dial_size: 36px;
+    private property <float> range: max(0.0001, root.maximum - root.minimum);
+    private property <float> normalized: root.value_to_normalized(root.value);
+    private property <angle> angle: 225deg - 270deg * root.normalized;
+    private property <float> marker_radius: (root.dial_size / 2 - 4px) / 1px;
+
+    width: root.dial_size;  // Match dial size
+    height: 55px;
+
+    VerticalLayout {
+        spacing: 2px;
+        padding: 0px;
+        alignment: center;  // Center children horizontally
+
+        dial := Rectangle {
+            width: root.dial_size;
+            height: root.dial_size;
+            border-radius: root.dial_size / 2;
+            border-width: 2px;
+            border-color: #96BE8C;
+            background: #A9A9A9;
+
+            marker := Rectangle {
+                width: 4px;
+                height: 4px;
+                border-radius: 2px;
+                background: #777777;  // Match synth-slint marker color
+                x: parent.width / 2 + Math.cos(root.angle) * (root.marker_radius * 1px) - self.width / 2;
+                y: parent.height / 2 - Math.sin(root.angle) * (root.marker_radius * 1px) - self.height / 2;
+            }
+
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                property <float> start-value: root.value;
+
+                pointer-event(event) => {
+                    if (event.button != PointerEventButton.left) {
+                        return;
+                    }
+                    if (event.kind == PointerEventKind.down) {
+                        self.start-value = root.value;
+                    } else if (event.kind == PointerEventKind.up) {
+                        root.value_edited(root.value);
+                    }
+                }
+
+                moved => {
+                    let delta_px = (self.pressed-y - self.mouse-y) / 1px;
+                    let delta = delta_px / 120.0;
+                    root.update_value_by_normalized_delta(self.start-value, delta);
+                }
+            }
+        }
+
+        Text {
+            text: root.label;
+            horizontal-alignment: center;
+            font-size: 9px;
+            font-weight: 500;
+            color: #C9F2C7;
+            width: 100%;  // Take full width of parent
+        }
+    }
+
+    function update_value_by_normalized_delta(start_value: float, delta: float) {
+        let start_normalized = root.value_to_normalized(start_value);
+        let normalized = max(0.0, min(1.0, start_normalized + delta));
+        let new_value = root.normalized_to_value(normalized);
+        let clamped = max(root.minimum, min(root.maximum, new_value));
+
+        if (clamped != root.value) {
+            root.value = clamped;
+            root.value_edited(root.value);
+        }
+    }
+
+    function value_to_normalized(value: float) -> float {
+        let clamped = max(root.minimum, min(root.maximum, value));
+        if (root.curve == KnobCurve.logarithmic && root.minimum > 0 && root.maximum > 0) {
+            let min_log = Math.log(root.minimum, MathConstants.natural_log_base);
+            let max_log = Math.log(root.maximum, MathConstants.natural_log_base);
+            if (min_log != max_log) {
+                return max(0.0, min(1.0, (Math.log(clamped, MathConstants.natural_log_base) - min_log) / (max_log - min_log)));
+            }
+        }
+        return max(0.0, min(1.0, (clamped - root.minimum) / root.range));
+    }
+
+    function normalized_to_value(normalized: float) -> float {
+        let clamped = max(0.0, min(1.0, normalized));
+        if (root.curve == KnobCurve.logarithmic && root.minimum > 0 && root.maximum > 0) {
+            let min_log = Math.log(root.minimum, MathConstants.natural_log_base);
+            let max_log = Math.log(root.maximum, MathConstants.natural_log_base);
+            if (min_log != max_log) {
+                return Math.exp(min_log + (max_log - min_log) * clamped);
+            }
+        }
+        return root.minimum + clamped * root.range;
+    }
+}
+
+component Jack inherits Rectangle {
+    in property <string> label: "";
+    in property <bool> is_output: false;
+    in property <int> jack_id: -1;
+
+    callback clicked(int);
+
+    private property <length> h_padding: 5px;
+    width: 30px;
+    height: 40px;
+
+    // Make the entire jack clickable
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => {
+            debug("Jack TouchArea clicked:", root.jack_id);
+            root.clicked(root.jack_id);
+        }
+    }
+
+    // Circle - positioned with padding from edge
+    Rectangle {
+        width: 20px;
+        height: 20px;
+        border-radius: 10px;
+        border-width: 2px;
+        border-color: PanelPalette.jack_border;
+        background: PanelPalette.jack;
+        x: root.is_output ? (10px - root.h_padding) : root.h_padding;  // Inset from edges
+        y: 2px;
+    }
+
+    // Text below circle
+    Text {
+        text: root.label;
+        color: PanelPalette.title;
+        font-size: 9px;
+        horizontal-alignment: center;
+        x: 0px;
+        y: 24px;
+        width: 100%;
+    }
+}
+
+component ModuleNode inherits Rectangle {
+    in property <string> node_title: "";
+    in property <[{label: string, jack_id: int}]> inputs: [];
+    in property <[{label: string, jack_id: int}]> outputs: [];
+
+    // Knob configurations - array of knobs
+    in property <[{minimum: float, maximum: float, value: float, curve: KnobCurve, label: string, knob_index: int}]> knobs: [];
+
+    callback jack_clicked(int);
+    callback knob_changed(int /* knob_index */, float /* value */);
+
+    // Layout constants
+    private property <int> knobs_per_row: 3;
+    private property <length> knob_width: 36px;
+    private property <length> knob_height: 55px;
+    private property <length> knob_spacing: 10px;
+    private property <length> knob_area_y: 32px;
+    private property <length> knobs_bottom_padding: 2px;
+    private property <length> jack_spacing: 2px;
+    private property <length> jack_width: 30px;
+    private property <length> jack_height: 40px;
+
+    // Calculate number of rows
+    private property <int> knob_rows: root.knobs.length == 0 ? 0 : ((root.knobs.length - 1) / root.knobs_per_row + 1);
+
+    // Calculate heights
+    private property <length> knobs_area_height: root.knob_rows * root.knob_height;
+    private property <length> jacks_y: root.knob_area_y + root.knobs_area_height + root.knobs_bottom_padding + root.jack_spacing;
+
+    width: 160px;
+    height: root.jacks_y + root.jack_height;
+    border-radius: 6px;
+    border-width: 3px;
+    border-color: #96BE8C;
+    background: #629460;
+
+    // Render knobs in a grid
+    for knob[index] in root.knobs: Knob {
+        x: 10px + (mod(index, root.knobs_per_row) * (root.knob_width + root.knob_spacing));
+        y: root.knob_area_y + (floor(index / root.knobs_per_row) * root.knob_height);
+        minimum: knob.minimum;
+        maximum: knob.maximum;
+        value: knob.value;
+        curve: knob.curve;
+        label: knob.label;
+        value_edited(val) => {
+            root.knob_changed(knob.knob_index, val);
+        }
+    }
+
+    // Jack element positions - with same padding as knobs
+    private property <length> jack_x_padding: 10px;
+    private property <length> output_jack_element_x: root.width - root.jack_width - root.jack_x_padding;
+    private property <length> input_jack_element_x: root.jack_x_padding;
+    private property <length> output_jack_element_y: root.jacks_y;
+    private property <length> input_jack_element_y: root.jacks_y;
+
+    // Expose cable connection points (center of jack circles)
+    // Jack is 30px wide with 5px horizontal padding
+    // Both circles positioned at x=5px (padding), center at 5 + 10 (radius) = 15px from jack left
+    // Vertical: jack_y + 2px + circle_radius (10px) = jack_y + 12px
+    out property <length> output_jack_x: root.output_jack_element_x + 15px;  // Padded circle center
+    out property <length> output_jack_y: root.output_jack_element_y + 12px;
+    out property <length> input_jack_x: root.input_jack_element_x + 15px;  // Padded circle center
+    out property <length> input_jack_y: root.input_jack_element_y + 12px;
+
+    // Title
+    Text {
+        text: root.node_title;
+        font-weight: 600;
+        font-size: 12px;
+        color: #C9F2C7;
+        horizontal-alignment: center;
+        x: 0px;
+        y: 12px;
+        width: root.width;
+    }
+
+    // Output jacks - positioned absolutely on the right
+    if root.outputs.length > 0: Jack {
+        x: root.output_jack_element_x;
+        y: root.output_jack_element_y;
+        label: root.outputs[0].label;
+        is_output: true;
+        jack_id: root.outputs[0].jack_id;
+        clicked(id) => {
+            root.jack_clicked(id);
+        }
+    }
+
+    // Input jacks - positioned absolutely on the left
+    if root.inputs.length > 0: Jack {
+        x: root.input_jack_element_x;
+        y: root.input_jack_element_y;
+        label: root.inputs[0].label;
+        is_output: false;
+        jack_id: root.inputs[0].jack_id;
+        clicked(id) => {
+            root.jack_clicked(id);
+        }
+    }
+}
+
+component Cable inherits Path {
+    in property <length> x1;
+    in property <length> y1;
+    in property <length> x2;
+    in property <length> y2;
+    in property <color> cable_color: #FF6B6B;
+
+    width: 900px;
+    height: 600px;
+    viewbox-width: 900;
+    viewbox-height: 600;
+
+    stroke: root.cable_color;
+    stroke-width: 3px;
+    stroke-line-cap: round;
+
+    MoveTo {
+        x: root.x1 / 1px;
+        y: root.y1 / 1px;
+    }
+
+    CubicTo {
+        x: root.x2 / 1px;
+        y: root.y2 / 1px;
+        // Horizontal bezier handles
+        control-1-x: (root.x1 / 1px) + 60;
+        control-1-y: root.y1 / 1px;
+        control-2-x: (root.x2 / 1px) - 60;
+        control-2-y: root.y2 / 1px;
+    }
+}
+
+export component ModularWindow inherits Window {
+    title: "Oscen Modular";
+    background: #666666;
+    preferred-width: 900px;
+    preferred-height: 600px;
+
+    // Test if ANY touch events work
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => {
+            debug("WINDOW CLICKED!");
+        }
+    }
+
+    // Callbacks for patching
+    callback connect(int /* from_jack_id */, int /* to_jack_id */);
+    callback disconnect(int /* from_jack_id */, int /* to_jack_id */);
+
+    // Callbacks for parameter changes
+    callback sine_freq_changed(float);
+    callback saw_freq_changed(float);
+    callback filter_cutoff_changed(float);
+    callback filter_q_changed(float);
+    callback volume_level_changed(float);
+
+    // State for drag operation
+    in-out property <int> drag_from_jack: -1;
+
+    // Track individual connections for visual display
+    in-out property <bool> conn_sine_filter: false;
+    in-out property <bool> conn_sine_volume: false;
+    in-out property <bool> conn_saw_filter: false;
+    in-out property <bool> conn_saw_volume: false;
+    in-out property <bool> conn_filter_volume: false;
+
+    // Title
+    Text {
+        text: "Oscen";
+        font-size: 18px;
+        font-weight: 700;
+        color: #EEEEEE;
+        x: 0px;
+        y: 20px;
+        width: root.width;
+        horizontal-alignment: center;
+    }
+
+    // Instructions
+    Text {
+        text: "Click an output jack, then click an input jack to connect";
+        font-size: 12px;
+        color: #CCCCCC;
+        x: 0px;
+        y: 550px;
+        width: root.width;
+        horizontal-alignment: center;
+    }
+
+    // Define node positions
+    property <length> sine_x: 80px;
+    property <length> sine_y: 120px;
+    property <length> saw_x: 80px;
+    property <length> saw_y: 310px;
+    property <length> filter_x: 340px;
+    property <length> filter_y: 220px;
+    property <length> volume_x: 580px;
+    property <length> volume_y: 220px;
+
+    // Sine Oscillator Node
+    sine_node := ModuleNode {
+        x: sine_x;
+        y: sine_y;
+        node_title: "Sine Osc";
+        outputs: [{label: "Out", jack_id: 0}];
+        knobs: [{
+            minimum: 20.0,
+            maximum: 2000.0,
+            value: 220.0,
+            curve: KnobCurve.logarithmic,
+            label: "Freq",
+            knob_index: 0
+        }];
+        jack_clicked(id) => { handle_jack_click(id); }
+        knob_changed(idx, val) => { root.sine_freq_changed(val); }
+    }
+
+    // Saw Oscillator Node
+    saw_node := ModuleNode {
+        x: saw_x;
+        y: saw_y;
+        node_title: "Saw Osc";
+        outputs: [{label: "Out", jack_id: 1}];
+        knobs: [{
+            minimum: 20.0,
+            maximum: 2000.0,
+            value: 440.0,
+            curve: KnobCurve.logarithmic,
+            label: "Freq",
+            knob_index: 0
+        }];
+        jack_clicked(id) => { handle_jack_click(id); }
+        knob_changed(idx, val) => { root.saw_freq_changed(val); }
+    }
+
+    // Filter Node
+    filter_node := ModuleNode {
+        x: filter_x;
+        y: filter_y;
+        node_title: "Filter";
+        inputs: [{label: "In", jack_id: 2}];
+        outputs: [{label: "Out", jack_id: 3}];
+        knobs: [
+            {
+                minimum: 100.0,
+                maximum: 10000.0,
+                value: 1000.0,
+                curve: KnobCurve.logarithmic,
+                label: "Cutoff",
+                knob_index: 0
+            },
+            {
+                minimum: 0.1,
+                maximum: 10.0,
+                value: 0.707,
+                curve: KnobCurve.logarithmic,
+                label: "Q",
+                knob_index: 1
+            }
+        ];
+        jack_clicked(id) => { handle_jack_click(id); }
+        knob_changed(idx, val) => {
+            if (idx == 0) {
+                root.filter_cutoff_changed(val);
+            } else if (idx == 1) {
+                root.filter_q_changed(val);
+            }
+        }
+    }
+
+    // Volume Node
+    volume_node := ModuleNode {
+        x: volume_x;
+        y: volume_y;
+        node_title: "Volume";
+        inputs: [{label: "In", jack_id: 4}];
+        outputs: [{label: "Out", jack_id: 5}];
+        knobs: [{
+            minimum: 0.0,
+            maximum: 1.0,
+            value: 0.8,
+            curve: KnobCurve.linear,
+            label: "Level",
+            knob_index: 0
+        }];
+        jack_clicked(id) => { handle_jack_click(id); }
+        knob_changed(idx, val) => { root.volume_level_changed(val); }
+    }
+
+    // Draw cables on top of nodes using node-exposed jack positions
+    if root.conn_sine_filter: Cable {
+        x1: sine_x + sine_node.output_jack_x;
+        y1: sine_y + sine_node.output_jack_y;
+        x2: filter_x + filter_node.input_jack_x;
+        y2: filter_y + filter_node.input_jack_y;
+        cable_color: #FF6B6B;
+    }
+
+    if root.conn_sine_volume: Cable {
+        x1: sine_x + sine_node.output_jack_x;
+        y1: sine_y + sine_node.output_jack_y;
+        x2: volume_x + volume_node.input_jack_x;
+        y2: volume_y + volume_node.input_jack_y;
+        cable_color: #FF6B6B;
+    }
+
+    if root.conn_saw_filter: Cable {
+        x1: saw_x + saw_node.output_jack_x;
+        y1: saw_y + saw_node.output_jack_y;
+        x2: filter_x + filter_node.input_jack_x;
+        y2: filter_y + filter_node.input_jack_y;
+        cable_color: #4ECDC4;
+    }
+
+    if root.conn_saw_volume: Cable {
+        x1: saw_x + saw_node.output_jack_x;
+        y1: saw_y + saw_node.output_jack_y;
+        x2: volume_x + volume_node.input_jack_x;
+        y2: volume_y + volume_node.input_jack_y;
+        cable_color: #4ECDC4;
+    }
+
+    if root.conn_filter_volume: Cable {
+        x1: filter_x + filter_node.output_jack_x;
+        y1: filter_y + filter_node.output_jack_y;
+        x2: volume_x + volume_node.input_jack_x;
+        y2: volume_y + volume_node.input_jack_y;
+        cable_color: #FFE66D;
+    }
+
+    // Helper function to check if an output has any connections
+    function output_has_connection(jack_id: int) -> bool {
+        if (jack_id == 0) { return root.conn_sine_filter || root.conn_sine_volume; }
+        if (jack_id == 1) { return root.conn_saw_filter || root.conn_saw_volume; }
+        if (jack_id == 3) { return root.conn_filter_volume; }
+        return false;
+    }
+
+    // Helper function to disconnect all connections from an output
+    function disconnect_output(jack_id: int) {
+        if (jack_id == 0) {
+            // Sine output
+            if (root.conn_sine_filter) { root.disconnect(0, 2); }
+            if (root.conn_sine_volume) { root.disconnect(0, 4); }
+        } else if (jack_id == 1) {
+            // Saw output
+            if (root.conn_saw_filter) { root.disconnect(1, 2); }
+            if (root.conn_saw_volume) { root.disconnect(1, 4); }
+        } else if (jack_id == 3) {
+            // Filter output
+            if (root.conn_filter_volume) { root.disconnect(3, 4); }
+        }
+    }
+
+    // Helper function
+    function handle_jack_click(jack_id: int) {
+        debug("handle_jack_click called with:", jack_id);
+
+        let is_output = (jack_id == 0 || jack_id == 1 || jack_id == 3 || jack_id == 5);
+
+        if (root.drag_from_jack == -1) {
+            // First click - check if it's an output with existing connections
+            if (is_output && root.output_has_connection(jack_id)) {
+                debug("Disconnecting output:", jack_id);
+                root.disconnect_output(jack_id);
+            } else {
+                // Start dragging from this jack
+                debug("Starting drag from:", jack_id);
+                root.drag_from_jack = jack_id;
+            }
+        } else {
+            // Complete the connection
+            let from = root.drag_from_jack;
+            let to = jack_id;
+            debug("Completing connection:", from, "->", to);
+
+            // Validate connection (outputs are 0,1,3,5; inputs are 2,4)
+            let from_is_output = (from == 0 || from == 1 || from == 3 || from == 5);
+            let to_is_input = (to == 2 || to == 4);
+
+            if (from_is_output && to_is_input) {
+                // Send connection to backend
+                debug("Valid connection, calling connect");
+                root.connect(from, to);
+            } else {
+                debug("Invalid connection");
+            }
+
+            root.drag_from_jack = -1;
+        }
+    }
+}

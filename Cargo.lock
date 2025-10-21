@@ -3492,6 +3492,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "modular"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrayvec",
+ "cpal",
+ "oscen",
+ "slint",
+ "slint-build",
+]
+
+[[package]]
 name = "muda"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
