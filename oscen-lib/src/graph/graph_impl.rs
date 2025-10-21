@@ -230,6 +230,97 @@ impl Graph {
         }
     }
 
+    pub fn disconnect<O, I>(&mut self, from: O, to: I) -> bool
+    where
+        O: Output,
+        I: Into<InputEndpoint>,
+    {
+        let from_key = from.key();
+        let to_key = to.into().key();
+
+        let mut removed = false;
+
+        if let Some(targets) = self.connections.get_mut(from_key) {
+            let original_len = targets.len();
+            targets.retain(|key| *key != to_key);
+            if targets.len() != original_len {
+                removed = true;
+                if targets.is_empty() {
+                    self.connections.remove(from_key);
+                }
+            }
+        }
+
+        if removed {
+            self.topology_dirty = true;
+        }
+
+        removed
+    }
+
+    pub fn disconnect_all_from<O>(&mut self, from: O) -> bool
+    where
+        O: Output,
+    {
+        let from_key = from.key();
+        if let Some(targets) = self.connections.remove(from_key) {
+            if !targets.is_empty() {
+                self.topology_dirty = true;
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn remove_node(&mut self, node_key: NodeKey) -> bool {
+        let Some(node) = self.nodes.remove(node_key) else {
+            return false;
+        };
+
+        let input_keys: Vec<ValueKey> = node.inputs.iter().copied().collect();
+        let output_keys: Vec<ValueKey> = node.outputs.iter().copied().collect();
+
+        self.node_order.retain(|&key| key != node_key);
+
+        for &output_key in &output_keys {
+            self.connections.remove(output_key);
+        }
+
+        for &input_key in &input_keys {
+            self.remove_incoming_edges(input_key);
+        }
+
+        for &key in input_keys.iter().chain(output_keys.iter()) {
+            self.remove_active_ramp(key);
+            self.endpoints.remove(key);
+            self.endpoint_types.remove(key);
+            self.endpoint_descriptors.remove(key);
+            self.value_to_node.remove(key);
+        }
+
+        self.topology_dirty = true;
+
+        true
+    }
+
+    fn remove_incoming_edges(&mut self, target: ValueKey) {
+        let source_keys: Vec<ValueKey> = self.connections.keys().collect();
+        let mut empty_sources = Vec::new();
+
+        for key in source_keys {
+            if let Some(targets) = self.connections.get_mut(key) {
+                targets.retain(|value| *value != target);
+                if targets.is_empty() {
+                    empty_sources.push(key);
+                }
+            }
+        }
+
+        for key in empty_sources {
+            self.connections.remove(key);
+        }
+    }
+
     pub fn set_endpoint_descriptor(
         &mut self,
         key: ValueKey,

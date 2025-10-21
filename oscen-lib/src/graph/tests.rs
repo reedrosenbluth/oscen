@@ -85,6 +85,46 @@ fn test_complex_graph_with_multiple_paths() {
 }
 
 #[test]
+fn test_disconnect_removes_connection() {
+    let mut graph = Graph::new(44100.0);
+
+    let osc = graph.add_node(Oscillator::sine(440.0, 1.0));
+    let filter = graph.add_node(TptFilter::new(1000.0, 0.7));
+
+    assert!(!graph.disconnect(osc.output, filter.input));
+
+    graph.connect(osc.output, filter.input);
+
+    assert!(graph.disconnect(osc.output, filter.input));
+    assert!(!graph.disconnect(osc.output, filter.input));
+
+    assert!(graph.process().is_ok());
+}
+
+#[test]
+fn test_remove_node_clears_connections() {
+    let mut graph = Graph::new(44100.0);
+
+    let osc = graph.add_node(Oscillator::sine(440.0, 1.0));
+    let filter = graph.add_node(TptFilter::new(1000.0, 0.7));
+    let volume = graph.value_param(0.5);
+
+    graph.connect(osc.output, filter.input);
+    graph.connect(volume, filter.cutoff);
+
+    let filter_node = filter.node_key();
+    assert!(graph.remove_node(filter_node));
+
+    assert!(!graph.disconnect(osc.output, filter.input));
+
+    let replacement = graph.add_node(TptFilter::new(1500.0, 0.8));
+    graph.connect(osc.output, replacement.input);
+    graph.connect(volume, replacement.cutoff);
+
+    assert!(graph.process().is_ok());
+}
+
+#[test]
 fn test_audio_endpoints_are_streams() {
     let mut graph = Graph::new(44100.0);
 
