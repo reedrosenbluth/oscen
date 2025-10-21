@@ -136,7 +136,6 @@ pub struct VoiceAllocatorEndpoints<const NUM_VOICES: usize> {
 }
 
 impl<const NUM_VOICES: usize> VoiceAllocatorEndpoints<NUM_VOICES> {
-
     pub fn voice(&self, index: usize) -> crate::EventOutput {
         assert!(
             index < NUM_VOICES,

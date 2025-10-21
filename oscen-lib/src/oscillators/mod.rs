@@ -1,6 +1,5 @@
 use crate::{
-    InputEndpoint, Node, NodeKey, ProcessingContext, ProcessingNode,
-    SignalProcessor, ValueKey,
+    InputEndpoint, Node, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor, ValueKey,
 };
 use std::f32::consts::{PI, TAU};
 

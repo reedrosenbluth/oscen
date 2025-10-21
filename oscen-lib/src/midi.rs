@@ -196,10 +196,8 @@ impl SignalProcessor for MidiParser {
                         match parsed {
                             ParsedMidi::NoteOn { note, velocity } => {
                                 // Emit note-on event (output index 0)
-                                let note_on_payload = EventPayload::Object(Arc::new(NoteOnEvent {
-                                    note,
-                                    velocity,
-                                }));
+                                let note_on_payload =
+                                    EventPayload::Object(Arc::new(NoteOnEvent { note, velocity }));
                                 context.emit_timed_event(0, event.frame_offset, note_on_payload);
                             }
                             ParsedMidi::NoteOff { note } => {
@@ -248,8 +246,10 @@ mod tests {
         let voice = graph.add_node(MidiVoiceHandler::new());
 
         // Send note-on event for middle C (note 60)
-        let note_on_payload =
-            EventPayload::Object(Arc::new(NoteOnEvent { note: 60, velocity: 0.8 }));
+        let note_on_payload = EventPayload::Object(Arc::new(NoteOnEvent {
+            note: 60,
+            velocity: 0.8,
+        }));
         assert!(graph.queue_event(voice.note_on, 0, note_on_payload));
 
         // Process
@@ -303,7 +303,12 @@ mod tests {
         let parser = graph.add_node(MidiParser::new());
 
         // Send raw MIDI note-on message (0x90 = note-on, 60 = middle C, 100 = velocity)
-        assert!(queue_raw_midi(&mut graph, parser.midi_in, 0, &[0x90, 60, 100]));
+        assert!(queue_raw_midi(
+            &mut graph,
+            parser.midi_in,
+            0,
+            &[0x90, 60, 100]
+        ));
 
         // Process
         graph.process().expect("graph processes");
@@ -324,7 +329,12 @@ mod tests {
         }
 
         // Send raw MIDI note-off message (0x80 = note-off, 60 = middle C)
-        assert!(queue_raw_midi(&mut graph, parser.midi_in, 0, &[0x80, 60, 0]));
+        assert!(queue_raw_midi(
+            &mut graph,
+            parser.midi_in,
+            0,
+            &[0x80, 60, 0]
+        ));
 
         // Process
         graph.process().expect("graph processes");
@@ -355,7 +365,12 @@ mod tests {
         graph.connect(parser.note_off, voice.note_off);
 
         // Send raw MIDI note-on
-        assert!(queue_raw_midi(&mut graph, parser.midi_in, 0, &[0x90, 60, 100]));
+        assert!(queue_raw_midi(
+            &mut graph,
+            parser.midi_in,
+            0,
+            &[0x90, 60, 100]
+        ));
 
         // Process
         graph.process().expect("graph processes");
@@ -372,7 +387,12 @@ mod tests {
         assert_eq!(gate_events.len(), 1);
 
         // Send raw MIDI note-off
-        assert!(queue_raw_midi(&mut graph, parser.midi_in, 0, &[0x80, 60, 0]));
+        assert!(queue_raw_midi(
+            &mut graph,
+            parser.midi_in,
+            0,
+            &[0x80, 60, 0]
+        ));
 
         // Process
         graph.process().expect("graph processes");

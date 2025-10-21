@@ -126,7 +126,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     let mut output_kind = EndpointTypeAttr::Value; // default
                     for attr in field.attrs.iter() {
                         if attr.path().is_ident("output") {
-                            output_kind = parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
+                            output_kind =
+                                parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
                         }
                     }
 

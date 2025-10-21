@@ -1,5 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use oscen::{Graph, Oscillator, PolyBlepOscillator, TptFilter, AdsrEnvelope, Delay};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use oscen::{AdsrEnvelope, Delay, Graph, Oscillator, PolyBlepOscillator, TptFilter};
 
 fn simple_graph() -> Graph {
     let mut graph = Graph::new(44100.0);

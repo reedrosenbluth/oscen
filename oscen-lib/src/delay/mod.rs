@@ -1,6 +1,5 @@
 use crate::graph::{
-    InputEndpoint, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor,
-    ValueKey,
+    InputEndpoint, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor, ValueKey,
 };
 use crate::ring_buffer::RingBuffer;
 use oscen_macros::Node;

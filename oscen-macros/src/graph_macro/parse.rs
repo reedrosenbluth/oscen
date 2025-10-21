@@ -102,12 +102,13 @@ fn parse_simple_expr(input: ParseStream) -> Result<Expr> {
     // Parse literals (numbers, strings, etc.) or simple paths
     // Stop when we see `[` or `;`
     // DON'T use parse::<Expr>() because it will consume brackets as array indexing!
-    if input.peek(syn::LitFloat) || input.peek(syn::LitInt) || input.peek(syn::LitStr) || input.peek(syn::LitBool) {
+    if input.peek(syn::LitFloat)
+        || input.peek(syn::LitInt)
+        || input.peek(syn::LitStr)
+        || input.peek(syn::LitBool)
+    {
         let lit: syn::Lit = input.parse()?;
-        Ok(Expr::Lit(syn::ExprLit {
-            attrs: vec![],
-            lit,
-        }))
+        Ok(Expr::Lit(syn::ExprLit { attrs: vec![], lit }))
     } else if input.peek(Ident) {
         // Could be a path like std::f32::consts::PI
         Ok(Expr::Path(input.parse()?))
@@ -118,10 +119,7 @@ fn parse_simple_expr(input: ParseStream) -> Result<Expr> {
         Ok(Expr::Unary(syn::ExprUnary {
             attrs: vec![],
             op: syn::UnOp::Neg(Default::default()),
-            expr: Box::new(Expr::Lit(syn::ExprLit {
-                attrs: vec![],
-                lit,
-            })),
+            expr: Box::new(Expr::Lit(syn::ExprLit { attrs: vec![], lit })),
         }))
     } else {
         Err(input.error("expected literal or identifier for default value"))
@@ -147,23 +145,33 @@ impl Parse for NodeDecl {
         let (constructor, extracted_type) = parse_constructor_with_type(input)?;
 
         // Check if constructor is an array literal: [Type::new(); N]
-        let (actual_constructor, array_size, node_type) = if let Expr::Repeat(repeat_expr) = constructor {
-            // Extract the repeated expression and count
-            let count = if let Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(count), .. }) = &*repeat_expr.len {
-                Some(count.base10_parse::<usize>()?)
+        let (actual_constructor, array_size, node_type) =
+            if let Expr::Repeat(repeat_expr) = constructor {
+                // Extract the repeated expression and count
+                let count = if let Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Int(count),
+                    ..
+                }) = &*repeat_expr.len
+                {
+                    Some(count.base10_parse::<usize>()?)
+                } else {
+                    None
+                };
+                // For array repeats, try to extract type from the inner expression
+                let inner_type = extracted_type.or_else(|| extract_node_type(&repeat_expr.expr));
+                (*repeat_expr.expr, count, inner_type)
             } else {
-                None
+                (constructor, None, extracted_type)
             };
-            // For array repeats, try to extract type from the inner expression
-            let inner_type = extracted_type.or_else(|| extract_node_type(&repeat_expr.expr));
-            (*repeat_expr.expr, count, inner_type)
-        } else {
-            (constructor, None, extracted_type)
-        };
 
         input.parse::<Token![;]>()?;
 
-        Ok(NodeDecl { name, constructor: actual_constructor, node_type, array_size })
+        Ok(NodeDecl {
+            name,
+            constructor: actual_constructor,
+            node_type,
+            array_size,
+        })
     }
 }
 
@@ -186,23 +194,33 @@ fn parse_node_block(input: ParseStream) -> Result<Vec<NodeDecl>> {
         let (constructor, extracted_type) = parse_constructor_with_type(&content)?;
 
         // Check if constructor is an array literal: [Type::new(); N]
-        let (actual_constructor, array_size, node_type) = if let Expr::Repeat(repeat_expr) = constructor {
-            // Extract the repeated expression and count
-            let count = if let Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(count), .. }) = &*repeat_expr.len {
-                Some(count.base10_parse::<usize>()?)
+        let (actual_constructor, array_size, node_type) =
+            if let Expr::Repeat(repeat_expr) = constructor {
+                // Extract the repeated expression and count
+                let count = if let Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Int(count),
+                    ..
+                }) = &*repeat_expr.len
+                {
+                    Some(count.base10_parse::<usize>()?)
+                } else {
+                    None
+                };
+                // For array repeats, try to extract type from the inner expression
+                let inner_type = extracted_type.or_else(|| extract_node_type(&repeat_expr.expr));
+                (*repeat_expr.expr, count, inner_type)
             } else {
-                None
+                (constructor, None, extracted_type)
             };
-            // For array repeats, try to extract type from the inner expression
-            let inner_type = extracted_type.or_else(|| extract_node_type(&repeat_expr.expr));
-            (*repeat_expr.expr, count, inner_type)
-        } else {
-            (constructor, None, extracted_type)
-        };
 
         content.parse::<Token![;]>()?;
 
-        nodes.push(NodeDecl { name, constructor: actual_constructor, node_type, array_size });
+        nodes.push(NodeDecl {
+            name,
+            constructor: actual_constructor,
+            node_type,
+            array_size,
+        });
     }
 
     Ok(nodes)
@@ -233,13 +251,19 @@ fn parse_constructor_with_type(input: ParseStream) -> Result<(Expr, Option<syn::
             while depth > 0 && !fork.is_empty() {
                 if fork.peek(Token![<]) {
                     fork.parse::<Token![<]>()?;
-                    generic_tokens.push(TokenTree::Punct(proc_macro2::Punct::new('<', proc_macro2::Spacing::Alone)));
+                    generic_tokens.push(TokenTree::Punct(proc_macro2::Punct::new(
+                        '<',
+                        proc_macro2::Spacing::Alone,
+                    )));
                     depth += 1;
                 } else if fork.peek(Token![>]) {
                     depth -= 1;
                     if depth > 0 {
                         fork.parse::<Token![>]>()?;
-                        generic_tokens.push(TokenTree::Punct(proc_macro2::Punct::new('>', proc_macro2::Spacing::Alone)));
+                        generic_tokens.push(TokenTree::Punct(proc_macro2::Punct::new(
+                            '>',
+                            proc_macro2::Spacing::Alone,
+                        )));
                     } else {
                         fork.parse::<Token![>]>()?; // consume the closing >
                     }

@@ -57,10 +57,7 @@ impl CodegenContext {
         // Get the last segment and create the Endpoints version
         let last_segment = segments.last().unwrap();
         let type_name = &last_segment.ident;
-        let endpoints_ident = syn::Ident::new(
-            &format!("{}Endpoints", type_name),
-            type_name.span()
-        );
+        let endpoints_ident = syn::Ident::new(&format!("{}Endpoints", type_name), type_name.span());
 
         // Preserve generic arguments from the original type
         let generic_args = &last_segment.arguments;
@@ -124,9 +121,7 @@ impl CodegenContext {
     }
 
     fn generate_context_struct(&self) -> TokenStream {
-        let mut fields = vec![
-            quote! { pub graph: ::oscen::Graph }
-        ];
+        let mut fields = vec![quote! { pub graph: ::oscen::Graph }];
 
         // Add input fields
         for input in &self.inputs {
@@ -245,28 +240,31 @@ impl CodegenContext {
     }
 
     fn generate_node_creation(&self) -> Vec<TokenStream> {
-        self.nodes.iter().flat_map(|node| {
-            let name = &node.name;
-            let constructor = &node.constructor;
+        self.nodes
+            .iter()
+            .flat_map(|node| {
+                let name = &node.name;
+                let constructor = &node.constructor;
 
-            if let Some(array_size) = node.array_size {
-                // Generate multiple instances with indexed names
-                (0..array_size).map(|i| {
-                    let indexed_name = syn::Ident::new(
-                        &format!("{}_{}", name, i),
-                        name.span()
-                    );
-                    quote! {
-                        let #indexed_name = graph.add_node(#constructor);
-                    }
-                }).collect::<Vec<_>>()
-            } else {
-                // Single instance
-                vec![quote! {
-                    let #name = graph.add_node(#constructor);
-                }]
-            }
-        }).collect()
+                if let Some(array_size) = node.array_size {
+                    // Generate multiple instances with indexed names
+                    (0..array_size)
+                        .map(|i| {
+                            let indexed_name =
+                                syn::Ident::new(&format!("{}_{}", name, i), name.span());
+                            quote! {
+                                let #indexed_name = graph.add_node(#constructor);
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    // Single instance
+                    vec![quote! {
+                        let #name = graph.add_node(#constructor);
+                    }]
+                }
+            })
+            .collect()
     }
 
     fn generate_connections(&self) -> Result<Vec<TokenStream>> {
@@ -284,7 +282,8 @@ impl CodegenContext {
             if let ConnectionExpr::Ident(dest_ident) = &conn.dest {
                 if self.outputs.iter().any(|o| o.name == *dest_ident) {
                     // This is an output assignment with potential intermediate values
-                    let (stmts, final_expr) = self.generate_expr_with_temps(&conn.source, &mut temp_counter)?;
+                    let (stmts, final_expr) =
+                        self.generate_expr_with_temps(&conn.source, &mut temp_counter)?;
                     output_assignments.extend(stmts);
                     output_assignments.push(quote! {
                         let #dest_ident = #final_expr;
@@ -300,7 +299,8 @@ impl CodegenContext {
             }
 
             // Regular connection - extract temps from source to avoid nested mutable borrows
-            let (source_stmts, source_expr) = self.generate_expr_with_temps(&conn.source, &mut temp_counter)?;
+            let (source_stmts, source_expr) =
+                self.generate_expr_with_temps(&conn.source, &mut temp_counter)?;
             temp_stmts.extend(source_stmts);
 
             let dest = self.generate_connection_expr(&conn.dest)?;
@@ -341,7 +341,9 @@ impl CodegenContext {
         if let ConnectionExpr::Method(dest_obj, dest_method, dest_args) = dest {
             if let ConnectionExpr::Ident(dest_base) = &**dest_obj {
                 // Check if dest_base is an array node
-                if let Some(dest_array_size) = self.nodes.iter()
+                if let Some(dest_array_size) = self
+                    .nodes
+                    .iter()
                     .find(|n| n.name == *dest_base)
                     .and_then(|n| n.array_size)
                 {
@@ -355,7 +357,7 @@ impl CodegenContext {
                                     let src_indexed = quote! { #src_base.voice(#i) };
                                     let dest_indexed_name = syn::Ident::new(
                                         &format!("{}_{}", dest_base, i),
-                                        dest_base.span()
+                                        dest_base.span(),
                                     );
 
                                     let dest_call = if dest_args.is_empty() {
@@ -376,7 +378,9 @@ impl CodegenContext {
                     // Pattern 2: Array-to-array (src is method on array, dest is method on array)
                     if let ConnectionExpr::Method(src_obj, src_method, src_args) = source {
                         if let ConnectionExpr::Ident(src_base) = &**src_obj {
-                            if let Some(src_array_size) = self.nodes.iter()
+                            if let Some(src_array_size) = self
+                                .nodes
+                                .iter()
                                 .find(|n| n.name == *src_base)
                                 .and_then(|n| n.array_size)
                             {
@@ -386,11 +390,11 @@ impl CodegenContext {
                                     for i in 0..src_array_size {
                                         let src_indexed_name = syn::Ident::new(
                                             &format!("{}_{}", src_base, i),
-                                            src_base.span()
+                                            src_base.span(),
                                         );
                                         let dest_indexed_name = syn::Ident::new(
                                             &format!("{}_{}", dest_base, i),
-                                            dest_base.span()
+                                            dest_base.span(),
                                         );
 
                                         let src_call = if src_args.is_empty() {
@@ -418,15 +422,15 @@ impl CodegenContext {
                     // Pattern 3: Scalar-to-array (src is scalar, dest is method on array)
                     if let ConnectionExpr::Ident(src_ident) = source {
                         // Check if source is an input or output (scalar)
-                        let is_scalar = self.inputs.iter().any(|i| i.name == *src_ident) ||
-                                       self.outputs.iter().any(|o| o.name == *src_ident);
+                        let is_scalar = self.inputs.iter().any(|i| i.name == *src_ident)
+                            || self.outputs.iter().any(|o| o.name == *src_ident);
 
                         if is_scalar {
                             let mut connections = Vec::new();
                             for i in 0..dest_array_size {
                                 let dest_indexed_name = syn::Ident::new(
                                     &format!("{}_{}", dest_base, i),
-                                    dest_base.span()
+                                    dest_base.span(),
                                 );
 
                                 let dest_call = if dest_args.is_empty() {
@@ -450,7 +454,11 @@ impl CodegenContext {
     }
 
     /// Generate an expression, extracting binary operations to temporary variables
-    fn generate_expr_with_temps(&self, expr: &ConnectionExpr, counter: &mut usize) -> Result<(Vec<TokenStream>, TokenStream)> {
+    fn generate_expr_with_temps(
+        &self,
+        expr: &ConnectionExpr,
+        counter: &mut usize,
+    ) -> Result<(Vec<TokenStream>, TokenStream)> {
         match expr {
             ConnectionExpr::Binary(left, op, right) => {
                 // Generate left side (might create temps)
@@ -461,7 +469,10 @@ impl CodegenContext {
                 stmts.extend(right_stmts);
 
                 // Create a temp variable for this binary operation
-                let temp_name = syn::Ident::new(&format!("__temp_{}", counter), proc_macro2::Span::call_site());
+                let temp_name = syn::Ident::new(
+                    &format!("__temp_{}", counter),
+                    proc_macro2::Span::call_site(),
+                );
                 *counter += 1;
 
                 let operation = match op {
@@ -480,7 +491,9 @@ impl CodegenContext {
             ConnectionExpr::Method(obj, method, args) => {
                 // Check if this is a method call on an array node that needs summing
                 if let ConnectionExpr::Ident(base_name) = &**obj {
-                    if let Some(array_size) = self.nodes.iter()
+                    if let Some(array_size) = self
+                        .nodes
+                        .iter()
                         .find(|n| n.name == *base_name)
                         .and_then(|n| n.array_size)
                     {
@@ -488,10 +501,8 @@ impl CodegenContext {
                         let mut stmts = Vec::new();
 
                         // First element
-                        let first_indexed_name = syn::Ident::new(
-                            &format!("{}_{}", base_name, 0),
-                            base_name.span()
-                        );
+                        let first_indexed_name =
+                            syn::Ident::new(&format!("{}_{}", base_name, 0), base_name.span());
 
                         let mut sum_temp = if args.is_empty() {
                             quote! { #first_indexed_name.#method }
@@ -501,10 +512,8 @@ impl CodegenContext {
 
                         // Add remaining elements, creating a temp for each addition
                         for i in 1..array_size {
-                            let indexed_name = syn::Ident::new(
-                                &format!("{}_{}", base_name, i),
-                                base_name.span()
-                            );
+                            let indexed_name =
+                                syn::Ident::new(&format!("{}_{}", base_name, i), base_name.span());
 
                             let call_expr = if args.is_empty() {
                                 quote! { #indexed_name.#method }
@@ -512,7 +521,10 @@ impl CodegenContext {
                                 quote! { #indexed_name.#method(#(#args),*) }
                             };
 
-                            let temp_name = syn::Ident::new(&format!("__temp_{}", counter), proc_macro2::Span::call_site());
+                            let temp_name = syn::Ident::new(
+                                &format!("__temp_{}", counter),
+                                proc_macro2::Span::call_site(),
+                            );
                             *counter += 1;
 
                             stmts.push(quote! {
@@ -540,17 +552,13 @@ impl CodegenContext {
 
     fn generate_connection_expr(&self, expr: &ConnectionExpr) -> Result<TokenStream> {
         match expr {
-            ConnectionExpr::Ident(ident) => {
-                Ok(quote! { #ident })
-            }
+            ConnectionExpr::Ident(ident) => Ok(quote! { #ident }),
             ConnectionExpr::ArrayIndex(array_expr, index) => {
                 // For array[idx], we need to check if the base is an identifier
                 // If it is, translate to base_idx (e.g., voices[0] -> voices_0)
                 if let ConnectionExpr::Ident(base_name) = &**array_expr {
-                    let indexed_name = syn::Ident::new(
-                        &format!("{}_{}", base_name, index),
-                        base_name.span()
-                    );
+                    let indexed_name =
+                        syn::Ident::new(&format!("{}_{}", base_name, index), base_name.span());
                     Ok(quote! { #indexed_name })
                 } else {
                     // For more complex expressions, use actual array indexing
@@ -576,25 +584,16 @@ impl CodegenContext {
                 let right_expr = self.generate_connection_expr(right)?;
 
                 match op {
-                    BinaryOp::Mul => {
-                        Ok(quote! { graph.multiply(#left_expr, #right_expr) })
-                    }
-                    BinaryOp::Add => {
-                        Ok(quote! { graph.add(#left_expr, #right_expr) })
-                    }
-                    BinaryOp::Sub => {
-                        Ok(quote! { graph.subtract(#left_expr, #right_expr) })
-                    }
-                    BinaryOp::Div => {
-                        Ok(quote! { graph.divide(#left_expr, #right_expr) })
-                    }
+                    BinaryOp::Mul => Ok(quote! { graph.multiply(#left_expr, #right_expr) }),
+                    BinaryOp::Add => Ok(quote! { graph.add(#left_expr, #right_expr) }),
+                    BinaryOp::Sub => Ok(quote! { graph.subtract(#left_expr, #right_expr) }),
+                    BinaryOp::Div => Ok(quote! { graph.divide(#left_expr, #right_expr) }),
                 }
             }
-            ConnectionExpr::Literal(lit) => {
-                Ok(quote! { #lit })
-            }
+            ConnectionExpr::Literal(lit) => Ok(quote! { #lit }),
             ConnectionExpr::Call(func, args) => {
-                let arg_exprs: Result<Vec<_>> = args.iter()
+                let arg_exprs: Result<Vec<_>> = args
+                    .iter()
                     .map(|arg| self.generate_connection_expr(arg))
                     .collect();
                 let arg_exprs = arg_exprs?;
@@ -668,9 +667,7 @@ impl CodegenContext {
             if let Some(array_size) = node.array_size {
                 // Generate array initializer: [name_0, name_1, ...]
                 let indexed_names: Vec<_> = (0..array_size)
-                    .map(|i| {
-                        syn::Ident::new(&format!("{}_{}", name, i), name.span())
-                    })
+                    .map(|i| syn::Ident::new(&format!("{}_{}", name, i), name.span()))
                     .collect();
                 fields.push(quote! { #name: [#(#indexed_names),*] });
             } else {
@@ -683,14 +680,10 @@ impl CodegenContext {
 
     /// Generate the Endpoints struct for a graph (e.g., VoiceEndpoints)
     fn generate_endpoints_struct(&self, graph_name: &syn::Ident) -> TokenStream {
-        let endpoints_name = syn::Ident::new(
-            &format!("{}Endpoints", graph_name),
-            graph_name.span()
-        );
+        let endpoints_name =
+            syn::Ident::new(&format!("{}Endpoints", graph_name), graph_name.span());
 
-        let mut fields = vec![
-            quote! { node_key: ::oscen::NodeKey }
-        ];
+        let mut fields = vec![quote! { node_key: ::oscen::NodeKey }];
 
         let mut accessor_methods = Vec::new();
 
@@ -701,15 +694,15 @@ impl CodegenContext {
             let (ty, accessor_ty) = match input.kind {
                 EndpointKind::Value => (
                     quote! { ::oscen::ValueInput },
-                    quote! { ::oscen::ValueInput }
+                    quote! { ::oscen::ValueInput },
                 ),
                 EndpointKind::Event => (
                     quote! { ::oscen::EventInput },
-                    quote! { ::oscen::EventInput }
+                    quote! { ::oscen::EventInput },
                 ),
                 EndpointKind::Stream => (
                     quote! { ::oscen::StreamInput },
-                    quote! { ::oscen::StreamInput }
+                    quote! { ::oscen::StreamInput },
                 ),
             };
             fields.push(quote! { #field_name: #ty });
@@ -727,15 +720,15 @@ impl CodegenContext {
             let (ty, accessor_ty) = match output.kind {
                 EndpointKind::Value => (
                     quote! { ::oscen::ValueOutput },
-                    quote! { ::oscen::ValueOutput }
+                    quote! { ::oscen::ValueOutput },
                 ),
                 EndpointKind::Event => (
                     quote! { ::oscen::EventOutput },
-                    quote! { ::oscen::EventOutput }
+                    quote! { ::oscen::EventOutput },
                 ),
                 EndpointKind::Stream => (
                     quote! { ::oscen::StreamOutput },
-                    quote! { ::oscen::StreamOutput }
+                    quote! { ::oscen::StreamOutput },
                 ),
             };
             fields.push(quote! { #field_name: #ty });
@@ -843,10 +836,7 @@ impl CodegenContext {
 
     /// Generate ProcessingNode implementation for graph
     fn generate_processing_node_impl(&self, name: &syn::Ident) -> TokenStream {
-        let endpoints_name = syn::Ident::new(
-            &format!("{}Endpoints", name),
-            name.span()
-        );
+        let endpoints_name = syn::Ident::new(&format!("{}Endpoints", name), name.span());
 
         // Generate ENDPOINT_DESCRIPTORS
         let mut descriptors = Vec::new();
@@ -957,9 +947,7 @@ impl CodegenContext {
 
     /// Generate a module-level struct definition with a constructor
     fn generate_module_struct(&self, name: &syn::Ident) -> Result<TokenStream> {
-        let mut fields = vec![
-            quote! { pub graph: ::oscen::Graph }
-        ];
+        let mut fields = vec![quote! { pub graph: ::oscen::Graph }];
 
         // Add input fields
         for input in &self.inputs {
@@ -1097,9 +1085,7 @@ impl Clone for ConnectionExpr {
             Self::Method(obj, method, args) => {
                 Self::Method(obj.clone(), method.clone(), args.clone())
             }
-            Self::Binary(left, op, right) => {
-                Self::Binary(left.clone(), *op, right.clone())
-            }
+            Self::Binary(left, op, right) => Self::Binary(left.clone(), *op, right.clone()),
             Self::Literal(lit) => Self::Literal(lit.clone()),
             Self::Call(func, args) => Self::Call(func.clone(), args.clone()),
         }

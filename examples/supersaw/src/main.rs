@@ -1,7 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use oscen::{
-    Graph, InputEndpoint, Node, NodeKey, StreamOutput, PolyBlepOscillator,
-    ProcessingContext, ProcessingNode, SignalProcessor, TptFilter, ValueKey,
+    Graph, InputEndpoint, Node, NodeKey, PolyBlepOscillator, ProcessingContext, ProcessingNode,
+    SignalProcessor, StreamOutput, TptFilter, ValueKey,
 };
 use std::cell::RefCell;
 use std::rc::Rc;

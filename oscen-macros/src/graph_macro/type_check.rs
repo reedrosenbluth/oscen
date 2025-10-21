@@ -34,7 +34,10 @@ impl TypeContext {
             ConnectionExpr::Ident(ident) => {
                 let name = ident.to_string();
                 // Check if it's a known input or output
-                self.inputs.get(&name).or_else(|| self.outputs.get(&name)).copied()
+                self.inputs
+                    .get(&name)
+                    .or_else(|| self.outputs.get(&name))
+                    .copied()
             }
             ConnectionExpr::ArrayIndex(array_expr, _idx) => {
                 // Array indexing preserves the type of the base expression
@@ -56,9 +59,10 @@ impl TypeContext {
                     "input" | "audio_in" | "signal_in" => Some(EndpointKind::Stream),
 
                     // Value inputs (control parameters)
-                    "frequency" | "amplitude" | "cutoff" | "q" | "resonance"
-                    | "attack" | "decay" | "sustain" | "release"
-                    | "f_mod" | "q_mod" => Some(EndpointKind::Value),
+                    "frequency" | "amplitude" | "cutoff" | "q" | "resonance" | "attack"
+                    | "decay" | "sustain" | "release" | "f_mod" | "q_mod" => {
+                        Some(EndpointKind::Value)
+                    }
 
                     // Event inputs
                     "gate" | "trigger" | "note_on" | "note_off" => Some(EndpointKind::Event),
@@ -130,10 +134,7 @@ impl TypeContext {
                     );
 
                     // Try to create a helpful error pointing to the connection
-                    return Err(syn::Error::new(
-                        proc_macro2::Span::call_site(),
-                        msg,
-                    ));
+                    return Err(syn::Error::new(proc_macro2::Span::call_site(), msg));
                 }
             }
             // If we can't infer types, let Rust's type system handle it
@@ -154,9 +155,17 @@ impl TypeContext {
                 // Note: Some methods like "frequency" can be both inputs and outputs
                 // depending on the node, so we only list truly input-only methods here
                 let input_methods = [
-                    "input", "amplitude", "cutoff", "q",
-                    "trigger", "attack", "decay", "sustain", "release",
-                    "f_mod", "q_mod",
+                    "input",
+                    "amplitude",
+                    "cutoff",
+                    "q",
+                    "trigger",
+                    "attack",
+                    "decay",
+                    "sustain",
+                    "release",
+                    "f_mod",
+                    "q_mod",
                 ];
 
                 if input_methods.contains(&method_name.as_str()) {

@@ -155,9 +155,7 @@ impl Graph {
         T::create_endpoints(node_key, inputs, outputs)
     }
 
-    pub fn add_audio_input(
-        &mut self,
-    ) -> (<AudioInput as ProcessingNode>::Endpoints, ValueInput) {
+    pub fn add_audio_input(&mut self) -> (<AudioInput as ProcessingNode>::Endpoints, ValueInput) {
         let input_node = self.add_node(AudioInput::new());
         let input_handle = input_node.input_value;
         self.insert_value_input(input_handle, 0.0)
@@ -180,7 +178,11 @@ impl Graph {
             .copied()
     }
 
-    pub fn insert_value_input(&mut self, input: ValueInput, initial_value: f32) -> Option<ValueKey> {
+    pub fn insert_value_input(
+        &mut self,
+        input: ValueInput,
+        initial_value: f32,
+    ) -> Option<ValueKey> {
         let key: ValueKey = input.into();
         if let Some(existing) = self.endpoint_types.get(key) {
             if *existing != EndpointType::Value {
@@ -220,11 +222,7 @@ impl Graph {
     pub fn connect_all(&mut self, connections: Vec<ConnectionBuilder>) {
         for builder in connections {
             for Connection { from, to } in builder.connections {
-                self.connections
-                    .entry(from)
-                    .unwrap()
-                    .or_default()
-                    .push(to);
+                self.connections.entry(from).unwrap().or_default().push(to);
                 self.topology_dirty = true;
             }
         }
@@ -376,12 +374,7 @@ impl Graph {
         output
     }
 
-    pub fn combine<O1, O2>(
-        &mut self,
-        from1: O1,
-        from2: O2,
-        f: fn(f32, f32) -> f32,
-    ) -> StreamOutput
+    pub fn combine<O1, O2>(&mut self, from1: O1, from2: O2, f: fn(f32, f32) -> f32) -> StreamOutput
     where
         O1: Output,
         O2: Output,
@@ -615,101 +608,107 @@ impl Graph {
             {
                 if let Some(node) = self.nodes.get_mut(node_key) {
                     let output = {
-                    // Use fixed arrays instead of ArrayVec to reduce initialization overhead
-                    let mut input_values: [f32; MAX_NODE_ENDPOINTS] = [0.0; MAX_NODE_ENDPOINTS];
-                    let mut value_inputs: [Option<&ValueData>; MAX_NODE_ENDPOINTS] =
-                        [None; MAX_NODE_ENDPOINTS];
-                    let mut event_inputs: [&[EventInstance]; MAX_NODE_ENDPOINTS] =
-                        [&[]; MAX_NODE_ENDPOINTS];
+                        // Use fixed arrays instead of ArrayVec to reduce initialization overhead
+                        let mut input_values: [f32; MAX_NODE_ENDPOINTS] = [0.0; MAX_NODE_ENDPOINTS];
+                        let mut value_inputs: [Option<&ValueData>; MAX_NODE_ENDPOINTS] =
+                            [None; MAX_NODE_ENDPOINTS];
+                        let mut event_inputs: [&[EventInstance]; MAX_NODE_ENDPOINTS] =
+                            [&[]; MAX_NODE_ENDPOINTS];
 
-                    let num_inputs = node.inputs.len();
+                        let num_inputs = node.inputs.len();
 
-                    // Use cached input types instead of SecondaryMap lookup
-                    for idx in 0..num_inputs {
-                        let input_key = node.inputs[idx];
-                        let endpoint_type = node.input_types[idx];
+                        // Use cached input types instead of SecondaryMap lookup
+                        for idx in 0..num_inputs {
+                            let input_key = node.inputs[idx];
+                            let endpoint_type = node.input_types[idx];
 
-                        match endpoint_type {
-                            EndpointType::Event => {
-                                let endpoint_state = self.endpoints.get(input_key);
-                                event_inputs[idx] = endpoint_state
-                                    .and_then(EndpointState::as_event)
-                                    .map(|state| state.queue().events())
-                                    .unwrap_or(&[]);
+                            match endpoint_type {
+                                EndpointType::Event => {
+                                    let endpoint_state = self.endpoints.get(input_key);
+                                    event_inputs[idx] = endpoint_state
+                                        .and_then(EndpointState::as_event)
+                                        .map(|state| state.queue().events())
+                                        .unwrap_or(&[]);
+                                }
+                                EndpointType::Stream => {
+                                    let endpoint_state = self.endpoints.get(input_key);
+                                    input_values[idx] = endpoint_state
+                                        .and_then(EndpointState::as_scalar)
+                                        .unwrap_or(0.0);
+                                }
+                                EndpointType::Value => {
+                                    let endpoint_state = self.endpoints.get(input_key);
+                                    value_inputs[idx] = endpoint_state.and_then(|state| {
+                                        if let EndpointState::Value(data) = state {
+                                            Some(data)
+                                        } else {
+                                            None
+                                        }
+                                    });
+                                    input_values[idx] = endpoint_state
+                                        .and_then(EndpointState::as_scalar)
+                                        .unwrap_or(0.0);
+                                }
                             }
-                            EndpointType::Stream => {
-                                let endpoint_state = self.endpoints.get(input_key);
-                                input_values[idx] = endpoint_state
-                                    .and_then(EndpointState::as_scalar)
-                                    .unwrap_or(0.0);
-                            }
-                            EndpointType::Value => {
-                                let endpoint_state = self.endpoints.get(input_key);
-                                value_inputs[idx] = endpoint_state.and_then(|state| {
-                                    if let EndpointState::Value(data) = state {
-                                        Some(data)
-                                    } else {
-                                        None
-                                    }
-                                });
-                                input_values[idx] = endpoint_state
-                                    .and_then(EndpointState::as_scalar)
-                                    .unwrap_or(0.0);
+                        }
+
+                        self.pending_events.clear();
+
+                        let mut context = ProcessingContext::new(
+                            &input_values[..num_inputs],
+                            &value_inputs[..num_inputs],
+                            &event_inputs[..num_inputs],
+                            &mut self.pending_events,
+                        );
+
+                        node.processor.process(self.sample_rate, &mut context)
+                    };
+
+                    if let Some(&output_key) = node.outputs.first() {
+                        if let Some(state) = self.endpoints.get_mut(output_key) {
+                            state.set_scalar(output);
+                        }
+
+                        if let Some(connections) = self.connections.get(output_key) {
+                            for &target_input in connections {
+                                if let Some(target_state) = self.endpoints.get_mut(target_input) {
+                                    target_state.set_scalar(output);
+                                }
                             }
                         }
                     }
 
-                    self.pending_events.clear();
+                    // Process events if any were emitted
+                    if !self.pending_events.is_empty() {
+                        for pending in self.pending_events.iter() {
+                            let output_idx = pending.output_index;
 
-                    let mut context = ProcessingContext::new(
-                        &input_values[..num_inputs],
-                        &value_inputs[..num_inputs],
-                        &event_inputs[..num_inputs],
-                        &mut self.pending_events,
-                    );
-
-                    node.processor.process(self.sample_rate, &mut context)
-                };
-
-                if let Some(&output_key) = node.outputs.first() {
-                    if let Some(state) = self.endpoints.get_mut(output_key) {
-                        state.set_scalar(output);
-                    }
-
-                    if let Some(connections) = self.connections.get(output_key) {
-                        for &target_input in connections {
-                            if let Some(target_state) = self.endpoints.get_mut(target_input) {
-                                target_state.set_scalar(output);
-                            }
-                        }
-                    }
-                }
-
-                // Process events if any were emitted
-                if !self.pending_events.is_empty() {
-                    for pending in self.pending_events.iter() {
-                        let output_idx = pending.output_index;
-
-                        // Use cached output type instead of SecondaryMap lookup
-                        if let Some(&output_type) = node.output_types.get(output_idx) {
-                            if output_type != EndpointType::Event {
-                                continue;
-                            }
-
-                            if let Some(&event_output_key) = node.outputs.get(output_idx) {
-                                if let Some(state) = self.endpoints.get_mut(event_output_key) {
-                                    if let Some(event_state) = state.as_event_mut() {
-                                        let _ = event_state.queue_mut().push(pending.event.clone());
-                                    }
+                            // Use cached output type instead of SecondaryMap lookup
+                            if let Some(&output_type) = node.output_types.get(output_idx) {
+                                if output_type != EndpointType::Event {
+                                    continue;
                                 }
 
-                                if let Some(targets) = self.connections.get(event_output_key) {
-                                    for &target_input in targets {
-                                        if let Some(target_state) = self.endpoints.get_mut(target_input)
-                                        {
-                                            if let Some(event_state) = target_state.as_event_mut() {
-                                                let _ =
-                                                    event_state.queue_mut().push(pending.event.clone());
+                                if let Some(&event_output_key) = node.outputs.get(output_idx) {
+                                    if let Some(state) = self.endpoints.get_mut(event_output_key) {
+                                        if let Some(event_state) = state.as_event_mut() {
+                                            let _ =
+                                                event_state.queue_mut().push(pending.event.clone());
+                                        }
+                                    }
+
+                                    if let Some(targets) = self.connections.get(event_output_key) {
+                                        for &target_input in targets {
+                                            if let Some(target_state) =
+                                                self.endpoints.get_mut(target_input)
+                                            {
+                                                if let Some(event_state) =
+                                                    target_state.as_event_mut()
+                                                {
+                                                    let _ = event_state
+                                                        .queue_mut()
+                                                        .push(pending.event.clone());
+                                                }
                                             }
                                         }
                                     }
@@ -717,22 +716,21 @@ impl Graph {
                             }
                         }
                     }
-                }
 
-                self.pending_events.clear();
+                    self.pending_events.clear();
 
-                // Only clear event queues if this node has event inputs (cached flag)
-                if node.has_event_inputs {
-                    for (idx, &input_key) in node.inputs.iter().enumerate() {
-                        if node.input_types[idx] == EndpointType::Event {
-                            if let Some(state) = self.endpoints.get_mut(input_key) {
-                                if let Some(event_state) = state.as_event_mut() {
-                                    event_state.queue_mut().clear();
+                    // Only clear event queues if this node has event inputs (cached flag)
+                    if node.has_event_inputs {
+                        for (idx, &input_key) in node.inputs.iter().enumerate() {
+                            if node.input_types[idx] == EndpointType::Event {
+                                if let Some(state) = self.endpoints.get_mut(input_key) {
+                                    if let Some(event_state) = state.as_event_mut() {
+                                        event_state.queue_mut().clear();
+                                    }
                                 }
                             }
                         }
                     }
-                }
                 }
             }
         }

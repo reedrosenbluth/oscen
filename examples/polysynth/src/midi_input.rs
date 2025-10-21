@@ -27,8 +27,8 @@ impl MidiConnection {
         let mut connections = Vec::new();
         for (i, port) in ports.iter().enumerate() {
             // Create a new MidiInput for each connection
-            let midi_in = MidiInput::new("oscen-midi-input")
-                .context("failed to create MIDI input")?;
+            let midi_in =
+                MidiInput::new("oscen-midi-input").context("failed to create MIDI input")?;
 
             let port_name = midi_in
                 .port_name(port)

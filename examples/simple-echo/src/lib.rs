@@ -1,8 +1,6 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
-use oscen::{
-    filters::tpt::TptFilter, graph::ValueInput, Delay, Graph, StreamOutput, Value,
-};
+use oscen::{filters::tpt::TptFilter, graph::ValueInput, Delay, Graph, StreamOutput, Value};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -101,7 +99,11 @@ fn build_channel_graph(
     let (input_signal, input_endpoint) = graph.add_audio_input();
 
     // Add nodes to graph
-    let delay = graph.add_node(Delay::from_seconds(params.delay_time.value(), 0.0, sample_rate));
+    let delay = graph.add_node(Delay::from_seconds(
+        params.delay_time.value(),
+        0.0,
+        sample_rate,
+    ));
     let filter = graph.add_node(TptFilter::new(params.filter_cutoff.value(), 0.7));
 
     let feedback_node = graph.add_node(Value::new(params.feedback.value()));

@@ -1,6 +1,6 @@
 mod ast;
-mod parse;
 mod codegen;
+mod parse;
 mod type_check;
 
 use proc_macro::TokenStream;

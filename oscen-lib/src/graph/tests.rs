@@ -1,7 +1,5 @@
 use super::traits::ProcessingContext;
-use super::types::{
-    EndpointDescriptor, EndpointDirection, EndpointType, EventPayload, ValueInput,
-};
+use super::types::{EndpointDescriptor, EndpointDirection, EndpointType, EventPayload, ValueInput};
 use super::*;
 use crate::delay::Delay;
 use crate::filters::tpt::TptFilter;
