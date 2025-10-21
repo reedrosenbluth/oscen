@@ -182,6 +182,7 @@ component ModuleNode inherits Rectangle {
 
     callback jack_clicked(int);
     callback knob_changed(int /* knob_index */, float /* value */);
+    callback position_changed(length /* new_x */, length /* new_y */);
 
     // Layout constants
     private property <int> knobs_per_row: 3;
@@ -193,6 +194,7 @@ component ModuleNode inherits Rectangle {
     private property <length> jack_spacing: 2px;
     private property <length> jack_width: 30px;
     private property <length> jack_height: 40px;
+    private property <length> drag_handle_height: root.knob_area_y;
 
     // Calculate number of rows
     private property <int> knob_rows: root.knobs.length == 0 ? 0 : ((root.knobs.length - 1) / root.knobs_per_row + 1);
@@ -207,6 +209,34 @@ component ModuleNode inherits Rectangle {
     border-width: 3px;
     border-color: #96BE8C;
     background: #629460;
+
+    TouchArea {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: root.drag_handle_height;
+        property <bool> dragging: false;
+
+        pointer-event(event) => {
+            if (event.button != PointerEventButton.left) {
+                return;
+            }
+            if (event.kind == PointerEventKind.down) {
+                self.dragging = true;
+            } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                self.dragging = false;
+            }
+        }
+
+        moved => {
+            if (!self.dragging) {
+                return;
+            }
+            let dx = self.mouse-x - self.pressed-x;
+            let dy = self.mouse-y - self.pressed-y;
+            root.position_changed(root.x + dx, root.y + dy);
+        }
+    }
 
     // Render knobs in a grid
     for knob[index] in root.knobs: Knob {
@@ -366,6 +396,10 @@ export component ModularWindow inherits Window {
         horizontal-alignment: center;
     }
 
+    function clamp_length(value: length, min_value: length, max_value: length) -> length {
+        return max(min_value, min(max_value, value));
+    }
+
     // Define node positions
     property <length> sine_x: 80px;
     property <length> sine_y: 120px;
@@ -392,6 +426,12 @@ export component ModularWindow inherits Window {
         }];
         jack_clicked(id) => { handle_jack_click(id); }
         knob_changed(idx, val) => { root.sine_freq_changed(val); }
+        position_changed(nx, ny) => {
+            let max_x = max(0px, root.width - sine_node.width);
+            let max_y = max(0px, root.height - sine_node.height);
+            sine_x = clamp_length(nx, 0px, max_x);
+            sine_y = clamp_length(ny, 0px, max_y);
+        }
     }
 
     // Saw Oscillator Node
@@ -410,6 +450,12 @@ export component ModularWindow inherits Window {
         }];
         jack_clicked(id) => { handle_jack_click(id); }
         knob_changed(idx, val) => { root.saw_freq_changed(val); }
+        position_changed(nx, ny) => {
+            let max_x = max(0px, root.width - saw_node.width);
+            let max_y = max(0px, root.height - saw_node.height);
+            saw_x = clamp_length(nx, 0px, max_x);
+            saw_y = clamp_length(ny, 0px, max_y);
+        }
     }
 
     // Filter Node
@@ -445,6 +491,12 @@ export component ModularWindow inherits Window {
                 root.filter_q_changed(val);
             }
         }
+        position_changed(nx, ny) => {
+            let max_x = max(0px, root.width - filter_node.width);
+            let max_y = max(0px, root.height - filter_node.height);
+            filter_x = clamp_length(nx, 0px, max_x);
+            filter_y = clamp_length(ny, 0px, max_y);
+        }
     }
 
     // Volume Node
@@ -464,6 +516,12 @@ export component ModularWindow inherits Window {
         }];
         jack_clicked(id) => { handle_jack_click(id); }
         knob_changed(idx, val) => { root.volume_level_changed(val); }
+        position_changed(nx, ny) => {
+            let max_x = max(0px, root.width - volume_node.width);
+            let max_y = max(0px, root.height - volume_node.height);
+            volume_x = clamp_length(nx, 0px, max_x);
+            volume_y = clamp_length(ny, 0px, max_y);
+        }
     }
 
     // Draw cables on top of nodes using node-exposed jack positions
