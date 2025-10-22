@@ -27,6 +27,15 @@ struct ConnectionState {
     to: i32,
 }
 
+/// Information about a jack's position for cable drawing
+#[derive(Debug, Clone)]
+struct JackPositionInfo {
+    id: i32,
+    x: f32,
+    y: f32,
+    is_input: bool,
+}
+
 /// Messages from UI thread to audio thread
 #[derive(Debug, Clone)]
 enum UIMessage {
@@ -288,6 +297,9 @@ fn run_ui(
 ) -> Result<()> {
     let ui = ModularWindow::new()?;
 
+    // Initialize jack positions based on initial node positions
+    update_jack_positions(&ui);
+
     // Handle connection requests from UI
     {
         let tx = tx.clone();
@@ -409,6 +421,16 @@ fn run_ui(
         });
     }
 
+    // Handle node_moved callback - update jack positions when nodes are dragged
+    {
+        let ui_weak = ui.as_weak();
+        ui.on_node_moved(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                update_jack_positions(&ui);
+            }
+        });
+    }
+
     let scope_handle_for_timer = scope_handle.clone();
     let scope_timer = Timer::default();
     let ui_weak_for_timer = ui.as_weak();
@@ -432,6 +454,7 @@ fn update_ui_connections(ui: &ModularWindow, connections: &Arc<Mutex<Vec<Connect
         println!("Updating UI with {} connections", conns.len());
 
         // Convert to Slint's Connection struct
+        // Positions are computed reactively in Slint from node positions
         let slint_conns: Vec<_> = conns
             .iter()
             .map(|c| Connection {
@@ -443,4 +466,116 @@ fn update_ui_connections(ui: &ModularWindow, connections: &Arc<Mutex<Vec<Connect
         let model = std::rc::Rc::new(slint::VecModel::from(slint_conns));
         ui.set_connections(model.into());
     }
+}
+
+/// Calculate jack positions based on node positions and dimensions
+fn update_jack_positions(ui: &ModularWindow) {
+    // Node dimensions from Slint (these should match the Dimensions global)
+    const NODE_WIDTH: f32 = 160.0;
+    const NODE_CONTENT_PADDING: f32 = 10.0;
+    const JACK_WIDTH: f32 = 30.0;
+    const JACK_H_PADDING: f32 = 5.0;
+    const JACK_CIRCLE_SIZE: f32 = 20.0;
+    const JACK_CENTER_OFFSET: f32 = 12.0;
+    const KNOB_AREA_Y: f32 = 32.0;
+    const KNOB_HEIGHT: f32 = 55.0;
+    const KNOBS_BOTTOM_PADDING: f32 = 2.0;
+    const JACK_SPACING: f32 = 2.0;
+
+    // Helper to calculate jack Y position based on knob count
+    let calc_jack_y = |knob_count: usize, extra_height: f32| -> f32 {
+        let knob_rows = if knob_count == 0 {
+            0
+        } else {
+            (knob_count - 1) / 3 + 1
+        };
+        let knobs_area_height = (knob_rows as f32) * KNOB_HEIGHT;
+        KNOB_AREA_Y + knobs_area_height + KNOBS_BOTTOM_PADDING + JACK_SPACING + extra_height
+            + JACK_CENTER_OFFSET
+    };
+
+    // Output jack X (right side of node)
+    let output_jack_x =
+        NODE_WIDTH - NODE_CONTENT_PADDING - JACK_WIDTH + JACK_H_PADDING + JACK_CIRCLE_SIZE / 2.0;
+
+    // Input jack X (left side of node)
+    let input_jack_x = NODE_CONTENT_PADDING + JACK_H_PADDING + JACK_CIRCLE_SIZE / 2.0;
+
+    // Get node positions from Slint
+    let sine_x = ui.get_sine_x();
+    let sine_y = ui.get_sine_y();
+    let saw_x = ui.get_saw_x();
+    let saw_y = ui.get_saw_y();
+    let filter_x = ui.get_filter_x();
+    let filter_y = ui.get_filter_y();
+    let scope_x = ui.get_scope_x();
+    let scope_y = ui.get_scope_y();
+    let output_x = ui.get_output_x();
+    let output_y = ui.get_output_y();
+
+    let jack_positions = vec![
+        // Sine output (id: 0, 1 knob)
+        JackPositionInfo {
+            id: 0,
+            x: sine_x + output_jack_x,
+            y: sine_y + calc_jack_y(1, 0.0),
+            is_input: false,
+        },
+        // Saw output (id: 1, 1 knob)
+        JackPositionInfo {
+            id: 1,
+            x: saw_x + output_jack_x,
+            y: saw_y + calc_jack_y(1, 0.0),
+            is_input: false,
+        },
+        // Filter input (id: 2, 2 knobs)
+        JackPositionInfo {
+            id: 2,
+            x: filter_x + input_jack_x,
+            y: filter_y + calc_jack_y(2, 0.0),
+            is_input: true,
+        },
+        // Filter output (id: 3, 2 knobs)
+        JackPositionInfo {
+            id: 3,
+            x: filter_x + output_jack_x,
+            y: filter_y + calc_jack_y(2, 0.0),
+            is_input: false,
+        },
+        // Output input (id: 4, 1 knob)
+        JackPositionInfo {
+            id: 4,
+            x: output_x + input_jack_x,
+            y: output_y + calc_jack_y(1, 0.0),
+            is_input: true,
+        },
+        // Scope input (id: 5, 0 knobs, 120px extra height)
+        JackPositionInfo {
+            id: 5,
+            x: scope_x + input_jack_x,
+            y: scope_y + calc_jack_y(0, 120.0),
+            is_input: true,
+        },
+        // Scope output (id: 6, 0 knobs, 120px extra height)
+        JackPositionInfo {
+            id: 6,
+            x: scope_x + output_jack_x,
+            y: scope_y + calc_jack_y(0, 120.0),
+            is_input: false,
+        },
+    ];
+
+    // Convert to Slint's JackInfo struct
+    let slint_jack_infos: Vec<_> = jack_positions
+        .into_iter()
+        .map(|jp| JackInfo {
+            id: jp.id,
+            x: jp.x,
+            y: jp.y,
+            is_input: jp.is_input,
+        })
+        .collect();
+
+    let model = std::rc::Rc::new(slint::VecModel::from(slint_jack_infos));
+    ui.set_jack_registry(model.into());
 }

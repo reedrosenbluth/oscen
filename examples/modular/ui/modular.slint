@@ -1,20 +1,89 @@
-
+// ===== Math Constants =====
 global MathConstants {
     out property <float> natural_log_base: 2.718281828459045;
 }
 
+// ===== Data Structures =====
 export struct Connection {
     from: int,
     to: int,
 }
 
-global PanelPalette {
-    in-out property <brush> background: #777777;
-    in-out property <brush> border: #888888;
-    in-out property <brush> title: #BABABA;
-    in-out property <brush> jack: #D4AF37;
-    in-out property <brush> jack_border: #B8960A;
+struct JackInfo {
+    id: int,
+    x: length,
+    y: length,
+    is_input: bool,
 }
+
+// ===== Theme & Styling =====
+global Theme {
+    // Colors
+    out property <brush> window_bg: #222222;
+    out property <brush> node_bg: #629460;
+    out property <brush> node_border: #96BE8C;
+    out property <brush> node_title: #C9F2C7;
+    out property <brush> knob_dial: #A9A9A9;
+    out property <brush> knob_border: #96BE8C;
+    out property <brush> knob_marker: #777777;
+    out property <brush> knob_label: #C9F2C7;
+    out property <brush> jack_circle: #D4AF37;
+    out property <brush> jack_border: #B8960A;
+    out property <brush> jack_label: #BABABA;
+    out property <brush> jack_hover_highlight: #FFD700;
+    out property <brush> scope_bg: #1B2420;
+    out property <brush> header_text: #EEEEEE;
+    out property <brush> instructions_text: #CCCCCC;
+
+    // Cable colors by jack type
+    out property <color> cable_sine: #FF6B6B;
+    out property <color> cable_saw: #4ECDC4;
+    out property <color> cable_filter: #FFE66D;
+    out property <color> cable_scope: #8AC6FF;
+    out property <color> cable_default: #CCCCCC;
+}
+
+global Dimensions {
+    // Knob dimensions
+    out property <length> knob_dial_size: 36px;
+    out property <length> knob_height: 55px;
+    out property <length> knob_spacing: 10px;
+    out property <length> knob_label_size: 9px;
+    out property <int> knobs_per_row: 3;
+
+    // Jack dimensions
+    out property <length> jack_width: 30px;
+    out property <length> jack_height: 40px;
+    out property <length> jack_circle_size: 20px;
+    out property <length> jack_h_padding: 5px;
+    out property <length> jack_circle_y: 2px;
+    out property <length> jack_label_y: 24px;
+    out property <length> jack_label_size: 9px;
+    out property <length> jack_spacing: 2px;
+
+    // Calculate jack center offset (circle_y + radius)
+    out property <length> jack_center_offset: 12px;
+
+    // Node dimensions
+    out property <length> node_width: 160px;
+    out property <length> node_border_radius: 6px;
+    out property <length> node_border_width: 2px;
+    out property <length> node_title_y: 12px;
+    out property <length> node_title_size: 12px;
+    out property <length> node_content_padding: 10px;
+    out property <length> node_drag_handle_height: 32px;
+    out property <length> knob_area_y: 32px;
+    out property <length> knobs_bottom_padding: 2px;
+
+    // Cable dimensions
+    out property <length> cable_width: 2px;
+    out property <length> cable_control_offset: 60px;
+
+    // Drag sensitivity
+    out property <float> knob_drag_sensitivity: 120.0;
+}
+
+// ===== Components =====
 
 enum KnobCurve {
     linear,
@@ -22,43 +91,43 @@ enum KnobCurve {
 }
 
 component Knob inherits Rectangle {
+    // Public interface
     in property <float> minimum: 0.0;
     in property <float> maximum: 1.0;
     in-out property <float> value: minimum;
     in property <KnobCurve> curve: KnobCurve.linear;
     in property <string> label: "";
-
     callback value_edited(float);
 
-    private property <length> dial_size: 36px;
+    // Private computed properties
     private property <float> range: max(0.0001, root.maximum - root.minimum);
     private property <float> normalized: root.value_to_normalized(root.value);
     private property <angle> angle: 225deg - 270deg * root.normalized;
-    private property <float> marker_radius: (root.dial_size / 2 - 4px) / 1px;
+    private property <length> marker_offset: Dimensions.knob_dial_size / 2 - 4px;
 
-    width: root.dial_size;  // Match dial size
-    height: 55px;
+    width: Dimensions.knob_dial_size;
+    height: Dimensions.knob_height;
 
     VerticalLayout {
         spacing: 2px;
         padding: 0px;
-        alignment: center;  // Center children horizontally
+        alignment: center;
 
         dial := Rectangle {
-            width: root.dial_size;
-            height: root.dial_size;
-            border-radius: root.dial_size / 2;
+            width: Dimensions.knob_dial_size;
+            height: Dimensions.knob_dial_size;
+            border-radius: Dimensions.knob_dial_size / 2;
             border-width: 2px;
-            border-color: #96BE8C;
-            background: #A9A9A9;
+            border-color: Theme.knob_border;
+            background: Theme.knob_dial;
 
             marker := Rectangle {
                 width: 4px;
                 height: 4px;
                 border-radius: 2px;
-                background: #777777;  // Match synth-slint marker color
-                x: parent.width / 2 + Math.cos(root.angle) * (root.marker_radius * 1px) - self.width / 2;
-                y: parent.height / 2 - Math.sin(root.angle) * (root.marker_radius * 1px) - self.height / 2;
+                background: Theme.knob_marker;
+                x: parent.width / 2 + Math.cos(root.angle) * root.marker_offset - self.width / 2;
+                y: parent.height / 2 - Math.sin(root.angle) * root.marker_offset - self.height / 2;
             }
 
             TouchArea {
@@ -79,7 +148,7 @@ component Knob inherits Rectangle {
 
                 moved => {
                     let delta_px = (self.pressed-y - self.mouse-y) / 1px;
-                    let delta = delta_px / 120.0;
+                    let delta = delta_px / Dimensions.knob_drag_sensitivity;
                     root.update_value_by_normalized_delta(self.start-value, delta);
                 }
             }
@@ -88,10 +157,10 @@ component Knob inherits Rectangle {
         Text {
             text: root.label;
             horizontal-alignment: center;
-            font-size: 9px;
+            font-size: Dimensions.knob_label_size;
             font-weight: 500;
-            color: #C9F2C7;
-            width: 100%;  // Take full width of parent
+            color: Theme.knob_label;
+            width: 100%;
         }
     }
 
@@ -133,18 +202,20 @@ component Knob inherits Rectangle {
 }
 
 component Jack inherits Rectangle {
+    // Public interface
     in property <string> label: "";
     in property <bool> is_output: false;
     in property <int> jack_id: -1;
+    in property <bool> is_hovered: false;
 
     callback clicked(int);
-    callback drag_started(int, length /* local_x */, length /* local_y */);
-    callback dragged(int, length /* local_x */, length /* local_y */);
-    callback drag_finished(int, length /* local_x */, length /* local_y */);
+    callback drag_started(int, length, length);
+    callback dragged(int, length, length);
+    callback drag_finished(int, length, length);
 
-    private property <length> h_padding: 5px;
-    width: 30px;
-    height: 40px;
+    // Dimensions from global
+    width: Dimensions.jack_width;
+    height: Dimensions.jack_height;
 
     // Make the entire jack clickable
     TouchArea {
@@ -188,77 +259,67 @@ component Jack inherits Rectangle {
         }
     }
 
-    // Circle - positioned with padding from edge
-    Rectangle {
-        width: 20px;
-        height: 20px;
-        border-radius: 10px;
+    // Jack circle
+    circle := Rectangle {
+        width: Dimensions.jack_circle_size;
+        height: Dimensions.jack_circle_size;
+        border-radius: Dimensions.jack_circle_size / 2;
         border-width: 2px;
-        border-color: PanelPalette.jack_border;
-        background: PanelPalette.jack;
-        x: root.is_output ? (10px - root.h_padding) : root.h_padding;  // Inset from edges
-        y: 2px;
+        border-color: root.is_hovered ? Theme.jack_hover_highlight : Theme.jack_border;
+        background: Theme.jack_circle;
+        x: root.is_output ? (Dimensions.jack_width - Dimensions.jack_circle_size - Dimensions.jack_h_padding) : Dimensions.jack_h_padding;
+        y: Dimensions.jack_circle_y;
+
+        // Subtle animation for hover feedback
+        animate border-color { duration: 150ms; }
     }
 
-    // Text below circle
+    // Label below circle
     Text {
         text: root.label;
-        color: PanelPalette.title;
-        font-size: 9px;
+        color: Theme.jack_label;
+        font-size: Dimensions.jack_label_size;
         horizontal-alignment: center;
         x: 0px;
-        y: 24px;
+        y: Dimensions.jack_label_y;
         width: 100%;
     }
 }
 
 component ModuleNode inherits Rectangle {
+    // Public interface
     in property <string> node_title: "";
     in property <[{label: string, jack_id: int}]> inputs: [];
     in property <[{label: string, jack_id: int}]> outputs: [];
     in property <length> extra_height: 0px;
-
-    // Knob configurations - array of knobs
     in property <[{minimum: float, maximum: float, value: float, curve: KnobCurve, label: string, knob_index: int}]> knobs: [];
 
     callback jack_clicked(int);
-    callback knob_changed(int /* knob_index */, float /* value */);
-    callback position_changed(length /* new_x */, length /* new_y */);
-    callback jack_drag_started(int /* jack_id */, length /* global_x */, length /* global_y */);
-    callback jack_dragged(int /* jack_id */, length /* global_x */, length /* global_y */);
-    callback jack_drag_finished(int /* jack_id */, length /* global_x */, length /* global_y */);
+    callback knob_changed(int, float);
+    callback position_changed(length, length);
+    callback jack_drag_started(int, length, length);
+    callback jack_dragged(int, length, length);
+    callback jack_drag_finished(int, length, length);
 
-    // Layout constants
-    private property <int> knobs_per_row: 3;
-    private property <length> knob_width: 36px;
-    private property <length> knob_height: 55px;
-    private property <length> knob_spacing: 10px;
-    private property <length> knob_area_y: 32px;
-    private property <length> knobs_bottom_padding: 2px;
-    private property <length> jack_spacing: 2px;
-    private property <length> jack_width: 30px;
-    private property <length> jack_height: 40px;
-    private property <length> drag_handle_height: root.knob_area_y;
+    // Private layout calculations
+    private property <int> knob_rows: root.knobs.length == 0 ? 0 : ((root.knobs.length - 1) / Dimensions.knobs_per_row + 1);
+    private property <length> knobs_area_height: root.knob_rows * Dimensions.knob_height;
+    private property <length> jacks_y: Dimensions.knob_area_y + root.knobs_area_height + Dimensions.knobs_bottom_padding + Dimensions.jack_spacing + root.extra_height;
 
-    // Calculate number of rows
-    private property <int> knob_rows: root.knobs.length == 0 ? 0 : ((root.knobs.length - 1) / root.knobs_per_row + 1);
+    // Node styling
+    width: Dimensions.node_width;
+    height: root.jacks_y + Dimensions.jack_height;
+    border-radius: Dimensions.node_border_radius;
+    border-width: Dimensions.node_border_width;
+    border-color: Theme.node_border;
+    background: Theme.node_bg;
 
-    // Calculate heights
-    private property <length> knobs_area_height: root.knob_rows * root.knob_height;
-    private property <length> jacks_y: root.knob_area_y + root.knobs_area_height + root.knobs_bottom_padding + root.jack_spacing + root.extra_height;
-
-    width: 160px;
-    height: root.jacks_y + root.jack_height;
-    border-radius: 6px;
-    border-width: 3px;
-    border-color: #96BE8C;
-    background: #629460;
-
-    TouchArea {
+    // Drag handle for moving the node
+    drag_handle := TouchArea {
         x: 0px;
         y: 0px;
         width: parent.width;
-        height: root.drag_handle_height;
+        height: Dimensions.node_drag_handle_height;
         property <bool> dragging: false;
 
         pointer-event(event) => {
@@ -282,10 +343,22 @@ component ModuleNode inherits Rectangle {
         }
     }
 
+    // Title
+    Text {
+        text: root.node_title;
+        font-weight: 600;
+        font-size: Dimensions.node_title_size;
+        color: Theme.node_title;
+        horizontal-alignment: center;
+        x: 0px;
+        y: Dimensions.node_title_y;
+        width: root.width;
+    }
+
     // Render knobs in a grid
     for knob[index] in root.knobs: Knob {
-        x: 10px + (mod(index, root.knobs_per_row) * (root.knob_width + root.knob_spacing));
-        y: root.knob_area_y + (floor(index / root.knobs_per_row) * root.knob_height);
+        x: Dimensions.node_content_padding + (mod(index, Dimensions.knobs_per_row) * 1px) * (Dimensions.knob_dial_size + Dimensions.knob_spacing) / 1px;
+        y: Dimensions.knob_area_y + (floor(index / Dimensions.knobs_per_row) * 1px) * Dimensions.knob_height / 1px;
         minimum: knob.minimum;
         maximum: knob.maximum;
         value: knob.value;
@@ -296,38 +369,10 @@ component ModuleNode inherits Rectangle {
         }
     }
 
-    // Jack element positions - with same padding as knobs
-    private property <length> jack_x_padding: 10px;
-    private property <length> output_jack_element_x: root.width - root.jack_width - root.jack_x_padding;
-    private property <length> input_jack_element_x: root.jack_x_padding;
-    private property <length> output_jack_element_y: root.jacks_y;
-    private property <length> input_jack_element_y: root.jacks_y;
-
-    // Expose cable connection points (center of jack circles)
-    // Jack is 30px wide with 5px horizontal padding
-    // Both circles positioned at x=5px (padding), center at 5 + 10 (radius) = 15px from jack left
-    // Vertical: jack_y + 2px + circle_radius (10px) = jack_y + 12px
-    out property <length> output_jack_x: root.output_jack_element_x + 15px;  // Padded circle center
-    out property <length> output_jack_y: root.output_jack_element_y + 12px;
-    out property <length> input_jack_x: root.input_jack_element_x + 15px;  // Padded circle center
-    out property <length> input_jack_y: root.input_jack_element_y + 12px;
-
-    // Title
-    Text {
-        text: root.node_title;
-        font-weight: 600;
-        font-size: 12px;
-        color: #C9F2C7;
-        horizontal-alignment: center;
-        x: 0px;
-        y: 12px;
-        width: root.width;
-    }
-
-    // Output jacks - positioned absolutely on the right
+    // Output jacks - positioned on the right
     if root.outputs.length > 0: Jack {
-        x: root.output_jack_element_x;
-        y: root.output_jack_element_y;
+        x: root.width - Dimensions.node_content_padding - Dimensions.jack_width;
+        y: root.jacks_y;
         label: root.outputs[0].label;
         is_output: true;
         jack_id: root.outputs[0].jack_id;
@@ -335,22 +380,27 @@ component ModuleNode inherits Rectangle {
             root.jack_clicked(id);
         }
         drag_started(id, local_x, local_y) => {
-            // Start from the jack center to keep the virtual cable anchored
-            root.jack_drag_started(id, root.x + root.output_jack_x, root.y + root.output_jack_y);
-            root.jack_dragged(id, root.x + root.output_jack_element_x + local_x, root.y + root.output_jack_element_y + local_y);
+            // Calculate absolute position for drag start
+            let abs_x = root.x + root.width - Dimensions.node_content_padding - Dimensions.jack_width + local_x;
+            let abs_y = root.y + root.jacks_y + local_y;
+            root.jack_drag_started(id, abs_x, abs_y);
         }
         dragged(id, local_x, local_y) => {
-            root.jack_dragged(id, root.x + root.output_jack_element_x + local_x, root.y + root.output_jack_element_y + local_y);
+            let abs_x = root.x + root.width - Dimensions.node_content_padding - Dimensions.jack_width + local_x;
+            let abs_y = root.y + root.jacks_y + local_y;
+            root.jack_dragged(id, abs_x, abs_y);
         }
         drag_finished(id, local_x, local_y) => {
-            root.jack_drag_finished(id, root.x + root.output_jack_element_x + local_x, root.y + root.output_jack_element_y + local_y);
+            let abs_x = root.x + root.width - Dimensions.node_content_padding - Dimensions.jack_width + local_x;
+            let abs_y = root.y + root.jacks_y + local_y;
+            root.jack_drag_finished(id, abs_x, abs_y);
         }
     }
 
-    // Input jacks - positioned absolutely on the left
+    // Input jacks - positioned on the left
     if root.inputs.length > 0: Jack {
-        x: root.input_jack_element_x;
-        y: root.input_jack_element_y;
+        x: Dimensions.node_content_padding;
+        y: root.jacks_y;
         label: root.inputs[0].label;
         is_output: false;
         jack_id: root.inputs[0].jack_id;
@@ -361,11 +411,12 @@ component ModuleNode inherits Rectangle {
 }
 
 component Cable inherits Path {
+    // Public interface
     in property <length> x1;
     in property <length> y1;
     in property <length> x2;
     in property <length> y2;
-    in property <color> cable_color: #FF6B6B;
+    in property <color> cable_color: Theme.cable_default;
 
     width: 900px;
     height: 600px;
@@ -374,7 +425,7 @@ component Cable inherits Path {
     z: 10;
 
     stroke: root.cable_color;
-    stroke-width: 3px;
+    stroke-width: Dimensions.cable_width;
     stroke-line-cap: round;
 
     MoveTo {
@@ -385,41 +436,27 @@ component Cable inherits Path {
     CubicTo {
         x: root.x2 / 1px;
         y: root.y2 / 1px;
-        // Horizontal bezier handles
-        control-1-x: (root.x1 / 1px) + 60;
+        control-1-x: (root.x1 / 1px) + Dimensions.cable_control_offset / 1px;
         control-1-y: root.y1 / 1px;
-        control-2-x: (root.x2 / 1px) - 60;
+        control-2-x: (root.x2 / 1px) - Dimensions.cable_control_offset / 1px;
         control-2-y: root.y2 / 1px;
     }
 }
 
+// ===== Main Window =====
+
 export component ModularWindow inherits Window {
     title: "Oscen Modular";
-    background: #666666;
+    background: Theme.window_bg;
     preferred-width: 900px;
     preferred-height: 600px;
 
-    // Test if ANY touch events work
-    TouchArea {
-        width: 100%;
-        height: 100%;
-        clicked => {
-            debug("WINDOW CLICKED!");
-        }
-    }
+    // ===== Public Interface =====
 
     // Callbacks for patching
-    callback connect(int /* from_jack_id */, int /* to_jack_id */);
-    callback disconnect(int /* from_jack_id */, int /* to_jack_id */);
-
-    // Internal drag state for cable creation
-    in-out property <bool> active_jack_drag: false;
-    in-out property <int> drag_from_jack_id: -1;
-    in-out property <int> hovered_input_jack: -1;
-    in-out property <length> drag_start_x: 0px;
-    in-out property <length> drag_start_y: 0px;
-    in-out property <length> drag_cursor_x: 0px;
-    in-out property <length> drag_cursor_y: 0px;
+    callback connect(int, int);
+    callback disconnect(int, int);
+    pure callback disconnect_all_from_output(int);
 
     // Callbacks for parameter changes
     callback sine_freq_changed(float);
@@ -428,20 +465,55 @@ export component ModularWindow inherits Window {
     callback filter_q_changed(float);
     callback volume_level_changed(float);
 
-    // State for drag operation
-    in-out property <int> drag_from_jack: -1;
+    // Callback for node position changes
+    callback node_moved();
 
-    // Dynamic connection list
+    // Properties
     in-out property <[Connection]> connections: [];
-
     in-out property <image> scope_waveform;
+
+    // Node positions (exposed for Rust to read)
+    in-out property <length> sine_x: 80px;
+    in-out property <length> sine_y: 120px;
+    in-out property <length> saw_x: 80px;
+    in-out property <length> saw_y: 310px;
+    in-out property <length> filter_x: 340px;
+    in-out property <length> filter_y: 220px;
+    in-out property <length> scope_x: 580px;
+    in-out property <length> scope_y: 80px;
+    in-out property <length> output_x: 580px;
+    in-out property <length> output_y: 320px;
+
+    // ===== Internal State =====
+
+    // Cable drag state
+    in-out property <bool> active_jack_drag: false;
+    in-out property <int> drag_from_jack: -1;
+    in-out property <int> hovered_input_jack: -1;
+    in-out property <length> drag_start_x: 0px;
+    in-out property <length> drag_start_y: 0px;
+    in-out property <length> drag_cursor_x: 0px;
+    in-out property <length> drag_cursor_y: 0px;
+
+    // Jack registry - populated from Rust
+    in-out property <[JackInfo]> jack_registry: [];
+
+    // Helper function - direct array lookup
+    pure function get_jack_info(jack_id: int) -> JackInfo {
+        if (jack_id >= 0 && jack_id < root.jack_registry.length) {
+            return root.jack_registry[jack_id];
+        }
+        return { id: -1, x: 0px, y: 0px, is_input: false };
+    }
+
+    // ===== UI Layout =====
 
     // Title
     Text {
         text: "Oscen";
         font-size: 18px;
         font-weight: 700;
-        color: #EEEEEE;
+        color: Theme.header_text;
         x: 0px;
         y: 20px;
         width: root.width;
@@ -452,7 +524,7 @@ export component ModularWindow inherits Window {
     Text {
         text: "Drag from an output to an input to connect, or click to toggle.";
         font-size: 12px;
-        color: #CCCCCC;
+        color: Theme.instructions_text;
         x: 0px;
         y: 550px;
         width: root.width;
@@ -464,16 +536,17 @@ export component ModularWindow inherits Window {
     }
 
     function start_cable_drag(from_jack_id: int, start_x: length, start_y: length) {
-        if (!(from_jack_id == 0 || from_jack_id == 1 || from_jack_id == 3 || from_jack_id == 6)) {
+        // Validate that this is an output jack
+        let jack_info = root.get_jack_info(from_jack_id);
+        if (jack_info.id < 0 || jack_info.is_input) {
             return;
         }
 
-        // Disconnect existing connections from this output (handled in Rust via disconnect callback)
+        // Disconnect existing connections from this output
         root.disconnect_all_from_output(from_jack_id);
 
         root.active_jack_drag = true;
         root.drag_from_jack = from_jack_id;
-        root.drag_from_jack_id = from_jack_id;
         root.hovered_input_jack = -1;
         root.drag_start_x = start_x;
         root.drag_start_y = start_y;
@@ -488,9 +561,11 @@ export component ModularWindow inherits Window {
         let hovered = root.hit_test_input(cursor_x, cursor_y);
         root.hovered_input_jack = hovered;
 
-        if (hovered == 2 || hovered == 4 || hovered == 5) {
-            root.drag_cursor_x = root.jack_center_x(hovered);
-            root.drag_cursor_y = root.jack_center_y(hovered);
+        if (hovered >= 0) {
+            // Snap to the hovered jack's position
+            let jack_info = root.get_jack_info(hovered);
+            root.drag_cursor_x = jack_info.x;
+            root.drag_cursor_y = jack_info.y;
         } else {
             root.drag_cursor_x = cursor_x;
             root.drag_cursor_y = cursor_y;
@@ -503,113 +578,80 @@ export component ModularWindow inherits Window {
         }
 
         let target = root.hovered_input_jack;
-        if (target == 2 || target == 4 || target == 5) {
-            root.drag_cursor_x = root.jack_center_x(target);
-            root.drag_cursor_y = root.jack_center_y(target);
+        if (target >= 0) {
+            // Complete connection to the hovered input jack
+            let jack_info = root.get_jack_info(target);
+            root.drag_cursor_x = jack_info.x;
+            root.drag_cursor_y = jack_info.y;
             root.handle_jack_click(target);
         } else {
+            // No target, cancel the drag
             root.drag_cursor_x = cursor_x;
             root.drag_cursor_y = cursor_y;
             root.drag_from_jack = -1;
         }
 
         root.active_jack_drag = false;
-        root.drag_from_jack_id = -1;
         root.hovered_input_jack = -1;
     }
 
-    function jack_center_x(jack_id: int) -> length {
-        if (jack_id == 0) { return sine_x + sine_node.output_jack_x; }
-        if (jack_id == 1) { return saw_x + saw_node.output_jack_x; }
-        if (jack_id == 2) { return filter_x + filter_node.input_jack_x; }
-        if (jack_id == 3) { return filter_x + filter_node.output_jack_x; }
-        if (jack_id == 4) { return output_x + output_node.input_jack_x; }
-        if (jack_id == 5) { return scope_x + scope_node.input_jack_x; }
-        if (jack_id == 6) { return scope_x + scope_node.output_jack_x; }
-        return 0px;
-    }
-
-    function jack_center_y(jack_id: int) -> length {
-        if (jack_id == 0) { return sine_y + sine_node.output_jack_y; }
-        if (jack_id == 1) { return saw_y + saw_node.output_jack_y; }
-        if (jack_id == 2) { return filter_y + filter_node.input_jack_y; }
-        if (jack_id == 3) { return filter_y + filter_node.output_jack_y; }
-        if (jack_id == 4) { return output_y + output_node.input_jack_y; }
-        if (jack_id == 5) { return scope_y + scope_node.input_jack_y; }
-        if (jack_id == 6) { return scope_y + scope_node.output_jack_y; }
-        return 0px;
-    }
-
     function hit_test_input(cursor_x: length, cursor_y: length) -> int {
-        let jack_width = 30px;
-        let jack_height = 40px;
-        let half_width = jack_width / 2;
-        let top_offset = 12px; // Center is 12px from top edge
+        let half_width = Dimensions.jack_width / 2;
 
-        // Filter input (jack_id = 2)
-        let filter_center_x = root.jack_center_x(2);
-        let filter_center_y = root.jack_center_y(2);
-        let filter_left = filter_center_x - half_width;
-        let filter_top = filter_center_y - top_offset;
+        // Test input jacks from the registry (IDs 2, 4, 5)
+        // Note: Slint doesn't support loops in functions, so we check known input jacks
 
-        if (cursor_x >= filter_left && cursor_x <= filter_left + jack_width &&
-            cursor_y >= filter_top && cursor_y <= filter_top + jack_height) {
-            return 2;
+        // Filter input (id: 2)
+        if (root.jack_registry.length > 2 && root.jack_registry[2].is_input) {
+            let left = root.jack_registry[2].x - half_width;
+            let top = root.jack_registry[2].y - Dimensions.jack_center_offset;
+            if (cursor_x >= left && cursor_x <= left + Dimensions.jack_width &&
+                cursor_y >= top && cursor_y <= top + Dimensions.jack_height) {
+                return 2;
+            }
         }
 
-        // Scope input (jack_id = 5)
-        let scope_center_x = root.jack_center_x(5);
-        let scope_center_y = root.jack_center_y(5);
-        let scope_left = scope_center_x - half_width;
-        let scope_top = scope_center_y - top_offset;
-
-        if (cursor_x >= scope_left && cursor_x <= scope_left + jack_width &&
-            cursor_y >= scope_top && cursor_y <= scope_top + jack_height) {
-            return 5;
+        // Output input (id: 4)
+        if (root.jack_registry.length > 4 && root.jack_registry[4].is_input) {
+            let left = root.jack_registry[4].x - half_width;
+            let top = root.jack_registry[4].y - Dimensions.jack_center_offset;
+            if (cursor_x >= left && cursor_x <= left + Dimensions.jack_width &&
+                cursor_y >= top && cursor_y <= top + Dimensions.jack_height) {
+                return 4;
+            }
         }
 
-        // Output input (jack_id = 4)
-        let output_center_x = root.jack_center_x(4);
-        let output_center_y = root.jack_center_y(4);
-        let output_left = output_center_x - half_width;
-        let output_top = output_center_y - top_offset;
-
-        if (cursor_x >= output_left && cursor_x <= output_left + jack_width &&
-            cursor_y >= output_top && cursor_y <= output_top + jack_height) {
-            return 4;
+        // Scope input (id: 5)
+        if (root.jack_registry.length > 5 && root.jack_registry[5].is_input) {
+            let left = root.jack_registry[5].x - half_width;
+            let top = root.jack_registry[5].y - Dimensions.jack_center_offset;
+            if (cursor_x >= left && cursor_x <= left + Dimensions.jack_width &&
+                cursor_y >= top && cursor_y <= top + Dimensions.jack_height) {
+                return 5;
+            }
         }
 
         return -1;
     }
 
+    // ===== Helper Functions =====
+
     function cable_color_for_jack(jack_id: int) -> color {
-        if (jack_id == 0) { return #FF6B6B; }  // Sine - red
-        if (jack_id == 1) { return #4ECDC4; }  // Saw - teal
-        if (jack_id == 3) { return #FFE66D; }  // Filter - yellow
-        if (jack_id == 6) { return #8AC6FF; }  // Scope - blue
-        return #CCCCCC;  // Default - gray
+        if (jack_id == 0) { return Theme.cable_sine; }
+        if (jack_id == 1) { return Theme.cable_saw; }
+        if (jack_id == 3) { return Theme.cable_filter; }
+        if (jack_id == 6) { return Theme.cable_scope; }
+        return Theme.cable_default;
     }
 
     function drag_preview_color() -> color {
-        return root.cable_color_for_jack(root.drag_from_jack_id);
+        return root.cable_color_for_jack(root.drag_from_jack);
     }
-
-    // Define node positions
-    property <length> sine_x: 80px;
-    property <length> sine_y: 120px;
-    property <length> saw_x: 80px;
-    property <length> saw_y: 310px;
-    property <length> filter_x: 340px;
-    property <length> filter_y: 220px;
-    property <length> scope_x: 580px;
-    property <length> scope_y: 80px;
-    property <length> output_x: 580px;
-    property <length> output_y: 320px;
 
     // Sine Oscillator Node
     sine_node := ModuleNode {
-        x: sine_x;
-        y: sine_y;
+        x: root.sine_x;
+        y: root.sine_y;
         node_title: "Sine Osc";
         outputs: [{label: "Out", jack_id: 0}];
         knobs: [{
@@ -625,8 +667,9 @@ export component ModularWindow inherits Window {
         position_changed(nx, ny) => {
             let max_x = max(0px, root.width - sine_node.width);
             let max_y = max(0px, root.height - sine_node.height);
-            sine_x = clamp_length(nx, 0px, max_x);
-            sine_y = clamp_length(ny, 0px, max_y);
+            root.sine_x = clamp_length(nx, 0px, max_x);
+            root.sine_y = clamp_length(ny, 0px, max_y);
+            root.node_moved();
         }
         jack_drag_started(id, gx, gy) => { root.start_cable_drag(id, gx, gy); }
         jack_dragged(id, gx, gy) => { root.update_cable_drag(id, gx, gy); }
@@ -635,8 +678,8 @@ export component ModularWindow inherits Window {
 
     // Saw Oscillator Node
     saw_node := ModuleNode {
-        x: saw_x;
-        y: saw_y;
+        x: root.saw_x;
+        y: root.saw_y;
         node_title: "Saw Osc";
         outputs: [{label: "Out", jack_id: 1}];
         knobs: [{
@@ -652,8 +695,9 @@ export component ModularWindow inherits Window {
         position_changed(nx, ny) => {
             let max_x = max(0px, root.width - saw_node.width);
             let max_y = max(0px, root.height - saw_node.height);
-            saw_x = clamp_length(nx, 0px, max_x);
-            saw_y = clamp_length(ny, 0px, max_y);
+            root.saw_x = clamp_length(nx, 0px, max_x);
+            root.saw_y = clamp_length(ny, 0px, max_y);
+            root.node_moved();
         }
         jack_drag_started(id, gx, gy) => { root.start_cable_drag(id, gx, gy); }
         jack_dragged(id, gx, gy) => { root.update_cable_drag(id, gx, gy); }
@@ -662,8 +706,8 @@ export component ModularWindow inherits Window {
 
     // Filter Node
     filter_node := ModuleNode {
-        x: filter_x;
-        y: filter_y;
+        x: root.filter_x;
+        y: root.filter_y;
         node_title: "Filter";
         inputs: [{label: "In", jack_id: 2}];
         outputs: [{label: "Out", jack_id: 3}];
@@ -696,8 +740,9 @@ export component ModularWindow inherits Window {
         position_changed(nx, ny) => {
             let max_x = max(0px, root.width - filter_node.width);
             let max_y = max(0px, root.height - filter_node.height);
-            filter_x = clamp_length(nx, 0px, max_x);
-            filter_y = clamp_length(ny, 0px, max_y);
+            root.filter_x = clamp_length(nx, 0px, max_x);
+            root.filter_y = clamp_length(ny, 0px, max_y);
+            root.node_moved();
         }
         jack_drag_started(id, gx, gy) => { root.start_cable_drag(id, gx, gy); }
         jack_dragged(id, gx, gy) => { root.update_cable_drag(id, gx, gy); }
@@ -706,8 +751,8 @@ export component ModularWindow inherits Window {
 
     // Oscilloscope Node
     scope_node := ModuleNode {
-        x: scope_x;
-        y: scope_y;
+        x: root.scope_x;
+        y: root.scope_y;
         width: 340px;
         node_title: "Scope";
         inputs: [{label: "In", jack_id: 5}];
@@ -721,16 +766,17 @@ export component ModularWindow inherits Window {
         position_changed(nx, ny) => {
             let max_x = max(0px, root.width - scope_node.width);
             let max_y = max(0px, root.height - scope_node.height);
-            scope_x = clamp_length(nx, 0px, max_x);
-            scope_y = clamp_length(ny, 0px, max_y);
+            root.scope_x = clamp_length(nx, 0px, max_x);
+            root.scope_y = clamp_length(ny, 0px, max_y);
+            root.node_moved();
         }
 
         Rectangle {
-            x: 10px;
-            y: 32px;
-            width: parent.width - 20px;
+            x: Dimensions.node_content_padding;
+            y: Dimensions.knob_area_y;
+            width: parent.width - (2 * Dimensions.node_content_padding);
             height: max(40px, parent.height - 74px);
-            background: #1B2420;
+            background: Theme.scope_bg;
             border-radius: 4px;
             clip: true;
 
@@ -746,8 +792,8 @@ export component ModularWindow inherits Window {
 
     // Output Node
     output_node := ModuleNode {
-        x: output_x;
-        y: output_y;
+        x: root.output_x;
+        y: root.output_y;
         node_title: "Output";
         inputs: [{label: "In", jack_id: 4}];
         knobs: [{
@@ -763,8 +809,9 @@ export component ModularWindow inherits Window {
         position_changed(nx, ny) => {
             let max_x = max(0px, root.width - output_node.width);
             let max_y = max(0px, root.height - output_node.height);
-            output_x = clamp_length(nx, 0px, max_x);
-            output_y = clamp_length(ny, 0px, max_y);
+            root.output_x = clamp_length(nx, 0px, max_x);
+            root.output_y = clamp_length(ny, 0px, max_y);
+            root.node_moved();
         }
         jack_drag_started(id, gx, gy) => { root.start_cable_drag(id, gx, gy); }
         jack_dragged(id, gx, gy) => { root.update_cable_drag(id, gx, gy); }
@@ -772,11 +819,12 @@ export component ModularWindow inherits Window {
     }
 
     // Draw cables dynamically based on connections array
+    // Positions are provided by Rust jack registry
     for conn in root.connections: Cable {
-        x1: root.jack_center_x(conn.from);
-        y1: root.jack_center_y(conn.from);
-        x2: root.jack_center_x(conn.to);
-        y2: root.jack_center_y(conn.to);
+        x1: root.jack_registry[conn.from].x;
+        y1: root.jack_registry[conn.from].y;
+        x2: root.jack_registry[conn.to].x;
+        y2: root.jack_registry[conn.to].y;
         cable_color: root.cable_color_for_jack(conn.from);
     }
 
@@ -788,18 +836,19 @@ export component ModularWindow inherits Window {
         cable_color: root.drag_preview_color();
     }
 
-    // Callback to disconnect all connections from a given output jack
-    pure callback disconnect_all_from_output(int);
+    // ===== Event Handlers =====
 
-    // Helper function
     function handle_jack_click(jack_id: int) {
         debug("handle_jack_click called with:", jack_id);
 
-        let is_output = (jack_id == 0 || jack_id == 1 || jack_id == 3 || jack_id == 6);
+        let jack_info = root.get_jack_info(jack_id);
+        if (jack_info.id < 0) {
+            return; // Invalid jack ID
+        }
 
         if (root.drag_from_jack == -1) {
             // First click - disconnect all from this output and start drag
-            if (is_output) {
+            if (!jack_info.is_input) {
                 debug("Disconnecting output:", jack_id);
                 root.disconnect_all_from_output(jack_id);
             }
@@ -812,12 +861,12 @@ export component ModularWindow inherits Window {
             let to = jack_id;
             debug("Completing connection:", from, "->", to);
 
-            // Validate connection (outputs are 0,1,3,5; inputs are 2,4)
-            let from_is_output = (from == 0 || from == 1 || from == 3 || from == 6);
-            let to_is_input = (to == 2 || to == 4 || to == 5);
+            // Validate connection using jack registry
+            let from_info = root.get_jack_info(from);
+            let to_info = root.get_jack_info(to);
 
-            if (from_is_output && to_is_input) {
-                // Send connection to backend
+            if (!from_info.is_input && to_info.is_input) {
+                // Valid: output to input
                 debug("Valid connection, calling connect");
                 root.connect(from, to);
             } else {
