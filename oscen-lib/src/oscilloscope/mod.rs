@@ -173,6 +173,9 @@ pub struct Oscilloscope {
     trigger_enabled: f32,
 
     last_sample: f32,
+    auto_detect_period: bool,
+    period_sample_count: usize,
+    detected_period: usize,
 }
 
 impl Oscilloscope {
@@ -185,6 +188,9 @@ impl Oscilloscope {
             trigger_period: capacity as f32,
             trigger_enabled: 1.0,
             last_sample: 0.0,
+            auto_detect_period: false,
+            period_sample_count: 0,
+            detected_period: capacity,
         }
     }
 
@@ -197,6 +203,24 @@ impl Oscilloscope {
             trigger_period: capacity as f32,
             trigger_enabled: 1.0,
             last_sample: 0.0,
+            auto_detect_period: false,
+            period_sample_count: 0,
+            detected_period: capacity,
+        }
+    }
+
+    pub fn with_auto_detect(handle: OscilloscopeHandle) -> Self {
+        let capacity = handle.capacity();
+        Self {
+            input: 0.0,
+            output: 0.0,
+            handle,
+            trigger_period: capacity as f32,
+            trigger_enabled: 1.0,
+            last_sample: 0.0,
+            auto_detect_period: true,
+            period_sample_count: 0,
+            detected_period: capacity,
         }
     }
 
@@ -219,11 +243,36 @@ impl SignalProcessor for Oscilloscope {
 
         if self.get_trigger_enabled(context) > 0.5 {
             let prev = self.last_sample;
-            if prev <= 0.0 && sample > 0.0 {
-                let period = self.get_trigger_period(context).max(1.0);
-                let length = period.round() as usize;
-                if length > 0 {
-                    self.handle.store_triggered(length);
+            let zero_crossing = prev <= 0.0 && sample > 0.0;
+
+            if self.auto_detect_period {
+                // Auto-detect period by counting samples between zero crossings
+                self.period_sample_count += 1;
+
+                if zero_crossing {
+                    // Found a zero crossing - use the counted samples as the period
+                    if self.period_sample_count > 1 {
+                        let capacity = self.handle.capacity();
+                        // Clamp detected period to reasonable bounds
+                        self.detected_period = self.period_sample_count.min(capacity).max(10);
+                    }
+
+                    // Store triggered buffer with detected period
+                    if self.detected_period > 0 {
+                        self.handle.store_triggered(self.detected_period);
+                    }
+
+                    // Reset counter for next period
+                    self.period_sample_count = 0;
+                }
+            } else {
+                // Manual mode: use trigger_period parameter
+                if zero_crossing {
+                    let period = self.get_trigger_period(context).max(1.0);
+                    let length = period.round() as usize;
+                    if length > 0 {
+                        self.handle.store_triggered(length);
+                    }
                 }
             }
         }

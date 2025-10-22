@@ -3,6 +3,11 @@ global MathConstants {
     out property <float> natural_log_base: 2.718281828459045;
 }
 
+export struct Connection {
+    from: int,
+    to: int,
+}
+
 global PanelPalette {
     in-out property <brush> background: #777777;
     in-out property <brush> border: #888888;
@@ -426,16 +431,8 @@ export component ModularWindow inherits Window {
     // State for drag operation
     in-out property <int> drag_from_jack: -1;
 
-    // Track individual connections for visual display
-    in-out property <bool> conn_sine_filter: false;
-    in-out property <bool> conn_sine_volume: false;
-    in-out property <bool> conn_saw_filter: false;
-    in-out property <bool> conn_saw_volume: false;
-    in-out property <bool> conn_filter_volume: false;
-    in-out property <bool> conn_sine_scope: false;
-    in-out property <bool> conn_saw_scope: false;
-    in-out property <bool> conn_filter_scope: false;
-    in-out property <bool> conn_scope_output: false;
+    // Dynamic connection list
+    in-out property <[Connection]> connections: [];
 
     in-out property <image> scope_waveform;
 
@@ -471,9 +468,8 @@ export component ModularWindow inherits Window {
             return;
         }
 
-        if (root.output_has_connection(from_jack_id)) {
-            root.disconnect_output(from_jack_id);
-        }
+        // Disconnect existing connections from this output (handled in Rust via disconnect callback)
+        root.disconnect_all_from_output(from_jack_id);
 
         root.active_jack_drag = true;
         root.drag_from_jack = from_jack_id;
@@ -586,12 +582,16 @@ export component ModularWindow inherits Window {
         return -1;
     }
 
+    function cable_color_for_jack(jack_id: int) -> color {
+        if (jack_id == 0) { return #FF6B6B; }  // Sine - red
+        if (jack_id == 1) { return #4ECDC4; }  // Saw - teal
+        if (jack_id == 3) { return #FFE66D; }  // Filter - yellow
+        if (jack_id == 6) { return #8AC6FF; }  // Scope - blue
+        return #CCCCCC;  // Default - gray
+    }
+
     function drag_preview_color() -> color {
-        if (root.drag_from_jack_id == 0) { return #FF6B6B; }
-        if (root.drag_from_jack_id == 1) { return #4ECDC4; }
-        if (root.drag_from_jack_id == 3) { return #FFE66D; }
-        if (root.drag_from_jack_id == 6) { return #8AC6FF; }
-        return #CCCCCC;
+        return root.cable_color_for_jack(root.drag_from_jack_id);
     }
 
     // Define node positions
@@ -771,77 +771,13 @@ export component ModularWindow inherits Window {
         jack_drag_finished(id, gx, gy) => { root.finish_cable_drag(id, gx, gy); }
     }
 
-    // Draw cables on top of nodes using node-exposed jack positions
-    if root.conn_sine_filter: Cable {
-        x1: sine_x + sine_node.output_jack_x;
-        y1: sine_y + sine_node.output_jack_y;
-        x2: filter_x + filter_node.input_jack_x;
-        y2: filter_y + filter_node.input_jack_y;
-        cable_color: #FF6B6B;
-    }
-
-    if root.conn_sine_volume: Cable {
-        x1: sine_x + sine_node.output_jack_x;
-        y1: sine_y + sine_node.output_jack_y;
-        x2: output_x + output_node.input_jack_x;
-        y2: output_y + output_node.input_jack_y;
-        cable_color: #FF6B6B;
-    }
-
-    if root.conn_sine_scope: Cable {
-        x1: sine_x + sine_node.output_jack_x;
-        y1: sine_y + sine_node.output_jack_y;
-        x2: scope_x + scope_node.input_jack_x;
-        y2: scope_y + scope_node.input_jack_y;
-        cable_color: #FF6B6B;
-    }
-
-    if root.conn_saw_filter: Cable {
-        x1: saw_x + saw_node.output_jack_x;
-        y1: saw_y + saw_node.output_jack_y;
-        x2: filter_x + filter_node.input_jack_x;
-        y2: filter_y + filter_node.input_jack_y;
-        cable_color: #4ECDC4;
-    }
-
-    if root.conn_saw_volume: Cable {
-        x1: saw_x + saw_node.output_jack_x;
-        y1: saw_y + saw_node.output_jack_y;
-        x2: output_x + output_node.input_jack_x;
-        y2: output_y + output_node.input_jack_y;
-        cable_color: #4ECDC4;
-    }
-
-    if root.conn_saw_scope: Cable {
-        x1: saw_x + saw_node.output_jack_x;
-        y1: saw_y + saw_node.output_jack_y;
-        x2: scope_x + scope_node.input_jack_x;
-        y2: scope_y + scope_node.input_jack_y;
-        cable_color: #4ECDC4;
-    }
-
-    if root.conn_filter_volume: Cable {
-        x1: filter_x + filter_node.output_jack_x;
-        y1: filter_y + filter_node.output_jack_y;
-        x2: output_x + output_node.input_jack_x;
-        y2: output_y + output_node.input_jack_y;
-        cable_color: #FFE66D;
-    }
-
-    if root.conn_filter_scope: Cable {
-        x1: filter_x + filter_node.output_jack_x;
-        y1: filter_y + filter_node.output_jack_y;
-        x2: scope_x + scope_node.input_jack_x;
-        y2: scope_y + scope_node.input_jack_y;
-        cable_color: #FFE66D;
-    }
-
-    if root.conn_scope_output: Cable {
-        x1: scope_x + scope_node.output_jack_x;
-        y1: scope_y + scope_node.output_jack_y;
-        x2: output_x + output_node.input_jack_x;
-        y2: output_y + output_node.input_jack_y;
-        cable_color: #8AC6FF;
+    // Draw cables dynamically based on connections array
+    for conn in root.connections: Cable {
+        x1: root.jack_center_x(conn.from);
+        y1: root.jack_center_y(conn.from);
+        x2: root.jack_center_x(conn.to);
+        y2: root.jack_center_y(conn.to);
+        cable_color: root.cable_color_for_jack(conn.from);
     }
 
     if root.active_jack_drag: Cable {
@@ -852,35 +788,8 @@ export component ModularWindow inherits Window {
         cable_color: root.drag_preview_color();
     }
 
-    // Helper function to check if an output has any connections
-    function output_has_connection(jack_id: int) -> bool {
-        if (jack_id == 0) { return root.conn_sine_filter || root.conn_sine_volume || root.conn_sine_scope; }
-        if (jack_id == 1) { return root.conn_saw_filter || root.conn_saw_volume || root.conn_saw_scope; }
-        if (jack_id == 3) { return root.conn_filter_volume || root.conn_filter_scope; }
-        if (jack_id == 6) { return root.conn_scope_output; }
-        return false;
-    }
-
-    // Helper function to disconnect all connections from an output
-    function disconnect_output(jack_id: int) {
-        if (jack_id == 0) {
-            // Sine output
-            if (root.conn_sine_filter) { root.disconnect(0, 2); }
-            if (root.conn_sine_volume) { root.disconnect(0, 4); }
-            if (root.conn_sine_scope) { root.disconnect(0, 5); }
-        } else if (jack_id == 1) {
-            // Saw output
-            if (root.conn_saw_filter) { root.disconnect(1, 2); }
-            if (root.conn_saw_volume) { root.disconnect(1, 4); }
-            if (root.conn_saw_scope) { root.disconnect(1, 5); }
-        } else if (jack_id == 3) {
-            // Filter output
-            if (root.conn_filter_volume) { root.disconnect(3, 4); }
-            if (root.conn_filter_scope) { root.disconnect(3, 5); }
-        } else if (jack_id == 6) {
-            if (root.conn_scope_output) { root.disconnect(6, 4); }
-        }
-    }
+    // Callback to disconnect all connections from a given output jack
+    pure callback disconnect_all_from_output(int);
 
     // Helper function
     function handle_jack_click(jack_id: int) {
@@ -889,15 +798,14 @@ export component ModularWindow inherits Window {
         let is_output = (jack_id == 0 || jack_id == 1 || jack_id == 3 || jack_id == 6);
 
         if (root.drag_from_jack == -1) {
-            // First click - check if it's an output with existing connections
-            if (is_output && root.output_has_connection(jack_id)) {
+            // First click - disconnect all from this output and start drag
+            if (is_output) {
                 debug("Disconnecting output:", jack_id);
-                root.disconnect_output(jack_id);
-            } else {
-                // Start dragging from this jack
-                debug("Starting drag from:", jack_id);
-                root.drag_from_jack = jack_id;
+                root.disconnect_all_from_output(jack_id);
             }
+            // Start dragging from this jack
+            debug("Starting drag from:", jack_id);
+            root.drag_from_jack = jack_id;
         } else {
             // Complete the connection
             let from = root.drag_from_jack;
