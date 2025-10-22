@@ -1,8 +1,6 @@
 # Modular Synthesizer Example
 
-A visual modular synthesizer built with Oscen and Slint demonstrating real-time graph reconfiguration.
-
-![Screenshot](screenshot.png)
+A modular synthesizer built with Oscen and Slint demonstrating real-time graph reconfiguration.
 
 ## Architecture
 
@@ -26,3 +24,4 @@ cargo run --package modular
 2. Adjust knobs to control oscillator frequencies, filter parameters, and volume
 3. Click an output jack to disconnect all cables from it
 
+![Screenshot](screenshot.png)
