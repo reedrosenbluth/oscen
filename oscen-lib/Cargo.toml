@@ -21,3 +21,7 @@ harness = false
 [[bin]]
 name = "profile_graph"
 path = "perf/profile_graph.rs"
+
+[[bin]]
+name = "oscen_bench"
+path = "bin/oscen_bench.rs"
