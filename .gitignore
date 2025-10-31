@@ -5,3 +5,12 @@ CLAUDE.local.md
 AGENTS.md
 .claude
 flamegraph.svg
+
+# JUCE benchmarks
+juce-benchmarks/**/build/
+juce-benchmarks/**/_deps/
+juce-benchmarks/**/CMakeCache.txt
+juce-benchmarks/**/CMakeFiles/
+juce-benchmarks/**/cmake_install.cmake
+juce-benchmarks/**/Makefile
+juce-benchmarks/**/*.svg
