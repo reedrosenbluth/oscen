@@ -471,7 +471,6 @@ fn update_ui_connections(ui: &ModularWindow, connections: &Arc<Mutex<Vec<Connect
 /// Calculate jack positions based on node positions and dimensions
 fn update_jack_positions(ui: &ModularWindow) {
     // Node dimensions from Slint (these should match the Dimensions global)
-    const NODE_WIDTH: f32 = 160.0;
     const NODE_CONTENT_PADDING: f32 = 10.0;
     const JACK_WIDTH: f32 = 30.0;
     const JACK_H_PADDING: f32 = 5.0;
@@ -494,11 +493,12 @@ fn update_jack_positions(ui: &ModularWindow) {
             + JACK_CENTER_OFFSET
     };
 
-    // Output jack X (right side of node)
-    let output_jack_x =
-        NODE_WIDTH - NODE_CONTENT_PADDING - JACK_WIDTH + JACK_H_PADDING + JACK_CIRCLE_SIZE / 2.0;
+    // Helper to calculate output jack X position (right side of node) based on node width
+    let calc_output_jack_x = |node_width: f32| -> f32 {
+        node_width - NODE_CONTENT_PADDING - JACK_WIDTH + JACK_H_PADDING + JACK_CIRCLE_SIZE / 2.0
+    };
 
-    // Input jack X (left side of node)
+    // Input jack X (left side of node) - same for all nodes
     let input_jack_x = NODE_CONTENT_PADDING + JACK_H_PADDING + JACK_CIRCLE_SIZE / 2.0;
 
     // Get node positions from Slint
@@ -513,18 +513,24 @@ fn update_jack_positions(ui: &ModularWindow) {
     let output_x = ui.get_output_x();
     let output_y = ui.get_output_y();
 
+    // Get node widths from Slint
+    let sine_width = ui.get_sine_width();
+    let saw_width = ui.get_saw_width();
+    let filter_width = ui.get_filter_width();
+    let scope_width = ui.get_scope_width();
+
     let jack_positions = vec![
         // Sine output (id: 0, 1 knob)
         JackPositionInfo {
             id: 0,
-            x: sine_x + output_jack_x,
+            x: sine_x + calc_output_jack_x(sine_width),
             y: sine_y + calc_jack_y(1, 0.0),
             is_input: false,
         },
         // Saw output (id: 1, 1 knob)
         JackPositionInfo {
             id: 1,
-            x: saw_x + output_jack_x,
+            x: saw_x + calc_output_jack_x(saw_width),
             y: saw_y + calc_jack_y(1, 0.0),
             is_input: false,
         },
@@ -538,7 +544,7 @@ fn update_jack_positions(ui: &ModularWindow) {
         // Filter output (id: 3, 2 knobs)
         JackPositionInfo {
             id: 3,
-            x: filter_x + output_jack_x,
+            x: filter_x + calc_output_jack_x(filter_width),
             y: filter_y + calc_jack_y(2, 0.0),
             is_input: false,
         },
@@ -559,7 +565,7 @@ fn update_jack_positions(ui: &ModularWindow) {
         // Scope output (id: 6, 0 knobs, 120px extra height)
         JackPositionInfo {
             id: 6,
-            x: scope_x + output_jack_x,
+            x: scope_x + calc_output_jack_x(scope_width),
             y: scope_y + calc_jack_y(0, 120.0),
             is_input: false,
         },

@@ -380,10 +380,8 @@ component ModuleNode inherits Rectangle {
             root.jack_clicked(id);
         }
         drag_started(id, local_x, local_y) => {
-            // Calculate absolute position for drag start
-            let abs_x = root.x + root.width - Dimensions.node_content_padding - Dimensions.jack_width + local_x;
-            let abs_y = root.y + root.jacks_y + local_y;
-            root.jack_drag_started(id, abs_x, abs_y);
+            // Pass jack ID; parent will look up position from registry
+            root.jack_drag_started(id, 0px, 0px);
         }
         dragged(id, local_x, local_y) => {
             let abs_x = root.x + root.width - Dimensions.node_content_padding - Dimensions.jack_width + local_x;
@@ -484,6 +482,13 @@ export component ModularWindow inherits Window {
     in-out property <length> output_x: 580px;
     in-out property <length> output_y: 320px;
 
+    // Node widths (exposed for Rust to read)
+    in-out property <length> sine_width: Dimensions.node_width;
+    in-out property <length> saw_width: Dimensions.node_width;
+    in-out property <length> filter_width: Dimensions.node_width;
+    in-out property <length> scope_width: 340px;
+    in-out property <length> output_width: Dimensions.node_width;
+
     // ===== Internal State =====
 
     // Cable drag state
@@ -545,13 +550,17 @@ export component ModularWindow inherits Window {
         // Disconnect existing connections from this output
         root.disconnect_all_from_output(from_jack_id);
 
+        // Use jack center from registry for consistent positioning
+        let jack_x = root.jack_registry[from_jack_id].x;
+        let jack_y = root.jack_registry[from_jack_id].y;
+
         root.active_jack_drag = true;
         root.drag_from_jack = from_jack_id;
         root.hovered_input_jack = -1;
-        root.drag_start_x = start_x;
-        root.drag_start_y = start_y;
-        root.drag_cursor_x = start_x;
-        root.drag_cursor_y = start_y;
+        root.drag_start_x = jack_x;
+        root.drag_start_y = jack_y;
+        root.drag_cursor_x = jack_x;
+        root.drag_cursor_y = jack_y;
     }
 
     function update_cable_drag(jack_id: int, cursor_x: length, cursor_y: length) {
