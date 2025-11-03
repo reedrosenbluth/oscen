@@ -1,0 +1,35 @@
+[target.thumbv7em-none-eabihf]
+# Runner configuration for flashing to Daisy
+# Uncomment one of the following based on your preferred flashing method:
+
+# Option 1: Using probe-run (recommended for debugging)
+# runner = "probe-run --chip STM32H750IBKx"
+
+# Option 2: Using dfu-util (Daisy's USB bootloader)
+# runner = "dfu-util -a 0 -s 0x08000000:leave -D"
+
+# Option 3: Using OpenOCD
+# runner = "arm-none-eabi-gdb -q -x openocd.gdb"
+
+rustflags = [
+  # LLD linker (faster than default)
+  "-C", "link-arg=-Tlink.x",
+
+  # Use hardware floating point
+  "-C", "target-feature=+fp-armv8",
+
+  # Optimize for size
+  "-C", "inline-threshold=5",
+  "-C", "no-vectorize-loops",
+]
+
+[build]
+# Target for Daisy Seed (STM32H750 - Cortex-M7F)
+target = "thumbv7em-none-eabihf"
+
+[profile.release]
+# Optimize for size and speed
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = true  # Keep symbols for debugging

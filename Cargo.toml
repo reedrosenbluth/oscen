@@ -13,3 +13,6 @@ members = [
     "oscen-macros",
     "xtask"
 ]
+exclude = [
+    "examples/daisy"
+]

@@ -1,0 +1,28 @@
+[workspace]
+
+[package]
+name = "oscen-daisy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oscen = { path = "../../oscen-lib" }
+
+# Daisy hardware support
+daisy_bsp = { version = "0.6.0", features = ["seed"] }
+
+# Cortex-M support
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+
+# Panic handler for embedded
+panic-halt = "0.2"
+
+[profile.dev]
+opt-level = 1  # Minimum optimization for debug builds
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = true  # Keep debug info for better stack traces
