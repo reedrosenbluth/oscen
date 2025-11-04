@@ -16,7 +16,7 @@ pub mod voice_allocator;
 pub use delay::Delay;
 pub use envelope::AdsrEnvelope;
 pub use event_passthrough::EventPassthrough;
-pub use filters::tpt::TptFilter;
+pub use filters::{iir_lowpass::IirLowpass, tpt::TptFilter};
 pub use gain::{Gain, GainEndpoints};
 pub use graph::*;
 pub use midi::{

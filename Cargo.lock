@@ -3405,6 +3405,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "medium-graph"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "oscen",
+ "slint",
+ "slint-build",
+]
+
+[[package]]
 name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

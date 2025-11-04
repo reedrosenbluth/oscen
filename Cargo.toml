@@ -9,6 +9,7 @@ members = [
     "examples/synth-slint",
     "examples/feedback-synth",
     "examples/modular",
+    "examples/medium-graph",
     "oscen-lib",
     "oscen-macros",
     "xtask"
