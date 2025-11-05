@@ -1,0 +1,15 @@
+[package]
+name = "electric-piano"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oscen = { path = "../../oscen-lib" }
+cpal = "0.15"
+midir = "0.10"
+slint = "1.9"
+anyhow = "1.0"
+arrayvec = "0.7"
+
+[build-dependencies]
+slint-build = "1.9"
