@@ -10,6 +10,7 @@ members = [
     "examples/feedback-synth",
     "examples/modular",
     "examples/medium-graph",
+    "examples/jit-poc",
     "oscen-lib",
     "oscen-macros",
     "xtask"
