@@ -85,18 +85,6 @@ impl TptFilter {
 
         self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
     }
-
-    fn process_sample(&mut self, input: f32) -> f32 {
-        let high = (input - self.k * self.z[0] - self.z[1]) * self.h;
-        let band = self.g * high + self.z[0];
-        let low = self.g * band + self.z[1];
-
-        self.z[0] = self.g * high + band;
-        self.z[1] = self.g * band + low;
-
-        self.output = low;
-        self.output
-    }
 }
 
 impl SignalProcessor for TptFilter {

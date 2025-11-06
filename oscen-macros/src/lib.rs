@@ -24,9 +24,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut create_endpoints_assignments = Vec::new(); // Field assignments in create_endpoints
     let mut value_input_fields = Vec::new(); // Track (field_name, index) for value inputs
 
-    // Track stream/event I/O for IO struct generation
-    let mut stream_input_idx = 0usize;
-    let mut stream_output_idx = 0usize;
+    // Track event I/O for determining if IO struct needs lifetime parameter
     let mut event_input_idx = 0usize;
     let mut event_output_idx = 0usize;
 
@@ -83,7 +81,6 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             io_fields.push(quote! {
                                 pub #field_name: f32
                             });
-                            stream_input_idx += 1;
                         }
                         EndpointTypeAttr::Event => {
                             io_fields.push(quote! {
@@ -180,7 +177,6 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             io_fields.push(quote! {
                                 pub #field_name: f32
                             });
-                            stream_output_idx += 1;
                         }
                         EndpointTypeAttr::Event => {
                             io_fields.push(quote! {
