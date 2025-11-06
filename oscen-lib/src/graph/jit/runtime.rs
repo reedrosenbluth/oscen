@@ -170,28 +170,26 @@ impl GraphStateBuilder {
 
         for conn in &ir.connections {
             // Get the source output endpoint key
+            // IMPORTANT: conn.src_output and conn.dst_input are OVERALL indices,
+            // but the IR stores them in type-specific arrays. We need to look up
+            // the endpoint key directly from the combined output/input lists.
             let src_node = &ir.nodes[conn.src_node];
-            let src_output_key = if conn.connection_type == super::super::types::EndpointType::Stream {
-                src_node.stream_outputs.get(conn.src_output).copied()
-            } else if conn.connection_type == super::super::types::EndpointType::Value {
-                src_node.value_outputs.get(conn.src_output).copied()
-            } else if conn.connection_type == super::super::types::EndpointType::Event {
-                src_node.event_outputs.get(conn.src_output).copied()
-            } else {
-                None
-            };
-
-            // Get the destination input endpoint key
             let dst_node = &ir.nodes[conn.dst_node];
-            let dst_input_key = if conn.connection_type == super::super::types::EndpointType::Stream {
-                dst_node.stream_inputs.get(conn.dst_input).copied()
-            } else if conn.connection_type == super::super::types::EndpointType::Value {
-                dst_node.value_inputs.get(conn.dst_input).copied()
-            } else if conn.connection_type == super::super::types::EndpointType::Event {
-                dst_node.event_inputs.get(conn.dst_input).copied()
-            } else {
-                None
-            };
+
+            // For source: Build combined outputs list in same order as stored
+            let mut src_combined_outputs = Vec::new();
+            src_combined_outputs.extend(&src_node.stream_outputs);
+            src_combined_outputs.extend(&src_node.value_outputs);
+            src_combined_outputs.extend(&src_node.event_outputs);
+
+            // For destination: Build combined inputs list
+            let mut dst_combined_inputs = Vec::new();
+            dst_combined_inputs.extend(&dst_node.stream_inputs);
+            dst_combined_inputs.extend(&dst_node.value_inputs);
+            dst_combined_inputs.extend(&dst_node.event_inputs);
+
+            let src_output_key = src_combined_outputs.get(conn.src_output).copied();
+            let dst_input_key = dst_combined_inputs.get(conn.dst_input).copied();
 
             if let (Some(src_key), Some(dst_key)) = (src_output_key, dst_input_key) {
                 endpoint_connections.entry(src_key).or_default().push(dst_key);
@@ -351,13 +349,7 @@ pub extern "C" fn process_node_trampoline(
                 let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
                 if let Some(endpoint_state) = endpoints.get(value_key) {
                     // Fill stream_input_values for all types
-                    let scalar_val = endpoint_state.as_scalar().unwrap_or(0.0);
-                    stream_input_values[i] = scalar_val;
-
-                    // Debug: Log value inputs for filter node (appears to be having issues)
-                    if node_index >= 15 && node_index <= 16 && input_type == super::super::types::EndpointType::Value {
-                        eprintln!("[JIT] Node {} input {} (Value): {:.6}", node_index, i, scalar_val);
-                    }
+                    stream_input_values[i] = endpoint_state.as_scalar().unwrap_or(0.0);
                 }
             }
 
@@ -439,11 +431,6 @@ pub extern "C" fn process_node_trampoline(
             // Call the actual process method
             let output = node_data.processor.process(sample_rate, &mut context);
 
-            // Debug: Log node 20 inputs and output
-            if node_index == 20 {
-                eprintln!("[JIT TRAMPOLINE] Node 20: inputs[0]={:.6}, inputs[1]={:.6}, returned: {:.6}",
-                    stream_input_values[0], stream_input_values[1], output);
-            }
 
             // Clear event input queues after consumption
             for (i, &input_type) in node_data.input_types.iter().enumerate() {
@@ -564,12 +551,6 @@ pub unsafe extern "C" fn write_node_output(
         let output_key_data = *state.endpoint_keys.add(output_start);
         let output_key = ValueKey::from(slotmap::KeyData::from_ffi(output_key_data));
 
-        // Debug: Log writes for node 19 and 20
-        if (node_index == 19 || node_index == 20) {
-            eprintln!("[WRITE_OUTPUT] Node {} writing {:.6} to endpoint {:?}",
-                node_index, output_value, output_key.data());
-        }
-
         if let Some(endpoint_state) = endpoints.get_mut(output_key) {
             endpoint_state.set_scalar(output_value);
         } else {
@@ -589,21 +570,10 @@ pub unsafe extern "C" fn write_node_output(
         let conn_start = *state.connections_offsets.add(total_outputs_before);
         let conn_end = *state.connections_offsets.add(total_outputs_before + 1);
 
-        // Debug: Log connections for node 0 (volume param) and node 19
-        if node_index == 0 || node_index == 19 {
-            eprintln!("[WRITE_OUTPUT] Node {} has {} connections (conn_start={}, conn_end={})",
-                node_index, conn_end - conn_start, conn_start, conn_end);
-        }
-
         // Copy to all connected inputs
         for i in conn_start..conn_end {
             let connected_input_key_data = *state.connections_data.add(i);
             let connected_input_key = ValueKey::from(slotmap::KeyData::from_ffi(connected_input_key_data));
-
-            if node_index == 0 || node_index == 19 {
-                eprintln!("[WRITE_OUTPUT] Node {} copying {:.6} to input endpoint {:?}",
-                    node_index, output_value, connected_input_key.data());
-            }
 
             if let Some(input_endpoint) = endpoints.get_mut(connected_input_key) {
                 input_endpoint.set_scalar(output_value);
