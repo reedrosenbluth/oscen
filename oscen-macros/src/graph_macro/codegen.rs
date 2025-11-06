@@ -1114,34 +1114,22 @@ impl CodegenContext {
         }
 
         // Generate process_internal() calls for each node
-        // Nodes store IO internally as `pub io` field, so we just call process_internal()
+        // All macro-generated process_internal() methods now accept sample_rate
         for node in &self.nodes {
             let field_name = &node.name;
 
             if node.array_size.is_some() {
                 let array_size = node.array_size.unwrap();
                 for i in 0..array_size {
-                    // TODO: Determine if array nodes need sample_rate
                     process_statements.push(quote! {
                         self.#field_name[#i].process_internal(sample_rate);
                     });
                 }
             } else {
-                // Check node type to pass correct arguments
-                // Oscillator needs sample_rate, Gain doesn't
-                if let Some(node_type) = &node.node_type {
-                    let type_str = quote!(#node_type).to_string();
-                    if type_str.contains("Oscillator") {
-                        process_statements.push(quote! {
-                            self.#field_name.process_internal(sample_rate);
-                        });
-                    } else {
-                        // Gain and similar nodes don't take sample_rate
-                        process_statements.push(quote! {
-                            self.#field_name.process_internal();
-                        });
-                    }
-                }
+                // All nodes now uniformly take sample_rate (macro-generated)
+                process_statements.push(quote! {
+                    self.#field_name.process_internal(sample_rate);
+                });
             }
         }
 

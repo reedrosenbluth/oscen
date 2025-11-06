@@ -24,6 +24,10 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut create_endpoints_assignments = Vec::new(); // Field assignments in create_endpoints
     let mut value_input_fields = Vec::new(); // Track (field_name, index) for value inputs
 
+    // For generating SignalProcessor impl
+    let mut stream_input_names = Vec::new(); // Names of stream input fields
+    let mut has_io_field = false; // Check if struct has pub io field
+
     // Track event I/O for determining if IO struct needs lifetime parameter
     let mut event_input_idx = 0usize;
     let mut event_output_idx = 0usize;
@@ -37,6 +41,12 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             for field in fields.named {
                 let field_name = field.ident.unwrap();
                 let field_name_str = field_name.to_string();
+
+                // Check if this is a pub io field
+                if field_name_str == "io" && matches!(field.vis, syn::Visibility::Public(_)) {
+                    has_io_field = true;
+                }
+
                 let mut input_type: Option<(TokenStream2, EndpointTypeAttr)> = None;
                 let mut input_type_kind = None;
                 let mut output_type = None;
@@ -81,6 +91,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             io_fields.push(quote! {
                                 pub #field_name: f32
                             });
+                            stream_input_names.push(field_name.clone());
                         }
                         EndpointTypeAttr::Event => {
                             io_fields.push(quote! {
@@ -312,7 +323,50 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         }
     };
 
-    TokenStream::from(expanded)
+    // Generate SignalProcessor implementation ONLY if struct has pub io field
+    // This populates stream inputs from context and calls user's compute() method
+    let signal_processor_impl = if has_io_field {
+        let populate_stream_inputs = stream_input_names.iter().map(|field_name| {
+            let getter_name = format_ident!("get_{}", field_name);
+            quote! {
+                self.io.#field_name = self.#getter_name(context);
+            }
+        });
+
+        quote! {
+            impl ::oscen::graph::SignalProcessor for #name {
+                /// Auto-generated wrapper that populates IO from context and calls compute().
+                ///
+                /// Users implement compute() with their processing logic.
+                fn process<'a>(&mut self, sample_rate: f32, context: &mut ::oscen::graph::ProcessingContext<'a>) -> f32 {
+                    // Populate stream inputs from context into self.io
+                    #(#populate_stream_inputs)*
+
+                    // Call user-defined processing logic
+                    self.compute(sample_rate)
+                }
+            }
+
+            impl #name {
+                /// Auto-generated wrapper for compile-time graphs.
+                ///
+                /// Assumes self.io is already wired externally.
+                #[inline]
+                pub fn process_internal(&mut self, sample_rate: f32) -> f32 {
+                    self.compute(sample_rate)
+                }
+            }
+        }
+    } else {
+        quote! {}  // Don't generate if no pub io field
+    };
+
+    let full_expansion = quote! {
+        #expanded
+        #signal_processor_impl
+    };
+
+    TokenStream::from(full_expansion)
 }
 
 fn parse_endpoint_attr(attr: &syn::Attribute) -> Option<EndpointTypeAttr> {
