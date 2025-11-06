@@ -3,6 +3,7 @@ use oscen::{
     Graph, InputEndpoint, Node, NodeKey, PolyBlepOscillator, ProcessingContext, ProcessingNode,
     SignalProcessor, StreamOutput, TptFilter, ValueKey,
 };
+use oscen::graph::jit::{CraneliftJit, CompiledGraph, GraphStateBuilder};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Sender};
@@ -83,6 +84,8 @@ struct AudioContext {
     volume_param: ValueParam,
     output: StreamOutput,
     channels: usize,
+    jit_compiled: Option<CompiledGraph>,
+    jit_state_builder: Option<GraphStateBuilder>,
 }
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
@@ -125,6 +128,37 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
 
     let output = graph.combine(filter.output, volume_param, |x, v| x * v);
 
+    // Try to JIT-compile the graph
+    let (jit_compiled, jit_state_builder) = match graph.to_ir() {
+        Ok(ir) => {
+            eprintln!("[SUPERSAW] Extracted IR with {} nodes", ir.nodes.len());
+
+            match CraneliftJit::new() {
+                Ok(mut jit) => {
+                    match jit.compile(&ir) {
+                        Ok(compiled) => {
+                            eprintln!("[SUPERSAW] ✓ Successfully JIT-compiled supersaw graph!");
+                            let state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
+                            (Some(compiled), Some(state_builder))
+                        }
+                        Err(e) => {
+                            eprintln!("[SUPERSAW] ✗ JIT compilation failed: {}, falling back to interpreted", e);
+                            (None, None)
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[SUPERSAW] ✗ Failed to create JIT compiler: {}, falling back to interpreted", e);
+                    (None, None)
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("[SUPERSAW] ✗ Failed to extract IR: {}, falling back to interpreted", e);
+            (None, None)
+        }
+    };
+
     AudioContext {
         graph,
         base_freq_param: base_param,
@@ -134,6 +168,8 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
         volume_param: volume_param,
         output,
         channels,
+        jit_compiled,
+        jit_state_builder,
     }
 }
 
@@ -142,6 +178,8 @@ fn audio_callback(
     context: &mut AudioContext,
     rx: &std::sync::mpsc::Receiver<SynthParams>,
 ) {
+    static mut LOGGED_MODE: bool = false;
+
     let mut latest_params = None;
     while let Ok(params) = rx.try_recv() {
         latest_params = Some(params);
@@ -166,8 +204,41 @@ fn audio_callback(
     }
 
     for frame in data.chunks_mut(context.channels) {
-        let _ = context.graph.process();
+        // Use JIT if available, otherwise fall back to interpreted mode
+        if let (Some(jit_compiled), Some(jit_state_builder)) =
+            (&context.jit_compiled, &mut context.jit_state_builder)
+        {
+            unsafe {
+                if !LOGGED_MODE {
+                    eprintln!("[SUPERSAW] Using JIT execution mode");
+                    LOGGED_MODE = true;
+                }
+            }
 
+            // Process parameter ramps (needed for smooth parameter transitions)
+            context.graph.process_ramps();
+
+            // JIT execution path
+            let (mut state, _temps) = jit_state_builder.build(
+                &mut context.graph.nodes,
+                &mut context.graph.endpoints,
+            );
+
+            // Execute JIT-compiled code
+            let _ = jit_compiled.process(&mut state);
+        } else {
+            unsafe {
+                if !LOGGED_MODE {
+                    eprintln!("[SUPERSAW] Using INTERPRETED execution mode (JIT not available)");
+                    LOGGED_MODE = true;
+                }
+            }
+
+            // Interpreted execution path (fallback)
+            let _ = context.graph.process();
+        }
+
+        // Read output from the endpoint (same for both modes)
         if let Some(value) = context.graph.get_value(&context.output) {
             for sample in frame.iter_mut() {
                 *sample = value;

@@ -174,7 +174,9 @@ impl CraneliftJit {
 
         // Load sample_rate from GraphState
         // offset = offsetof(GraphState, sample_rate)
-        let sample_rate_offset = (9 * std::mem::size_of::<usize>()) as i32; // 9 pointer fields before sample_rate
+        // GraphState has 8 pointer-sized fields before sample_rate:
+        // nodes_slotmap, node_keys, endpoints, endpoint_keys, input_offsets, output_offsets, connections_offsets, connections_data
+        let sample_rate_offset = (8 * std::mem::size_of::<usize>()) as i32;
         let sample_rate = builder.ins().load(
             types::F32,
             MemFlags::trusted(),
