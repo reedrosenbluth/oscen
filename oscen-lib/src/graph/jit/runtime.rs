@@ -174,13 +174,18 @@ impl GraphStateBuilder {
     }
 }
 
+/// Get the function pointer to the trampoline for registration with Cranelift
+pub fn get_trampoline_ptr() -> ProcessFnPtr {
+    process_node_trampoline
+}
+
 /// Trampoline function that JIT code calls to invoke a node's process method
 ///
 /// This is a generic trampoline - in the future we could generate specialized
 /// trampolines per node type for better performance.
 ///
 /// SAFETY: state must be a valid pointer to GraphState with valid node references
-extern "C" fn process_node_trampoline(
+pub extern "C" fn process_node_trampoline(
     node_index: usize,
     sample_rate: f32,
     context_ptr: *mut (),

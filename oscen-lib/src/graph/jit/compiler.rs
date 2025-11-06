@@ -21,6 +21,8 @@ pub struct CraneliftJit {
     builder_context: FunctionBuilderContext,
     ctx: codegen::Context,
     module: JITModule,
+    /// ID of the declared trampoline function
+    trampoline_id: Option<cranelift_module::FuncId>,
 }
 
 /// A compiled graph ready for execution
@@ -47,13 +49,19 @@ impl CraneliftJit {
             .finish(settings::Flags::new(flag_builder))
             .map_err(|e| format!("Failed to create ISA: {}", e))?;
 
-        let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+        let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+
+        // Add the trampoline function as a symbol
+        let trampoline_ptr = super::runtime::get_trampoline_ptr() as *const u8;
+        builder.symbol("process_node_trampoline", trampoline_ptr);
+
         let module = JITModule::new(builder);
 
         Ok(Self {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
             module,
+            trampoline_id: None,
         })
     }
 
@@ -62,8 +70,26 @@ impl CraneliftJit {
         // Validate IR first
         ir.validate()?;
 
-        // Create function signature: fn(*mut GraphState) -> f32
         let ptr_type = self.module.target_config().pointer_type();
+
+        // Declare the trampoline function if not already declared
+        if self.trampoline_id.is_none() {
+            let mut trampoline_sig = self.module.make_signature();
+            trampoline_sig.params.push(AbiParam::new(types::I64)); // node_index (usize)
+            trampoline_sig.params.push(AbiParam::new(types::F32)); // sample_rate
+            trampoline_sig.params.push(AbiParam::new(ptr_type));   // context_ptr
+            trampoline_sig.params.push(AbiParam::new(ptr_type));   // state_ptr
+            trampoline_sig.returns.push(AbiParam::new(types::F32)); // return value
+
+            let trampoline_id = self
+                .module
+                .declare_function("process_node_trampoline", Linkage::Import, &trampoline_sig)
+                .map_err(|e| format!("Failed to declare trampoline: {}", e))?;
+
+            self.trampoline_id = Some(trampoline_id);
+        }
+
+        // Create function signature: fn(*mut GraphState) -> f32
         self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
         self.ctx.func.signature.returns.push(AbiParam::new(types::F32));
 
@@ -77,7 +103,8 @@ impl CraneliftJit {
         {
             let mut builder =
                 FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
-            Self::build_function_impl(&mut builder, ir, ptr_type)?;
+            let trampoline_id = self.trampoline_id.unwrap();
+            Self::build_function_impl(&mut builder, ir, ptr_type, trampoline_id, &mut self.module)?;
             builder.finalize();
         }
 
@@ -108,6 +135,8 @@ impl CraneliftJit {
         builder: &mut FunctionBuilder,
         ir: &GraphIR,
         ptr_type: Type,
+        trampoline_id: cranelift_module::FuncId,
+        module: &mut JITModule,
     ) -> Result<(), String> {
         // Create entry block
         let entry_block = builder.create_block();
@@ -138,7 +167,7 @@ impl CraneliftJit {
         let mut output_slots: HashMap<usize, StackSlot> = HashMap::new();
 
         for &node_idx in &ir.topology_order {
-            Self::emit_node_processing(builder, state_ptr, node_idx, &ir.nodes[node_idx], ptr_type, sample_rate, &mut output_slots)?;
+            Self::emit_node_processing(builder, module, state_ptr, node_idx, &ir.nodes[node_idx], ptr_type, sample_rate, trampoline_id, &mut output_slots)?;
         }
 
         // Return the final output
@@ -161,41 +190,45 @@ impl CraneliftJit {
     /// Emit code for processing a single node
     fn emit_node_processing(
         builder: &mut FunctionBuilder,
+        module: &mut JITModule,
         state_ptr: Value,
         node_idx: usize,
         _node_ir: &super::ir::NodeIR,
         ptr_type: Type,
-        _sample_rate: Value,
+        sample_rate: Value,
+        trampoline_id: cranelift_module::FuncId,
         output_slots: &mut HashMap<usize, StackSlot>,
     ) -> Result<(), String> {
-        // TODO: This is the core of the JIT compilation
-        // For now, this is a simplified version that will be expanded
+        // Get a local reference to the trampoline function
+        let trampoline_func_ref = module.declare_func_in_func(trampoline_id, builder.func);
 
-        // Load the node pointer from state.nodes[node_idx]
-        // nodes is *mut *mut ()
-        let nodes_offset = 0i32; // nodes is first field
-        let nodes_ptr = builder.ins().load(
-            ptr_type,
-            MemFlags::trusted(),
-            state_ptr,
-            nodes_offset,
+        // Prepare arguments for trampoline call
+        // Signature: fn(node_index: usize, sample_rate: f32, context: *mut (), state: *mut GraphState) -> f32
+
+        // 1. node_index as i64 (usize on 64-bit)
+        let node_idx_val = builder.ins().iconst(types::I64, node_idx as i64);
+
+        // 2. sample_rate (already a Value)
+        let sample_rate_val = sample_rate;
+
+        // 3. context_ptr - for now, pass null (simplified version)
+        // TODO: Create proper ProcessingContext
+        let null_context = builder.ins().iconst(ptr_type, 0);
+
+        // 4. state_ptr (already a Value)
+        let state_val = state_ptr;
+
+        // Call the trampoline
+        let call_inst = builder.ins().call(
+            trampoline_func_ref,
+            &[node_idx_val, sample_rate_val, null_context, state_val],
         );
 
-        // Calculate offset to this node: nodes + (node_idx * ptr_size)
-        let node_offset = (node_idx * std::mem::size_of::<*mut ()>()) as i32;
-        let _node_ptr = builder.ins().load(
-            ptr_type,
-            MemFlags::trusted(),
-            nodes_ptr,
-            node_offset,
-        );
+        // Get the return value (f32)
+        let results = builder.inst_results(call_inst);
+        let output_val = results[0];
 
-        // TODO: Load process function pointer from state.process_fns[node_idx]
-        // TODO: Prepare ProcessingContext with inputs from previous nodes
-        // TODO: Call the process function
-        // TODO: Store output in a stack slot for downstream nodes
-
-        // For now, create a stack slot for this node's output
+        // Create a stack slot for this node's output
         let output_slot = builder.create_sized_stack_slot(StackSlotData::new(
             StackSlotKind::ExplicitSlot,
             4, // size of f32
@@ -203,9 +236,8 @@ impl CraneliftJit {
         ));
         output_slots.insert(node_idx, output_slot);
 
-        // Store a placeholder value (0.0) for now
-        let zero = builder.ins().f32const(0.0);
-        builder.ins().stack_store(zero, output_slot, 0);
+        // Store the output value
+        builder.ins().stack_store(output_val, output_slot, 0);
 
         Ok(())
     }
