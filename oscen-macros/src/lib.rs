@@ -29,6 +29,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut stream_output_names = Vec::new(); // Names of stream output fields
     let mut all_stream_fields_public = true; // Track if all stream fields are pub (opt-in signal)
     let mut all_value_fields_public = true;  // Track if all value fields are pub (opt-in signal)
+    let mut event_handlers: Vec<(proc_macro2::Ident, String)> = Vec::new(); // (field_name, handler_function_name)
 
     // Track event I/O for determining if IO struct needs lifetime parameter
     let mut event_input_idx = 0usize;
@@ -52,8 +53,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 for attr in field.attrs.iter() {
                     if attr.path().is_ident("input") {
                         let kind = parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
-                        let ty = endpoint_type_tokens(kind);
-                        input_type = Some((ty, kind));
+                        let ty = endpoint_type_tokens(kind.clone());
+                        input_type = Some((ty, kind.clone()));
                         input_type_kind = Some(kind);
                     } else if attr.path().is_ident("output") {
                         let kind = parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
@@ -64,12 +65,12 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
                 if let Some((endpoint_ty, _kind_tag)) = input_type {
                     let descriptor_ty = endpoint_ty.clone();
-                    let accessor_kind = input_type_kind.unwrap_or(EndpointTypeAttr::Value);
+                    let accessor_kind = input_type_kind.clone().unwrap_or(EndpointTypeAttr::Value);
 
                     // Generate field type based on endpoint kind
                     let field_type = match accessor_kind {
                         EndpointTypeAttr::Stream => quote! { ::oscen::graph::types::StreamInput },
-                        EndpointTypeAttr::Event => quote! { ::oscen::graph::types::EventInput },
+                        EndpointTypeAttr::Event { .. } => quote! { ::oscen::graph::types::EventInput },
                         EndpointTypeAttr::Value => quote! { ::oscen::graph::types::ValueInput },
                     };
 
@@ -95,10 +96,14 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                                 all_stream_fields_public = false;
                             }
                         }
-                        EndpointTypeAttr::Event => {
+                        EndpointTypeAttr::Event { handler } => {
                             io_fields.push(quote! {
                                 pub #field_name: &'io [::oscen::graph::EventInstance]
                             });
+                            // Track event handler if specified
+                            if let Some(handler_fn) = handler {
+                                event_handlers.push((field_name.clone(), handler_fn.clone()));
+                            }
                             event_input_idx += 1;
                         }
                         EndpointTypeAttr::Value => {
@@ -146,7 +151,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                                 // Track value inputs for default_values() generation
                                 value_input_fields.push((field_name.clone(), input_idx));
                             }
-                            EndpointTypeAttr::Event => {
+                            EndpointTypeAttr::Event { .. } => {
                                 let events_name = format_ident!("events_{}", field_name);
                                 input_event_getters.push(quote! {
                                     pub fn #events_name<'a>(&self, context: &'a ::oscen::graph::ProcessingContext<'a>) -> &'a [::oscen::graph::EventInstance] {
@@ -175,7 +180,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     let output_type_token = match output_kind {
                         EndpointTypeAttr::Stream => quote! { ::oscen::graph::types::StreamOutput },
                         EndpointTypeAttr::Value => quote! { ::oscen::graph::types::ValueOutput },
-                        EndpointTypeAttr::Event => quote! { ::oscen::graph::types::EventOutput },
+                        EndpointTypeAttr::Event { .. } => quote! { ::oscen::graph::types::EventOutput },
                     };
 
                     // Generate field definition for Endpoints struct
@@ -200,7 +205,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                                 all_stream_fields_public = false;
                             }
                         }
-                        EndpointTypeAttr::Event => {
+                        EndpointTypeAttr::Event { .. } => {
                             io_fields.push(quote! {
                                 pub #field_name: ::std::vec::Vec<::oscen::graph::EventInstance>
                             });
@@ -336,18 +341,15 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
     // Generate SignalProcessor implementation if:
     // 1. There are stream inputs/outputs AND
-    // 2. ALL stream fields are pub (opt-in signal) AND
-    // 3. ALL value fields are pub (opt-in signal) AND
-    // 4. There are NO event inputs (events need custom handling)
+    // 2. ALL stream fields are pub (opt-in signal)
     //
-    // This means nodes opt-in to auto-generation by making ALL input fields public.
-    // Simple nodes like Gain (pub gain) get full auto-generation.
-    // Nodes with complex parameter handling can keep value fields private and provide
-    // a manual SignalProcessor implementation.
+    // NEW: Event handlers are automatically called if specified!
+    // All value inputs are auto-populated (can be overridden in process() if needed).
+    // Event inputs with handlers are automatically iterated and called.
+    //
+    // This eliminates the need for manual SignalProcessor implementations in most cases.
     let has_stream_fields = !stream_input_names.is_empty() || !stream_output_names.is_empty();
-    let has_event_inputs = event_input_idx > 0;
-    let all_inputs_public = all_stream_fields_public && all_value_fields_public;
-    let signal_processor_impl = if has_stream_fields && all_inputs_public && !has_event_inputs {
+    let signal_processor_impl = if has_stream_fields && all_stream_fields_public {
         let populate_stream_inputs = stream_input_names.iter().map(|field_name| {
             let getter_name = format_ident!("get_{}", field_name);
             quote! {
@@ -363,19 +365,35 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             }
         });
 
+        // Generate event handler calls
+        let call_event_handlers = event_handlers.iter().map(|(field_name, handler_fn)| {
+            let events_getter = format_ident!("events_{}", field_name);
+            let handler_ident = format_ident!("{}", handler_fn);
+            quote! {
+                // Get events for this input and call the handler for each
+                let events = self.#events_getter(context);
+                for event in events.iter() {
+                    self.#handler_ident(event);
+                }
+            }
+        });
+
         quote! {
             impl ::oscen::graph::SignalProcessor for #name {
-                /// Auto-generated wrapper that populates stream and value fields from context and calls user's process().
+                /// Auto-generated wrapper that populates inputs, calls event handlers, and calls user's process().
                 ///
-                /// Users implement: pub fn process(&mut self, sample_rate: f32) -> f32
-                ///
-                /// Nodes with complex parameter handling can override this implementation.
+                /// Users implement:
+                /// - pub fn process(&mut self, sample_rate: f32) -> f32
+                /// - Event handler functions (if they have event inputs)
                 fn process<'a>(&mut self, sample_rate: f32, context: &mut ::oscen::graph::ProcessingContext<'a>) -> f32 {
                     // Populate stream input fields directly on self
                     #(#populate_stream_inputs)*
 
                     // Populate value input fields directly on self
                     #(#populate_value_inputs)*
+
+                    // Call event handlers
+                    #(#call_event_handlers)*
 
                     // Call user-defined processing logic using fully qualified syntax
                     // This calls the inherent impl's process(), not this trait method
@@ -414,15 +432,15 @@ fn endpoint_type_tokens(attr: EndpointTypeAttr) -> TokenStream2 {
     match attr {
         EndpointTypeAttr::Stream => quote! { ::oscen::graph::EndpointType::Stream },
         EndpointTypeAttr::Value => quote! { ::oscen::graph::EndpointType::Value },
-        EndpointTypeAttr::Event => quote! { ::oscen::graph::EndpointType::Event },
+        EndpointTypeAttr::Event { .. } => quote! { ::oscen::graph::EndpointType::Event },
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum EndpointTypeAttr {
     Stream,
     Value,
-    Event,
+    Event { handler: Option<String> },
 }
 
 impl syn::parse::Parse for EndpointTypeAttr {
@@ -435,7 +453,20 @@ impl syn::parse::Parse for EndpointTypeAttr {
         match ident.to_string().as_str() {
             "stream" => Ok(EndpointTypeAttr::Stream),
             "value" => Ok(EndpointTypeAttr::Value),
-            "event" => Ok(EndpointTypeAttr::Event),
+            "event" => {
+                // Parse optional handler attribute: event, handler = "function_name"
+                let mut handler = None;
+                if input.peek(syn::Token![,]) {
+                    input.parse::<syn::Token![,]>()?;
+                    let handler_ident: syn::Ident = input.parse()?;
+                    if handler_ident == "handler" {
+                        input.parse::<syn::Token![=]>()?;
+                        let handler_lit: syn::LitStr = input.parse()?;
+                        handler = Some(handler_lit.value());
+                    }
+                }
+                Ok(EndpointTypeAttr::Event { handler })
+            }
             other => Err(syn::Error::new(
                 ident.span(),
                 format!("unknown endpoint type `{}`", other),
