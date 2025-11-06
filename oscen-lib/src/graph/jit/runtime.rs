@@ -102,6 +102,15 @@ pub struct GraphStateBuilder {
     sample_rate: f32,
 }
 
+// SAFETY: GraphStateBuilder contains raw pointers (*const ()) but they are never dereferenced
+// in the builder itself. They are only used as placeholder storage that gets properly initialized
+// during each build() call with valid pointers from the Graph. The builder can be safely sent
+// between threads because:
+// 1. The raw pointers are initialized to null and never used until build() is called
+// 2. build() receives fresh references to the Graph data each time
+// 3. No pointer is ever dereferenced outside of the audio thread
+unsafe impl Send for GraphStateBuilder {}
+
 impl GraphStateBuilder {
     /// Create a new builder for the given graph IR
     pub fn new(ir: &GraphIR, _nodes: &mut SlotMap<super::super::types::NodeKey, NodeData>) -> Self {
