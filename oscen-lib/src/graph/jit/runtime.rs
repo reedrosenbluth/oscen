@@ -92,24 +92,13 @@ pub struct GraphStateBuilder {
     /// Connected input endpoint keys (flattened)
     connections_data: Vec<u64>,
 
-    /// Temporary buffers
+    /// Temporary buffers (stored to avoid per-sample allocation)
     temp_input_values: Vec<f32>,
-    temp_value_inputs: Vec<*const ()>,
-    temp_event_inputs: Vec<*const ()>,
     temp_events_buffer: Vec<super::super::traits::PendingEvent>,
 
     /// Sample rate
     sample_rate: f32,
 }
-
-// SAFETY: GraphStateBuilder contains raw pointers (*const ()) but they are never dereferenced
-// in the builder itself. They are only used as placeholder storage that gets properly initialized
-// during each build() call with valid pointers from the Graph. The builder can be safely sent
-// between threads because:
-// 1. The raw pointers are initialized to null and never used until build() is called
-// 2. build() receives fresh references to the Graph data each time
-// 3. No pointer is ever dereferenced outside of the audio thread
-unsafe impl Send for GraphStateBuilder {}
 
 impl GraphStateBuilder {
     /// Create a new builder for the given graph IR
@@ -222,8 +211,6 @@ impl GraphStateBuilder {
         // Allocate temporary buffers (sized for worst case)
         let max_inputs = 32; // MAX_NODE_ENDPOINTS
         let temp_input_values = vec![0.0f32; max_inputs];
-        let temp_value_inputs = vec![std::ptr::null(); max_inputs];
-        let temp_event_inputs = vec![std::ptr::null(); max_inputs];
         let temp_events_buffer = Vec::with_capacity(64);
 
         Self {
@@ -234,8 +221,6 @@ impl GraphStateBuilder {
             connections_offsets,
             connections_data,
             temp_input_values,
-            temp_value_inputs,
-            temp_event_inputs,
             temp_events_buffer,
             sample_rate: ir.sample_rate,
         }
@@ -245,11 +230,23 @@ impl GraphStateBuilder {
     ///
     /// The returned GraphState contains pointers into this builder's data,
     /// so the builder must outlive any use of the GraphState.
-    pub fn build(
-        &mut self,
+    ///
+    /// The temp_value_inputs and temp_event_inputs buffers are allocated fresh
+    /// on each call to keep GraphStateBuilder Send-safe (no raw pointers stored).
+    pub fn build<'a>(
+        &'a mut self,
         nodes: &mut SlotMap<super::super::types::NodeKey, NodeData>,
         endpoints: &mut SlotMap<ValueKey, EndpointState>,
+        temp_value_inputs: &'a mut Vec<*const ()>,
+        temp_event_inputs: &'a mut Vec<*const ()>,
     ) -> GraphState {
+        // Ensure the temporary buffers are properly sized
+        const MAX_INPUTS: usize = 32;
+        temp_value_inputs.clear();
+        temp_value_inputs.resize(MAX_INPUTS, std::ptr::null());
+        temp_event_inputs.clear();
+        temp_event_inputs.resize(MAX_INPUTS, std::ptr::null());
+
         GraphState {
             nodes_slotmap: nodes as *mut _,
             node_keys: self.node_keys.as_ptr(),
@@ -262,8 +259,8 @@ impl GraphStateBuilder {
             sample_rate: self.sample_rate,
             node_count: self.node_keys.len(),
             temp_input_values: self.temp_input_values.as_mut_ptr(),
-            temp_value_inputs: self.temp_value_inputs.as_mut_ptr(),
-            temp_event_inputs: self.temp_event_inputs.as_mut_ptr(),
+            temp_value_inputs: temp_value_inputs.as_mut_ptr(),
+            temp_event_inputs: temp_event_inputs.as_mut_ptr(),
             temp_events_buffer: &mut self.temp_events_buffer as *mut _,
         }
     }

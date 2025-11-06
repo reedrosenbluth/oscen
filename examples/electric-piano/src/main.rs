@@ -132,6 +132,9 @@ struct AudioContext {
     // JIT compilation support - optional for fallback to interpreted
     jit_compiled: Option<CompiledGraph>,
     jit_state_builder: Option<GraphStateBuilder>,
+    // Temporary buffers for JIT execution (reused to avoid per-sample allocation)
+    temp_value_inputs: Vec<*const ()>,
+    temp_event_inputs: Vec<*const ()>,
 }
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
@@ -173,6 +176,8 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
         channels,
         jit_compiled,
         jit_state_builder,
+        temp_value_inputs: Vec::new(),
+        temp_event_inputs: Vec::new(),
     }
 }
 
@@ -255,6 +260,8 @@ fn audio_callback(
             let mut state = jit_state_builder.build(
                 &mut context.synth.graph.nodes,
                 &mut context.synth.graph.endpoints,
+                &mut context.temp_value_inputs,
+                &mut context.temp_event_inputs,
             );
 
             // Execute JIT-compiled code

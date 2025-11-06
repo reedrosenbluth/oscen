@@ -29,7 +29,14 @@ mod tests {
 
         // Build state
         let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
-        let mut state = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
+        let mut temp_value_inputs = Vec::new();
+        let mut temp_event_inputs = Vec::new();
+        let mut state = state_builder.build(
+            &mut graph.nodes,
+            &mut graph.endpoints,
+            &mut temp_value_inputs,
+            &mut temp_event_inputs,
+        );
 
         // Execute!
         let output = compiled.process(&mut state);
@@ -66,7 +73,14 @@ mod tests {
 
         // Build state
         let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
-        let mut state = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
+        let mut temp_value_inputs = Vec::new();
+        let mut temp_event_inputs = Vec::new();
+        let mut state = state_builder.build(
+            &mut graph.nodes,
+            &mut graph.endpoints,
+            &mut temp_value_inputs,
+            &mut temp_event_inputs,
+        );
 
         // Execute!
         let output = compiled.process(&mut state);
