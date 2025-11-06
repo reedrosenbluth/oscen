@@ -11,18 +11,14 @@ pub struct Oscillator {
     #[input(value)]
     frequency: f32,
     #[input(stream)]
-    frequency_mod: f32,
+    pub frequency_mod: f32,   // Runtime value - wire directly!
     #[input(value)]
     amplitude: f32,
 
     #[output(stream)]
-    output: f32,
+    pub output: f32,           // Runtime value - wire directly!
 
     waveform: fn(f32) -> f32,
-
-    /// Persistent IO struct - reused every call for zero overhead.
-    /// Public so compile-time graphs can wire connections directly.
-    pub io: OscillatorIO,
 }
 
 impl Oscillator {
@@ -34,10 +30,6 @@ impl Oscillator {
             amplitude,
             waveform,
             output: 0.0,
-            io: OscillatorIO {
-                frequency_mod: 0.0,
-                output: 0.0,
-            },
         }
     }
 
@@ -71,21 +63,21 @@ impl Oscillator {
     /// Core processing logic - auto-wrapped by the Node macro.
     ///
     /// The #[derive(Node)] macro automatically generates:
-    /// - SignalProcessor::process() trait impl that populates self.io from context
-    /// - process_internal() method for compile-time graphs
+    /// - SignalProcessor::process() trait impl that populates stream fields from context
+    /// - process_internal() wrapper for compile-time graphs
     /// Both wrappers call THIS method using fully qualified syntax.
     ///
     /// This is the ONLY place where processing logic needs to be written!
     #[inline]
     pub fn process(&mut self, sample_rate: f32) -> f32 {
-        // self.io is already populated (either by macro-generated wrapper, or by direct wiring)
-        let frequency = self.frequency * (1.0 + self.io.frequency_mod);
-        self.io.output = (self.waveform)(self.phase) * self.amplitude;
+        // Stream fields are already populated (by macro wrapper or direct wiring)
+        let frequency = self.frequency * (1.0 + self.frequency_mod);
+        self.output = (self.waveform)(self.phase) * self.amplitude;
 
         self.phase += frequency / sample_rate;
         self.phase %= 1.0;
 
-        self.io.output
+        self.output
     }
 }
 

@@ -1,56 +1,49 @@
 use crate::graph::{InputEndpoint, NodeKey, ProcessingNode, ValueKey};
 use crate::Node;
 
-/// Gain node using struct-of-arrays IO pattern.
+/// Gain node with direct field access - clean and intuitive!
 ///
 /// The #[derive(Node)] macro generates:
-/// - GainIO struct: holds stream I/O (input, output fields)
+/// - GainIO struct: holds stream I/O (for backward compatibility)
 /// - GainEndpoints: typed endpoint handles
+/// - SignalProcessor impl that populates stream fields from context
+/// - process_internal() wrapper for compile-time graphs
 ///
-/// State (this struct): holds persistent data and value inputs
-/// IO (generated GainIO): holds per-sample stream data
+/// Stream fields (input, output) hold runtime values - wire them directly!
 #[derive(Debug, Node)]
 pub struct Gain {
     #[input(stream)]
-    input: f32,
+    pub input: f32,      // Runtime value - wire directly!
 
     #[input(value)]
-    gain: f32,
+    pub gain: f32,
 
     #[output(stream)]
-    output: f32,
-
-    /// Persistent IO struct - reused every call for zero overhead.
-    /// Public so compile-time graphs can wire connections directly.
-    pub io: GainIO,
+    pub output: f32,     // Runtime value - wire directly!
 }
 
 impl Gain {
     pub fn new(initial_gain: f32) -> Self {
         Self {
-            input: 0.0,      // Placeholder for endpoint descriptor
-            gain: initial_gain,  // Initial value for gain parameter
-            output: 0.0,     // Placeholder for endpoint descriptor
-            io: GainIO {
-                input: 0.0,
-                output: 0.0,
-            },
+            input: 0.0,
+            gain: initial_gain,
+            output: 0.0,
         }
     }
 
     /// Core processing logic - auto-wrapped by the Node macro.
     ///
     /// The #[derive(Node)] macro automatically generates:
-    /// - SignalProcessor::process() trait impl that populates self.io from context
-    /// - process_internal() method for compile-time graphs
+    /// - SignalProcessor::process() trait impl that populates stream fields from context
+    /// - process_internal() wrapper for compile-time graphs
     /// Both wrappers call THIS method using fully qualified syntax.
     ///
     /// This is the ONLY place where processing logic needs to be written!
     #[inline]
     pub fn process(&mut self, _sample_rate: f32) -> f32 {
-        // self.io is already populated (either by macro-generated wrapper, or by direct wiring)
-        self.io.output = self.io.input * self.gain;
-        self.io.output
+        // Stream fields are already populated (by macro wrapper or direct wiring)
+        self.output = self.input * self.gain;
+        self.output
     }
 }
 

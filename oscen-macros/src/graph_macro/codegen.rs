@@ -1229,10 +1229,10 @@ impl CodegenContext {
                 }
             }
             ConnectionExpr::Method(obj, method, _args) => {
-                // For node.field() syntax, generate self.node.io.field
-                // IO is now stored inside the node as `pub io`
+                // For node.field() syntax, generate self.node.field
+                // Stream fields are now directly on the node struct
                 if let ConnectionExpr::Ident(base) = &**obj {
-                    Ok(quote! { self.#base.io.#method })
+                    Ok(quote! { self.#base.#method })
                 } else {
                     Err(syn::Error::new(
                         proc_macro2::Span::call_site(),
@@ -1242,8 +1242,8 @@ impl CodegenContext {
             }
             ConnectionExpr::ArrayIndex(array_expr, index) => {
                 if let ConnectionExpr::Ident(base) = &**array_expr {
-                    // For array nodes, IO is inside the node: self.array[i].io
-                    Ok(quote! { self.#base[#index].io })
+                    // For array nodes: self.array[i].field
+                    Ok(quote! { self.#base[#index] })
                 } else {
                     Err(syn::Error::new(
                         proc_macro2::Span::call_site(),
