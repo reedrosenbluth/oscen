@@ -75,34 +75,28 @@ impl HandWrittenSynth {
 }
 
 // ============================================================================
-// 3. Macro-Generated Compile-Time Graph (once macro is working)
+// 3. Macro-Generated Compile-Time Graph (testing the actual macro)
 // ============================================================================
 
-// This will be uncommented once the macro can actually generate code
-// For now it's here to show the intended usage
-/*
 use oscen::graph;
 
+// Try using the macro with CompileTime mode
 graph! {
     name: MacroGeneratedSynth;
     mode: CompileTime;
 
-    nodes {
+    output stream out;
+
+    node {
         osc = Oscillator::sine(440.0, 1.0);
-        filter = TptFilter::new(1000.0, 0.7);
         gain = Gain::new(0.5);
     }
 
-    connections {
-        osc.output -> filter.input;
-        filter.output -> gain.input;
-    }
-
-    outputs {
-        stream output;
+    connection {
+        osc.output() -> gain.input();
+        gain.output() -> out;
     }
 }
-*/
 
 // ============================================================================
 // Benchmarks
@@ -130,13 +124,13 @@ fn bench_runtime_vs_compile_time(c: &mut Criterion) {
         });
     });
 
-    // TODO: Add macro-generated compile-time graph benchmark once macro works
-    // group.bench_function("3_macro_generated_compile_time", |b| {
-    //     let mut synth = MacroGeneratedSynth::new(44100.0);
-    //     b.iter(|| {
-    //         black_box(synth.process());
-    //     });
-    // });
+    // Macro-generated compile-time graph
+    group.bench_function("3_macro_generated_compile_time", |b| {
+        let mut synth = MacroGeneratedSynth::new(44100.0);
+        b.iter(|| {
+            black_box(synth.process(44100.0));
+        });
+    });
 
     group.finish();
 }

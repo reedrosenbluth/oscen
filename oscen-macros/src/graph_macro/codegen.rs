@@ -1077,28 +1077,8 @@ impl CodegenContext {
             }
         }
 
-        // Add IO struct fields for each node
-        // We need to generate the IO type name from the node type
-        for node in &self.nodes {
-            let field_name = &node.name;
-            let io_field_name = syn::Ident::new(&format!("{}_io", field_name), field_name.span());
-
-            if let Some(node_type) = &node.node_type {
-                // Construct the IO type name (e.g., Oscillator -> OscillatorIO)
-                let io_type = Self::construct_io_type(node_type);
-
-                if let Some(array_size) = node.array_size {
-                    // Array of IO structs
-                    struct_fields.push(quote! { #io_field_name: [#io_type; #array_size] });
-                    // Initialize with Default trait
-                    init_fields.push(quote! { #io_field_name: [Default::default(); #array_size] });
-                } else {
-                    // Single IO struct
-                    struct_fields.push(quote! { #io_field_name: #io_type });
-                    init_fields.push(quote! { #io_field_name: Default::default() });
-                }
-            }
-        }
+        // Note: IO structs are omitted for now - they're not exported yet
+        // Once process_internal() is added to nodes, we'll add IO struct fields here
 
         // Add input parameter fields
         for input in &self.inputs {
@@ -1133,36 +1113,16 @@ impl CodegenContext {
             }
         }
 
-        // Generate connection assignments in process() method
-        // We need to map connections to direct field assignments
-        for conn in &self.connections {
-            if let Some(assignment) = self.generate_compile_time_connection(conn)? {
-                process_statements.push(assignment);
-            }
-        }
-
-        // Generate node process calls
-        for node in &self.nodes {
-            let field_name = &node.name;
-            let _io_field_name = syn::Ident::new(&format!("{}_io", field_name), field_name.span());
-
-            if node.array_size.is_some() {
-                // For arrays, process each element
-                let array_size = node.array_size.unwrap();
-                for i in 0..array_size {
-                    process_statements.push(quote! {
-                        self.#field_name[#i].process(sample_rate, &mut ::oscen::ProcessingContext::empty());
-                    });
-                }
-            } else {
-                // Single node - call process_internal if available, otherwise process
-                process_statements.push(quote! {
-                    // TODO: Once process_internal() is added to nodes, use that instead
-                    // For now, this will need adjustment based on how IO structs are used
-                    self.#field_name.process(sample_rate, &mut ::oscen::ProcessingContext::empty());
-                });
-            }
-        }
+        // TODO: Generate connection assignments once IO structs are available
+        // For now, just add a placeholder comment
+        process_statements.push(quote! {
+            // TODO: Wire up connections and process nodes
+            // Once IO structs are exported and process_internal() is added:
+            // 1. Wire connections: self.gain_io.input = self.osc_io.output;
+            // 2. Process nodes: self.osc.process_internal(&mut self.osc_io, sample_rate);
+            // 3. Process nodes: self.gain.process_internal(&mut self.gain_io, sample_rate);
+            let _ = sample_rate; // Silence unused warning
+        });
 
         // Determine return value (first stream output)
         let return_expr = self.outputs.iter()
