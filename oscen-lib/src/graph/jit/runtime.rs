@@ -490,37 +490,27 @@ pub extern "C" fn process_node_trampoline(
                 }
 
                 for pending in events_buffer.iter() {
-                    // IMPORTANT: pending.output_index is relative to EVENT outputs only!
-                    // We need to map it to the combined outputs array index
-                    let event_output_idx = pending.output_index;
+                    // IMPORTANT: pending.output_index is the OVERALL output index (not event-specific)!
+                    // Nodes call emit_event with their overall output index (e.g., for outputs=[Value, Event],
+                    // emitting on the Event output uses index 1, not event-specific index 0).
+                    let output_idx = pending.output_index;
 
                     // Debug: Log the mapping
                     static mut EVENT_MAP_LOG_COUNT: usize = 0;
                     unsafe {
                         if EVENT_MAP_LOG_COUNT < 20 {
-                            eprintln!("[JIT EVENT MAP] Node {} event_output_idx={}, output_types={:?}",
-                                node_index, event_output_idx, node_data.output_types.as_slice());
+                            eprintln!("[JIT EVENT MAP] Node {} output_idx={}, output_types={:?}",
+                                node_index, output_idx, node_data.output_types.as_slice());
                             EVENT_MAP_LOG_COUNT += 1;
                         }
                     }
 
-                    // Find the Nth event output in output_types
-                    let mut event_count = 0;
-                    let mut combined_output_idx = None;
-                    for (i, &output_type) in node_data.output_types.iter().enumerate() {
-                        if output_type == super::super::types::EndpointType::Event {
-                            if event_count == event_output_idx {
-                                combined_output_idx = Some(i);
-                                break;
-                            }
-                            event_count += 1;
-                        }
+                    // Verify the output index is in range and is an event type
+                    if output_idx >= node_data.output_types.len() {
+                        eprintln!("[JIT EVENT ERROR] Node {} output_idx {} out of range (max {})",
+                            node_index, output_idx, node_data.output_types.len());
+                        continue;
                     }
-
-                    let output_idx = match combined_output_idx {
-                        Some(idx) => idx,
-                        None => continue,
-                    };
 
                     // Verify it's actually an event output
                     if node_data.output_types.get(output_idx) != Some(&super::super::types::EndpointType::Event) {
@@ -541,6 +531,16 @@ pub extern "C" fn process_node_trampoline(
 
                         let conn_start = *state.connections_offsets.add(global_output_idx);
                         let conn_end = *state.connections_offsets.add(global_output_idx + 1);
+
+                        // Debug: Log event propagation
+                        static mut EVENT_PROP_LOG_COUNT: usize = 0;
+                        unsafe {
+                            if EVENT_PROP_LOG_COUNT < 20 && conn_end > conn_start {
+                                eprintln!("[JIT EVENT PROP] Node {} output {} propagating to {} connections",
+                                    node_index, output_idx, conn_end - conn_start);
+                                EVENT_PROP_LOG_COUNT += 1;
+                            }
+                        }
 
                         for i in conn_start..conn_end {
                             let connected_input_key_data = *state.connections_data.add(i);
