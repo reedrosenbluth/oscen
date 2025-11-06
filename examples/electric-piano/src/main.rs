@@ -251,6 +251,9 @@ fn audio_callback(
         if let (Some(jit_compiled), Some(jit_state_builder)) =
             (&context.jit_compiled, &mut context.jit_state_builder)
         {
+            // Process parameter ramps (needed for smooth parameter transitions)
+            context.synth.graph.process_ramps();
+
             // JIT execution path
             let (mut state, _temps) = jit_state_builder.build(
                 &mut context.synth.graph.nodes,

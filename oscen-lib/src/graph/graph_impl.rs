@@ -569,9 +569,11 @@ impl Graph {
             .and_then(EndpointState::as_scalar)
     }
 
-    pub fn process(&mut self) -> Result<(), GraphError> {
-        self.update_topology_if_needed()?;
-
+    /// Process parameter ramps for smooth transitions
+    ///
+    /// This updates all active ramps by one sample. Call this before JIT execution
+    /// to ensure parameters are smoothly interpolated.
+    pub fn process_ramps(&mut self) {
         let mut i = 0;
         while i < self.active_ramps.len() {
             let mut finished_key: Option<ValueKey> = None;
@@ -600,6 +602,13 @@ impl Graph {
                 i += 1;
             }
         }
+    }
+
+    pub fn process(&mut self) -> Result<(), GraphError> {
+        self.update_topology_if_needed()?;
+
+        // Process parameter ramps
+        self.process_ramps();
 
         // Use index-based iteration to avoid cloning node_order
         for node_idx in 0..self.node_order.len() {
