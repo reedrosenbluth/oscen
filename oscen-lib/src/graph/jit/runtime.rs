@@ -239,10 +239,10 @@ impl GraphStateBuilder {
         endpoints: &mut SlotMap<ValueKey, EndpointState>,
     ) -> (GraphState, GraphStateTemps) {
         // Allocate temporary buffers for pointer arrays
-        // These are small (512 bytes total) and the allocation cost is negligible
         const MAX_INPUTS: usize = 32;
+
+        // temp_value_inputs holds Option<&ValueData> (thin pointers, 8 bytes each)
         let mut temp_value_inputs = vec![std::ptr::null(); MAX_INPUTS];
-        let mut temp_event_inputs = vec![std::ptr::null(); MAX_INPUTS];
 
         let state = GraphState {
             nodes_slotmap: nodes as *mut _,
@@ -257,13 +257,12 @@ impl GraphStateBuilder {
             node_count: self.node_keys.len(),
             temp_input_values: self.temp_input_values.as_mut_ptr(),
             temp_value_inputs: temp_value_inputs.as_mut_ptr(),
-            temp_event_inputs: temp_event_inputs.as_mut_ptr(),
+            temp_event_inputs: std::ptr::null_mut(), // Not used - we'll create locally in trampoline
             temp_events_buffer: &mut self.temp_events_buffer as *mut _,
         };
 
         let temps = GraphStateTemps {
             _temp_value_inputs: temp_value_inputs,
-            _temp_event_inputs: temp_event_inputs,
         };
 
         (state, temps)
@@ -276,7 +275,6 @@ impl GraphStateBuilder {
 /// Keep this in scope while using GraphState, then drop both together.
 pub struct GraphStateTemps {
     _temp_value_inputs: Vec<*const ()>,
-    _temp_event_inputs: Vec<*const ()>,
 }
 
 /// Get the function pointer to the trampoline for registration with Cranelift
@@ -380,29 +378,30 @@ pub extern "C" fn process_node_trampoline(
             }
 
             // Build event_inputs array using OVERALL indices
-            let event_input_values = std::slice::from_raw_parts_mut(
-                state.temp_event_inputs as *mut &[EventInstance],
-                if num_inputs > 0 { num_inputs } else { 1 },
-            );
+            // Use a fixed-size array on the stack to avoid fat pointer issues
+            const MAX_INPUTS: usize = 32;
+            let mut event_input_values: [&[EventInstance]; MAX_INPUTS] = [&[]; MAX_INPUTS];
 
-            // Initialize all to empty slices
-            for i in 0..num_inputs {
-                event_input_values[i] = &[];
-            }
+            eprintln!("[TRAMPOLINE] Node {}: num_inputs={}", node_index, num_inputs);
 
             // Fill event slices for Event-type inputs
             for (i, &input_type) in node_data.input_types.iter().enumerate() {
-                if i >= input_keys.len() { break; }
+                if i >= input_keys.len() || i >= MAX_INPUTS { break; }
 
                 if input_type == super::super::types::EndpointType::Event {
+                    eprintln!("[TRAMPOLINE] Node {} input {}: Event type", node_index, i);
                     let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
                     if let Some(endpoint_state) = endpoints.get(value_key) {
                         if let super::super::types::EndpointState::Event(event_data) = endpoint_state {
-                            event_input_values[i] = event_data.queue().events();
+                            let events = event_data.queue().events();
+                            eprintln!("[TRAMPOLINE] Node {} input {}: {} events", node_index, i, events.len());
+                            event_input_values[i] = events;
                         }
                     }
                 }
             }
+
+            eprintln!("[TRAMPOLINE] Node {}: About to create ProcessingContext", node_index);
 
             // Create context with overall-indexed arrays
             let events_buffer: &mut Vec<super::super::traits::PendingEvent> = &mut *state.temp_events_buffer;
@@ -432,10 +431,15 @@ pub extern "C" fn process_node_trampoline(
                 events_buffer,
             );
 
+            eprintln!("[TRAMPOLINE] Node {}: Created ProcessingContext, about to call process()", node_index);
+
             // Call the actual process method
             let output = node_data.processor.process(sample_rate, &mut context);
 
+            eprintln!("[TRAMPOLINE] Node {}: process() returned {}", node_index, output);
+
             // Clear event input queues after consumption
+            eprintln!("[TRAMPOLINE] Node {}: Clearing event inputs", node_index);
             for (i, &input_type) in node_data.input_types.iter().enumerate() {
                 if i >= input_keys.len() { break; }
 
@@ -449,8 +453,12 @@ pub extern "C" fn process_node_trampoline(
                 }
             }
 
+            eprintln!("[TRAMPOLINE] Node {}: Cleared event inputs, events_buffer.len()={}", node_index, events_buffer.len());
+
             // Handle event outputs if any were emitted
-            if !events_buffer.is_empty() {
+            // TODO: Fix event output propagation - currently disabled due to indexing bug
+            if false && !events_buffer.is_empty() {
+                eprintln!("[TRAMPOLINE] Node {}: Processing {} output events", node_index, events_buffer.len());
                 // Calculate the base output index for this node in the global output array
                 let mut total_outputs_before = 0;
                 for i in 0..node_index {
@@ -458,18 +466,24 @@ pub extern "C" fn process_node_trampoline(
                     let node_output_end = *state.output_offsets.add(i + 1);
                     total_outputs_before += node_output_end - node_output_start;
                 }
+                eprintln!("[TRAMPOLINE] Node {}: total_outputs_before={}", node_index, total_outputs_before);
 
-                for pending in events_buffer.iter() {
+                for (event_idx, pending) in events_buffer.iter().enumerate() {
                     let output_idx = pending.output_index;
+                    eprintln!("[TRAMPOLINE] Node {}: Event {} output_idx={}", node_index, event_idx, output_idx);
 
                     // Get the output type for this index
+                    eprintln!("[TRAMPOLINE] Node {}: Getting output type for idx {}", node_index, output_idx);
                     if let Some(&output_type) = node_data.output_types.get(output_idx) {
+                        eprintln!("[TRAMPOLINE] Node {}: Output type: {:?}", node_index, output_type);
                         if output_type != super::super::types::EndpointType::Event {
                             continue;
                         }
 
                         // Get the event output endpoint
+                        eprintln!("[TRAMPOLINE] Node {}: Getting event output key", node_index);
                         if let Some(&event_output_key) = node_data.outputs.get(output_idx) {
+                            eprintln!("[TRAMPOLINE] Node {}: Pushing to output endpoint", node_index);
                             // Push event to output endpoint
                             if let Some(state_ref) = endpoints.get_mut(event_output_key) {
                                 if let Some(event_state) = state_ref.as_event_mut() {
@@ -479,8 +493,22 @@ pub extern "C" fn process_node_trampoline(
 
                             // Propagate event to connected inputs
                             let global_output_idx = total_outputs_before + output_idx;
+                            eprintln!("[TRAMPOLINE] Node {}: global_output_idx={}, node_data.outputs.len()={}",
+                                node_index, global_output_idx, node_data.outputs.len());
+
+                            // Safety check: make sure we're within bounds
+                            // connections_offsets should have (total_num_outputs + 1) elements
+                            // For now, skip if out of bounds rather than crashing
+                            if global_output_idx >= state.node_count * 10 { // Rough upper bound check
+                                eprintln!("[TRAMPOLINE] Node {}: WARNING: global_output_idx {} seems too large, skipping connection propagation",
+                                    node_index, global_output_idx);
+                                continue;
+                            }
+
                             let conn_start = *state.connections_offsets.add(global_output_idx);
                             let conn_end = *state.connections_offsets.add(global_output_idx + 1);
+                            eprintln!("[TRAMPOLINE] Node {}: conn_start={}, conn_end={}, Propagating to {} connections",
+                                node_index, conn_start, conn_end, conn_end.wrapping_sub(conn_start));
 
                             for i in conn_start..conn_end {
                                 let connected_input_key_data = *state.connections_data.add(i);
@@ -497,14 +525,20 @@ pub extern "C" fn process_node_trampoline(
                                 }
                             }
                         }
+                    } else {
+                        eprintln!("[TRAMPOLINE] Node {}: output_idx {} out of range! (output_types.len()={})",
+                            node_index, output_idx, node_data.output_types.len());
                     }
                 }
+                eprintln!("[TRAMPOLINE] Node {}: Clearing events buffer", node_index);
                 events_buffer.clear();
             }
 
+            eprintln!("[TRAMPOLINE] Node {}: Done, returning {}", node_index, output);
             output
         } else {
             // Node not found - return 0.0
+            eprintln!("[TRAMPOLINE] Node {} not found!", node_index);
             0.0
         }
     }
