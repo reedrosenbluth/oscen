@@ -6,6 +6,8 @@ pub mod event_passthrough;
 pub mod filters;
 pub mod gain;
 pub mod graph;
+#[cfg(feature = "jit")]
+pub mod jit;
 pub mod midi;
 pub mod oscillators;
 pub mod oscilloscope;
