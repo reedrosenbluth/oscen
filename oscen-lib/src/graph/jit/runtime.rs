@@ -472,6 +472,15 @@ pub extern "C" fn process_node_trampoline(
 
             // Handle event outputs if any were emitted
             if !events_buffer.is_empty() {
+                // Debug: Log event emission
+                static mut EVENT_EMIT_LOG_COUNT: usize = 0;
+                unsafe {
+                    if EVENT_EMIT_LOG_COUNT < 20 {
+                        eprintln!("[JIT EVENT EMIT] Node {} emitted {} events", node_index, events_buffer.len());
+                        EVENT_EMIT_LOG_COUNT += 1;
+                    }
+                }
+
                 // Calculate the base output index for this node in the global output array
                 let mut total_outputs_before = 0;
                 for i in 0..node_index {
@@ -484,6 +493,16 @@ pub extern "C" fn process_node_trampoline(
                     // IMPORTANT: pending.output_index is relative to EVENT outputs only!
                     // We need to map it to the combined outputs array index
                     let event_output_idx = pending.output_index;
+
+                    // Debug: Log the mapping
+                    static mut EVENT_MAP_LOG_COUNT: usize = 0;
+                    unsafe {
+                        if EVENT_MAP_LOG_COUNT < 20 {
+                            eprintln!("[JIT EVENT MAP] Node {} event_output_idx={}, output_types={:?}",
+                                node_index, event_output_idx, node_data.output_types.as_slice());
+                            EVENT_MAP_LOG_COUNT += 1;
+                        }
+                    }
 
                     // Find the Nth event output in output_types
                     let mut event_count = 0;
