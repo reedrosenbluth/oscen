@@ -1,11 +1,12 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use oscen::{AdsrEnvelope, Delay, Graph, Oscillator, PolyBlepOscillator, TptFilter};
+use oscen::graph::jit::{CraneliftJit, GraphStateBuilder};
 
 fn simple_graph() -> Graph {
     let mut graph = Graph::new(44100.0);
 
     // Simple: 1 oscillator
-    let osc = graph.add_node(Oscillator::sine(440.0, 1.0));
+    let _osc = graph.add_node(Oscillator::sine(440.0, 1.0));
     graph
 }
 
@@ -151,12 +152,226 @@ fn bench_topology_update(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_jit_process_simple(c: &mut Criterion) {
+    let mut group = c.benchmark_group("graph_process_jit");
+
+    group.bench_function("simple_graph_jit", |b| {
+        let mut graph = simple_graph();
+        graph.validate().unwrap();
+
+        let ir = graph.to_ir().expect("Failed to extract IR");
+        let mut jit = CraneliftJit::new().expect("Failed to create JIT");
+        let compiled = jit.compile(&ir).expect("Failed to compile");
+        let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
+
+        b.iter(|| {
+            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
+            black_box(compiled.process(&mut state));
+        });
+    });
+
+    group.finish();
+}
+
+fn bench_jit_process_medium(c: &mut Criterion) {
+    let mut group = c.benchmark_group("graph_process_jit");
+
+    group.bench_function("medium_graph_jit", |b| {
+        let mut graph = medium_graph();
+        graph.validate().unwrap();
+
+        let ir = graph.to_ir().expect("Failed to extract IR");
+        let mut jit = CraneliftJit::new().expect("Failed to create JIT");
+        let compiled = jit.compile(&ir).expect("Failed to compile");
+        let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
+
+        b.iter(|| {
+            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
+            black_box(compiled.process(&mut state));
+        });
+    });
+
+    group.finish();
+}
+
+fn bench_jit_process_complex(c: &mut Criterion) {
+    let mut group = c.benchmark_group("graph_process_jit");
+
+    group.bench_function("complex_graph_jit", |b| {
+        let mut graph = complex_graph();
+        graph.validate().unwrap();
+
+        let ir = graph.to_ir().expect("Failed to extract IR");
+        let mut jit = CraneliftJit::new().expect("Failed to create JIT");
+        let compiled = jit.compile(&ir).expect("Failed to compile");
+        let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
+
+        b.iter(|| {
+            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
+            black_box(compiled.process(&mut state));
+        });
+    });
+
+    group.finish();
+}
+
+fn bench_jit_process_batch(c: &mut Criterion) {
+    let mut group = c.benchmark_group("graph_process_batch_jit");
+
+    for size in [1, 10, 100, 512, 1024].iter() {
+        group.bench_with_input(BenchmarkId::new("medium_graph_jit", size), size, |b, &size| {
+            let mut graph = medium_graph();
+            graph.validate().unwrap();
+
+            let ir = graph.to_ir().expect("Failed to extract IR");
+            let mut jit = CraneliftJit::new().expect("Failed to create JIT");
+            let compiled = jit.compile(&ir).expect("Failed to compile");
+            let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
+
+            b.iter(|| {
+                for _ in 0..size {
+                    let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
+                    black_box(compiled.process(&mut state));
+                }
+            });
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_jit_compilation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("jit_compilation");
+
+    group.bench_function("compile_simple_graph", |b| {
+        b.iter(|| {
+            let mut graph = simple_graph();
+            graph.validate().unwrap();
+
+            let ir = graph.to_ir().expect("Failed to extract IR");
+            let mut jit = CraneliftJit::new().expect("Failed to create JIT");
+            black_box(jit.compile(&ir).expect("Failed to compile"));
+        });
+    });
+
+    group.bench_function("compile_medium_graph", |b| {
+        b.iter(|| {
+            let mut graph = medium_graph();
+            graph.validate().unwrap();
+
+            let ir = graph.to_ir().expect("Failed to extract IR");
+            let mut jit = CraneliftJit::new().expect("Failed to create JIT");
+            black_box(jit.compile(&ir).expect("Failed to compile"));
+        });
+    });
+
+    group.bench_function("compile_complex_graph", |b| {
+        b.iter(|| {
+            let mut graph = complex_graph();
+            graph.validate().unwrap();
+
+            let ir = graph.to_ir().expect("Failed to extract IR");
+            let mut jit = CraneliftJit::new().expect("Failed to create JIT");
+            black_box(jit.compile(&ir).expect("Failed to compile"));
+        });
+    });
+
+    group.finish();
+}
+
+fn bench_interpreted_vs_jit(c: &mut Criterion) {
+    let mut group = c.benchmark_group("interpreted_vs_jit");
+
+    // Simple graph comparison
+    group.bench_function("simple_interpreted", |b| {
+        let mut graph = simple_graph();
+        graph.validate().unwrap();
+
+        b.iter(|| {
+            black_box(graph.process().unwrap());
+        });
+    });
+
+    group.bench_function("simple_jit", |b| {
+        let mut graph = simple_graph();
+        graph.validate().unwrap();
+
+        let ir = graph.to_ir().expect("Failed to extract IR");
+        let mut jit = CraneliftJit::new().expect("Failed to create JIT");
+        let compiled = jit.compile(&ir).expect("Failed to compile");
+        let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
+
+        b.iter(|| {
+            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
+            black_box(compiled.process(&mut state));
+        });
+    });
+
+    // Medium graph comparison
+    group.bench_function("medium_interpreted", |b| {
+        let mut graph = medium_graph();
+        graph.validate().unwrap();
+
+        b.iter(|| {
+            black_box(graph.process().unwrap());
+        });
+    });
+
+    group.bench_function("medium_jit", |b| {
+        let mut graph = medium_graph();
+        graph.validate().unwrap();
+
+        let ir = graph.to_ir().expect("Failed to extract IR");
+        let mut jit = CraneliftJit::new().expect("Failed to create JIT");
+        let compiled = jit.compile(&ir).expect("Failed to compile");
+        let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
+
+        b.iter(|| {
+            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
+            black_box(compiled.process(&mut state));
+        });
+    });
+
+    // Complex graph comparison
+    group.bench_function("complex_interpreted", |b| {
+        let mut graph = complex_graph();
+        graph.validate().unwrap();
+
+        b.iter(|| {
+            black_box(graph.process().unwrap());
+        });
+    });
+
+    group.bench_function("complex_jit", |b| {
+        let mut graph = complex_graph();
+        graph.validate().unwrap();
+
+        let ir = graph.to_ir().expect("Failed to extract IR");
+        let mut jit = CraneliftJit::new().expect("Failed to create JIT");
+        let compiled = jit.compile(&ir).expect("Failed to compile");
+        let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
+
+        b.iter(|| {
+            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
+            black_box(compiled.process(&mut state));
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_process_simple,
     bench_process_medium,
     bench_process_complex,
     bench_process_batch,
-    bench_topology_update
+    bench_topology_update,
+    bench_jit_process_simple,
+    bench_jit_process_medium,
+    bench_jit_process_complex,
+    bench_jit_process_batch,
+    bench_jit_compilation,
+    bench_interpreted_vs_jit
 );
 criterion_main!(benches);
