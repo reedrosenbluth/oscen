@@ -81,6 +81,7 @@ impl Oscillator {
     }
 }
 
+// Manual SignalProcessor implementation (value fields are private, so no auto-generation)
 impl SignalProcessor for Oscillator {
     fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
         // Populate stream fields

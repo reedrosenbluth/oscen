@@ -28,6 +28,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut stream_input_names = Vec::new(); // Names of stream input fields
     let mut stream_output_names = Vec::new(); // Names of stream output fields
     let mut all_stream_fields_public = true; // Track if all stream fields are pub (opt-in signal)
+    let mut all_value_fields_public = true;  // Track if all value fields are pub (opt-in signal)
 
     // Track event I/O for determining if IO struct needs lifetime parameter
     let mut event_input_idx = 0usize;
@@ -102,6 +103,10 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         }
                         EndpointTypeAttr::Value => {
                             // Value inputs stay in State (node struct), not IO
+                            // Check if this value field is public (opt-in for auto SignalProcessor)
+                            if !matches!(field_vis, syn::Visibility::Public(_)) {
+                                all_value_fields_public = false;
+                            }
                         }
                     }
 
@@ -329,14 +334,29 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         }
     };
 
-    // Generate SignalProcessor implementation ONLY if:
+    // Generate SignalProcessor implementation if:
     // 1. There are stream inputs/outputs AND
-    // 2. ALL stream fields are pub (opt-in signal for auto-generation) AND
-    // 3. There are NO value inputs or event inputs (those need manual implementations)
+    // 2. ALL stream fields are pub (opt-in signal) AND
+    // 3. ALL value fields are pub (opt-in signal) AND
+    // 4. There are NO event inputs (events need custom handling)
+    //
+    // This means nodes opt-in to auto-generation by making ALL input fields public.
+    // Simple nodes like Gain (pub gain) get full auto-generation.
+    // Nodes with complex parameter handling can keep value fields private and provide
+    // a manual SignalProcessor implementation.
     let has_stream_fields = !stream_input_names.is_empty() || !stream_output_names.is_empty();
-    let has_value_or_event_inputs = !value_input_fields.is_empty() || event_input_idx > 0;
-    let signal_processor_impl = if has_stream_fields && all_stream_fields_public && !has_value_or_event_inputs {
+    let has_event_inputs = event_input_idx > 0;
+    let all_inputs_public = all_stream_fields_public && all_value_fields_public;
+    let signal_processor_impl = if has_stream_fields && all_inputs_public && !has_event_inputs {
         let populate_stream_inputs = stream_input_names.iter().map(|field_name| {
+            let getter_name = format_ident!("get_{}", field_name);
+            quote! {
+                self.#field_name = self.#getter_name(context);
+            }
+        });
+
+        // Auto-populate value inputs from context
+        let populate_value_inputs = value_input_fields.iter().map(|(field_name, _idx)| {
             let getter_name = format_ident!("get_{}", field_name);
             quote! {
                 self.#field_name = self.#getter_name(context);
@@ -345,12 +365,17 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
         quote! {
             impl ::oscen::graph::SignalProcessor for #name {
-                /// Auto-generated wrapper that populates stream fields from context and calls user's process().
+                /// Auto-generated wrapper that populates stream and value fields from context and calls user's process().
                 ///
                 /// Users implement: pub fn process(&mut self, sample_rate: f32) -> f32
+                ///
+                /// Nodes with complex parameter handling can override this implementation.
                 fn process<'a>(&mut self, sample_rate: f32, context: &mut ::oscen::graph::ProcessingContext<'a>) -> f32 {
                     // Populate stream input fields directly on self
                     #(#populate_stream_inputs)*
+
+                    // Populate value input fields directly on self
+                    #(#populate_value_inputs)*
 
                     // Call user-defined processing logic using fully qualified syntax
                     // This calls the inherent impl's process(), not this trait method
