@@ -228,26 +228,23 @@ impl GraphStateBuilder {
 
     /// Build the GraphState that can be passed to JIT code
     ///
-    /// The returned GraphState contains pointers into this builder's data,
-    /// so the builder must outlive any use of the GraphState.
+    /// Returns both GraphState and GraphStateTemps. The GraphStateTemps struct
+    /// owns temporary buffers that must live as long as GraphState is in use.
     ///
-    /// The temp_value_inputs and temp_event_inputs buffers are allocated fresh
-    /// on each call to keep GraphStateBuilder Send-safe (no raw pointers stored).
-    pub fn build<'a>(
-        &'a mut self,
+    /// The temporary buffers are small (512 bytes) and allocated fresh on each call
+    /// to keep GraphStateBuilder Send-safe without storing raw pointers.
+    pub fn build(
+        &mut self,
         nodes: &mut SlotMap<super::super::types::NodeKey, NodeData>,
         endpoints: &mut SlotMap<ValueKey, EndpointState>,
-        temp_value_inputs: &'a mut Vec<*const ()>,
-        temp_event_inputs: &'a mut Vec<*const ()>,
-    ) -> GraphState {
-        // Ensure the temporary buffers are properly sized
+    ) -> (GraphState, GraphStateTemps) {
+        // Allocate temporary buffers for pointer arrays
+        // These are small (512 bytes total) and the allocation cost is negligible
         const MAX_INPUTS: usize = 32;
-        temp_value_inputs.clear();
-        temp_value_inputs.resize(MAX_INPUTS, std::ptr::null());
-        temp_event_inputs.clear();
-        temp_event_inputs.resize(MAX_INPUTS, std::ptr::null());
+        let mut temp_value_inputs = vec![std::ptr::null(); MAX_INPUTS];
+        let mut temp_event_inputs = vec![std::ptr::null(); MAX_INPUTS];
 
-        GraphState {
+        let state = GraphState {
             nodes_slotmap: nodes as *mut _,
             node_keys: self.node_keys.as_ptr(),
             endpoints: endpoints as *mut _,
@@ -262,8 +259,24 @@ impl GraphStateBuilder {
             temp_value_inputs: temp_value_inputs.as_mut_ptr(),
             temp_event_inputs: temp_event_inputs.as_mut_ptr(),
             temp_events_buffer: &mut self.temp_events_buffer as *mut _,
-        }
+        };
+
+        let temps = GraphStateTemps {
+            _temp_value_inputs: temp_value_inputs,
+            _temp_event_inputs: temp_event_inputs,
+        };
+
+        (state, temps)
     }
+}
+
+/// Temporary buffers that must live as long as GraphState
+///
+/// This struct owns the temporary pointer arrays that GraphState references.
+/// Keep this in scope while using GraphState, then drop both together.
+pub struct GraphStateTemps {
+    _temp_value_inputs: Vec<*const ()>,
+    _temp_event_inputs: Vec<*const ()>,
 }
 
 /// Get the function pointer to the trampoline for registration with Cranelift
