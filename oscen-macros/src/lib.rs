@@ -329,11 +329,13 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         }
     };
 
-    // Generate SignalProcessor implementation if:
+    // Generate SignalProcessor implementation ONLY if:
     // 1. There are stream inputs/outputs AND
-    // 2. ALL stream fields are pub (opt-in signal for auto-generation)
+    // 2. ALL stream fields are pub (opt-in signal for auto-generation) AND
+    // 3. There are NO value inputs or event inputs (those need manual implementations)
     let has_stream_fields = !stream_input_names.is_empty() || !stream_output_names.is_empty();
-    let signal_processor_impl = if has_stream_fields && all_stream_fields_public {
+    let has_value_or_event_inputs = !value_input_fields.is_empty() || event_input_idx > 0;
+    let signal_processor_impl = if has_stream_fields && all_stream_fields_public && !has_value_or_event_inputs {
         let populate_stream_inputs = stream_input_names.iter().map(|field_name| {
             let getter_name = format_ident!("get_{}", field_name);
             quote! {
