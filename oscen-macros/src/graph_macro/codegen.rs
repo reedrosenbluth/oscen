@@ -1113,16 +1113,43 @@ impl CodegenContext {
             }
         }
 
-        // TODO: Generate connection assignments once IO structs are available
-        // For now, just add a placeholder comment
+        // Generate processing code using SignalProcessor::process()
+        // Phase 1: Use existing process() method with empty context
+        // Phase 2: Will upgrade to process_internal() for better performance
         process_statements.push(quote! {
-            // TODO: Wire up connections and process nodes
-            // Once IO structs are exported and process_internal() is added:
-            // 1. Wire connections: self.gain_io.input = self.osc_io.output;
-            // 2. Process nodes: self.osc.process_internal(&mut self.osc_io, sample_rate);
-            // 3. Process nodes: self.gain.process_internal(&mut self.gain_io, sample_rate);
-            let _ = sample_rate; // Silence unused warning
+            use ::oscen::SignalProcessor;
+
+            // Create empty context arrays
+            let scalar_inputs: &[f32] = &[];
+            let value_inputs: &[Option<&::oscen::graph::types::ValueData>] = &[];
+            let event_inputs: &[&[::oscen::graph::types::EventInstance]] = &[];
+            let mut emitted_events = Vec::new();
+
+            let mut ctx = ::oscen::ProcessingContext::new(
+                scalar_inputs,
+                &value_inputs,
+                &event_inputs,
+                &mut emitted_events,
+            );
         });
+
+        // Generate process call for each node
+        for node in &self.nodes {
+            let field_name = &node.name;
+
+            if node.array_size.is_some() {
+                let array_size = node.array_size.unwrap();
+                for i in 0..array_size {
+                    process_statements.push(quote! {
+                        let _ = self.#field_name[#i].process(sample_rate, &mut ctx);
+                    });
+                }
+            } else {
+                process_statements.push(quote! {
+                    let _ = self.#field_name.process(sample_rate, &mut ctx);
+                });
+            }
+        }
 
         // Determine return value (first stream output)
         let return_expr = self.outputs.iter()

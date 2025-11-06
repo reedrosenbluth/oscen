@@ -44,7 +44,11 @@ pub struct ProcessingContext<'a> {
 }
 
 impl<'a> ProcessingContext<'a> {
-    pub(crate) fn new(
+    /// Create a new ProcessingContext.
+    ///
+    /// This is primarily used by the graph macro for compile-time graph generation.
+    /// Most users should use the Graph API instead.
+    pub fn new(
         scalar_inputs: &'a [f32],
         value_inputs: &'a [Option<&'a ValueData>],
         event_inputs: &'a [&'a [EventInstance]],
