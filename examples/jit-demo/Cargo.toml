@@ -8,6 +8,6 @@ name = "jit-demo"
 path = "src/main.rs"
 
 [dependencies]
-oscen = { path = "../../oscen-lib", features = ["jit"] }
+oscen = { path = "../../oscen-lib", default-features = false, features = ["jit"] }
 hound = "3.5"
 anyhow = "1.0"

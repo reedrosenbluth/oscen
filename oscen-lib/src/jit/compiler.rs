@@ -99,18 +99,19 @@ impl JITCompiler {
                 let node_data = &graph.nodes[node_key];
                 let offsets = &layout.node_offsets[&node_key];
 
-                // Create codegen context
-                let mut ctx = CodegenContext {
-                    builder: &mut builder,
-                    state_ptr,
-                    io_ptr,
-                    params_ptr,
-                    sample_rate,
-                    offsets,
-                };
+                // Emit specialized code for this node (in its own scope to drop ctx)
+                {
+                    let mut ctx = CodegenContext {
+                        builder: &mut builder,
+                        state_ptr,
+                        io_ptr,
+                        params_ptr,
+                        sample_rate,
+                        offsets,
+                    };
 
-                // Try to emit specialized code for this node
-                self.emit_node_code(&mut ctx, node_data)?;
+                    self.emit_node_code(&mut ctx, node_data)?;
+                }  // ctx is dropped here, releasing the borrow on builder
 
                 // Emit connection routing (copy outputs to connected inputs)
                 self.emit_connections(
