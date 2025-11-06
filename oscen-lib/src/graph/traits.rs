@@ -112,6 +112,12 @@ impl<'a> ProcessingContext<'a> {
 
 pub trait SignalProcessor: Send + std::fmt::Debug {
     fn init(&mut self, _sample_rate: f32) {}
+
+    /// Process one sample of audio.
+    ///
+    /// Nodes using the struct-of-arrays IO pattern internally create their IO struct,
+    /// populate it from context, process, and return the primary output.
+    /// This keeps the trait object-safe while enabling struct-based I/O internally.
     fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32;
 
     #[inline]

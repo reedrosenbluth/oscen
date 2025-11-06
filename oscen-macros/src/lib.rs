@@ -11,8 +11,10 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let name = input.ident;
 
     let endpoints_name = format_ident!("{}Endpoints", name);
+    let io_name = format_ident!("{}IO", name);
 
-    let mut endpoint_fields = Vec::new(); // Struct field definitions
+    let mut endpoint_fields = Vec::new(); // Struct field definitions for Endpoints
+    let mut io_fields = Vec::new(); // Struct field definitions for IO
     let mut input_scalar_getters = Vec::new();
     let mut input_value_ref_getters = Vec::new();
     let mut input_event_getters = Vec::new();
@@ -21,6 +23,12 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut endpoint_descriptors = Vec::new();
     let mut create_endpoints_assignments = Vec::new(); // Field assignments in create_endpoints
     let mut value_input_fields = Vec::new(); // Track (field_name, index) for value inputs
+
+    // Track stream/event I/O for IO struct generation
+    let mut stream_input_idx = 0usize;
+    let mut stream_output_idx = 0usize;
+    let mut event_input_idx = 0usize;
+    let mut event_output_idx = 0usize;
 
     // Extract field information
     if let Data::Struct(data_struct) = input.data {
@@ -59,7 +67,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         EndpointTypeAttr::Value => quote! { ::oscen::graph::types::ValueInput },
                     };
 
-                    // Generate field definition
+                    // Generate field definition for Endpoints struct
                     endpoint_fields.push(quote! {
                         pub #field_name: #field_type
                     });
@@ -68,6 +76,25 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     create_endpoints_assignments.push(quote! {
                         #field_name: #field_type::new(InputEndpoint::new(inputs[#input_idx]))
                     });
+
+                    // Add to IO struct if stream or event
+                    match accessor_kind {
+                        EndpointTypeAttr::Stream => {
+                            io_fields.push(quote! {
+                                pub #field_name: f32
+                            });
+                            stream_input_idx += 1;
+                        }
+                        EndpointTypeAttr::Event => {
+                            io_fields.push(quote! {
+                                pub #field_name: &'io [::oscen::graph::EventInstance]
+                            });
+                            event_input_idx += 1;
+                        }
+                        EndpointTypeAttr::Value => {
+                            // Value inputs stay in State (node struct), not IO
+                        }
+                    }
 
                     input_idents.push(field_name.clone());
                     endpoint_descriptors.push(quote! {
@@ -137,7 +164,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         EndpointTypeAttr::Event => quote! { ::oscen::graph::types::EventOutput },
                     };
 
-                    // Generate field definition
+                    // Generate field definition for Endpoints struct
                     endpoint_fields.push(quote! {
                         pub #field_name: #output_type_token
                     });
@@ -146,6 +173,25 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     create_endpoints_assignments.push(quote! {
                         #field_name: #output_type_token::new(outputs[#output_idx])
                     });
+
+                    // Add to IO struct if stream or event
+                    match output_kind {
+                        EndpointTypeAttr::Stream => {
+                            io_fields.push(quote! {
+                                pub #field_name: f32
+                            });
+                            stream_output_idx += 1;
+                        }
+                        EndpointTypeAttr::Event => {
+                            io_fields.push(quote! {
+                                pub #field_name: ::std::vec::Vec<::oscen::graph::EventInstance>
+                            });
+                            event_output_idx += 1;
+                        }
+                        EndpointTypeAttr::Value => {
+                            // Value outputs stay in State (node struct), not IO
+                        }
+                    }
 
                     output_idents.push(field_name.clone());
                     endpoint_descriptors.push(quote! {
@@ -169,7 +215,56 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         })
         .collect();
 
+    // Generate IO struct with lifetime parameter only if there are event endpoints
+    let has_event_endpoints = event_input_idx > 0 || event_output_idx > 0;
+    let io_struct = if io_fields.is_empty() {
+        // Empty IO struct (no stream/event endpoints)
+        quote! {
+            #[allow(dead_code)]
+            #[derive(Debug)]
+            pub struct #io_name {
+                _marker: ::std::marker::PhantomData<()>,
+            }
+
+            impl #io_name {
+                pub fn new() -> Self {
+                    Self {
+                        _marker: ::std::marker::PhantomData,
+                    }
+                }
+            }
+
+            impl Default for #io_name {
+                fn default() -> Self {
+                    Self::new()
+                }
+            }
+        }
+    } else if has_event_endpoints {
+        // IO struct with lifetime parameter for event slices
+        quote! {
+            #[allow(dead_code)]
+            #[derive(Debug)]
+            pub struct #io_name<'io> {
+                #(#io_fields),*
+            }
+        }
+    } else {
+        // IO struct without lifetime parameter (only stream endpoints)
+        quote! {
+            #[allow(dead_code)]
+            #[derive(Debug)]
+            pub struct #io_name {
+                #(#io_fields),*
+            }
+        }
+    };
+
     let expanded = quote! {
+        // IO struct for stream and event endpoints
+        #io_struct
+
+        // Endpoints struct for typed endpoint handles
         #[allow(dead_code)]
         #[derive(Debug, Copy, Clone)]
         pub struct #endpoints_name {
