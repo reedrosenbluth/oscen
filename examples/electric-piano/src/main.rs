@@ -140,30 +140,30 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     // Try to JIT-compile the graph
     let (jit_compiled, jit_state_builder) = match synth.graph.to_ir() {
         Ok(ir) => {
-            println!("Extracted IR with {} nodes", ir.nodes.len());
+            eprintln!("[DEBUG] Extracted IR with {} nodes", ir.nodes.len());
 
             match CraneliftJit::new() {
                 Ok(mut jit) => {
                     match jit.compile(&ir) {
                         Ok(compiled) => {
-                            println!("Successfully JIT-compiled electric piano graph!");
+                            eprintln!("[DEBUG] ✓ Successfully JIT-compiled electric piano graph!");
                             let state_builder = GraphStateBuilder::new(&ir, &mut synth.graph.nodes);
                             (Some(compiled), Some(state_builder))
                         }
                         Err(e) => {
-                            eprintln!("JIT compilation failed: {}, falling back to interpreted", e);
+                            eprintln!("[DEBUG] ✗ JIT compilation failed: {}, falling back to interpreted", e);
                             (None, None)
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("Failed to create JIT compiler: {}, falling back to interpreted", e);
+                    eprintln!("[DEBUG] ✗ Failed to create JIT compiler: {}, falling back to interpreted", e);
                     (None, None)
                 }
             }
         }
         Err(e) => {
-            eprintln!("Failed to extract IR: {:?}, falling back to interpreted", e);
+            eprintln!("[DEBUG] ✗ Failed to extract IR: {:?}, falling back to interpreted", e);
             (None, None)
         }
     };
@@ -182,8 +182,14 @@ fn audio_callback(
     param_rx: &Receiver<ParamChange>,
     midi_rx: &Receiver<midi_input::RawMidiBytes>,
 ) {
+    static mut LOGGED_MODE: bool = false;
+    static mut FRAME_COUNT: usize = 0;
+    static mut MIDI_COUNT: usize = 0;
+    static mut NON_ZERO_COUNT: usize = 0;
+
     // Handle incoming MIDI events
     while let Ok(raw_midi) = midi_rx.try_recv() {
+        unsafe { MIDI_COUNT += 1; }
         queue_raw_midi(
             &mut context.synth.graph,
             context.synth.midi_parser.midi_in,
@@ -251,6 +257,13 @@ fn audio_callback(
         if let (Some(jit_compiled), Some(jit_state_builder)) =
             (&context.jit_compiled, &mut context.jit_state_builder)
         {
+            unsafe {
+                if !LOGGED_MODE {
+                    eprintln!("[DEBUG] Using JIT execution mode");
+                    LOGGED_MODE = true;
+                }
+            }
+
             // Process parameter ramps (needed for smooth parameter transitions)
             context.synth.graph.process_ramps();
 
@@ -271,6 +284,17 @@ fn audio_callback(
                 .get_value(&context.synth.left_out)
                 .unwrap_or(0.0);
 
+            unsafe {
+                FRAME_COUNT += 1;
+                if mono.abs() > 0.0001 {
+                    NON_ZERO_COUNT += 1;
+                }
+                if FRAME_COUNT % 48000 == 0 {
+                    eprintln!("[DEBUG] JIT: {} frames, {} MIDI events, {} non-zero frames, last={:.4}",
+                        FRAME_COUNT, MIDI_COUNT, NON_ZERO_COUNT, mono);
+                }
+            }
+
             // Write to output channels - duplicate mono to stereo
             if context.channels >= 2 {
                 frame[0] = mono;
@@ -283,6 +307,13 @@ fn audio_callback(
                 frame[0] = mono;
             }
         } else {
+            unsafe {
+                if !LOGGED_MODE {
+                    eprintln!("[DEBUG] Using INTERPRETED execution mode (JIT not available)");
+                    LOGGED_MODE = true;
+                }
+            }
+
             // Interpreted execution path (fallback)
             if let Err(err) = context.synth.graph.process() {
                 eprintln!("Graph processing error: {}", err);
@@ -298,6 +329,17 @@ fn audio_callback(
                 .graph
                 .get_value(&context.synth.left_out)
                 .unwrap_or(0.0);
+
+            unsafe {
+                FRAME_COUNT += 1;
+                if mono.abs() > 0.0001 {
+                    NON_ZERO_COUNT += 1;
+                }
+                if FRAME_COUNT % 48000 == 0 {
+                    eprintln!("[DEBUG] INTERPRETED: {} frames, {} MIDI events, {} non-zero frames, last={:.4}",
+                        FRAME_COUNT, MIDI_COUNT, NON_ZERO_COUNT, mono);
+                }
+            }
 
             // Write to output channels - duplicate mono to stereo
             if context.channels >= 2 {
