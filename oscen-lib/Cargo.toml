@@ -6,9 +6,19 @@ edition = "2021"
 [dependencies]
 oscen-macros = { path = "../oscen-macros" }
 arrayvec = "0.7.6"
-cpal = "0.15.3"
+cpal = { version = "0.15.3", optional = true }
 hound = "3.5.1"
 slotmap = "1.0.7"
+
+# JIT compilation
+cranelift = "0.109"
+cranelift-jit = "0.109"
+cranelift-module = "0.109"
+cranelift-native = "0.109"
+
+[features]
+default = []
+audio = ["cpal"]
 
 [dev-dependencies]
 float-cmp = "0.10.0"

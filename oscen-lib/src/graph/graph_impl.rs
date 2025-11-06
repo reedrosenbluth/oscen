@@ -4,7 +4,7 @@ use std::fmt;
 
 use arrayvec::ArrayVec;
 use hound;
-use slotmap::{SecondaryMap, SlotMap};
+use slotmap::{Key, SecondaryMap, SlotMap};
 
 use super::audio_input::AudioInput;
 use super::helpers::{BinaryFunctionNode, FunctionNode};
@@ -484,18 +484,23 @@ impl Graph {
         let key = input.into().key();
 
         if !matches!(self.endpoint_types.get(key), Some(EndpointType::Event)) {
+            eprintln!("[QUEUE_EVENT] Endpoint key {:?} is not an Event type!", key.data());
             return false;
         }
 
         if let Some(state) = self.endpoints.get_mut(key) {
             if let Some(event_state) = state.as_event_mut() {
-                return event_state.queue_mut().push(EventInstance {
+                let result = event_state.queue_mut().push(EventInstance {
                     frame_offset,
                     payload,
                 });
+                eprintln!("[QUEUE_EVENT] Successfully queued event to endpoint key {:?}, queue now has {} events",
+                    key.data(), event_state.queue().events().len());
+                return result;
             }
         }
 
+        eprintln!("[QUEUE_EVENT] Failed to queue event to endpoint key {:?}", key.data());
         false
     }
 
@@ -569,9 +574,11 @@ impl Graph {
             .and_then(EndpointState::as_scalar)
     }
 
-    pub fn process(&mut self) -> Result<(), GraphError> {
-        self.update_topology_if_needed()?;
-
+    /// Process parameter ramps for smooth transitions
+    ///
+    /// This updates all active ramps by one sample. Call this before JIT execution
+    /// to ensure parameters are smoothly interpolated.
+    pub fn process_ramps(&mut self) {
         let mut i = 0;
         while i < self.active_ramps.len() {
             let mut finished_key: Option<ValueKey> = None;
@@ -600,6 +607,13 @@ impl Graph {
                 i += 1;
             }
         }
+    }
+
+    pub fn process(&mut self) -> Result<(), GraphError> {
+        self.update_topology_if_needed()?;
+
+        // Process parameter ramps
+        self.process_ramps();
 
         // Use index-based iteration to avoid cloning node_order
         for node_idx in 0..self.node_order.len() {
@@ -981,5 +995,149 @@ impl Graph {
             .get(node_key)
             .map(|node| node.processor.is_active())
             .unwrap_or(true)
+    }
+
+    /// Convert this graph to an intermediate representation for JIT compilation
+    ///
+    /// This extracts the graph topology, connections, and metadata needed
+    /// for the JIT compiler to generate optimized machine code.
+    pub fn to_ir(&mut self) -> Result<crate::graph::jit::GraphIR, GraphError> {
+        use crate::graph::jit::ir::{GraphIR, NodeIR, ConnectionIR};
+        use slotmap::Key;
+
+        // Ensure topology is up to date
+        self.update_topology_if_needed()?;
+
+        // Build a mapping from NodeKey to index in topology order
+        let mut node_key_to_index: HashMap<NodeKey, usize> = HashMap::new();
+        for (idx, &node_key) in self.node_order.iter().enumerate() {
+            node_key_to_index.insert(node_key, idx);
+        }
+
+        // Extract node information
+        let mut nodes = Vec::with_capacity(self.node_order.len());
+        for (idx, &node_key) in self.node_order.iter().enumerate() {
+            let node_data = self.nodes.get(node_key)
+                .ok_or_else(|| GraphError::CycleDetected(vec![node_key]))?;
+
+            // Separate inputs by type
+            let mut stream_inputs = Vec::new();
+            let mut value_inputs = Vec::new();
+            let mut event_inputs = Vec::new();
+
+            for (input_idx, &input_key) in node_data.inputs.iter().enumerate() {
+                let input_type = node_data.input_types.get(input_idx)
+                    .copied()
+                    .unwrap_or(EndpointType::Value);
+
+                match input_type {
+                    EndpointType::Stream => stream_inputs.push(input_key.data().as_ffi()),
+                    EndpointType::Value => value_inputs.push(input_key.data().as_ffi()),
+                    EndpointType::Event => event_inputs.push(input_key.data().as_ffi()),
+                }
+            }
+
+            // Separate outputs by type
+            let mut stream_outputs = Vec::new();
+            let mut value_outputs = Vec::new();
+            let mut event_outputs = Vec::new();
+
+            for (output_idx, &output_key) in node_data.outputs.iter().enumerate() {
+                let output_type = node_data.output_types.get(output_idx)
+                    .copied()
+                    .unwrap_or(EndpointType::Stream);
+
+                match output_type {
+                    EndpointType::Stream => stream_outputs.push(output_key.data().as_ffi()),
+                    EndpointType::Value => value_outputs.push(output_key.data().as_ffi()),
+                    EndpointType::Event => event_outputs.push(output_key.data().as_ffi()),
+                }
+            }
+
+            nodes.push(NodeIR {
+                index: idx,
+                key_data: node_key.data().as_ffi(),
+                num_stream_inputs: stream_inputs.len(),
+                num_value_inputs: value_inputs.len(),
+                num_event_inputs: event_inputs.len(),
+                stream_inputs,
+                value_inputs,
+                event_inputs,
+                stream_outputs,
+                value_outputs,
+                event_outputs,
+            });
+        }
+
+        // Extract connections
+        let mut connections = Vec::new();
+        for (from_value_key, to_value_keys) in self.connections.iter() {
+            // Find source node
+            let src_node_key = self.value_to_node.get(from_value_key);
+            if src_node_key.is_none() {
+                continue; // Skip connections from non-node sources
+            }
+            let src_node_key = *src_node_key.unwrap();
+            let src_node_idx = node_key_to_index.get(&src_node_key);
+            if src_node_idx.is_none() {
+                continue;
+            }
+            let src_node_idx = *src_node_idx.unwrap();
+
+            // Find which output this is
+            let src_node = &self.nodes[src_node_key];
+            let src_output_idx = src_node.outputs.iter()
+                .position(|&k| k == from_value_key);
+            if src_output_idx.is_none() {
+                continue;
+            }
+            let src_output_idx = src_output_idx.unwrap();
+
+            // Get the endpoint type
+            let connection_type = self.endpoint_types.get(from_value_key)
+                .copied()
+                .unwrap_or(EndpointType::Stream);
+
+            // Process each destination
+            for &to_value_key in to_value_keys {
+                let dst_node_key = self.value_to_node.get(to_value_key);
+                if dst_node_key.is_none() {
+                    continue;
+                }
+                let dst_node_key = *dst_node_key.unwrap();
+                let dst_node_idx = node_key_to_index.get(&dst_node_key);
+                if dst_node_idx.is_none() {
+                    continue;
+                }
+                let dst_node_idx = *dst_node_idx.unwrap();
+
+                // Find which input this is
+                let dst_node = &self.nodes[dst_node_key];
+                let dst_input_idx = dst_node.inputs.iter()
+                    .position(|&k| k == to_value_key);
+                if dst_input_idx.is_none() {
+                    continue;
+                }
+                let dst_input_idx = dst_input_idx.unwrap();
+
+                connections.push(ConnectionIR {
+                    src_node: src_node_idx,
+                    src_output: src_output_idx,
+                    dst_node: dst_node_idx,
+                    dst_input: dst_input_idx,
+                    connection_type,
+                });
+            }
+        }
+
+        // Create topology order as indices
+        let topology_order: Vec<usize> = (0..self.node_order.len()).collect();
+
+        Ok(GraphIR {
+            nodes,
+            connections,
+            topology_order,
+            sample_rate: self.sample_rate,
+        })
     }
 }

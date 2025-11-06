@@ -12,6 +12,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use electric_piano_voice::{ElectricPianoVoiceNode, ElectricPianoVoiceNodeEndpoints};
 use oscen::midi::{MidiParserEndpoints, MidiVoiceHandlerEndpoints};
 use oscen::{graph, queue_raw_midi, MidiParser, MidiVoiceHandler, VoiceAllocator, VoiceAllocatorEndpoints};
+use oscen::graph::jit::{CraneliftJit, CompiledGraph, GraphStateBuilder};
 use slint::ComponentHandle;
 use tremolo::{Tremolo, TremoloEndpoints};
 
@@ -128,12 +129,44 @@ graph! {
 struct AudioContext {
     synth: ElectricPianoGraph,
     channels: usize,
+    // JIT compilation support - optional for fallback to interpreted
+    jit_compiled: Option<CompiledGraph>,
+    jit_state_builder: Option<GraphStateBuilder>,
 }
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
+    let mut synth = ElectricPianoGraph::new(sample_rate);
+
+    // Try to JIT-compile the graph
+    let (jit_compiled, jit_state_builder) = match synth.graph.to_ir() {
+        Ok(ir) => {
+            match CraneliftJit::new() {
+                Ok(mut jit) => {
+                    match jit.compile(&ir) {
+                        Ok(compiled) => {
+                            let state_builder = GraphStateBuilder::new(&ir, &mut synth.graph.nodes);
+                            (Some(compiled), Some(state_builder))
+                        }
+                        Err(_) => {
+                            (None, None)
+                        }
+                    }
+                }
+                Err(_) => {
+                    (None, None)
+                }
+            }
+        }
+        Err(_) => {
+            (None, None)
+        }
+    };
+
     AudioContext {
-        synth: ElectricPianoGraph::new(sample_rate),
+        synth,
         channels,
+        jit_compiled,
+        jit_state_builder,
     }
 }
 
@@ -208,32 +241,69 @@ fn audio_callback(
     }
 
     for frame in data.chunks_mut(context.channels) {
-        if let Err(err) = context.synth.graph.process() {
-            eprintln!("Graph processing error: {}", err);
-            for sample in frame.iter_mut() {
-                *sample = 0.0;
-            }
-            continue;
-        }
+        // Process audio using JIT if available, otherwise fall back to interpreted
+        if let (Some(jit_compiled), Some(jit_state_builder)) =
+            (&context.jit_compiled, &mut context.jit_state_builder)
+        {
+            // Process parameter ramps (needed for smooth parameter transitions)
+            context.synth.graph.process_ramps();
 
-        // Get mono output and create stereo in the callback
-        // (The tremolo's right_output field isn't being copied by the graph)
-        let mono = context
-            .synth
-            .graph
-            .get_value(&context.synth.left_out)
-            .unwrap_or(0.0);
+            // JIT execution path
+            let (mut state, _temps) = jit_state_builder.build(
+                &mut context.synth.graph.nodes,
+                &mut context.synth.graph.endpoints,
+            );
 
-        // Write to output channels - duplicate mono to stereo
-        if context.channels >= 2 {
-            frame[0] = mono;
-            frame[1] = mono;
-            // Zero out any additional channels
-            for sample in frame.iter_mut().skip(2) {
-                *sample = 0.0;
+            // Execute JIT-compiled code
+            // Note: The return value is the last node's output, but we read from endpoints instead
+            let _ = jit_compiled.process(&mut state);
+
+            // Read output from the endpoint (same as interpreted)
+            let mono = context
+                .synth
+                .graph
+                .get_value(&context.synth.left_out)
+                .unwrap_or(0.0);
+
+            // Write to output channels - duplicate mono to stereo
+            if context.channels >= 2 {
+                frame[0] = mono;
+                frame[1] = mono;
+                // Zero out any additional channels
+                for sample in frame.iter_mut().skip(2) {
+                    *sample = 0.0;
+                }
+            } else if context.channels == 1 {
+                frame[0] = mono;
             }
-        } else if context.channels == 1 {
-            frame[0] = mono;
+        } else {
+            // Interpreted execution path (fallback)
+            if let Err(err) = context.synth.graph.process() {
+                eprintln!("Graph processing error: {}", err);
+                for sample in frame.iter_mut() {
+                    *sample = 0.0;
+                }
+                continue;
+            }
+
+            // Get mono output and create stereo in the callback
+            let mono = context
+                .synth
+                .graph
+                .get_value(&context.synth.left_out)
+                .unwrap_or(0.0);
+
+            // Write to output channels - duplicate mono to stereo
+            if context.channels >= 2 {
+                frame[0] = mono;
+                frame[1] = mono;
+                // Zero out any additional channels
+                for sample in frame.iter_mut().skip(2) {
+                    *sample = 0.0;
+                }
+            } else if context.channels == 1 {
+                frame[0] = mono;
+            }
         }
     }
 }
