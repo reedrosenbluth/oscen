@@ -3,6 +3,7 @@ mod graph_impl;
 mod helpers;
 mod traits;
 pub mod types;
+pub mod jit;
 
 #[cfg(test)]
 mod tests;
