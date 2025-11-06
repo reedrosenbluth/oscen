@@ -3,6 +3,10 @@ name = "jit-demo"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "jit-demo"
+path = "src/main.rs"
+
 [dependencies]
 oscen = { path = "../../oscen-lib", features = ["jit"] }
 hound = "3.5"
