@@ -80,9 +80,7 @@ fn test_jit_midi_events() {
         compiled.process(&mut state);
 
         // Get the frequency output from voice handler
-        eprintln!("[TEST] Reading frequency endpoint key: {:?}", voice_handler2.frequency.key().data());
         let freq = graph_jit.get_value(&voice_handler2.frequency).unwrap_or(0.0);
-        eprintln!("[TEST] Reading gate endpoint key: {:?}", voice_handler2.gate.key().data());
         let gate = graph_jit.get_value(&voice_handler2.gate).unwrap_or(0.0);
         println!("JIT Frame {}: freq={:.2}, gate={:.2}", i, freq, gate);
         jit_outputs.push((freq, gate));

@@ -90,9 +90,16 @@ fn test_jit_supersaw_structure() {
 
     // Process 10 frames with interpreted mode
     let mut interpreted_outputs = Vec::new();
-    for _ in 0..10 {
+    for i in 0..10 {
         graph_interp.process().expect("Process failed");
         let value = graph_interp.get_value(&output).unwrap_or(0.0);
+
+        // Debug: Check oscillator frequency on first frame
+        if i == 1 {
+            // Node 5 should be first oscillator - check its frequency input
+            println!("\n=== INTERPRETED Mode - Frame 1 ===");
+        }
+
         interpreted_outputs.push(value);
     }
 
@@ -162,13 +169,6 @@ fn test_jit_supersaw_structure() {
         let _ = compiled.process(&mut state);
 
         let value = graph_jit.get_value(&output2).unwrap_or(0.0);
-
-        // Debug: Log endpoint key we're reading from
-        if jit_outputs.len() == 0 {
-            use slotmap::Key;
-            eprintln!("[TEST] Reading from endpoint key: {:?}", output2.key().data());
-        }
-
         jit_outputs.push(value);
     }
 

@@ -3,12 +3,11 @@
 /// This module provides the bridge between JIT-compiled machine code
 /// and the Rust node implementations.
 
-use super::super::traits::{ProcessingContext, SignalProcessor};
-use super::super::types::{EndpointState, EndpointType, EventInstance, ValueKey};
+use super::super::traits::ProcessingContext;
+use super::super::types::{EndpointState, EventInstance, ValueKey};
 use super::super::graph_impl::NodeData;
 use super::ir::GraphIR;
-use slotmap::SlotMap;
-use std::mem;
+use slotmap::{Key, SlotMap};
 
 /// C-compatible function pointer type for node processing
 ///
@@ -102,7 +101,7 @@ pub struct GraphStateBuilder {
 
 impl GraphStateBuilder {
     /// Create a new builder for the given graph IR
-    pub fn new(ir: &GraphIR, _nodes: &mut SlotMap<super::super::types::NodeKey, NodeData>) -> Self {
+    pub fn new(ir: &GraphIR, nodes: &mut SlotMap<super::super::types::NodeKey, NodeData>) -> Self {
         let node_count = ir.nodes.len();
 
         let mut node_keys = Vec::with_capacity(node_count);
@@ -122,17 +121,20 @@ impl GraphStateBuilder {
             // Store the node key
             node_keys.push(node_ir.key_data);
 
-            // Collect this node's input keys
-            let mut node_inputs = Vec::new();
-            for &input_key_data in &node_ir.stream_inputs {
-                node_inputs.push(input_key_data);
-            }
-            for &input_key_data in &node_ir.value_inputs {
-                node_inputs.push(input_key_data);
-            }
-            for &input_key_data in &node_ir.event_inputs {
-                node_inputs.push(input_key_data);
-            }
+            // IMPORTANT: Get inputs in the ORIGINAL order from node_data.inputs
+            // NOT from the type-separated arrays in the IR!
+            // The node expects inputs in definition order, which may interleave types.
+            let node_key = super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(node_ir.key_data));
+            let node_inputs = if let Some(node_data) = nodes.get(node_key) {
+                node_data.inputs.iter().map(|k| k.data().as_ffi()).collect::<Vec<_>>()
+            } else {
+                // Fallback to IR order if node not found (shouldn't happen)
+                let mut fallback = Vec::new();
+                fallback.extend(&node_ir.stream_inputs);
+                fallback.extend(&node_ir.value_inputs);
+                fallback.extend(&node_ir.event_inputs);
+                fallback
+            };
 
             // Collect this node's output keys (stream, value, event)
             let mut node_outputs = Vec::new();
@@ -176,17 +178,31 @@ impl GraphStateBuilder {
             let src_node = &ir.nodes[conn.src_node];
             let dst_node = &ir.nodes[conn.dst_node];
 
-            // For source: Build combined outputs list in same order as stored
-            let mut src_combined_outputs = Vec::new();
-            src_combined_outputs.extend(&src_node.stream_outputs);
-            src_combined_outputs.extend(&src_node.value_outputs);
-            src_combined_outputs.extend(&src_node.event_outputs);
+            // For source: Get actual node outputs in definition order
+            let src_node_key = super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(src_node.key_data));
+            let src_combined_outputs = if let Some(node_data) = nodes.get(src_node_key) {
+                node_data.outputs.iter().map(|k| k.data().as_ffi()).collect::<Vec<_>>()
+            } else {
+                // Fallback to IR order if node not found
+                let mut fallback = Vec::new();
+                fallback.extend(&src_node.stream_outputs);
+                fallback.extend(&src_node.value_outputs);
+                fallback.extend(&src_node.event_outputs);
+                fallback
+            };
 
-            // For destination: Build combined inputs list
-            let mut dst_combined_inputs = Vec::new();
-            dst_combined_inputs.extend(&dst_node.stream_inputs);
-            dst_combined_inputs.extend(&dst_node.value_inputs);
-            dst_combined_inputs.extend(&dst_node.event_inputs);
+            // For destination: Get actual node inputs in definition order
+            let dst_node_key = super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(dst_node.key_data));
+            let dst_combined_inputs = if let Some(node_data) = nodes.get(dst_node_key) {
+                node_data.inputs.iter().map(|k| k.data().as_ffi()).collect::<Vec<_>>()
+            } else {
+                // Fallback to IR order if node not found
+                let mut fallback = Vec::new();
+                fallback.extend(&dst_node.stream_inputs);
+                fallback.extend(&dst_node.value_inputs);
+                fallback.extend(&dst_node.event_inputs);
+                fallback
+            };
 
             let src_output_key = src_combined_outputs.get(conn.src_output).copied();
             let dst_input_key = dst_combined_inputs.get(conn.dst_input).copied();
@@ -304,7 +320,6 @@ pub extern "C" fn process_node_trampoline(
         let state: &mut GraphState = &mut *state_ptr;
 
         // Reconstruct the NodeKey from the stored u64
-        use slotmap::Key;
         let node_key_data = *state.node_keys.add(node_index);
         let node_key = super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(node_key_data));
 
@@ -343,7 +358,7 @@ pub extern "C" fn process_node_trampoline(
             }
 
             // Fill values for each input based on its type
-            for (i, &input_type) in node_data.input_types.iter().enumerate() {
+            for (i, &_input_type) in node_data.input_types.iter().enumerate() {
                 if i >= input_keys.len() { break; }
 
                 let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
@@ -430,7 +445,6 @@ pub extern "C" fn process_node_trampoline(
 
             // Call the actual process method
             let output = node_data.processor.process(sample_rate, &mut context);
-
 
             // Clear event input queues after consumption
             for (i, &input_type) in node_data.input_types.iter().enumerate() {
@@ -537,8 +551,6 @@ pub unsafe extern "C" fn write_node_output(
     node_index: usize,
     output_value: f32,
 ) {
-    use slotmap::Key;
-
     let state = &mut *state;
     let endpoints: &mut SlotMap<ValueKey, EndpointState> = &mut *state.endpoints;
 
