@@ -1,11 +1,10 @@
+use super::super::graph_impl::NodeData;
 /// Runtime support for JIT-compiled graph execution
 ///
 /// This module provides the bridge between JIT-compiled machine code
 /// and the Rust node implementations.
-
 use super::super::traits::ProcessingContext;
 use super::super::types::{EndpointState, EventInstance, ValueKey};
-use super::super::graph_impl::NodeData;
 use super::ir::GraphIR;
 use slotmap::{Key, SlotMap};
 
@@ -124,9 +123,14 @@ impl GraphStateBuilder {
             // IMPORTANT: Get inputs in the ORIGINAL order from node_data.inputs
             // NOT from the type-separated arrays in the IR!
             // The node expects inputs in definition order, which may interleave types.
-            let node_key = super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(node_ir.key_data));
+            let node_key =
+                super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(node_ir.key_data));
             let node_inputs = if let Some(node_data) = nodes.get(node_key) {
-                node_data.inputs.iter().map(|k| k.data().as_ffi()).collect::<Vec<_>>()
+                node_data
+                    .inputs
+                    .iter()
+                    .map(|k| k.data().as_ffi())
+                    .collect::<Vec<_>>()
             } else {
                 // Fallback to IR order if node not found (shouldn't happen)
                 let mut fallback = Vec::new();
@@ -179,9 +183,14 @@ impl GraphStateBuilder {
             let dst_node = &ir.nodes[conn.dst_node];
 
             // For source: Get actual node outputs in definition order
-            let src_node_key = super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(src_node.key_data));
+            let src_node_key =
+                super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(src_node.key_data));
             let src_combined_outputs = if let Some(node_data) = nodes.get(src_node_key) {
-                node_data.outputs.iter().map(|k| k.data().as_ffi()).collect::<Vec<_>>()
+                node_data
+                    .outputs
+                    .iter()
+                    .map(|k| k.data().as_ffi())
+                    .collect::<Vec<_>>()
             } else {
                 // Fallback to IR order if node not found
                 let mut fallback = Vec::new();
@@ -192,9 +201,14 @@ impl GraphStateBuilder {
             };
 
             // For destination: Get actual node inputs in definition order
-            let dst_node_key = super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(dst_node.key_data));
+            let dst_node_key =
+                super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(dst_node.key_data));
             let dst_combined_inputs = if let Some(node_data) = nodes.get(dst_node_key) {
-                node_data.inputs.iter().map(|k| k.data().as_ffi()).collect::<Vec<_>>()
+                node_data
+                    .inputs
+                    .iter()
+                    .map(|k| k.data().as_ffi())
+                    .collect::<Vec<_>>()
             } else {
                 // Fallback to IR order if node not found
                 let mut fallback = Vec::new();
@@ -208,7 +222,10 @@ impl GraphStateBuilder {
             let dst_input_key = dst_combined_inputs.get(conn.dst_input).copied();
 
             if let (Some(src_key), Some(dst_key)) = (src_output_key, dst_input_key) {
-                endpoint_connections.entry(src_key).or_default().push(dst_key);
+                endpoint_connections
+                    .entry(src_key)
+                    .or_default()
+                    .push(dst_key);
             }
         }
 
@@ -321,7 +338,8 @@ pub extern "C" fn process_node_trampoline(
 
         // Reconstruct the NodeKey from the stored u64
         let node_key_data = *state.node_keys.add(node_index);
-        let node_key = super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(node_key_data));
+        let node_key =
+            super::super::types::NodeKey::from(slotmap::KeyData::from_ffi(node_key_data));
 
         // Access the node from the SlotMap
         let nodes: &mut SlotMap<super::super::types::NodeKey, NodeData> = &mut *state.nodes_slotmap;
@@ -337,10 +355,7 @@ pub extern "C" fn process_node_trampoline(
 
             // Get all input endpoint keys
             let input_keys = if num_inputs > 0 {
-                std::slice::from_raw_parts(
-                    state.endpoint_keys.add(input_start),
-                    num_inputs,
-                )
+                std::slice::from_raw_parts(state.endpoint_keys.add(input_start), num_inputs)
             } else {
                 &[]
             };
@@ -359,7 +374,9 @@ pub extern "C" fn process_node_trampoline(
 
             // Fill values for each input based on its type
             for (i, &_input_type) in node_data.input_types.iter().enumerate() {
-                if i >= input_keys.len() { break; }
+                if i >= input_keys.len() {
+                    break;
+                }
 
                 let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
                 if let Some(endpoint_state) = endpoints.get(value_key) {
@@ -367,7 +384,6 @@ pub extern "C" fn process_node_trampoline(
                     stream_input_values[i] = endpoint_state.as_scalar().unwrap_or(0.0);
                 }
             }
-
 
             // Build value_inputs array using OVERALL indices
             // The value_inputs array must be the same size as stream_inputs and use the same indices!
@@ -383,12 +399,16 @@ pub extern "C" fn process_node_trampoline(
 
             // Fill value references for Value-type inputs
             for (i, &input_type) in node_data.input_types.iter().enumerate() {
-                if i >= input_keys.len() { break; }
+                if i >= input_keys.len() {
+                    break;
+                }
 
                 if input_type == super::super::types::EndpointType::Value {
                     let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
                     if let Some(endpoint_state) = endpoints.get(value_key) {
-                        if let super::super::types::EndpointState::Value(value_data) = endpoint_state {
+                        if let super::super::types::EndpointState::Value(value_data) =
+                            endpoint_state
+                        {
                             value_input_values[i] = Some(value_data);
                         }
                     }
@@ -402,12 +422,16 @@ pub extern "C" fn process_node_trampoline(
 
             // Fill event slices for Event-type inputs
             for (i, &input_type) in node_data.input_types.iter().enumerate() {
-                if i >= input_keys.len() || i >= MAX_INPUTS { break; }
+                if i >= input_keys.len() || i >= MAX_INPUTS {
+                    break;
+                }
 
                 if input_type == super::super::types::EndpointType::Event {
                     let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
                     if let Some(endpoint_state) = endpoints.get(value_key) {
-                        if let super::super::types::EndpointState::Event(event_data) = endpoint_state {
+                        if let super::super::types::EndpointState::Event(event_data) =
+                            endpoint_state
+                        {
                             let events = event_data.queue().events();
                             event_input_values[i] = events;
 
@@ -415,8 +439,12 @@ pub extern "C" fn process_node_trampoline(
                             static mut EVENT_LOG_COUNT: usize = 0;
                             unsafe {
                                 if EVENT_LOG_COUNT < 50 && !events.is_empty() {
-                                    eprintln!("[JIT EVENT] Node {} input {} received {} events",
-                                        node_index, i, events.len());
+                                    eprintln!(
+                                        "[JIT EVENT] Node {} input {} received {} events",
+                                        node_index,
+                                        i,
+                                        events.len()
+                                    );
                                     EVENT_LOG_COUNT += 1;
                                 }
                             }
@@ -426,7 +454,8 @@ pub extern "C" fn process_node_trampoline(
             }
 
             // Create context with overall-indexed arrays
-            let events_buffer: &mut Vec<super::super::traits::PendingEvent> = &mut *state.temp_events_buffer;
+            let events_buffer: &mut Vec<super::super::traits::PendingEvent> =
+                &mut *state.temp_events_buffer;
 
             let stream_slice = if num_inputs > 0 {
                 &stream_input_values[..num_inputs]
@@ -446,19 +475,17 @@ pub extern "C" fn process_node_trampoline(
                 &[]
             };
 
-            let mut context = ProcessingContext::new(
-                stream_slice,
-                value_slice,
-                event_slice,
-                events_buffer,
-            );
+            let mut context =
+                ProcessingContext::new(stream_slice, value_slice, event_slice, events_buffer);
 
             // Call the actual process method
             let output = node_data.processor.process(sample_rate, &mut context);
 
             // Clear event input queues after consumption
             for (i, &input_type) in node_data.input_types.iter().enumerate() {
-                if i >= input_keys.len() { break; }
+                if i >= input_keys.len() {
+                    break;
+                }
 
                 if input_type == super::super::types::EndpointType::Event {
                     let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
@@ -476,7 +503,11 @@ pub extern "C" fn process_node_trampoline(
                 static mut EVENT_EMIT_LOG_COUNT: usize = 0;
                 unsafe {
                     if EVENT_EMIT_LOG_COUNT < 20 {
-                        eprintln!("[JIT EVENT EMIT] Node {} emitted {} events", node_index, events_buffer.len());
+                        eprintln!(
+                            "[JIT EVENT EMIT] Node {} emitted {} events",
+                            node_index,
+                            events_buffer.len()
+                        );
                         EVENT_EMIT_LOG_COUNT += 1;
                     }
                 }
@@ -499,21 +530,31 @@ pub extern "C" fn process_node_trampoline(
                     static mut EVENT_MAP_LOG_COUNT: usize = 0;
                     unsafe {
                         if EVENT_MAP_LOG_COUNT < 20 {
-                            eprintln!("[JIT EVENT MAP] Node {} output_idx={}, output_types={:?}",
-                                node_index, output_idx, node_data.output_types.as_slice());
+                            eprintln!(
+                                "[JIT EVENT MAP] Node {} output_idx={}, output_types={:?}",
+                                node_index,
+                                output_idx,
+                                node_data.output_types.as_slice()
+                            );
                             EVENT_MAP_LOG_COUNT += 1;
                         }
                     }
 
                     // Verify the output index is in range and is an event type
                     if output_idx >= node_data.output_types.len() {
-                        eprintln!("[JIT EVENT ERROR] Node {} output_idx {} out of range (max {})",
-                            node_index, output_idx, node_data.output_types.len());
+                        eprintln!(
+                            "[JIT EVENT ERROR] Node {} output_idx {} out of range (max {})",
+                            node_index,
+                            output_idx,
+                            node_data.output_types.len()
+                        );
                         continue;
                     }
 
                     // Verify it's actually an event output
-                    if node_data.output_types.get(output_idx) != Some(&super::super::types::EndpointType::Event) {
+                    if node_data.output_types.get(output_idx)
+                        != Some(&super::super::types::EndpointType::Event)
+                    {
                         continue;
                     }
 
@@ -544,15 +585,14 @@ pub extern "C" fn process_node_trampoline(
 
                         for i in conn_start..conn_end {
                             let connected_input_key_data = *state.connections_data.add(i);
-                            let connected_input_key = ValueKey::from(
-                                slotmap::KeyData::from_ffi(connected_input_key_data)
-                            );
+                            let connected_input_key = ValueKey::from(slotmap::KeyData::from_ffi(
+                                connected_input_key_data,
+                            ));
 
                             if let Some(input_state) = endpoints.get_mut(connected_input_key) {
                                 if let Some(input_event_state) = input_state.as_event_mut() {
-                                    let _ = input_event_state
-                                        .queue_mut()
-                                        .push(pending.event.clone());
+                                    let _ =
+                                        input_event_state.queue_mut().push(pending.event.clone());
                                 }
                             }
                         }
@@ -594,15 +634,6 @@ pub unsafe extern "C" fn write_node_output(
 
         if let Some(endpoint_state) = endpoints.get_mut(output_key) {
             endpoint_state.set_scalar(output_value);
-
-            // Debug: Log non-zero outputs for first few times
-            static mut OUTPUT_LOG_COUNT: usize = 0;
-            unsafe {
-                if OUTPUT_LOG_COUNT < 50 && output_value.abs() > 0.001 {
-                    eprintln!("[JIT OUTPUT] Node {} produced output: {:.6}", node_index, output_value);
-                    OUTPUT_LOG_COUNT += 1;
-                }
-            }
         } else {
             return;
         }
@@ -623,7 +654,8 @@ pub unsafe extern "C" fn write_node_output(
         // Copy to all connected inputs
         for i in conn_start..conn_end {
             let connected_input_key_data = *state.connections_data.add(i);
-            let connected_input_key = ValueKey::from(slotmap::KeyData::from_ffi(connected_input_key_data));
+            let connected_input_key =
+                ValueKey::from(slotmap::KeyData::from_ffi(connected_input_key_data));
 
             if let Some(input_endpoint) = endpoints.get_mut(connected_input_key) {
                 input_endpoint.set_scalar(output_value);
