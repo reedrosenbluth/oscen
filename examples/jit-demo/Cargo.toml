@@ -1,0 +1,9 @@
+[package]
+name = "jit-demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oscen = { path = "../../oscen-lib", features = ["jit"] }
+hound = "3.5"
+anyhow = "1.0"
