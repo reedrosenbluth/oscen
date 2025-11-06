@@ -31,6 +31,17 @@ impl Gain {
             output: 0.0,     // Placeholder for endpoint descriptor
         }
     }
+
+    /// Public API for compile-time graphs: process with IO struct.
+    ///
+    /// This provides zero-overhead processing for compile-time generated code.
+    /// The IO struct contains stream inputs and outputs.
+    #[inline]
+    pub fn process_internal(&mut self, io: &mut GainIO) {
+        // Value inputs (like gain) are accessed via self fields
+        // Stream inputs/outputs go through the IO struct
+        io.output = io.input * self.gain;
+    }
 }
 
 impl Default for Gain {

@@ -249,7 +249,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         // IO struct without lifetime parameter (only stream endpoints)
         quote! {
             #[allow(dead_code)]
-            #[derive(Debug)]
+            #[derive(Debug, Default, Copy, Clone)]
             pub struct #io_name {
                 #(#io_fields),*
             }

@@ -22,7 +22,25 @@ pub struct Oscillator {
 }
 
 impl Oscillator {
-    fn process_internal(
+    /// Public API for compile-time graphs: process with IO struct.
+    ///
+    /// This provides zero-overhead processing for compile-time generated code.
+    /// The IO struct contains stream/event inputs and outputs.
+    #[inline]
+    pub fn process_internal(&mut self, io: &mut OscillatorIO, sample_rate: f32) {
+        // For compile-time graphs, value inputs are handled via direct field access
+        // Only stream inputs come through the IO struct
+        let frequency = self.frequency * (1.0 + io.frequency_mod);
+        let amplitude = self.amplitude;
+
+        io.output = (self.waveform)(self.phase) * amplitude;
+
+        self.phase += frequency / sample_rate;
+        self.phase %= 1.0;
+    }
+
+    /// Internal helper for complex modulation (used by runtime graphs)
+    fn process_impl(
         &mut self,
         sample_rate: f32,
         phase_mod: f32,
@@ -102,8 +120,8 @@ impl SignalProcessor for Oscillator {
         let freq_offset = self.get_frequency(context);
         let amp_mod = self.get_amplitude(context);
 
-        // Process using struct field access
-        io.output = self.process_internal(sample_rate, phase_mod, freq_offset, io.frequency_mod, amp_mod);
+        // Process using internal implementation
+        io.output = self.process_impl(sample_rate, phase_mod, freq_offset, io.frequency_mod, amp_mod);
 
         // Return primary output
         io.output
