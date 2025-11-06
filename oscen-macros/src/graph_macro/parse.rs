@@ -8,6 +8,7 @@ use syn::{
 impl Parse for GraphDef {
     fn parse(input: ParseStream) -> Result<Self> {
         let mut name = None;
+        let mut mode = super::ast::CompileMode::default();
         let mut items = Vec::new();
 
         // Check for optional name declaration at the start
@@ -18,11 +19,29 @@ impl Parse for GraphDef {
             input.parse::<Token![;]>()?;
         }
 
+        // Check for optional mode declaration
+        if input.peek(kw::mode) {
+            input.parse::<kw::mode>()?;
+            input.parse::<Token![:]>()?;
+
+            if input.peek(kw::Runtime) {
+                input.parse::<kw::Runtime>()?;
+                mode = super::ast::CompileMode::Runtime;
+            } else if input.peek(kw::CompileTime) {
+                input.parse::<kw::CompileTime>()?;
+                mode = super::ast::CompileMode::CompileTime;
+            } else {
+                return Err(input.error("expected Runtime or CompileTime"));
+            }
+
+            input.parse::<Token![;]>()?;
+        }
+
         while !input.is_empty() {
             items.push(input.parse()?);
         }
 
-        Ok(GraphDef { name, items })
+        Ok(GraphDef { name, mode, items })
     }
 }
 
@@ -668,6 +687,9 @@ impl Parse for ParamSpecItem {
 // Custom keywords
 mod kw {
     syn::custom_keyword!(name);
+    syn::custom_keyword!(mode);
+    syn::custom_keyword!(Runtime);
+    syn::custom_keyword!(CompileTime);
     syn::custom_keyword!(sample_rate);
     syn::custom_keyword!(input);
     syn::custom_keyword!(output);

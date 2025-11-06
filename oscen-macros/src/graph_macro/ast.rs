@@ -1,8 +1,22 @@
 use syn::{Expr, Ident};
 
+/// Compilation mode for graph
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompileMode {
+    Runtime,      // Default: use runtime Graph (current behavior)
+    CompileTime,  // New: generate optimized static code
+}
+
+impl Default for CompileMode {
+    fn default() -> Self {
+        CompileMode::Runtime
+    }
+}
+
 /// Root AST node for a graph definition
 pub struct GraphDef {
     pub name: Option<syn::Ident>,
+    pub mode: CompileMode,
     pub items: Vec<GraphItem>,
 }
 

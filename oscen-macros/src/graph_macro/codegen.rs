@@ -15,11 +15,27 @@ pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
     // Validate connections
     ctx.validate_connections()?;
 
-    // Generate either module-level struct or expression-level builder
-    if let Some(name) = &graph_def.name {
-        ctx.generate_module_struct(name)
-    } else {
-        ctx.generate_closure()
+    // Generate based on mode
+    match graph_def.mode {
+        CompileMode::Runtime => {
+            // Generate runtime graph (current behavior)
+            if let Some(name) = &graph_def.name {
+                ctx.generate_module_struct(name)
+            } else {
+                ctx.generate_closure()
+            }
+        }
+        CompileMode::CompileTime => {
+            // Generate compile-time optimized graph
+            if let Some(name) = &graph_def.name {
+                ctx.generate_compile_time_struct(name)
+            } else {
+                Err(syn::Error::new(
+                    proc_macro2::Span::call_site(),
+                    "CompileTime mode requires a named graph (use `name: MyGraph;`)",
+                ))
+            }
+        }
     }
 }
 
@@ -1033,6 +1049,260 @@ impl CodegenContext {
             // Generate ProcessingNode implementation
             #processing_node_impl
         })
+    }
+
+    /// Generate compile-time optimized struct with direct field access
+    fn generate_compile_time_struct(&self, name: &syn::Ident) -> Result<TokenStream> {
+        // Generate struct fields
+        let mut struct_fields = Vec::new();
+        let mut init_fields = Vec::new();
+        let mut process_statements = Vec::new();
+
+        // Add node fields (direct types, not Box<dyn>)
+        for node in &self.nodes {
+            let field_name = &node.name;
+            let constructor = &node.constructor;
+
+            if let Some(node_type) = &node.node_type {
+                if let Some(array_size) = node.array_size {
+                    // Array of nodes - use array literal with repeated constructor
+                    struct_fields.push(quote! { #field_name: [#node_type; #array_size] });
+                    let constructors = vec![constructor; array_size];
+                    init_fields.push(quote! { #field_name: [#(#constructors),*] });
+                } else {
+                    // Single node
+                    struct_fields.push(quote! { #field_name: #node_type });
+                    init_fields.push(quote! { #field_name: #constructor });
+                }
+            }
+        }
+
+        // Add IO struct fields for each node
+        // We need to generate the IO type name from the node type
+        for node in &self.nodes {
+            let field_name = &node.name;
+            let io_field_name = syn::Ident::new(&format!("{}_io", field_name), field_name.span());
+
+            if let Some(node_type) = &node.node_type {
+                // Construct the IO type name (e.g., Oscillator -> OscillatorIO)
+                let io_type = Self::construct_io_type(node_type);
+
+                if let Some(array_size) = node.array_size {
+                    // Array of IO structs
+                    struct_fields.push(quote! { #io_field_name: [#io_type; #array_size] });
+                    // Initialize with Default trait
+                    init_fields.push(quote! { #io_field_name: [Default::default(); #array_size] });
+                } else {
+                    // Single IO struct
+                    struct_fields.push(quote! { #io_field_name: #io_type });
+                    init_fields.push(quote! { #io_field_name: Default::default() });
+                }
+            }
+        }
+
+        // Add input parameter fields
+        for input in &self.inputs {
+            let field_name = &input.name;
+            let default_val = input.default.as_ref().map(|d| quote! { #d }).unwrap_or(quote! { 0.0 });
+
+            match input.kind {
+                EndpointKind::Value => {
+                    struct_fields.push(quote! { pub #field_name: f32 });
+                    init_fields.push(quote! { #field_name: #default_val });
+                }
+                EndpointKind::Stream => {
+                    struct_fields.push(quote! { pub #field_name: f32 });
+                    init_fields.push(quote! { #field_name: 0.0 });
+                }
+                EndpointKind::Event => {
+                    // Skip events for now - would need event buffer
+                    continue;
+                }
+            }
+        }
+
+        // Add output fields
+        for output in &self.outputs {
+            let field_name = &output.name;
+            match output.kind {
+                EndpointKind::Stream => {
+                    struct_fields.push(quote! { pub #field_name: f32 });
+                    init_fields.push(quote! { #field_name: 0.0 });
+                }
+                _ => continue, // Skip other output types for now
+            }
+        }
+
+        // Generate connection assignments in process() method
+        // We need to map connections to direct field assignments
+        for conn in &self.connections {
+            if let Some(assignment) = self.generate_compile_time_connection(conn)? {
+                process_statements.push(assignment);
+            }
+        }
+
+        // Generate node process calls
+        for node in &self.nodes {
+            let field_name = &node.name;
+            let _io_field_name = syn::Ident::new(&format!("{}_io", field_name), field_name.span());
+
+            if node.array_size.is_some() {
+                // For arrays, process each element
+                let array_size = node.array_size.unwrap();
+                for i in 0..array_size {
+                    process_statements.push(quote! {
+                        self.#field_name[#i].process(sample_rate, &mut ::oscen::ProcessingContext::empty());
+                    });
+                }
+            } else {
+                // Single node - call process_internal if available, otherwise process
+                process_statements.push(quote! {
+                    // TODO: Once process_internal() is added to nodes, use that instead
+                    // For now, this will need adjustment based on how IO structs are used
+                    self.#field_name.process(sample_rate, &mut ::oscen::ProcessingContext::empty());
+                });
+            }
+        }
+
+        // Determine return value (first stream output)
+        let return_expr = self.outputs.iter()
+            .find(|o| o.kind == EndpointKind::Stream)
+            .map(|o| {
+                let name = &o.name;
+                quote! { self.#name }
+            })
+            .unwrap_or(quote! { 0.0 });
+
+        Ok(quote! {
+            #[allow(dead_code)]
+            pub struct #name {
+                #(#struct_fields),*
+            }
+
+            impl #name {
+                pub fn new(sample_rate: f32) -> Self {
+                    let _ = sample_rate; // TODO: Use for initialization
+                    Self {
+                        #(#init_fields),*
+                    }
+                }
+
+                #[inline]
+                pub fn process(&mut self, sample_rate: f32) -> f32 {
+                    // Direct field assignments (compile-time connections)
+                    #(#process_statements)*
+
+                    // Return primary output
+                    #return_expr
+                }
+            }
+        })
+    }
+
+    /// Construct the IO type from a node type
+    /// E.g., Oscillator -> OscillatorIO
+    ///       PolyBlepOscillator -> PolyBlepOscillatorIO
+    fn construct_io_type(node_type: &syn::Path) -> TokenStream {
+        let segments: Vec<_> = node_type.segments.iter().collect();
+
+        if segments.is_empty() {
+            return quote! { () };
+        }
+
+        // Get all segments except the last
+        let leading_segments = &segments[..segments.len() - 1];
+
+        // Get the last segment and create the IO version
+        let last_segment = segments.last().unwrap();
+        let type_name = &last_segment.ident;
+        let io_ident = syn::Ident::new(&format!("{}IO", type_name), type_name.span());
+
+        // Preserve generic arguments from the original type
+        let generic_args = &last_segment.arguments;
+
+        if leading_segments.is_empty() {
+            // Simple type like Oscillator or VoiceAllocator<4>
+            quote! { #io_ident #generic_args }
+        } else {
+            // Qualified type like oscen::Oscillator
+            quote! { #(#leading_segments)::* :: #io_ident #generic_args }
+        }
+    }
+
+    /// Generate a compile-time connection (direct field assignment)
+    fn generate_compile_time_connection(&self, conn: &ConnectionStmt) -> Result<Option<TokenStream>> {
+        // For simple connections like: osc.output -> filter.input
+        // Generate: self.filter_io.input = self.osc_io.output;
+
+        // Parse source
+        let source_code = self.generate_compile_time_expr(&conn.source)?;
+
+        // Parse destination
+        let dest_code = self.generate_compile_time_expr(&conn.dest)?;
+
+        Ok(Some(quote! {
+            #dest_code = #source_code;
+        }))
+    }
+
+    /// Generate compile-time expression (field access)
+    fn generate_compile_time_expr(&self, expr: &ConnectionExpr) -> Result<TokenStream> {
+        match expr {
+            ConnectionExpr::Ident(ident) => {
+                // Check if it's an input parameter
+                if self.inputs.iter().any(|i| i.name == *ident) {
+                    Ok(quote! { self.#ident })
+                } else if self.outputs.iter().any(|o| o.name == *ident) {
+                    Ok(quote! { self.#ident })
+                } else {
+                    // Assume it's a node field
+                    Ok(quote! { self.#ident })
+                }
+            }
+            ConnectionExpr::Method(obj, method, _args) => {
+                // For node.field() syntax, generate self.node_io.field
+                if let ConnectionExpr::Ident(base) = &**obj {
+                    let io_field = syn::Ident::new(&format!("{}_io", base), base.span());
+                    Ok(quote! { self.#io_field.#method })
+                } else {
+                    Err(syn::Error::new(
+                        proc_macro2::Span::call_site(),
+                        "Complex method calls not yet supported in CompileTime mode",
+                    ))
+                }
+            }
+            ConnectionExpr::ArrayIndex(array_expr, index) => {
+                if let ConnectionExpr::Ident(base) = &**array_expr {
+                    let io_field = syn::Ident::new(&format!("{}_io", base), base.span());
+                    Ok(quote! { self.#io_field[#index] })
+                } else {
+                    Err(syn::Error::new(
+                        proc_macro2::Span::call_site(),
+                        "Complex array indexing not yet supported in CompileTime mode",
+                    ))
+                }
+            }
+            ConnectionExpr::Literal(lit) => {
+                Ok(quote! { #lit })
+            }
+            ConnectionExpr::Binary(left, op, right) => {
+                let left_expr = self.generate_compile_time_expr(left)?;
+                let right_expr = self.generate_compile_time_expr(right)?;
+
+                let op_token = match op {
+                    BinaryOp::Add => quote! { + },
+                    BinaryOp::Sub => quote! { - },
+                    BinaryOp::Mul => quote! { * },
+                    BinaryOp::Div => quote! { / },
+                };
+
+                Ok(quote! { (#left_expr #op_token #right_expr) })
+            }
+            _ => Err(syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "This expression type is not yet supported in CompileTime mode",
+            )),
+        }
     }
 }
 
