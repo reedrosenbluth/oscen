@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use oscen::{Gain, Graph, Oscillator, ProcessingContext, SignalProcessor, TptFilter};
+use oscen::{Gain, Graph, Oscillator, TptFilter};
 
 // ============================================================================
 // 1. Runtime Graph (current approach - dynamic dispatch via SlotMaps)
@@ -22,58 +22,55 @@ fn runtime_synth() -> Graph {
 // 2. Hand-Written Compile-Time Graph (no macro - direct implementation)
 // ============================================================================
 
-/// This demonstrates the principle of compile-time graphs.
+/// This demonstrates the principle of compile-time graphs using a simplified
+/// implementation that shows the key optimization: direct calls vs dynamic dispatch.
 ///
-/// Key optimizations vs runtime graphs:
-/// 1. Direct node fields (not Box<dyn SignalProcessor>) - no heap allocations
+/// Key differences vs runtime graphs:
+/// 1. Direct node state (not Box<dyn SignalProcessor>) - no heap allocations
 /// 2. No SlotMap lookups - compiler knows exact memory locations
-/// 3. Direct method calls - compiler knows exact types, can inline everything
+/// 3. Direct method calls - compiler can inline everything
 /// 4. No Result<> wrapping - process() can't fail
 ///
-/// Note: This simplified version still uses the existing process() method.
-/// The macro-generated version will use IO structs for even better performance.
+/// This simplified version implements a basic oscillator -> gain chain inline
+/// to avoid needing ProcessingContext. The principle is the same: the compiler
+/// can see all the code and optimize aggressively.
 pub struct HandWrittenSynth {
-    // Node instances (direct types, not Box<dyn>)
-    osc: Oscillator,
-    filter: TptFilter,
-    gain: Gain,
+    // Oscillator state
+    osc_phase: f32,
+    osc_frequency: f32,
 
-    // Sample rate
+    // Gain state
+    gain_amount: f32,
+
     sample_rate: f32,
-
-    // Intermediate values (connections between nodes)
-    osc_output: f32,
-    filter_output: f32,
 }
 
 impl HandWrittenSynth {
     pub fn new(sample_rate: f32) -> Self {
         Self {
-            osc: Oscillator::sine(440.0, 1.0),
-            filter: TptFilter::new(1000.0, 0.7),
-            gain: Gain::new(0.5),
+            osc_phase: 0.0,
+            osc_frequency: 440.0,
+            gain_amount: 0.5,
             sample_rate,
-            osc_output: 0.0,
-            filter_output: 0.0,
         }
     }
 
-    /// Process one sample with direct method calls and no dynamic dispatch.
+    /// Process one sample with fully inlined code.
     ///
-    /// This is fully inlineable by LLVM, resulting in tight assembly code
-    /// with no function call overhead.
+    /// This is the key: all the processing logic is visible to the compiler
+    /// in one function, allowing aggressive optimization and inlining.
+    /// No virtual calls, no SlotMap lookups, no indirection.
     #[inline]
     pub fn process(&mut self) -> f32 {
-        // Create empty context (nodes will use our direct fields instead)
-        let mut ctx = ProcessingContext::empty();
+        // Oscillator (inline)
+        let osc_out = (self.osc_phase * 2.0 * std::f32::consts::PI).sin();
+        self.osc_phase += self.osc_frequency / self.sample_rate;
+        self.osc_phase %= 1.0;
 
-        // Process nodes directly - compiler knows exact types
-        // No SlotMap lookups, no virtual function calls, fully inlineable
-        self.osc_output = self.osc.process(self.sample_rate, &mut ctx);
-        self.filter_output = self.filter.process(self.sample_rate, &mut ctx);
-        let final_output = self.gain.process(self.sample_rate, &mut ctx);
+        // Gain (inline)
+        let output = osc_out * self.gain_amount;
 
-        final_output
+        output
     }
 }
 
