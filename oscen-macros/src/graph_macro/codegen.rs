@@ -1077,41 +1077,8 @@ impl CodegenContext {
             }
         }
 
-        // Add IO struct fields for each node (Phase 2: now that they're exported!)
-        for node in &self.nodes {
-            let field_name = &node.name;
-            let io_field_name = syn::Ident::new(&format!("{}_io", field_name), field_name.span());
-
-            if let Some(node_type) = &node.node_type {
-                // Construct the IO type name with full path (e.g., ::oscen::OscillatorIO)
-                let type_str = quote!(#node_type).to_string().replace(" ", "");
-                let io_type_name = if type_str.contains("::") {
-                    // Already has path, just append IO
-                    let base = type_str.rsplit("::").next().unwrap();
-                    let io_name = format!("{}IO", base);
-                    let path_prefix = &type_str[..type_str.rfind("::").unwrap()];
-                    syn::parse_str::<syn::Path>(&format!("{}::{}", path_prefix, io_name)).unwrap()
-                } else {
-                    // No path, assume it's from ::oscen
-                    syn::parse_str::<syn::Path>(&format!("::oscen::{}IO", type_str)).unwrap()
-                };
-
-                if let Some(array_size) = node.array_size {
-                    // Array of IO structs - initialize with explicit values
-                    struct_fields.push(quote! { #io_field_name: [#io_type_name; #array_size] });
-                    // Generate array of initialized structs
-                    let inits: Vec<_> = (0..array_size).map(|_| {
-                        // Each IO struct initializes all fields to 0.0
-                        quote! { #io_type_name { ..Default::default() } }
-                    }).collect();
-                    init_fields.push(quote! { #io_field_name: [#(#inits),*] });
-                } else {
-                    // Single IO struct
-                    struct_fields.push(quote! { #io_field_name: #io_type_name });
-                    init_fields.push(quote! { #io_field_name: Default::default() });
-                }
-            }
-        }
+        // Note: IO structs are now stored inside nodes as `pub io` fields!
+        // No need to generate separate IO struct fields anymore.
 
         // Add input parameter fields
         for input in &self.inputs {
@@ -1146,19 +1113,17 @@ impl CodegenContext {
             }
         }
 
-        // Phase 3: Use process_internal() with persistent IO structs!
-        // This achieves full 22x speedup - no allocations, direct calls, fully inlineable
-
-        // Generate process_internal call for each node
+        // Generate process_internal() calls for each node
+        // Nodes store IO internally as `pub io` field, so we just call process_internal()
         for node in &self.nodes {
             let field_name = &node.name;
-            let io_field_name = syn::Ident::new(&format!("{}_io", field_name), field_name.span());
 
             if node.array_size.is_some() {
                 let array_size = node.array_size.unwrap();
                 for i in 0..array_size {
+                    // TODO: Determine if array nodes need sample_rate
                     process_statements.push(quote! {
-                        self.#field_name[#i].process_internal(&mut self.#io_field_name[#i], sample_rate);
+                        self.#field_name[#i].process_internal(sample_rate);
                     });
                 }
             } else {
@@ -1168,12 +1133,12 @@ impl CodegenContext {
                     let type_str = quote!(#node_type).to_string();
                     if type_str.contains("Oscillator") {
                         process_statements.push(quote! {
-                            self.#field_name.process_internal(&mut self.#io_field_name, sample_rate);
+                            self.#field_name.process_internal(sample_rate);
                         });
                     } else {
                         // Gain and similar nodes don't take sample_rate
                         process_statements.push(quote! {
-                            self.#field_name.process_internal(&mut self.#io_field_name);
+                            self.#field_name.process_internal();
                         });
                     }
                 }
@@ -1276,10 +1241,10 @@ impl CodegenContext {
                 }
             }
             ConnectionExpr::Method(obj, method, _args) => {
-                // For node.field() syntax, generate self.node_io.field
+                // For node.field() syntax, generate self.node.io.field
+                // IO is now stored inside the node as `pub io`
                 if let ConnectionExpr::Ident(base) = &**obj {
-                    let io_field = syn::Ident::new(&format!("{}_io", base), base.span());
-                    Ok(quote! { self.#io_field.#method })
+                    Ok(quote! { self.#base.io.#method })
                 } else {
                     Err(syn::Error::new(
                         proc_macro2::Span::call_site(),
@@ -1289,8 +1254,8 @@ impl CodegenContext {
             }
             ConnectionExpr::ArrayIndex(array_expr, index) => {
                 if let ConnectionExpr::Ident(base) = &**array_expr {
-                    let io_field = syn::Ident::new(&format!("{}_io", base), base.span());
-                    Ok(quote! { self.#io_field[#index] })
+                    // For array nodes, IO is inside the node: self.array[i].io
+                    Ok(quote! { self.#base[#index].io })
                 } else {
                     Err(syn::Error::new(
                         proc_macro2::Span::call_site(),
