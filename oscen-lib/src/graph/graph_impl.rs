@@ -4,7 +4,7 @@ use std::fmt;
 
 use arrayvec::ArrayVec;
 use hound;
-use slotmap::{SecondaryMap, SlotMap};
+use slotmap::{Key, SecondaryMap, SlotMap};
 
 use super::audio_input::AudioInput;
 use super::helpers::{BinaryFunctionNode, FunctionNode};
@@ -484,18 +484,23 @@ impl Graph {
         let key = input.into().key();
 
         if !matches!(self.endpoint_types.get(key), Some(EndpointType::Event)) {
+            eprintln!("[QUEUE_EVENT] Endpoint key {:?} is not an Event type!", key.data());
             return false;
         }
 
         if let Some(state) = self.endpoints.get_mut(key) {
             if let Some(event_state) = state.as_event_mut() {
-                return event_state.queue_mut().push(EventInstance {
+                let result = event_state.queue_mut().push(EventInstance {
                     frame_offset,
                     payload,
                 });
+                eprintln!("[QUEUE_EVENT] Successfully queued event to endpoint key {:?}, queue now has {} events",
+                    key.data(), event_state.queue().events().len());
+                return result;
             }
         }
 
+        eprintln!("[QUEUE_EVENT] Failed to queue event to endpoint key {:?}", key.data());
         false
     }
 

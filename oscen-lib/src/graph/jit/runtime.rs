@@ -387,26 +387,20 @@ pub extern "C" fn process_node_trampoline(
             const MAX_INPUTS: usize = 32;
             let mut event_input_values: [&[EventInstance]; MAX_INPUTS] = [&[]; MAX_INPUTS];
 
-            eprintln!("[TRAMPOLINE] Node {}: num_inputs={}", node_index, num_inputs);
-
             // Fill event slices for Event-type inputs
             for (i, &input_type) in node_data.input_types.iter().enumerate() {
                 if i >= input_keys.len() || i >= MAX_INPUTS { break; }
 
                 if input_type == super::super::types::EndpointType::Event {
-                    eprintln!("[TRAMPOLINE] Node {} input {}: Event type", node_index, i);
                     let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
                     if let Some(endpoint_state) = endpoints.get(value_key) {
                         if let super::super::types::EndpointState::Event(event_data) = endpoint_state {
                             let events = event_data.queue().events();
-                            eprintln!("[TRAMPOLINE] Node {} input {}: {} events", node_index, i, events.len());
                             event_input_values[i] = events;
                         }
                     }
                 }
             }
-
-            eprintln!("[TRAMPOLINE] Node {}: About to create ProcessingContext", node_index);
 
             // Create context with overall-indexed arrays
             let events_buffer: &mut Vec<super::super::traits::PendingEvent> = &mut *state.temp_events_buffer;
@@ -436,15 +430,10 @@ pub extern "C" fn process_node_trampoline(
                 events_buffer,
             );
 
-            eprintln!("[TRAMPOLINE] Node {}: Created ProcessingContext, about to call process()", node_index);
-
             // Call the actual process method
             let output = node_data.processor.process(sample_rate, &mut context);
 
-            eprintln!("[TRAMPOLINE] Node {}: process() returned {}", node_index, output);
-
             // Clear event input queues after consumption
-            eprintln!("[TRAMPOLINE] Node {}: Clearing event inputs", node_index);
             for (i, &input_type) in node_data.input_types.iter().enumerate() {
                 if i >= input_keys.len() { break; }
 
@@ -458,11 +447,8 @@ pub extern "C" fn process_node_trampoline(
                 }
             }
 
-            eprintln!("[TRAMPOLINE] Node {}: Cleared event inputs, events_buffer.len()={}", node_index, events_buffer.len());
-
             // Handle event outputs if any were emitted
             if !events_buffer.is_empty() {
-                eprintln!("[TRAMPOLINE] Node {}: Processing {} output events", node_index, events_buffer.len());
                 // Calculate the base output index for this node in the global output array
                 let mut total_outputs_before = 0;
                 for i in 0..node_index {
@@ -470,13 +456,11 @@ pub extern "C" fn process_node_trampoline(
                     let node_output_end = *state.output_offsets.add(i + 1);
                     total_outputs_before += node_output_end - node_output_start;
                 }
-                eprintln!("[TRAMPOLINE] Node {}: total_outputs_before={}", node_index, total_outputs_before);
 
-                for (event_idx, pending) in events_buffer.iter().enumerate() {
+                for pending in events_buffer.iter() {
                     // IMPORTANT: pending.output_index is relative to EVENT outputs only!
                     // We need to map it to the combined outputs array index
                     let event_output_idx = pending.output_index;
-                    eprintln!("[TRAMPOLINE] Node {}: Event {} event_output_idx={}", node_index, event_idx, event_output_idx);
 
                     // Find the Nth event output in output_types
                     let mut event_count = 0;
@@ -493,24 +477,16 @@ pub extern "C" fn process_node_trampoline(
 
                     let output_idx = match combined_output_idx {
                         Some(idx) => idx,
-                        None => {
-                            eprintln!("[TRAMPOLINE] Node {}: Could not find event output {}", node_index, event_output_idx);
-                            continue;
-                        }
+                        None => continue,
                     };
-
-                    eprintln!("[TRAMPOLINE] Node {}: Event {} maps to combined output_idx={}", node_index, event_idx, output_idx);
 
                     // Verify it's actually an event output
                     if node_data.output_types.get(output_idx) != Some(&super::super::types::EndpointType::Event) {
-                        eprintln!("[TRAMPOLINE] Node {}: Output {} is not an event!", node_index, output_idx);
                         continue;
                     }
 
                     // Get the event output endpoint
-                    eprintln!("[TRAMPOLINE] Node {}: Getting event output key", node_index);
                     if let Some(&event_output_key) = node_data.outputs.get(output_idx) {
-                        eprintln!("[TRAMPOLINE] Node {}: Pushing to output endpoint", node_index);
                         // Push event to output endpoint
                         if let Some(state_ref) = endpoints.get_mut(event_output_key) {
                             if let Some(event_state) = state_ref.as_event_mut() {
@@ -520,11 +496,9 @@ pub extern "C" fn process_node_trampoline(
 
                         // Propagate event to connected inputs
                         let global_output_idx = total_outputs_before + output_idx;
-                        eprintln!("[TRAMPOLINE] Node {}: global_output_idx={}", node_index, global_output_idx);
 
                         let conn_start = *state.connections_offsets.add(global_output_idx);
                         let conn_end = *state.connections_offsets.add(global_output_idx + 1);
-                        eprintln!("[TRAMPOLINE] Node {}: Propagating to {} connections", node_index, conn_end - conn_start);
 
                         for i in conn_start..conn_end {
                             let connected_input_key_data = *state.connections_data.add(i);
@@ -542,15 +516,12 @@ pub extern "C" fn process_node_trampoline(
                         }
                     }
                 }
-                eprintln!("[TRAMPOLINE] Node {}: Clearing events buffer", node_index);
                 events_buffer.clear();
             }
 
-            eprintln!("[TRAMPOLINE] Node {}: Done, returning {}", node_index, output);
             output
         } else {
             // Node not found - return 0.0
-            eprintln!("[TRAMPOLINE] Node {} not found!", node_index);
             0.0
         }
     }
@@ -569,8 +540,6 @@ pub unsafe extern "C" fn write_node_output(
 ) {
     use slotmap::Key;
 
-    eprintln!("[WRITE_OUTPUT] Node {}: value={:.6}", node_index, output_value);
-
     let state = &mut *state;
     let endpoints: &mut SlotMap<ValueKey, EndpointState> = &mut *state.endpoints;
 
@@ -578,20 +547,14 @@ pub unsafe extern "C" fn write_node_output(
     let output_start = *state.output_offsets.add(node_index);
     let output_end = *state.output_offsets.add(node_index + 1);
 
-    eprintln!("[WRITE_OUTPUT] Node {}: output_start={}, output_end={}", node_index, output_start, output_end);
-
     if output_end > output_start {
         // Write to the first output endpoint (primary output)
         let output_key_data = *state.endpoint_keys.add(output_start);
         let output_key = ValueKey::from(slotmap::KeyData::from_ffi(output_key_data));
 
-        eprintln!("[WRITE_OUTPUT] Node {}: Writing to endpoint key {:?}", node_index, output_key.data());
-
         if let Some(endpoint_state) = endpoints.get_mut(output_key) {
             endpoint_state.set_scalar(output_value);
-            eprintln!("[WRITE_OUTPUT] Node {}: Successfully wrote value", node_index);
         } else {
-            eprintln!("[WRITE_OUTPUT] Node {}: ERROR - endpoint not found!", node_index);
             return;
         }
 
