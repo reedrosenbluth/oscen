@@ -4,7 +4,7 @@
 /// and the Rust node implementations.
 
 use super::super::traits::{ProcessingContext, SignalProcessor};
-use super::super::types::{EndpointState, EndpointType, ValueKey};
+use super::super::types::{EndpointState, EndpointType, EventInstance, ValueKey};
 use super::super::graph_impl::NodeData;
 use super::ir::GraphIR;
 use slotmap::SlotMap;
@@ -379,6 +379,31 @@ pub extern "C" fn process_node_trampoline(
                 }
             }
 
+            // Build event_inputs array using OVERALL indices
+            let event_input_values = std::slice::from_raw_parts_mut(
+                state.temp_event_inputs as *mut &[EventInstance],
+                if num_inputs > 0 { num_inputs } else { 1 },
+            );
+
+            // Initialize all to empty slices
+            for i in 0..num_inputs {
+                event_input_values[i] = &[];
+            }
+
+            // Fill event slices for Event-type inputs
+            for (i, &input_type) in node_data.input_types.iter().enumerate() {
+                if i >= input_keys.len() { break; }
+
+                if input_type == super::super::types::EndpointType::Event {
+                    let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
+                    if let Some(endpoint_state) = endpoints.get(value_key) {
+                        if let super::super::types::EndpointState::Event(event_data) = endpoint_state {
+                            event_input_values[i] = event_data.queue().events();
+                        }
+                    }
+                }
+            }
+
             // Create context with overall-indexed arrays
             let events_buffer: &mut Vec<super::super::traits::PendingEvent> = &mut *state.temp_events_buffer;
 
@@ -394,15 +419,90 @@ pub extern "C" fn process_node_trampoline(
                 &[]
             };
 
+            let event_slice = if num_inputs > 0 {
+                &event_input_values[..num_inputs]
+            } else {
+                &[]
+            };
+
             let mut context = ProcessingContext::new(
                 stream_slice,
                 value_slice,
-                &[], // event_inputs - TODO
+                event_slice,
                 events_buffer,
             );
 
             // Call the actual process method
-            node_data.processor.process(sample_rate, &mut context)
+            let output = node_data.processor.process(sample_rate, &mut context);
+
+            // Clear event input queues after consumption
+            for (i, &input_type) in node_data.input_types.iter().enumerate() {
+                if i >= input_keys.len() { break; }
+
+                if input_type == super::super::types::EndpointType::Event {
+                    let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
+                    if let Some(endpoint_state) = endpoints.get_mut(value_key) {
+                        if let Some(event_data) = endpoint_state.as_event_mut() {
+                            event_data.queue_mut().clear();
+                        }
+                    }
+                }
+            }
+
+            // Handle event outputs if any were emitted
+            if !events_buffer.is_empty() {
+                // Calculate the base output index for this node in the global output array
+                let mut total_outputs_before = 0;
+                for i in 0..node_index {
+                    let node_output_start = *state.output_offsets.add(i);
+                    let node_output_end = *state.output_offsets.add(i + 1);
+                    total_outputs_before += node_output_end - node_output_start;
+                }
+
+                for pending in events_buffer.iter() {
+                    let output_idx = pending.output_index;
+
+                    // Get the output type for this index
+                    if let Some(&output_type) = node_data.output_types.get(output_idx) {
+                        if output_type != super::super::types::EndpointType::Event {
+                            continue;
+                        }
+
+                        // Get the event output endpoint
+                        if let Some(&event_output_key) = node_data.outputs.get(output_idx) {
+                            // Push event to output endpoint
+                            if let Some(state_ref) = endpoints.get_mut(event_output_key) {
+                                if let Some(event_state) = state_ref.as_event_mut() {
+                                    let _ = event_state.queue_mut().push(pending.event.clone());
+                                }
+                            }
+
+                            // Propagate event to connected inputs
+                            let global_output_idx = total_outputs_before + output_idx;
+                            let conn_start = *state.connections_offsets.add(global_output_idx);
+                            let conn_end = *state.connections_offsets.add(global_output_idx + 1);
+
+                            for i in conn_start..conn_end {
+                                let connected_input_key_data = *state.connections_data.add(i);
+                                let connected_input_key = ValueKey::from(
+                                    slotmap::KeyData::from_ffi(connected_input_key_data)
+                                );
+
+                                if let Some(input_state) = endpoints.get_mut(connected_input_key) {
+                                    if let Some(input_event_state) = input_state.as_event_mut() {
+                                        let _ = input_event_state
+                                            .queue_mut()
+                                            .push(pending.event.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                events_buffer.clear();
+            }
+
+            output
         } else {
             // Node not found - return 0.0
             0.0
