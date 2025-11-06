@@ -10,9 +10,11 @@
 
 pub mod ir;
 pub mod compiler;
+pub mod runtime;
 
 pub use ir::GraphIR;
 pub use compiler::{CraneliftJit, CompiledGraph};
+pub use runtime::{GraphState, GraphStateBuilder};
 
 #[cfg(test)]
 mod tests;

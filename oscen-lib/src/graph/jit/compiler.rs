@@ -13,6 +13,7 @@ use cranelift_module::{Linkage, Module};
 use std::collections::HashMap;
 
 use super::ir::GraphIR;
+use super::runtime::GraphState;
 
 /// JIT compiler for graphs
 pub struct CraneliftJit {
@@ -31,58 +32,6 @@ pub struct CompiledGraph {
     /// Signature: fn(*mut GraphState) -> f32
     process_fn: extern "C" fn(*mut GraphState) -> f32,
 }
-
-/// Runtime state passed to JIT-compiled code
-///
-/// This struct is carefully laid out to match what Cranelift generates.
-/// All pointers are to data owned by the Graph struct.
-#[repr(C)]
-pub struct GraphState {
-    /// Pointer to array of node processor pointers
-    /// Each entry is: *mut dyn SignalProcessor
-    pub nodes: *mut *mut (),
-
-    /// Function pointers for each node's process method
-    pub process_fns: *const ProcessFn,
-
-    /// Pointer to endpoint storage (SlotMap data)
-    pub endpoints: *mut (),
-
-    /// Pointer to endpoint types array
-    pub endpoint_types: *const u8,
-
-    /// Node input endpoint keys (flattened array)
-    pub node_inputs: *const u64,
-
-    /// Node output endpoint keys (flattened array)
-    pub node_outputs: *const u64,
-
-    /// Offsets into node_inputs for each node
-    pub input_offsets: *const u32,
-
-    /// Offsets into node_outputs for each node
-    pub output_offsets: *const u32,
-
-    /// Temporary storage for ProcessingContext inputs
-    pub temp_input_values: *mut f32,
-    pub temp_value_inputs: *mut *const (),
-    pub temp_event_inputs: *mut *const (),
-
-    /// Sample rate
-    pub sample_rate: f32,
-
-    /// Number of nodes
-    pub node_count: u32,
-}
-
-/// Type signature for a node's process function
-///
-/// This is extracted from the trait object vtable at compilation time.
-pub type ProcessFn = unsafe extern "C" fn(
-    node: *mut (),
-    sample_rate: f32,
-    context: *mut (),
-) -> f32;
 
 impl CraneliftJit {
     /// Create a new JIT compiler
