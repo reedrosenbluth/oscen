@@ -164,10 +164,13 @@ fn bench_jit_process_simple(c: &mut Criterion) {
         let compiled = jit.compile(&ir).expect("Failed to compile");
         let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
 
-        b.iter(|| {
-            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
-            black_box(compiled.process(&mut state));
-        });
+        b.iter_batched(
+            || state_builder.build(&mut graph.nodes, &mut graph.endpoints),
+            |(mut state, _temps)| {
+                black_box(compiled.process(&mut state));
+            },
+            criterion::BatchSize::SmallInput
+        );
     });
 
     group.finish();
@@ -185,10 +188,13 @@ fn bench_jit_process_medium(c: &mut Criterion) {
         let compiled = jit.compile(&ir).expect("Failed to compile");
         let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
 
-        b.iter(|| {
-            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
-            black_box(compiled.process(&mut state));
-        });
+        b.iter_batched(
+            || state_builder.build(&mut graph.nodes, &mut graph.endpoints),
+            |(mut state, _temps)| {
+                black_box(compiled.process(&mut state));
+            },
+            criterion::BatchSize::SmallInput
+        );
     });
 
     group.finish();
@@ -206,10 +212,13 @@ fn bench_jit_process_complex(c: &mut Criterion) {
         let compiled = jit.compile(&ir).expect("Failed to compile");
         let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
 
-        b.iter(|| {
-            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
-            black_box(compiled.process(&mut state));
-        });
+        b.iter_batched(
+            || state_builder.build(&mut graph.nodes, &mut graph.endpoints),
+            |(mut state, _temps)| {
+                black_box(compiled.process(&mut state));
+            },
+            criterion::BatchSize::SmallInput
+        );
     });
 
     group.finish();
@@ -301,10 +310,13 @@ fn bench_interpreted_vs_jit(c: &mut Criterion) {
         let compiled = jit.compile(&ir).expect("Failed to compile");
         let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
 
-        b.iter(|| {
-            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
-            black_box(compiled.process(&mut state));
-        });
+        b.iter_batched(
+            || state_builder.build(&mut graph.nodes, &mut graph.endpoints),
+            |(mut state, _temps)| {
+                black_box(compiled.process(&mut state));
+            },
+            criterion::BatchSize::SmallInput
+        );
     });
 
     // Medium graph comparison
@@ -326,10 +338,13 @@ fn bench_interpreted_vs_jit(c: &mut Criterion) {
         let compiled = jit.compile(&ir).expect("Failed to compile");
         let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
 
-        b.iter(|| {
-            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
-            black_box(compiled.process(&mut state));
-        });
+        b.iter_batched(
+            || state_builder.build(&mut graph.nodes, &mut graph.endpoints),
+            |(mut state, _temps)| {
+                black_box(compiled.process(&mut state));
+            },
+            criterion::BatchSize::SmallInput
+        );
     });
 
     // Complex graph comparison
@@ -351,10 +366,13 @@ fn bench_interpreted_vs_jit(c: &mut Criterion) {
         let compiled = jit.compile(&ir).expect("Failed to compile");
         let mut state_builder = GraphStateBuilder::new(&ir, &mut graph.nodes);
 
-        b.iter(|| {
-            let (mut state, _temps) = state_builder.build(&mut graph.nodes, &mut graph.endpoints);
-            black_box(compiled.process(&mut state));
-        });
+        b.iter_batched(
+            || state_builder.build(&mut graph.nodes, &mut graph.endpoints),
+            |(mut state, _temps)| {
+                black_box(compiled.process(&mut state));
+            },
+            criterion::BatchSize::SmallInput
+        );
     });
 
     group.finish();

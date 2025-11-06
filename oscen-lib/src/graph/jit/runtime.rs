@@ -54,6 +54,21 @@ pub struct GraphState {
     /// Connection data: flattened array of connected input endpoint keys (u64)
     pub connections_data: *const u64,
 
+    /// PHASE 2 OPTIMIZATION: Pre-allocated IO buffers for stream data
+    /// Array of pointers to each node's IO buffer
+    /// node_io_buffers[i] points to node i's IO buffer
+    /// Each buffer contains: [stream_inputs..., stream_outputs...]
+    /// Length: node_count
+    pub node_io_buffers: *const *mut f32,
+
+    /// Number of stream inputs for each node
+    /// Length: node_count
+    pub node_stream_input_counts: *const usize,
+
+    /// Number of stream outputs for each node
+    /// Length: node_count
+    pub node_stream_output_counts: *const usize,
+
     /// Sample rate
     pub sample_rate: f32,
 
@@ -89,6 +104,19 @@ pub struct GraphStateBuilder {
 
     /// Connected input endpoint keys (flattened)
     connections_data: Vec<u64>,
+
+    /// PHASE 2: IO buffers for each node
+    /// Each Vec<f32> contains [stream_inputs..., stream_outputs...]
+    node_io_buffers: Vec<Vec<f32>>,
+
+    /// Pointers to IO buffers (for passing to JIT code)
+    node_io_buffer_ptrs: Vec<*mut f32>,
+
+    /// Number of stream inputs per node
+    node_stream_input_counts: Vec<usize>,
+
+    /// Number of stream outputs per node
+    node_stream_output_counts: Vec<usize>,
 
     /// Temporary buffers (stored to avoid per-sample allocation)
     temp_input_values: Vec<f32>,
@@ -249,6 +277,27 @@ impl GraphStateBuilder {
         let temp_input_values = vec![0.0f32; max_inputs];
         let temp_events_buffer = Vec::with_capacity(64);
 
+        // PHASE 2: Allocate IO buffers for each node
+        let mut node_io_buffers = Vec::with_capacity(node_count);
+        let mut node_stream_input_counts = Vec::with_capacity(node_count);
+        let mut node_stream_output_counts = Vec::with_capacity(node_count);
+
+        for node_ir in &ir.nodes {
+            let num_stream_inputs = node_ir.stream_inputs.len();
+            let num_stream_outputs = node_ir.stream_outputs.len();
+
+            // Allocate buffer: [stream_inputs..., stream_outputs...]
+            let buffer_size = num_stream_inputs + num_stream_outputs;
+            let buffer = vec![0.0f32; buffer_size.max(1)]; // At least 1 to avoid empty vec
+
+            node_io_buffers.push(buffer);
+            node_stream_input_counts.push(num_stream_inputs);
+            node_stream_output_counts.push(num_stream_outputs);
+        }
+
+        // We'll populate node_io_buffer_ptrs in build() when buffers are stable
+        let node_io_buffer_ptrs = vec![std::ptr::null_mut(); node_count];
+
         Self {
             node_keys,
             endpoint_keys,
@@ -256,6 +305,10 @@ impl GraphStateBuilder {
             output_offsets,
             connections_offsets,
             connections_data,
+            node_io_buffers,
+            node_io_buffer_ptrs,
+            node_stream_input_counts,
+            node_stream_output_counts,
             temp_input_values,
             temp_events_buffer,
             sample_rate: ir.sample_rate,
@@ -280,6 +333,12 @@ impl GraphStateBuilder {
         // temp_value_inputs holds Option<&ValueData> (thin pointers, 8 bytes each)
         let mut temp_value_inputs = vec![std::ptr::null(); MAX_INPUTS];
 
+        // PHASE 2: Update IO buffer pointers to point to stable addresses
+        // We need to do this each time because Vec might reallocate
+        for (i, buffer) in self.node_io_buffers.iter_mut().enumerate() {
+            self.node_io_buffer_ptrs[i] = buffer.as_mut_ptr();
+        }
+
         let state = GraphState {
             nodes_slotmap: nodes as *mut _,
             node_keys: self.node_keys.as_ptr(),
@@ -289,6 +348,9 @@ impl GraphStateBuilder {
             output_offsets: self.output_offsets.as_ptr(),
             connections_offsets: self.connections_offsets.as_ptr(),
             connections_data: self.connections_data.as_ptr(),
+            node_io_buffers: self.node_io_buffer_ptrs.as_ptr(),
+            node_stream_input_counts: self.node_stream_input_counts.as_ptr(),
+            node_stream_output_counts: self.node_stream_output_counts.as_ptr(),
             sample_rate: self.sample_rate,
             node_count: self.node_keys.len(),
             temp_input_values: self.temp_input_values.as_mut_ptr(),
@@ -360,27 +422,36 @@ pub extern "C" fn process_node_trampoline(
                 &[]
             };
 
+            // PHASE 2 OPTIMIZATION: Use IO buffers for stream inputs
+            // Stream inputs are already in the IO buffer (populated by JIT-generated copies)
+            // We only need to populate value/event inputs from the SlotMap
+
+            // Get pointer to this node's IO buffer
+            let io_buffer_ptr = *state.node_io_buffers.add(node_index);
+            let num_stream_inputs = *state.node_stream_input_counts.add(node_index);
+
             // Build input arrays using OVERALL indices (not type-specific)
-            // All three arrays (stream_inputs, value_inputs, event_inputs) use the same indices
+            // Point directly to IO buffer for stream inputs (zero-copy!)
             let stream_input_values = std::slice::from_raw_parts_mut(
-                state.temp_input_values,
-                if num_inputs > 0 { num_inputs } else { 1 },
+                io_buffer_ptr,
+                num_stream_inputs.max(num_inputs).max(1),
             );
 
-            // Initialize all to 0.0
-            for i in 0..num_inputs {
-                stream_input_values[i] = 0.0;
-            }
-
-            // Fill values for each input based on its type
-            for (i, &_input_type) in node_data.input_types.iter().enumerate() {
+            // IMPORTANT: Only fill NON-STREAM inputs from SlotMap
+            // Stream inputs are already populated by JIT-generated direct copies
+            for (i, &input_type) in node_data.input_types.iter().enumerate() {
                 if i >= input_keys.len() {
                     break;
                 }
 
+                // Skip stream inputs - they're already populated
+                if input_type == super::super::types::EndpointType::Stream {
+                    continue;
+                }
+
+                // For value/event types, read from SlotMap
                 let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
                 if let Some(endpoint_state) = endpoints.get(value_key) {
-                    // Fill stream_input_values for all types
                     stream_input_values[i] = endpoint_state.as_scalar().unwrap_or(0.0);
                 }
             }
@@ -609,10 +680,10 @@ pub extern "C" fn process_node_trampoline(
     }
 }
 
-/// Helper function to write a node's output back to its endpoint
+/// Helper function to write a node's output back to its IO buffer
 ///
-/// This is called by JIT code after processing to update the endpoint
-/// so downstream nodes can read the value.
+/// PHASE 2: This now writes to the IO buffer instead of SlotMap for stream outputs.
+/// The JIT-generated code will handle copying between IO buffers directly.
 ///
 /// SAFETY: state must be valid and node_index must be in range
 pub unsafe extern "C" fn write_node_output(
@@ -621,52 +692,24 @@ pub unsafe extern "C" fn write_node_output(
     output_value: f32,
 ) {
     let state = &mut *state;
-    let endpoints: &mut SlotMap<ValueKey, EndpointState> = &mut *state.endpoints;
 
-    // Get output range for this node
-    let output_start = *state.output_offsets.add(node_index);
-    let output_end = *state.output_offsets.add(node_index + 1);
+    // PHASE 2: Write to IO buffer
+    let io_buffer_ptr = *state.node_io_buffers.add(node_index);
+    let num_stream_inputs = *state.node_stream_input_counts.add(node_index);
 
-    if output_end > output_start {
-        // Write to the first output endpoint (primary output)
-        let output_key_data = *state.endpoint_keys.add(output_start);
-        let output_key = ValueKey::from(slotmap::KeyData::from_ffi(output_key_data));
+    // Output is stored after inputs in the IO buffer
+    // Primary output is at offset num_stream_inputs
+    *io_buffer_ptr.add(num_stream_inputs) = output_value;
 
-        if let Some(endpoint_state) = endpoints.get_mut(output_key) {
-            endpoint_state.set_scalar(output_value);
-        } else {
-            return;
-        }
-
-        // Find the index of this output in the connections array
-        // Count how many outputs come before this one
-        let mut total_outputs_before = 0;
-        for i in 0..node_index {
-            let node_output_start = *state.output_offsets.add(i);
-            let node_output_end = *state.output_offsets.add(i + 1);
-            total_outputs_before += node_output_end - node_output_start;
-        }
-
-        // Look up connections for this output
-        let conn_start = *state.connections_offsets.add(total_outputs_before);
-        let conn_end = *state.connections_offsets.add(total_outputs_before + 1);
-
-        // Copy to all connected inputs
-        for i in conn_start..conn_end {
-            let connected_input_key_data = *state.connections_data.add(i);
-            let connected_input_key =
-                ValueKey::from(slotmap::KeyData::from_ffi(connected_input_key_data));
-
-            if let Some(input_endpoint) = endpoints.get_mut(connected_input_key) {
-                input_endpoint.set_scalar(output_value);
-            }
-        }
-    }
+    // Note: We don't need to copy to connected nodes here anymore!
+    // The JIT-generated code will handle direct copies between IO buffers.
+    // This eliminates the SlotMap lookups and connection traversal overhead.
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::mem;
 
     #[test]
     fn test_graph_state_layout() {
@@ -674,11 +717,12 @@ mod tests {
         // Count fields:
         // - nodes_slotmap, node_keys, endpoints, endpoint_keys (4 pointers)
         // - input_offsets, output_offsets (2 pointers)
-        // - connections_offsets, connections_data (2 pointers - NEW)
+        // - connections_offsets, connections_data (2 pointers)
+        // - node_io_buffers, node_stream_input_counts, node_stream_output_counts (3 pointers - PHASE 2)
         // - temp_input_values, temp_value_inputs, temp_event_inputs, temp_events_buffer (4 pointers)
-        // = 12 pointers * 8 = 96 bytes
-        // + sample_rate (f32 = 4 bytes) + node_count (usize = 8 bytes) = 96 + 4 + 8 = 108 bytes
-        // With padding to 8-byte boundary: 112 bytes
-        assert_eq!(mem::size_of::<GraphState>(), 112);
+        // = 15 pointers * 8 = 120 bytes
+        // + sample_rate (f32 = 4 bytes) + node_count (usize = 8 bytes) = 120 + 4 + 8 = 132 bytes
+        // With padding to 8-byte boundary: 136 bytes
+        assert_eq!(mem::size_of::<GraphState>(), 136);
     }
 }

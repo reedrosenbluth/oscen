@@ -174,9 +174,10 @@ impl CraneliftJit {
 
         // Load sample_rate from GraphState
         // offset = offsetof(GraphState, sample_rate)
-        // GraphState has 8 pointer-sized fields before sample_rate:
-        // nodes_slotmap, node_keys, endpoints, endpoint_keys, input_offsets, output_offsets, connections_offsets, connections_data
-        let sample_rate_offset = (8 * std::mem::size_of::<usize>()) as i32;
+        // GraphState has 11 pointer-sized fields before sample_rate:
+        // nodes_slotmap, node_keys, endpoints, endpoint_keys, input_offsets, output_offsets,
+        // connections_offsets, connections_data, node_io_buffers, node_stream_input_counts, node_stream_output_counts
+        let sample_rate_offset = (11 * std::mem::size_of::<usize>()) as i32;
         let sample_rate = builder.ins().load(
             types::F32,
             MemFlags::trusted(),
@@ -184,16 +185,44 @@ impl CraneliftJit {
             sample_rate_offset,
         );
 
-        // For each node in topology order, generate:
-        // 1. Load node pointer
-        // 2. Prepare ProcessingContext
-        // 3. Call node.process()
-        // 4. Store output for use by downstream nodes
+        // PHASE 2: Load pointers to IO buffer arrays once
+        // These stay constant throughout processing
+        let io_buffers_offset = (8 * std::mem::size_of::<usize>()) as i32;
+        let io_buffers_ptr_ptr = builder.ins().load(
+            ptr_type,
+            MemFlags::trusted(),
+            state_ptr,
+            io_buffers_offset,
+        );
 
-        // We'll use stack slots to store outputs temporarily
+        let stream_input_counts_offset = (9 * std::mem::size_of::<usize>()) as i32;
+        let stream_input_counts_ptr = builder.ins().load(
+            ptr_type,
+            MemFlags::trusted(),
+            state_ptr,
+            stream_input_counts_offset,
+        );
+
+        // For each node in topology order, generate:
+        // PHASE 2 NEW: 1. Generate direct IO buffer copies for stream connections
+        // 2. Call node.process() (which reads from pre-populated IO buffer)
+        // 3. Output is written to IO buffer by write_node_output
+
+        // We'll use stack slots to store outputs temporarily (for final return value)
         let mut output_slots: HashMap<usize, StackSlot> = HashMap::new();
 
         for &node_idx in &ir.topology_order {
+            // PHASE 2: Generate direct copies for all stream inputs feeding this node
+            Self::emit_stream_copies(
+                builder,
+                ir,
+                node_idx,
+                io_buffers_ptr_ptr,
+                stream_input_counts_ptr,
+                ptr_type,
+            )?;
+
+            // Process the node (reads from IO buffer, writes to IO buffer)
             Self::emit_node_processing(builder, module, state_ptr, node_idx, &ir.nodes[node_idx], ptr_type, sample_rate, trampoline_id, write_output_id, &mut output_slots)?;
         }
 
@@ -210,6 +239,100 @@ impl CraneliftJit {
         };
 
         builder.ins().return_(&[final_output]);
+
+        Ok(())
+    }
+
+    /// PHASE 2: Emit direct copies for stream connections feeding into a node
+    ///
+    /// For each stream connection to this node, generates:
+    /// dst_io_buffer[dst_input_idx] = src_io_buffer[src_output_idx + num_src_stream_inputs]
+    fn emit_stream_copies(
+        builder: &mut FunctionBuilder,
+        ir: &GraphIR,
+        dst_node_idx: usize,
+        io_buffers_ptr_ptr: Value,
+        stream_input_counts_ptr: Value,
+        ptr_type: Type,
+    ) -> Result<(), String> {
+        use super::ir::ConnectionIR;
+        use crate::graph::types::EndpointType;
+
+        // Find all connections feeding into this node
+        let incoming_connections: Vec<&ConnectionIR> = ir
+            .connections
+            .iter()
+            .filter(|conn| conn.dst_node == dst_node_idx && conn.connection_type == EndpointType::Stream)
+            .collect();
+
+        for conn in incoming_connections {
+            let src_node_idx = conn.src_node;
+            let src_output_idx = conn.src_output; // Which output of the source node
+            let dst_input_idx = conn.dst_input; // Which input of the dest node
+
+            // Load source node's IO buffer pointer
+            // io_buffers_ptr_ptr[src_node_idx]
+            let src_buffer_offset = (src_node_idx * std::mem::size_of::<usize>()) as i32;
+            let src_buffer_ptr = builder.ins().load(
+                ptr_type,
+                MemFlags::trusted(),
+                io_buffers_ptr_ptr,
+                src_buffer_offset,
+            );
+
+            // Load number of stream inputs for source node
+            let src_input_count_offset = (src_node_idx * std::mem::size_of::<usize>()) as i32;
+            let src_input_count = builder.ins().load(
+                types::I64,
+                MemFlags::trusted(),
+                stream_input_counts_ptr,
+                src_input_count_offset,
+            );
+
+            // Calculate source offset: num_stream_inputs + output_index
+            let src_output_offset_val = builder.ins().iadd_imm(src_input_count, src_output_idx as i64);
+
+            // Convert to byte offset: offset * sizeof(f32) = offset * 4
+            let src_byte_offset_i64 = builder.ins().imul_imm(src_output_offset_val, 4);
+
+            // Convert to pointer type for address calculation
+            let src_byte_offset = if ptr_type == types::I64 {
+                src_byte_offset_i64
+            } else {
+                builder.ins().ireduce(ptr_type, src_byte_offset_i64)
+            };
+
+            // Calculate final address: base_ptr + offset
+            let src_addr = builder.ins().iadd(src_buffer_ptr, src_byte_offset);
+
+            // Load the source value from the calculated address
+            let src_value = builder.ins().load(
+                types::F32,
+                MemFlags::trusted(),
+                src_addr,
+                0, // offset is already in the address
+            );
+
+            // Load destination node's IO buffer pointer
+            let dst_buffer_offset = (dst_node_idx * std::mem::size_of::<usize>()) as i32;
+            let dst_buffer_ptr = builder.ins().load(
+                ptr_type,
+                MemFlags::trusted(),
+                io_buffers_ptr_ptr,
+                dst_buffer_offset,
+            );
+
+            // Calculate destination offset: dst_input_idx * 4 (byte offset)
+            let dst_byte_offset = (dst_input_idx * 4) as i32;
+
+            // Store to destination
+            builder.ins().store(
+                MemFlags::trusted(),
+                src_value,
+                dst_buffer_ptr,
+                dst_byte_offset,
+            );
+        }
 
         Ok(())
     }
