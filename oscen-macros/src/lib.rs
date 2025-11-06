@@ -215,7 +215,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         })
         .collect();
 
-    // Generate IO struct with lifetime parameter for event slices
+    // Generate IO struct with lifetime parameter only if there are event endpoints
+    let has_event_endpoints = event_input_idx > 0 || event_output_idx > 0;
     let io_struct = if io_fields.is_empty() {
         // Empty IO struct (no stream/event endpoints)
         quote! {
@@ -239,11 +240,21 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 }
             }
         }
-    } else {
+    } else if has_event_endpoints {
+        // IO struct with lifetime parameter for event slices
         quote! {
             #[allow(dead_code)]
             #[derive(Debug)]
             pub struct #io_name<'io> {
+                #(#io_fields),*
+            }
+        }
+    } else {
+        // IO struct without lifetime parameter (only stream endpoints)
+        quote! {
+            #[allow(dead_code)]
+            #[derive(Debug)]
+            pub struct #io_name {
                 #(#io_fields),*
             }
         }
