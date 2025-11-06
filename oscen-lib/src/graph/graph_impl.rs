@@ -1034,6 +1034,7 @@ impl Graph {
 
             // Separate outputs by type
             let mut stream_outputs = Vec::new();
+            let mut value_outputs = Vec::new();
             let mut event_outputs = Vec::new();
 
             for (output_idx, &output_key) in node_data.outputs.iter().enumerate() {
@@ -1043,8 +1044,8 @@ impl Graph {
 
                 match output_type {
                     EndpointType::Stream => stream_outputs.push(output_key.data().as_ffi()),
+                    EndpointType::Value => value_outputs.push(output_key.data().as_ffi()),
                     EndpointType::Event => event_outputs.push(output_key.data().as_ffi()),
-                    EndpointType::Value => {}, // Value outputs stay in node state
                 }
             }
 
@@ -1058,6 +1059,7 @@ impl Graph {
                 value_inputs,
                 event_inputs,
                 stream_outputs,
+                value_outputs,
                 event_outputs,
             });
         }

@@ -42,6 +42,7 @@ pub struct NodeIR {
 
     /// Output endpoint keys
     pub stream_outputs: Vec<u64>,
+    pub value_outputs: Vec<u64>,
     pub event_outputs: Vec<u64>,
 }
 
