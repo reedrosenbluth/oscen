@@ -23,6 +23,8 @@ pub struct CraneliftJit {
     module: JITModule,
     /// ID of the declared trampoline function
     trampoline_id: Option<cranelift_module::FuncId>,
+    /// ID of the write_node_output helper function
+    write_output_id: Option<cranelift_module::FuncId>,
 }
 
 /// A compiled graph ready for execution
@@ -55,6 +57,10 @@ impl CraneliftJit {
         let trampoline_ptr = super::runtime::get_trampoline_ptr() as *const u8;
         builder.symbol("process_node_trampoline", trampoline_ptr);
 
+        // Add the write_node_output helper as a symbol
+        let write_output_ptr = super::runtime::write_node_output as *const u8;
+        builder.symbol("write_node_output", write_output_ptr);
+
         let module = JITModule::new(builder);
 
         Ok(Self {
@@ -62,6 +68,7 @@ impl CraneliftJit {
             ctx: module.make_context(),
             module,
             trampoline_id: None,
+            write_output_id: None,
         })
     }
 
@@ -89,6 +96,22 @@ impl CraneliftJit {
             self.trampoline_id = Some(trampoline_id);
         }
 
+        // Declare the write_node_output helper if not already declared
+        if self.write_output_id.is_none() {
+            let mut write_output_sig = self.module.make_signature();
+            write_output_sig.params.push(AbiParam::new(ptr_type));   // state_ptr
+            write_output_sig.params.push(AbiParam::new(types::I64)); // node_index (usize)
+            write_output_sig.params.push(AbiParam::new(types::F32)); // output_value
+            // No return value
+
+            let write_output_id = self
+                .module
+                .declare_function("write_node_output", Linkage::Import, &write_output_sig)
+                .map_err(|e| format!("Failed to declare write_node_output: {}", e))?;
+
+            self.write_output_id = Some(write_output_id);
+        }
+
         // Create function signature: fn(*mut GraphState) -> f32
         self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
         self.ctx.func.signature.returns.push(AbiParam::new(types::F32));
@@ -104,7 +127,8 @@ impl CraneliftJit {
             let mut builder =
                 FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
             let trampoline_id = self.trampoline_id.unwrap();
-            Self::build_function_impl(&mut builder, ir, ptr_type, trampoline_id, &mut self.module)?;
+            let write_output_id = self.write_output_id.unwrap();
+            Self::build_function_impl(&mut builder, ir, ptr_type, trampoline_id, write_output_id, &mut self.module)?;
             builder.finalize();
         }
 
@@ -136,6 +160,7 @@ impl CraneliftJit {
         ir: &GraphIR,
         ptr_type: Type,
         trampoline_id: cranelift_module::FuncId,
+        write_output_id: cranelift_module::FuncId,
         module: &mut JITModule,
     ) -> Result<(), String> {
         // Create entry block
@@ -167,7 +192,7 @@ impl CraneliftJit {
         let mut output_slots: HashMap<usize, StackSlot> = HashMap::new();
 
         for &node_idx in &ir.topology_order {
-            Self::emit_node_processing(builder, module, state_ptr, node_idx, &ir.nodes[node_idx], ptr_type, sample_rate, trampoline_id, &mut output_slots)?;
+            Self::emit_node_processing(builder, module, state_ptr, node_idx, &ir.nodes[node_idx], ptr_type, sample_rate, trampoline_id, write_output_id, &mut output_slots)?;
         }
 
         // Return the final output
@@ -197,10 +222,12 @@ impl CraneliftJit {
         ptr_type: Type,
         sample_rate: Value,
         trampoline_id: cranelift_module::FuncId,
+        write_output_id: cranelift_module::FuncId,
         output_slots: &mut HashMap<usize, StackSlot>,
     ) -> Result<(), String> {
         // Get a local reference to the trampoline function
         let trampoline_func_ref = module.declare_func_in_func(trampoline_id, builder.func);
+        let write_output_func_ref = module.declare_func_in_func(write_output_id, builder.func);
 
         // Prepare arguments for trampoline call
         // Signature: fn(node_index: usize, sample_rate: f32, context: *mut (), state: *mut GraphState) -> f32
@@ -211,8 +238,7 @@ impl CraneliftJit {
         // 2. sample_rate (already a Value)
         let sample_rate_val = sample_rate;
 
-        // 3. context_ptr - for now, pass null (simplified version)
-        // TODO: Create proper ProcessingContext
+        // 3. context_ptr - for now, pass null (trampoline builds context itself)
         let null_context = builder.ins().iconst(ptr_type, 0);
 
         // 4. state_ptr (already a Value)
@@ -227,6 +253,13 @@ impl CraneliftJit {
         // Get the return value (f32)
         let results = builder.inst_results(call_inst);
         let output_val = results[0];
+
+        // Write the output back to the endpoint so downstream nodes can read it
+        // Signature: fn(state: *mut GraphState, node_index: usize, output_value: f32)
+        builder.ins().call(
+            write_output_func_ref,
+            &[state_val, node_idx_val, output_val],
+        );
 
         // Create a stack slot for this node's output
         let output_slot = builder.create_sized_stack_slot(StackSlotData::new(

@@ -181,14 +181,16 @@ pub fn get_trampoline_ptr() -> ProcessFnPtr {
 
 /// Trampoline function that JIT code calls to invoke a node's process method
 ///
-/// This is a generic trampoline - in the future we could generate specialized
-/// trampolines per node type for better performance.
+/// This is a generic trampoline that:
+/// 1. Builds a ProcessingContext from endpoints
+/// 2. Calls the node's process() method
+/// 3. Returns the result
 ///
 /// SAFETY: state must be a valid pointer to GraphState with valid node references
 pub extern "C" fn process_node_trampoline(
     node_index: usize,
     sample_rate: f32,
-    context_ptr: *mut (),
+    _context_ptr: *mut (), // Unused - we build context here
     state_ptr: *mut GraphState,
 ) -> f32 {
     unsafe {
@@ -202,12 +204,56 @@ pub extern "C" fn process_node_trampoline(
 
         // Access the node from the SlotMap
         let nodes: &mut SlotMap<super::super::types::NodeKey, NodeData> = &mut *state.nodes_slotmap;
+        let endpoints: &mut SlotMap<ValueKey, EndpointState> = &mut *state.endpoints;
+
         if let Some(node_data) = nodes.get_mut(node_key) {
-            // Cast context
-            let context: &mut ProcessingContext = &mut *(context_ptr as *mut ProcessingContext);
+            // Build ProcessingContext
+
+            // Get input range for this node
+            let input_start = *state.input_offsets.add(node_index);
+            let input_end = *state.input_offsets.add(node_index + 1);
+            let num_inputs = input_end - input_start;
+
+            // Prepare input values from endpoints
+            let input_values = std::slice::from_raw_parts_mut(
+                state.temp_input_values,
+                if num_inputs > 0 { num_inputs } else { 1 }, // At least 1 to avoid empty slice issues
+            );
+
+            // Fill inputs from endpoints
+            if num_inputs > 0 {
+                let input_keys = std::slice::from_raw_parts(
+                    state.endpoint_keys.add(input_start),
+                    num_inputs,
+                );
+
+                for (i, &key_data) in input_keys.iter().enumerate() {
+                    let value_key = ValueKey::from(slotmap::KeyData::from_ffi(key_data));
+                    if let Some(endpoint_state) = endpoints.get(value_key) {
+                        input_values[i] = endpoint_state.as_scalar().unwrap_or(0.0);
+                    } else {
+                        input_values[i] = 0.0;
+                    }
+                }
+            }
+
+            // Create context (simplified - no value/event inputs for now)
+            let events_buffer: &mut Vec<super::super::traits::PendingEvent> = &mut *state.temp_events_buffer;
+            let input_slice = if num_inputs > 0 {
+                &input_values[..num_inputs]
+            } else {
+                &[]
+            };
+
+            let mut context = ProcessingContext::new(
+                input_slice,
+                &[], // value_inputs - TODO
+                &[], // event_inputs - TODO
+                events_buffer,
+            );
 
             // Call the actual process method
-            node_data.processor.process(sample_rate, context)
+            node_data.processor.process(sample_rate, &mut context)
         } else {
             // Node not found - return 0.0
             0.0
@@ -215,48 +261,35 @@ pub extern "C" fn process_node_trampoline(
     }
 }
 
-/// Helper function to create a ProcessingContext from raw data
+/// Helper function to write a node's output back to its endpoint
 ///
-/// This is called by JIT code to prepare the context before calling process.
-pub unsafe fn create_processing_context<'a>(
-    state: &'a mut GraphState,
-    node_idx: usize,
-    endpoints: &'a SlotMap<ValueKey, EndpointState>,
-) -> ProcessingContext<'a> {
+/// This is called by JIT code after processing to update the endpoint
+/// so downstream nodes can read the value.
+///
+/// SAFETY: state must be valid and node_index must be in range
+pub unsafe extern "C" fn write_node_output(
+    state: *mut GraphState,
+    node_index: usize,
+    output_value: f32,
+) {
     use slotmap::Key;
 
-    // Get input range for this node
-    let input_start = *state.input_offsets.add(node_idx);
-    let input_end = *state.input_offsets.add(node_idx + 1);
-    let num_inputs = input_end - input_start;
+    let state = &mut *state;
+    let endpoints: &mut SlotMap<ValueKey, EndpointState> = &mut *state.endpoints;
 
-    // Gather inputs from endpoints
-    let input_keys = std::slice::from_raw_parts(
-        state.endpoint_keys.add(input_start),
-        num_inputs,
-    );
+    // Get output range for this node
+    let output_start = *state.output_offsets.add(node_index);
+    let output_end = *state.output_offsets.add(node_index + 1);
 
-    // Prepare input arrays
-    let input_values = std::slice::from_raw_parts_mut(
-        state.temp_input_values,
-        num_inputs,
-    );
+    if output_end > output_start {
+        // Write to the first output endpoint (primary output)
+        let output_key_data = *state.endpoint_keys.add(output_start);
+        let output_key = ValueKey::from(slotmap::KeyData::from_ffi(output_key_data));
 
-    // TODO: Fill input_values from endpoints using input_keys
-    // For now, just zero them
-    for i in 0..num_inputs {
-        input_values[i] = 0.0;
+        if let Some(endpoint_state) = endpoints.get_mut(output_key) {
+            endpoint_state.set_scalar(output_value);
+        }
     }
-
-    // Create context (simplified for now)
-    let events_buffer: &mut Vec<super::super::traits::PendingEvent> = &mut *state.temp_events_buffer;
-
-    ProcessingContext::new(
-        input_values,
-        &[], // value_inputs - TODO
-        &[], // event_inputs - TODO
-        events_buffer,
-    )
 }
 
 #[cfg(test)]
