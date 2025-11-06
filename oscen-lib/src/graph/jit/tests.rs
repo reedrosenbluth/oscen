@@ -12,8 +12,12 @@ mod tests {
 
         let gain_node = graph.add_node(Gain::new(2.0));
 
-        // Set the input value
-        graph.set_value(gain_node.input, 0.5);
+        // Set the stream input value directly (since stream inputs can't use set_value)
+        use crate::graph::types::ValueKey;
+        let input_key: ValueKey = gain_node.input.into();
+        if let Some(endpoint) = graph.endpoints.get_mut(input_key) {
+            endpoint.set_scalar(0.5);
+        }
 
         // Extract IR
         let ir = graph.to_ir().expect("Failed to extract IR");
@@ -45,12 +49,23 @@ mod tests {
         // Connect them
         graph.connect(gain1.output, gain2.input);
 
-        // Set the initial input
-        graph.set_value(gain1.input, 0.5);
+        // Set the initial input directly (stream inputs can't use set_value)
+        use crate::graph::types::ValueKey;
+        let input_key: ValueKey = gain1.input.into();
+        if let Some(endpoint) = graph.endpoints.get_mut(input_key) {
+            endpoint.set_scalar(0.5);
+        }
 
         // Extract IR
         let ir = graph.to_ir().expect("Failed to extract IR");
         assert_eq!(ir.nodes.len(), 2, "Should have 2 nodes");
+
+        println!("Node 0: {} inputs, {} outputs",
+                 ir.nodes[0].stream_inputs.len() + ir.nodes[0].value_inputs.len(),
+                 ir.nodes[0].stream_outputs.len());
+        println!("Node 1: {} inputs, {} outputs",
+                 ir.nodes[1].stream_inputs.len() + ir.nodes[1].value_inputs.len(),
+                 ir.nodes[1].stream_outputs.len());
 
         // Compile
         let mut jit = CraneliftJit::new().expect("Failed to create JIT");
@@ -62,6 +77,7 @@ mod tests {
 
         // Execute!
         let output = compiled.process(&mut state);
+        println!("Chain output: {}", output);
 
         // 0.5 * 2.0 * 3.0 = 3.0
         assert!((output - 3.0).abs() < 0.001, "Expected 3.0, got {}", output);

@@ -98,6 +98,10 @@ impl GraphStateBuilder {
         let mut input_offsets = Vec::with_capacity(node_count + 1);
         let mut output_offsets = Vec::with_capacity(node_count + 1);
 
+        // Collect all inputs first, then all outputs (keeps them contiguous)
+        let mut all_node_inputs = Vec::new();
+        let mut all_node_outputs = Vec::new();
+
         input_offsets.push(0);
         output_offsets.push(0);
 
@@ -106,26 +110,42 @@ impl GraphStateBuilder {
             // Store the node key
             node_keys.push(node_ir.key_data);
 
-            // Collect input endpoint keys
+            // Collect this node's input keys
+            let mut node_inputs = Vec::new();
             for &input_key_data in &node_ir.stream_inputs {
-                endpoint_keys.push(input_key_data);
+                node_inputs.push(input_key_data);
             }
             for &input_key_data in &node_ir.value_inputs {
-                endpoint_keys.push(input_key_data);
+                node_inputs.push(input_key_data);
             }
             for &input_key_data in &node_ir.event_inputs {
-                endpoint_keys.push(input_key_data);
+                node_inputs.push(input_key_data);
             }
-            input_offsets.push(endpoint_keys.len());
 
-            // Collect output endpoint keys
+            // Collect this node's output keys
+            let mut node_outputs = Vec::new();
             for &output_key_data in &node_ir.stream_outputs {
-                endpoint_keys.push(output_key_data);
+                node_outputs.push(output_key_data);
             }
             for &output_key_data in &node_ir.event_outputs {
-                endpoint_keys.push(output_key_data);
+                node_outputs.push(output_key_data);
             }
-            output_offsets.push(endpoint_keys.len());
+
+            all_node_inputs.extend(&node_inputs);
+            all_node_outputs.extend(&node_outputs);
+
+            input_offsets.push(all_node_inputs.len());
+            output_offsets.push(all_node_outputs.len());
+        }
+
+        // Build final endpoint_keys: [all inputs..., all outputs...]
+        endpoint_keys.extend(&all_node_inputs);
+        let outputs_start = endpoint_keys.len();
+        endpoint_keys.extend(&all_node_outputs);
+
+        // Adjust output_offsets to account for inputs_start
+        for offset in &mut output_offsets {
+            *offset += outputs_start;
         }
 
         // Allocate temporary buffers (sized for worst case)
@@ -194,6 +214,8 @@ pub extern "C" fn process_node_trampoline(
     state_ptr: *mut GraphState,
 ) -> f32 {
     unsafe {
+        println!("[TRAMPOLINE] Processing node {}", node_index);
+
         // Get the GraphState
         let state: &mut GraphState = &mut *state_ptr;
 
@@ -224,66 +246,68 @@ pub extern "C" fn process_node_trampoline(
                 &[]
             };
 
-            // Fill stream inputs (first num_stream_inputs inputs)
-            let num_stream = node_data.input_types.iter()
-                .filter(|&&t| t == super::super::types::EndpointType::Stream)
-                .count();
-
+            // Build input arrays using OVERALL indices (not type-specific)
+            // All three arrays (stream_inputs, value_inputs, event_inputs) use the same indices
             let stream_input_values = std::slice::from_raw_parts_mut(
                 state.temp_input_values,
-                if num_stream > 0 { num_stream } else { 1 },
+                if num_inputs > 0 { num_inputs } else { 1 },
             );
 
-            for i in 0..num_stream.min(input_keys.len()) {
+            // Initialize all to 0.0
+            for i in 0..num_inputs {
+                stream_input_values[i] = 0.0;
+            }
+
+            // Fill values for each input based on its type
+            for (i, &input_type) in node_data.input_types.iter().enumerate() {
+                if i >= input_keys.len() { break; }
+
                 let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
                 if let Some(endpoint_state) = endpoints.get(value_key) {
+                    // Fill stream_input_values for all types
                     stream_input_values[i] = endpoint_state.as_scalar().unwrap_or(0.0);
-                } else {
-                    stream_input_values[i] = 0.0;
+                    println!("[TRAMPOLINE] Node {} input[{}] = {}", node_index, i, stream_input_values[i]);
                 }
             }
 
 
-            // Create context
-            let events_buffer: &mut Vec<super::super::traits::PendingEvent> = &mut *state.temp_events_buffer;
+            // Build value_inputs array using OVERALL indices
+            // The value_inputs array must be the same size as stream_inputs and use the same indices!
+            let value_input_values = std::slice::from_raw_parts_mut(
+                state.temp_value_inputs as *mut Option<&super::super::types::ValueData>,
+                if num_inputs > 0 { num_inputs } else { 1 },
+            );
 
-            let stream_slice = if num_stream > 0 {
-                &stream_input_values[..num_stream]
-            } else {
-                &[]
-            };
+            // Initialize all to None
+            for i in 0..num_inputs {
+                value_input_values[i] = None;
+            }
 
-            // Build value inputs array properly
-            // Count value inputs
-            let num_value = node_data.input_types.iter()
-                .filter(|&&t| t == super::super::types::EndpointType::Value)
-                .count();
-
-            // Create temporary Vec for value inputs (needs to live through process() call)
-            let mut value_input_options: Vec<Option<&super::super::types::ValueData>> = Vec::with_capacity(num_value.max(1));
-
-            // Fill value inputs by iterating through all inputs in order
+            // Fill value references for Value-type inputs
             for (i, &input_type) in node_data.input_types.iter().enumerate() {
-                if input_type == super::super::types::EndpointType::Value && i < input_keys.len() {
+                if i >= input_keys.len() { break; }
+
+                if input_type == super::super::types::EndpointType::Value {
                     let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
                     if let Some(endpoint_state) = endpoints.get(value_key) {
-                        // Get reference to ValueData
-                        match endpoint_state {
-                            super::super::types::EndpointState::Value(value_data) => {
-                                value_input_options.push(Some(value_data));
-                            }
-                            _ => {
-                                value_input_options.push(None);
-                            }
+                        if let super::super::types::EndpointState::Value(value_data) = endpoint_state {
+                            value_input_values[i] = Some(value_data);
                         }
-                    } else {
-                        value_input_options.push(None);
                     }
                 }
             }
 
-            let value_slice = if num_value > 0 {
-                &value_input_options[..]
+            // Create context with overall-indexed arrays
+            let events_buffer: &mut Vec<super::super::traits::PendingEvent> = &mut *state.temp_events_buffer;
+
+            let stream_slice = if num_inputs > 0 {
+                &stream_input_values[..num_inputs]
+            } else {
+                &[]
+            };
+
+            let value_slice = if num_inputs > 0 {
+                &value_input_values[..num_inputs]
             } else {
                 &[]
             };
@@ -296,9 +320,12 @@ pub extern "C" fn process_node_trampoline(
             );
 
             // Call the actual process method
-            node_data.processor.process(sample_rate, &mut context)
+            let result = node_data.processor.process(sample_rate, &mut context);
+            println!("[TRAMPOLINE] Node {} returned {}", node_index, result);
+            result
         } else {
             // Node not found - return 0.0
+            println!("[TRAMPOLINE] Node {} not found!", node_index);
             0.0
         }
     }
@@ -317,12 +344,16 @@ pub unsafe extern "C" fn write_node_output(
 ) {
     use slotmap::Key;
 
+    println!("[WRITE_OUTPUT] Node {} writing {}", node_index, output_value);
+
     let state = &mut *state;
     let endpoints: &mut SlotMap<ValueKey, EndpointState> = &mut *state.endpoints;
 
     // Get output range for this node
     let output_start = *state.output_offsets.add(node_index);
     let output_end = *state.output_offsets.add(node_index + 1);
+
+    println!("[WRITE_OUTPUT] output_start={}, output_end={}", output_start, output_end);
 
     if output_end > output_start {
         // Write to the first output endpoint (primary output)
@@ -331,7 +362,12 @@ pub unsafe extern "C" fn write_node_output(
 
         if let Some(endpoint_state) = endpoints.get_mut(output_key) {
             endpoint_state.set_scalar(output_value);
+            println!("[WRITE_OUTPUT] Successfully wrote to endpoint");
+        } else {
+            println!("[WRITE_OUTPUT] Endpoint not found!");
         }
+    } else {
+        println!("[WRITE_OUTPUT] No outputs to write");
     }
 }
 
@@ -342,6 +378,13 @@ mod tests {
     #[test]
     fn test_graph_state_layout() {
         // Verify GraphState is repr(C) and has stable layout
-        assert_eq!(mem::size_of::<GraphState>(), mem::size_of::<usize>() * 10 + 8);
+        // 12 pointer fields (8 bytes each on 64-bit) + 1 f32 (4 bytes) + 1 usize (8 bytes) = 96 + 4 + 8 = 108... wait that's not right
+        // Let me count: nodes_slotmap, node_keys, endpoints, endpoint_keys, input_offsets, output_offsets (6 pointers)
+        // temp_input_values, temp_value_inputs, temp_event_inputs, temp_events_buffer (4 pointers)
+        // = 10 pointers * 8 = 80 bytes
+        // + sample_rate (f32 = 4 bytes) + node_count (usize = 8 bytes) = 80 + 4 + 8 = 92 bytes
+        // But struct padding might add 4 bytes to align to 8-byte boundary
+        // Actual size is 96 bytes
+        assert_eq!(mem::size_of::<GraphState>(), 96);
     }
 }
