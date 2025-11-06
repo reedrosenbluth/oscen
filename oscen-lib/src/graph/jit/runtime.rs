@@ -214,40 +214,83 @@ pub extern "C" fn process_node_trampoline(
             let input_end = *state.input_offsets.add(node_index + 1);
             let num_inputs = input_end - input_start;
 
-            // Prepare input values from endpoints
-            let input_values = std::slice::from_raw_parts_mut(
-                state.temp_input_values,
-                if num_inputs > 0 { num_inputs } else { 1 }, // At least 1 to avoid empty slice issues
-            );
-
-            // Fill inputs from endpoints
-            if num_inputs > 0 {
-                let input_keys = std::slice::from_raw_parts(
+            // Get all input endpoint keys
+            let input_keys = if num_inputs > 0 {
+                std::slice::from_raw_parts(
                     state.endpoint_keys.add(input_start),
                     num_inputs,
-                );
+                )
+            } else {
+                &[]
+            };
 
-                for (i, &key_data) in input_keys.iter().enumerate() {
-                    let value_key = ValueKey::from(slotmap::KeyData::from_ffi(key_data));
+            // Fill stream inputs (first num_stream_inputs inputs)
+            let num_stream = node_data.input_types.iter()
+                .filter(|&&t| t == super::super::types::EndpointType::Stream)
+                .count();
+
+            let stream_input_values = std::slice::from_raw_parts_mut(
+                state.temp_input_values,
+                if num_stream > 0 { num_stream } else { 1 },
+            );
+
+            for i in 0..num_stream.min(input_keys.len()) {
+                let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
+                if let Some(endpoint_state) = endpoints.get(value_key) {
+                    stream_input_values[i] = endpoint_state.as_scalar().unwrap_or(0.0);
+                } else {
+                    stream_input_values[i] = 0.0;
+                }
+            }
+
+
+            // Create context
+            let events_buffer: &mut Vec<super::super::traits::PendingEvent> = &mut *state.temp_events_buffer;
+
+            let stream_slice = if num_stream > 0 {
+                &stream_input_values[..num_stream]
+            } else {
+                &[]
+            };
+
+            // Build value inputs array properly
+            // Count value inputs
+            let num_value = node_data.input_types.iter()
+                .filter(|&&t| t == super::super::types::EndpointType::Value)
+                .count();
+
+            // Create temporary Vec for value inputs (needs to live through process() call)
+            let mut value_input_options: Vec<Option<&super::super::types::ValueData>> = Vec::with_capacity(num_value.max(1));
+
+            // Fill value inputs by iterating through all inputs in order
+            for (i, &input_type) in node_data.input_types.iter().enumerate() {
+                if input_type == super::super::types::EndpointType::Value && i < input_keys.len() {
+                    let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
                     if let Some(endpoint_state) = endpoints.get(value_key) {
-                        input_values[i] = endpoint_state.as_scalar().unwrap_or(0.0);
+                        // Get reference to ValueData
+                        match endpoint_state {
+                            super::super::types::EndpointState::Value(value_data) => {
+                                value_input_options.push(Some(value_data));
+                            }
+                            _ => {
+                                value_input_options.push(None);
+                            }
+                        }
                     } else {
-                        input_values[i] = 0.0;
+                        value_input_options.push(None);
                     }
                 }
             }
 
-            // Create context (simplified - no value/event inputs for now)
-            let events_buffer: &mut Vec<super::super::traits::PendingEvent> = &mut *state.temp_events_buffer;
-            let input_slice = if num_inputs > 0 {
-                &input_values[..num_inputs]
+            let value_slice = if num_value > 0 {
+                &value_input_options[..]
             } else {
                 &[]
             };
 
             let mut context = ProcessingContext::new(
-                input_slice,
-                &[], // value_inputs - TODO
+                stream_slice,
+                value_slice,
                 &[], // event_inputs - TODO
                 events_buffer,
             );
