@@ -48,6 +48,14 @@ pub struct GraphState {
     /// Length: node_count + 1
     pub output_offsets: *const usize,
 
+    /// Connections: maps output endpoint index to connected input endpoints
+    /// For each output endpoint, stores offset into connections_data
+    /// Length: total number of output endpoints + 1
+    pub connections_offsets: *const usize,
+
+    /// Connection data: flattened array of connected input endpoint keys (u64)
+    pub connections_data: *const u64,
+
     /// Sample rate
     pub sample_rate: f32,
 
@@ -77,6 +85,12 @@ pub struct GraphStateBuilder {
 
     /// Output offsets for each node
     output_offsets: Vec<usize>,
+
+    /// Connection offsets (maps output endpoint index to offset in connections_data)
+    connections_offsets: Vec<usize>,
+
+    /// Connected input endpoint keys (flattened)
+    connections_data: Vec<u64>,
 
     /// Temporary buffers
     temp_input_values: Vec<f32>,
@@ -148,6 +162,54 @@ impl GraphStateBuilder {
             *offset += outputs_start;
         }
 
+        // Build connections mapping: output endpoint -> [connected input endpoints]
+        // We need to map from the endpoint_keys index to connections
+        use std::collections::HashMap;
+        let mut endpoint_connections: HashMap<u64, Vec<u64>> = HashMap::new();
+
+        for conn in &ir.connections {
+            // Get the source output endpoint key
+            let src_node = &ir.nodes[conn.src_node];
+            let src_output_key = if conn.connection_type == super::super::types::EndpointType::Stream {
+                src_node.stream_outputs.get(conn.src_output).copied()
+            } else if conn.connection_type == super::super::types::EndpointType::Event {
+                src_node.event_outputs.get(conn.src_output).copied()
+            } else {
+                None
+            };
+
+            // Get the destination input endpoint key
+            let dst_node = &ir.nodes[conn.dst_node];
+            let dst_input_key = if conn.connection_type == super::super::types::EndpointType::Stream {
+                dst_node.stream_inputs.get(conn.dst_input).copied()
+            } else if conn.connection_type == super::super::types::EndpointType::Value {
+                dst_node.value_inputs.get(conn.dst_input).copied()
+            } else if conn.connection_type == super::super::types::EndpointType::Event {
+                dst_node.event_inputs.get(conn.dst_input).copied()
+            } else {
+                None
+            };
+
+            if let (Some(src_key), Some(dst_key)) = (src_output_key, dst_input_key) {
+                endpoint_connections.entry(src_key).or_default().push(dst_key);
+            }
+        }
+
+        // Flatten connections into offset + data arrays
+        // For each output endpoint in endpoint_keys[outputs_start..], store its connections
+        let mut connections_offsets = Vec::new();
+        let mut connections_data = Vec::new();
+
+        connections_offsets.push(0);
+
+        for i in outputs_start..endpoint_keys.len() {
+            let output_key = endpoint_keys[i];
+            if let Some(connected_inputs) = endpoint_connections.get(&output_key) {
+                connections_data.extend(connected_inputs);
+            }
+            connections_offsets.push(connections_data.len());
+        }
+
         // Allocate temporary buffers (sized for worst case)
         let max_inputs = 32; // MAX_NODE_ENDPOINTS
         let temp_input_values = vec![0.0f32; max_inputs];
@@ -160,6 +222,8 @@ impl GraphStateBuilder {
             endpoint_keys,
             input_offsets,
             output_offsets,
+            connections_offsets,
+            connections_data,
             temp_input_values,
             temp_value_inputs,
             temp_event_inputs,
@@ -184,6 +248,8 @@ impl GraphStateBuilder {
             endpoint_keys: self.endpoint_keys.as_ptr(),
             input_offsets: self.input_offsets.as_ptr(),
             output_offsets: self.output_offsets.as_ptr(),
+            connections_offsets: self.connections_offsets.as_ptr(),
+            connections_data: self.connections_data.as_ptr(),
             sample_rate: self.sample_rate,
             node_count: self.node_keys.len(),
             temp_input_values: self.temp_input_values.as_mut_ptr(),
@@ -214,8 +280,6 @@ pub extern "C" fn process_node_trampoline(
     state_ptr: *mut GraphState,
 ) -> f32 {
     unsafe {
-        println!("[TRAMPOLINE] Processing node {}", node_index);
-
         // Get the GraphState
         let state: &mut GraphState = &mut *state_ptr;
 
@@ -259,14 +323,13 @@ pub extern "C" fn process_node_trampoline(
             }
 
             // Fill values for each input based on its type
-            for (i, &input_type) in node_data.input_types.iter().enumerate() {
+            for (i, &_input_type) in node_data.input_types.iter().enumerate() {
                 if i >= input_keys.len() { break; }
 
                 let value_key = ValueKey::from(slotmap::KeyData::from_ffi(input_keys[i]));
                 if let Some(endpoint_state) = endpoints.get(value_key) {
                     // Fill stream_input_values for all types
                     stream_input_values[i] = endpoint_state.as_scalar().unwrap_or(0.0);
-                    println!("[TRAMPOLINE] Node {} input[{}] = {}", node_index, i, stream_input_values[i]);
                 }
             }
 
@@ -320,12 +383,9 @@ pub extern "C" fn process_node_trampoline(
             );
 
             // Call the actual process method
-            let result = node_data.processor.process(sample_rate, &mut context);
-            println!("[TRAMPOLINE] Node {} returned {}", node_index, result);
-            result
+            node_data.processor.process(sample_rate, &mut context)
         } else {
             // Node not found - return 0.0
-            println!("[TRAMPOLINE] Node {} not found!", node_index);
             0.0
         }
     }
@@ -344,16 +404,12 @@ pub unsafe extern "C" fn write_node_output(
 ) {
     use slotmap::Key;
 
-    println!("[WRITE_OUTPUT] Node {} writing {}", node_index, output_value);
-
     let state = &mut *state;
     let endpoints: &mut SlotMap<ValueKey, EndpointState> = &mut *state.endpoints;
 
     // Get output range for this node
     let output_start = *state.output_offsets.add(node_index);
     let output_end = *state.output_offsets.add(node_index + 1);
-
-    println!("[WRITE_OUTPUT] output_start={}, output_end={}", output_start, output_end);
 
     if output_end > output_start {
         // Write to the first output endpoint (primary output)
@@ -362,12 +418,32 @@ pub unsafe extern "C" fn write_node_output(
 
         if let Some(endpoint_state) = endpoints.get_mut(output_key) {
             endpoint_state.set_scalar(output_value);
-            println!("[WRITE_OUTPUT] Successfully wrote to endpoint");
         } else {
-            println!("[WRITE_OUTPUT] Endpoint not found!");
+            return;
         }
-    } else {
-        println!("[WRITE_OUTPUT] No outputs to write");
+
+        // Find the index of this output in the connections array
+        // Count how many outputs come before this one
+        let mut total_outputs_before = 0;
+        for i in 0..node_index {
+            let node_output_start = *state.output_offsets.add(i);
+            let node_output_end = *state.output_offsets.add(i + 1);
+            total_outputs_before += node_output_end - node_output_start;
+        }
+
+        // Look up connections for this output
+        let conn_start = *state.connections_offsets.add(total_outputs_before);
+        let conn_end = *state.connections_offsets.add(total_outputs_before + 1);
+
+        // Copy to all connected inputs
+        for i in conn_start..conn_end {
+            let connected_input_key_data = *state.connections_data.add(i);
+            let connected_input_key = ValueKey::from(slotmap::KeyData::from_ffi(connected_input_key_data));
+
+            if let Some(input_endpoint) = endpoints.get_mut(connected_input_key) {
+                input_endpoint.set_scalar(output_value);
+            }
+        }
     }
 }
 
@@ -378,13 +454,14 @@ mod tests {
     #[test]
     fn test_graph_state_layout() {
         // Verify GraphState is repr(C) and has stable layout
-        // 12 pointer fields (8 bytes each on 64-bit) + 1 f32 (4 bytes) + 1 usize (8 bytes) = 96 + 4 + 8 = 108... wait that's not right
-        // Let me count: nodes_slotmap, node_keys, endpoints, endpoint_keys, input_offsets, output_offsets (6 pointers)
-        // temp_input_values, temp_value_inputs, temp_event_inputs, temp_events_buffer (4 pointers)
-        // = 10 pointers * 8 = 80 bytes
-        // + sample_rate (f32 = 4 bytes) + node_count (usize = 8 bytes) = 80 + 4 + 8 = 92 bytes
-        // But struct padding might add 4 bytes to align to 8-byte boundary
-        // Actual size is 96 bytes
-        assert_eq!(mem::size_of::<GraphState>(), 96);
+        // Count fields:
+        // - nodes_slotmap, node_keys, endpoints, endpoint_keys (4 pointers)
+        // - input_offsets, output_offsets (2 pointers)
+        // - connections_offsets, connections_data (2 pointers - NEW)
+        // - temp_input_values, temp_value_inputs, temp_event_inputs, temp_events_buffer (4 pointers)
+        // = 12 pointers * 8 = 96 bytes
+        // + sample_rate (f32 = 4 bytes) + node_count (usize = 8 bytes) = 96 + 4 + 8 = 108 bytes
+        // With padding to 8-byte boundary: 112 bytes
+        assert_eq!(mem::size_of::<GraphState>(), 112);
     }
 }

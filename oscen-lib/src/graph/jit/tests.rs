@@ -60,13 +60,6 @@ mod tests {
         let ir = graph.to_ir().expect("Failed to extract IR");
         assert_eq!(ir.nodes.len(), 2, "Should have 2 nodes");
 
-        println!("Node 0: {} inputs, {} outputs",
-                 ir.nodes[0].stream_inputs.len() + ir.nodes[0].value_inputs.len(),
-                 ir.nodes[0].stream_outputs.len());
-        println!("Node 1: {} inputs, {} outputs",
-                 ir.nodes[1].stream_inputs.len() + ir.nodes[1].value_inputs.len(),
-                 ir.nodes[1].stream_outputs.len());
-
         // Compile
         let mut jit = CraneliftJit::new().expect("Failed to create JIT");
         let compiled = jit.compile(&ir).expect("Failed to compile");
@@ -77,7 +70,6 @@ mod tests {
 
         // Execute!
         let output = compiled.process(&mut state);
-        println!("Chain output: {}", output);
 
         // 0.5 * 2.0 * 3.0 = 3.0
         assert!((output - 3.0).abs() < 0.001, "Expected 3.0, got {}", output);
