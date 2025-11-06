@@ -71,13 +71,14 @@ impl Oscillator {
     /// Core processing logic - auto-wrapped by the Node macro.
     ///
     /// The #[derive(Node)] macro automatically generates:
-    /// - process() method that populates self.io from context and calls this
+    /// - SignalProcessor::process() trait impl that populates self.io from context
     /// - process_internal() method for compile-time graphs
+    /// Both wrappers call THIS method using fully qualified syntax.
     ///
     /// This is the ONLY place where processing logic needs to be written!
     #[inline]
-    pub fn compute(&mut self, sample_rate: f32) -> f32 {
-        // self.io is already populated (either by macro-generated process(), or by direct wiring)
+    pub fn process(&mut self, sample_rate: f32) -> f32 {
+        // self.io is already populated (either by macro-generated wrapper, or by direct wiring)
         let frequency = self.frequency * (1.0 + self.io.frequency_mod);
         self.io.output = (self.waveform)(self.phase) * self.amplitude;
 

@@ -335,15 +335,16 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
         quote! {
             impl ::oscen::graph::SignalProcessor for #name {
-                /// Auto-generated wrapper that populates IO from context and calls compute().
+                /// Auto-generated wrapper that populates IO from context and calls user's process().
                 ///
-                /// Users implement compute() with their processing logic.
+                /// Users implement: pub fn process(&mut self, sample_rate: f32) -> f32
                 fn process<'a>(&mut self, sample_rate: f32, context: &mut ::oscen::graph::ProcessingContext<'a>) -> f32 {
                     // Populate stream inputs from context into self.io
                     #(#populate_stream_inputs)*
 
-                    // Call user-defined processing logic
-                    self.compute(sample_rate)
+                    // Call user-defined processing logic using fully qualified syntax
+                    // This calls the inherent impl's process(), not this trait method
+                    #name::process(self, sample_rate)
                 }
             }
 
@@ -353,7 +354,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 /// Assumes self.io is already wired externally.
                 #[inline]
                 pub fn process_internal(&mut self, sample_rate: f32) -> f32 {
-                    self.compute(sample_rate)
+                    // Calls user's process() method
+                    #name::process(self, sample_rate)
                 }
             }
         }
