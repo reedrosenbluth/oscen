@@ -410,6 +410,16 @@ pub extern "C" fn process_node_trampoline(
                         if let super::super::types::EndpointState::Event(event_data) = endpoint_state {
                             let events = event_data.queue().events();
                             event_input_values[i] = events;
+
+                            // Debug: Log event delivery for first few frames
+                            static mut EVENT_LOG_COUNT: usize = 0;
+                            unsafe {
+                                if EVENT_LOG_COUNT < 50 && !events.is_empty() {
+                                    eprintln!("[JIT EVENT] Node {} input {} received {} events",
+                                        node_index, i, events.len());
+                                    EVENT_LOG_COUNT += 1;
+                                }
+                            }
                         }
                     }
                 }
@@ -565,6 +575,15 @@ pub unsafe extern "C" fn write_node_output(
 
         if let Some(endpoint_state) = endpoints.get_mut(output_key) {
             endpoint_state.set_scalar(output_value);
+
+            // Debug: Log non-zero outputs for first few times
+            static mut OUTPUT_LOG_COUNT: usize = 0;
+            unsafe {
+                if OUTPUT_LOG_COUNT < 50 && output_value.abs() > 0.001 {
+                    eprintln!("[JIT OUTPUT] Node {} produced output: {:.6}", node_index, output_value);
+                    OUTPUT_LOG_COUNT += 1;
+                }
+            }
         } else {
             return;
         }
