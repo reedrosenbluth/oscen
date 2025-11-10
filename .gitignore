@@ -14,3 +14,12 @@ juce-benchmarks/**/CMakeFiles/
 juce-benchmarks/**/cmake_install.cmake
 juce-benchmarks/**/Makefile
 juce-benchmarks/**/*.svg
+
+# Cmajor benchmarks
+cmajor-benchmarks/**/build/
+cmajor-benchmarks/**/_deps/
+cmajor-benchmarks/**/CMakeCache.txt
+cmajor-benchmarks/**/CMakeFiles/
+cmajor-benchmarks/**/cmake_install.cmake
+cmajor-benchmarks/**/Makefile
+cmajor-benchmarks/**/*.svg

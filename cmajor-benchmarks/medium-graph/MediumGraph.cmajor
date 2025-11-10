@@ -1,0 +1,190 @@
+// Medium complexity graph benchmark in Cmajor
+// Matches oscen's medium_graph: 2 oscillators + filter + envelope
+
+processor SineOscillator (float frequency)
+{
+    output stream float out;
+    float phase;
+    let sampleRate = 44100.0f;
+
+    void main()
+    {
+        let phaseIncrement = frequency * twoPi / sampleRate;
+
+        loop
+        {
+            out <- sin(phase);
+            phase += phaseIncrement;
+            if (phase >= twoPi)
+                phase -= twoPi;
+            advance();
+        }
+    }
+}
+
+processor SawOscillator (float frequency)
+{
+    output stream float out;
+    float phase;
+    let sampleRate = 44100.0f;
+
+    void main()
+    {
+        let phaseIncrement = frequency / sampleRate;
+
+        loop
+        {
+            out <- (phase * 2.0f) - 1.0f;
+            phase += phaseIncrement;
+            if (phase >= 1.0f)
+                phase -= 1.0f;
+            advance();
+        }
+    }
+}
+
+processor LowPassFilter (float cutoff, float q)
+{
+    input stream float in;
+    output stream float out;
+
+    float z1, z2;
+    let sampleRate = 44100.0f;
+
+    void main()
+    {
+        let omega = twoPi * cutoff / sampleRate;
+        let alpha = sin(omega) / (2.0f * q);
+        let cosOmega = cos(omega);
+
+        let b0 = (1.0f - cosOmega) / 2.0f;
+        let b1 = 1.0f - cosOmega;
+        let b2 = (1.0f - cosOmega) / 2.0f;
+        let a0 = 1.0f + alpha;
+        let a1 = -2.0f * cosOmega;
+        let a2 = 1.0f - alpha;
+
+        loop
+        {
+            let input = in;
+            let output = (b0/a0) * input + (b1/a0) * z1 + (b2/a0) * z2
+                       - (a1/a0) * z1 - (a2/a0) * z2;
+
+            z2 = z1;
+            z1 = input;
+
+            out <- output;
+            advance();
+        }
+    }
+}
+
+processor ADSREnvelope (float attack, float decay, float sustain, float release)
+{
+    output stream float out;
+
+    let sampleRate = 44100.0f;
+    float level = 0.0f;
+    int state = 1; // 1=attack, 2=decay, 3=sustain, 4=release
+
+    void main()
+    {
+        let attackInc = 1.0f / (attack * sampleRate);
+        let decayDec = (1.0f - sustain) / (decay * sampleRate);
+
+        loop
+        {
+            if (state == 1) // Attack
+            {
+                level += attackInc;
+                if (level >= 1.0f)
+                {
+                    level = 1.0f;
+                    state = 2;
+                }
+            }
+            else if (state == 2) // Decay
+            {
+                level -= decayDec;
+                if (level <= sustain)
+                {
+                    level = sustain;
+                    state = 3;
+                }
+            }
+
+            out <- level;
+            advance();
+        }
+    }
+}
+
+processor Gain (float gain)
+{
+    input stream float in;
+    output stream float out;
+
+    void main()
+    {
+        loop
+        {
+            out <- in * gain;
+            advance();
+        }
+    }
+}
+
+processor Mixer
+{
+    input stream float in1, in2;
+    output stream float out;
+
+    void main()
+    {
+        loop
+        {
+            out <- in1 + in2;
+            advance();
+        }
+    }
+}
+
+processor Multiplier
+{
+    input stream float in1, in2;
+    output stream float out;
+
+    void main()
+    {
+        loop
+        {
+            out <- in1 * in2;
+            advance();
+        }
+    }
+}
+
+graph MediumGraph
+{
+    output stream float out;
+
+    node
+    {
+        sine = SineOscillator(440.0f);
+        saw = SawOscillator(442.0f);
+        mixer = Mixer;
+        filter = LowPassFilter(1000.0f, 0.7f);
+        envelope = ADSREnvelope(0.01f, 0.1f, 0.7f, 0.2f);
+        mult = Multiplier;
+    }
+
+    connection
+    {
+        sine.out -> mixer.in1;
+        saw.out -> mixer.in2;
+        mixer.out -> filter.in;
+        filter.out -> mult.in1;
+        envelope.out -> mult.in2;
+        mult.out -> out;
+    }
+}

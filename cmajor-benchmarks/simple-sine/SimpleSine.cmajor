@@ -1,0 +1,27 @@
+// Simple sine oscillator benchmark in Cmajor
+// Matches oscen's simple_graph and JUCE simple-sine
+
+processor SimpleSine
+{
+    output stream float out;
+
+    float phase;
+    float frequency = 440.0f;
+    float sampleRate = 44100.0f;
+
+    void main()
+    {
+        let phaseIncrement = frequency * twoPi / sampleRate;
+
+        loop
+        {
+            out <- sin(phase);
+            phase += phaseIncrement;
+
+            if (phase >= twoPi)
+                phase -= twoPi;
+
+            advance();
+        }
+    }
+}

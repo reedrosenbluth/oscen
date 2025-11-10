@@ -1,0 +1,257 @@
+// Complex graph benchmark in Cmajor
+// Matches oscen's complex_graph: 5 oscillators + 2 filters + 2 envelopes + delay
+
+processor SineOscillator (float frequency, float amplitude)
+{
+    output stream float out;
+    float phase;
+    let sampleRate = 44100.0f;
+
+    void main()
+    {
+        let phaseIncrement = frequency * twoPi / sampleRate;
+
+        loop
+        {
+            out <- sin(phase) * amplitude;
+            phase += phaseIncrement;
+            if (phase >= twoPi)
+                phase -= twoPi;
+            advance();
+        }
+    }
+}
+
+processor SawOscillator (float frequency, float amplitude)
+{
+    output stream float out;
+    float phase;
+    let sampleRate = 44100.0f;
+
+    void main()
+    {
+        let phaseIncrement = frequency / sampleRate;
+
+        loop
+        {
+            out <- ((phase * 2.0f) - 1.0f) * amplitude;
+            phase += phaseIncrement;
+            if (phase >= 1.0f)
+                phase -= 1.0f;
+            advance();
+        }
+    }
+}
+
+processor LowPassFilter (float cutoff, float q)
+{
+    input stream float in;
+    output stream float out;
+
+    float z1, z2;
+    let sampleRate = 44100.0f;
+
+    void main()
+    {
+        let omega = twoPi * cutoff / sampleRate;
+        let alpha = sin(omega) / (2.0f * q);
+        let cosOmega = cos(omega);
+
+        let b0 = (1.0f - cosOmega) / 2.0f;
+        let b1 = 1.0f - cosOmega;
+        let b2 = (1.0f - cosOmega) / 2.0f;
+        let a0 = 1.0f + alpha;
+        let a1 = -2.0f * cosOmega;
+        let a2 = 1.0f - alpha;
+
+        loop
+        {
+            let input = in;
+            let output = (b0/a0) * input + (b1/a0) * z1 + (b2/a0) * z2;
+
+            z2 = z1;
+            z1 = input;
+
+            out <- output;
+            advance();
+        }
+    }
+}
+
+processor ADSREnvelope (float attack, float decay, float sustain, float release)
+{
+    output stream float out;
+
+    let sampleRate = 44100.0f;
+    float level = 0.0f;
+    int state = 1;
+
+    void main()
+    {
+        let attackInc = 1.0f / (attack * sampleRate);
+        let decayDec = (1.0f - sustain) / (decay * sampleRate);
+
+        loop
+        {
+            if (state == 1)
+            {
+                level += attackInc;
+                if (level >= 1.0f)
+                {
+                    level = 1.0f;
+                    state = 2;
+                }
+            }
+            else if (state == 2)
+            {
+                level -= decayDec;
+                if (level <= sustain)
+                {
+                    level = sustain;
+                    state = 3;
+                }
+            }
+
+            out <- level;
+            advance();
+        }
+    }
+}
+
+processor Delay (float delaySeconds, float feedback)
+{
+    input stream float in;
+    output stream float out;
+
+    let sampleRate = 44100.0f;
+    let maxDelay = int(sampleRate);
+    float[maxDelay] buffer;
+    int writePos;
+
+    void main()
+    {
+        let delaySamples = int(delaySeconds * sampleRate);
+
+        loop
+        {
+            let readPos = (writePos - delaySamples + maxDelay) % maxDelay;
+            let delayed = buffer[readPos];
+            let input = in;
+            let output = input + (delayed * feedback);
+
+            buffer[writePos] = output;
+            writePos = (writePos + 1) % maxDelay;
+
+            out <- output;
+            advance();
+        }
+    }
+}
+
+processor Mixer2
+{
+    input stream float in1, in2;
+    output stream float out;
+
+    void main()
+    {
+        loop
+        {
+            out <- in1 + in2;
+            advance();
+        }
+    }
+}
+
+processor Mixer3
+{
+    input stream float in1, in2, in3;
+    output stream float out;
+
+    void main()
+    {
+        loop
+        {
+            out <- in1 + in2 + in3;
+            advance();
+        }
+    }
+}
+
+processor Multiplier
+{
+    input stream float in1, in2;
+    output stream float out;
+
+    void main()
+    {
+        loop
+        {
+            out <- in1 * in2;
+            advance();
+        }
+    }
+}
+
+graph ComplexGraph
+{
+    output stream float out;
+
+    node
+    {
+        // 5 oscillators
+        osc1 = SineOscillator(440.0f, 0.3f);
+        osc2 = SawOscillator(450.0f, 0.3f);
+        osc3 = SineOscillator(460.0f, 0.3f);
+        osc4 = SawOscillator(470.0f, 0.3f);
+        osc5 = SineOscillator(480.0f, 0.3f);
+
+        // Mix first 3 oscillators
+        mix1 = Mixer3;
+
+        // Mix last 2 oscillators
+        mix2 = Mixer2;
+
+        // 2 filters
+        filter1 = LowPassFilter(800.0f, 0.5f);
+        filter2 = LowPassFilter(1200.0f, 0.5f);
+
+        // 2 envelopes
+        env1 = ADSREnvelope(0.01f, 0.1f, 0.7f, 0.2f);
+        env2 = ADSREnvelope(0.02f, 0.15f, 0.6f, 0.3f);
+
+        // Multipliers for envelope application
+        mult1 = Multiplier;
+        mult2 = Multiplier;
+
+        // Final mix
+        finalMix = Mixer2;
+
+        // Delay
+        delay = Delay(0.5f, 0.3f);
+    }
+
+    connection
+    {
+        // First 3 oscillators -> mix1 -> filter1 -> mult1 (with env1)
+        osc1.out -> mix1.in1;
+        osc2.out -> mix1.in2;
+        osc3.out -> mix1.in3;
+        mix1.out -> filter1.in;
+        filter1.out -> mult1.in1;
+        env1.out -> mult1.in2;
+
+        // Last 2 oscillators -> mix2 -> filter2 -> mult2 (with env2)
+        osc4.out -> mix2.in1;
+        osc5.out -> mix2.in2;
+        mix2.out -> filter2.in;
+        filter2.out -> mult2.in1;
+        env2.out -> mult2.in2;
+
+        // Mix both filtered/enveloped signals -> delay -> out
+        mult1.out -> finalMix.in1;
+        mult2.out -> finalMix.in2;
+        finalMix.out -> delay.in;
+        delay.out -> out;
+    }
+}
