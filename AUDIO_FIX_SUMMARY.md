@@ -68,6 +68,7 @@ impl MyNode {
 
 ## Files Fixed
 
+### Electric Piano Example
 1. **examples/electric-piano/src/electric_piano_voice.rs**
    - Updated `SignalProcessor::process()` to remove `context` parameter
    - Changed to read from `self.field_name` directly
@@ -77,11 +78,32 @@ impl MyNode {
    - Updated `SignalProcessor::process()` to remove `context` parameter
    - Changed to read from `self.field_name` directly
 
+### Helper Nodes (Critical - Affects ALL Examples)
+3. **oscen-lib/src/graph/helpers.rs**
+   - **FunctionNode**: Was completely broken (process() was a no-op)
+     - Added input/output fields
+     - Stored function pointer
+     - Implemented proper process() that applies the function
+     - Implemented read_inputs(), get_stream_output(), set_stream_input()
+
+   - **BinaryFunctionNode**: Was completely broken (process() was a no-op)
+     - Added lhs/rhs/output fields
+     - Stored function pointer
+     - Implemented proper process() that applies the binary function
+     - Implemented read_inputs(), get_stream_output(), set_stream_input()
+
+4. **oscen-lib/src/graph/graph_impl.rs**
+   - Fixed BinaryFunctionNode stream input count (was 1, should be 2)
+
+**Impact**: These helper nodes are used by `Graph::transform()` and `Graph::combine()`. Without this fix, the supersaw example (and any other code using these methods) would produce complete silence!
+
 ## Status
 
 - ✅ ElectricPianoVoiceNode fixed
 - ✅ Tremolo fixed
-- ✅ supersaw example already correct (uses proper signature)
+- ✅ FunctionNode fixed (critical - was completely non-functional)
+- ✅ BinaryFunctionNode fixed (critical - was completely non-functional)
+- ✅ Both examples should now produce audio
 - ⚠️ Build verification blocked by missing system library (alsa-sys) in test environment
 
 ## Testing
