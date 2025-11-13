@@ -160,31 +160,13 @@ impl SignalProcessor for ElectricPianoVoiceNode {
         self.sample_rate = sample_rate;
     }
 
-    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) {
-        // Handle gate events
-        for event in self.events_gate(context).iter() {
-            match &event.payload {
-                EventPayload::Scalar(velocity) if *velocity > 0.0 => {
-                    // Note on
-                    let brightness = self.get_brightness(context);
-                    let velocity_scaling = self.get_velocity_scaling(context);
-                    // TODO: Extract MIDI note number from event for pitch-based key scaling
-                    self.pitch = 60.0;
-                    self.trigger_note(*velocity, brightness, velocity_scaling);
-                }
-                _ => {
-                    // Note off
-                    self.release_note();
-                }
-            }
-        }
-
-        // Get parameters
-        let frequency = self.get_frequency(context);
-        let decay_rate = self.get_decay_rate(context);
-        let harmonic_decay = self.get_harmonic_decay(context);
-        let key_scaling = self.get_key_scaling(context);
-        let release_rate = self.get_release_rate(context);
+    fn process(&mut self, _sample_rate: f32) {
+        // Get parameters from struct fields (populated by read_inputs())
+        let frequency = self.frequency;
+        let decay_rate = self.decay_rate;
+        let harmonic_decay = self.harmonic_decay;
+        let key_scaling = self.key_scaling;
+        let release_rate = self.release_rate;
 
         // Calculate decay rate with key scaling
         // Lower notes decay slower (key scaling makes higher notes decay faster)
@@ -245,5 +227,25 @@ impl SignalProcessor for ElectricPianoVoiceNode {
     fn is_active(&self) -> bool {
         // Voice is active if note is on or any amplitude is non-zero
         self.is_active || self.amplitudes.iter().any(|&a| a > 0.001)
+    }
+}
+
+impl ElectricPianoVoiceNode {
+    // Event handler called automatically by the macro-generated NodeIO
+    fn on_gate(&mut self, event: &crate::graph::EventInstance, _context: &mut ProcessingContext) {
+        match &event.payload {
+            EventPayload::Scalar(velocity) if *velocity > 0.0 => {
+                // Note on
+                let brightness = self.brightness;
+                let velocity_scaling = self.velocity_scaling;
+                // TODO: Extract MIDI note number from event for pitch-based key scaling
+                self.pitch = 60.0;
+                self.trigger_note(*velocity, brightness, velocity_scaling);
+            }
+            _ => {
+                // Note off
+                self.release_note();
+            }
+        }
     }
 }
