@@ -506,7 +506,7 @@ impl Graph {
             input_types,
             output_types,
             has_event_inputs: false,
-            num_stream_inputs: 1,
+            num_stream_inputs: 2, // BinaryFunctionNode has 2 stream inputs
             num_stream_outputs: 1,
             create_io_fn: BinaryFunctionNode::CREATE_IO_FN,
         });
