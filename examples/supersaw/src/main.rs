@@ -41,13 +41,12 @@ impl DetuneFrequency {
 }
 
 impl SignalProcessor for DetuneFrequency {
-    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) {
         let base = self.get_base_frequency(context).max(0.0);
         let spread = self.get_spread(context).clamp(0.0, 1.0);
         let cents = self.offset_steps * spread * DETUNE_STEP_CENTS;
         let ratio = 2f32.powf(cents / 1200.0);
         self.frequency = base * ratio;
-        self.frequency
     }
 }
 

@@ -24,8 +24,11 @@ impl Value {
 }
 
 impl SignalProcessor for Value {
-    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+    fn process<'a>(
+        &mut self,
+        _sample_rate: f32,
+        context: &mut ProcessingContext<'a>,
+    ) {
         self.output = self.get_input(context);
-        self.output
     }
 }

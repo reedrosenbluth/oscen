@@ -47,7 +47,7 @@ pub struct MidiVoiceHandler {
     #[input(event)]
     note_off: (),
 
-    #[output(value)]
+    #[output(stream)]
     frequency: f32,
 
     #[output(event)]
@@ -82,7 +82,11 @@ impl Default for MidiVoiceHandler {
 }
 
 impl SignalProcessor for MidiVoiceHandler {
-    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) -> f32 {
+    fn process<'a>(
+        &mut self,
+        _sample_rate: f32,
+        context: &mut ProcessingContext<'a>,
+    ) {
         // Collect note-on events first to avoid borrow checker issues
         let note_on_events: Vec<_> = self.events_note_on(context).iter().cloned().collect();
         for event in note_on_events {
@@ -114,8 +118,13 @@ impl SignalProcessor for MidiVoiceHandler {
 
         // Update frequency output
         self.frequency = self.current_frequency;
+    }
 
-        self.frequency
+    fn get_stream_output(&self, index: usize) -> Option<f32> {
+        match index {
+            0 => Some(self.frequency),
+            _ => None,
+        }
     }
 }
 
@@ -183,7 +192,11 @@ impl Default for MidiParser {
 }
 
 impl SignalProcessor for MidiParser {
-    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) -> f32 {
+    fn process<'a>(
+        &mut self,
+        _sample_rate: f32,
+        context: &mut ProcessingContext<'a>,
+    ) {
         // Collect incoming raw MIDI events
         let midi_events: Vec<_> = self.events_midi_in(context).iter().cloned().collect();
 
@@ -211,8 +224,6 @@ impl SignalProcessor for MidiParser {
                 }
             }
         }
-
-        0.0 // MIDI parser doesn't produce audio output
     }
 }
 

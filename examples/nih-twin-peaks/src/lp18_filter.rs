@@ -65,7 +65,7 @@ impl SignalProcessor for LP18Filter {
         self.update_resonance_coefficient();
     }
 
-    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) {
         let input = self.get_input(context);
         let cutoff = self.get_cutoff(context);
         let fmod = self.get_fmod(context);
@@ -99,6 +99,5 @@ impl SignalProcessor for LP18Filter {
         self.z[2] = lp;
 
         self.output = lp;
-        lp
     }
 }

@@ -42,7 +42,7 @@ impl SVSine {
 }
 
 impl SignalProcessor for SVSine {
-    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) {
         let freq_input = self.get_frequency(context);
         let frequency = if freq_input != 0.0 {
             freq_input
@@ -66,8 +66,6 @@ impl SignalProcessor for SVSine {
         self.x = x_next;
         self.output = y_next;
         self.w_1 = w;
-
-        self.output
     }
 }
 

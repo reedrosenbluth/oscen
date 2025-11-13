@@ -8,7 +8,9 @@ use slotmap::{SecondaryMap, SlotMap};
 
 use super::audio_input::AudioInput;
 use super::helpers::{BinaryFunctionNode, FunctionNode};
-use super::traits::{PendingEvent, ProcessingContext, ProcessingNode, SignalProcessor};
+use super::traits::{
+    IOStructAccess, PendingEvent, ProcessingContext, ProcessingNode, SignalProcessor,
+};
 use super::types::{
     Connection, ConnectionBuilder, EndpointDescriptor, EndpointDirection, EndpointState,
     EndpointType, EventInstance, EventParam, EventPayload, InputEndpoint, NodeKey, Output,
@@ -33,6 +35,9 @@ pub struct NodeData {
     pub input_types: ArrayVec<EndpointType, MAX_NODE_ENDPOINTS>,
     pub output_types: ArrayVec<EndpointType, MAX_NODE_ENDPOINTS>,
     pub has_event_inputs: bool,
+    pub num_stream_inputs: usize,
+    pub num_stream_outputs: usize,
+    pub create_io_fn: fn() -> Box<dyn IOStructAccess>,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +60,85 @@ impl fmt::Display for GraphError {
 }
 
 impl Error for GraphError {}
+
+/// Dynamic IO struct for use in Graph::process()
+/// Stores stream I/O data in fixed-size arrays and implements IOStructAccess
+pub struct DynamicIO {
+    stream_inputs: [f32; MAX_NODE_ENDPOINTS],
+    stream_outputs: [f32; MAX_NODE_ENDPOINTS],
+    num_stream_inputs: usize,
+    num_stream_outputs: usize,
+}
+
+impl DynamicIO {
+    pub fn new(num_stream_inputs: usize, num_stream_outputs: usize) -> Self {
+        Self {
+            stream_inputs: [0.0; MAX_NODE_ENDPOINTS],
+            stream_outputs: [0.0; MAX_NODE_ENDPOINTS],
+            num_stream_inputs,
+            num_stream_outputs,
+        }
+    }
+}
+
+impl IOStructAccess for DynamicIO {
+    #[inline]
+    fn num_stream_inputs(&self) -> usize {
+        self.num_stream_inputs
+    }
+
+    #[inline]
+    fn num_stream_outputs(&self) -> usize {
+        self.num_stream_outputs
+    }
+
+    #[inline]
+    fn num_event_outputs(&self) -> usize {
+        0 // Events still go through context for now
+    }
+
+    #[inline]
+    fn set_stream_input(&mut self, index: usize, value: f32) {
+        if index < self.num_stream_inputs {
+            self.stream_inputs[index] = value;
+        }
+    }
+
+    #[inline]
+    fn get_stream_input(&self, index: usize) -> Option<f32> {
+        if index < self.num_stream_inputs {
+            Some(self.stream_inputs[index])
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn set_stream_output(&mut self, index: usize, value: f32) {
+        if index < self.num_stream_outputs {
+            self.stream_outputs[index] = value;
+        }
+    }
+
+    #[inline]
+    fn get_stream_output(&self, index: usize) -> Option<f32> {
+        if index < self.num_stream_outputs {
+            Some(self.stream_outputs[index])
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn get_event_output(&self, _index: usize) -> &[EventInstance] {
+        &[] // Events still go through context for now
+    }
+
+    #[inline]
+    fn clear_event_outputs(&mut self) {
+        // Events still go through context for now
+    }
+}
 
 #[derive(Debug)]
 pub struct Graph {
@@ -137,6 +221,16 @@ impl Graph {
             }
         }
 
+        // Count stream inputs/outputs for IO struct sizing
+        let num_stream_inputs = input_types
+            .iter()
+            .filter(|&&t| t == EndpointType::Stream)
+            .count();
+        let num_stream_outputs = output_types
+            .iter()
+            .filter(|&&t| t == EndpointType::Stream)
+            .count();
+
         let node_key = self.nodes.insert(NodeData {
             processor: Box::new(node),
             inputs: inputs.clone(),
@@ -144,6 +238,9 @@ impl Graph {
             input_types,
             output_types,
             has_event_inputs,
+            num_stream_inputs,
+            num_stream_outputs,
+            create_io_fn: T::CREATE_IO_FN,
         });
 
         for &value_key in inputs.iter().chain(outputs.iter()) {
@@ -359,6 +456,9 @@ impl Graph {
             input_types,
             output_types,
             has_event_inputs: false,
+            num_stream_inputs: 1,
+            num_stream_outputs: 1,
+            create_io_fn: FunctionNode::CREATE_IO_FN,
         });
 
         for &value_key in input_keys.iter().chain(output_keys.iter()) {
@@ -406,6 +506,9 @@ impl Graph {
             input_types,
             output_types,
             has_event_inputs: false,
+            num_stream_inputs: 1,
+            num_stream_outputs: 1,
+            create_io_fn: BinaryFunctionNode::CREATE_IO_FN,
         });
 
         for &value_key in input_keys.iter().chain(output_keys.iter()) {
@@ -607,74 +710,92 @@ impl Graph {
 
             {
                 if let Some(node) = self.nodes.get_mut(node_key) {
-                    let output = {
-                        // Use fixed arrays instead of ArrayVec to reduce initialization overhead
-                        let mut input_values: [f32; MAX_NODE_ENDPOINTS] = [0.0; MAX_NODE_ENDPOINTS];
-                        let mut value_inputs: [Option<&ValueData>; MAX_NODE_ENDPOINTS] =
-                            [None; MAX_NODE_ENDPOINTS];
-                        let mut event_inputs: [&[EventInstance]; MAX_NODE_ENDPOINTS] =
-                            [&[]; MAX_NODE_ENDPOINTS];
+                    // Populate context arrays with input data
+                    let mut input_values: [f32; MAX_NODE_ENDPOINTS] = [0.0; MAX_NODE_ENDPOINTS];
+                    let mut value_inputs: [Option<&ValueData>; MAX_NODE_ENDPOINTS] =
+                        [None; MAX_NODE_ENDPOINTS];
+                    let mut event_inputs: [&[EventInstance]; MAX_NODE_ENDPOINTS] =
+                        [&[]; MAX_NODE_ENDPOINTS];
 
-                        let num_inputs = node.inputs.len();
+                    let num_inputs = node.inputs.len();
+                    let mut stream_input_idx = 0;
 
-                        // Use cached input types instead of SecondaryMap lookup
-                        for idx in 0..num_inputs {
-                            let input_key = node.inputs[idx];
-                            let endpoint_type = node.input_types[idx];
+                    for idx in 0..num_inputs {
+                        let input_key = node.inputs[idx];
+                        let endpoint_type = node.input_types[idx];
 
-                            match endpoint_type {
-                                EndpointType::Event => {
-                                    let endpoint_state = self.endpoints.get(input_key);
-                                    event_inputs[idx] = endpoint_state
-                                        .and_then(EndpointState::as_event)
-                                        .map(|state| state.queue().events())
-                                        .unwrap_or(&[]);
-                                }
-                                EndpointType::Stream => {
-                                    let endpoint_state = self.endpoints.get(input_key);
-                                    input_values[idx] = endpoint_state
-                                        .and_then(EndpointState::as_scalar)
-                                        .unwrap_or(0.0);
-                                }
-                                EndpointType::Value => {
-                                    let endpoint_state = self.endpoints.get(input_key);
-                                    value_inputs[idx] = endpoint_state.and_then(|state| {
-                                        if let EndpointState::Value(data) = state {
-                                            Some(data)
-                                        } else {
-                                            None
+                        match endpoint_type {
+                            EndpointType::Event => {
+                                let endpoint_state = self.endpoints.get(input_key);
+                                event_inputs[idx] = endpoint_state
+                                    .and_then(EndpointState::as_event)
+                                    .map(|state| state.queue().events())
+                                    .unwrap_or(&[]);
+                            }
+                            EndpointType::Stream => {
+                                let endpoint_state = self.endpoints.get(input_key);
+                                let value = endpoint_state
+                                    .and_then(EndpointState::as_scalar)
+                                    .unwrap_or(0.0);
+                                input_values[idx] = value;
+                                // Write to node via accessor method
+                                node.processor.set_stream_input(stream_input_idx, value);
+                                stream_input_idx += 1;
+                            }
+                            EndpointType::Value => {
+                                let endpoint_state = self.endpoints.get(input_key);
+                                value_inputs[idx] = endpoint_state.and_then(|state| {
+                                    if let EndpointState::Value(data) = state {
+                                        Some(data)
+                                    } else {
+                                        None
+                                    }
+                                });
+                                input_values[idx] = endpoint_state
+                                    .and_then(EndpointState::as_scalar)
+                                    .unwrap_or(0.0);
+                            }
+                        }
+                    }
+
+                    self.pending_events.clear();
+
+                    let mut context = ProcessingContext::new(
+                        &input_values[..num_inputs],
+                        &value_inputs[..num_inputs],
+                        &event_inputs[..num_inputs],
+                        &mut self.pending_events,
+                    );
+
+                    // Process (no IO struct - CMajor-style direct field access)
+                    node.processor.process(self.sample_rate, &mut context);
+
+                    // Route ALL stream outputs via accessor methods
+                    let mut stream_output_idx = 0;
+                    for (output_endpoint_idx, &output_type) in node.output_types.iter().enumerate()
+                    {
+                        if output_type == EndpointType::Stream {
+                            // Read from node via accessor method
+                            if let Some(output_value) = node.processor.get_stream_output(stream_output_idx) {
+                                if let Some(&output_key) = node.outputs.get(output_endpoint_idx) {
+                                    // Write to output endpoint
+                                    if let Some(state) = self.endpoints.get_mut(output_key) {
+                                        state.set_scalar(output_value);
+                                    }
+
+                                    // Copy to all connected inputs
+                                    if let Some(connections) = self.connections.get(output_key) {
+                                        for &target_input in connections {
+                                            if let Some(target_state) =
+                                                self.endpoints.get_mut(target_input)
+                                            {
+                                                target_state.set_scalar(output_value);
+                                            }
                                         }
-                                    });
-                                    input_values[idx] = endpoint_state
-                                        .and_then(EndpointState::as_scalar)
-                                        .unwrap_or(0.0);
+                                    }
                                 }
                             }
-                        }
-
-                        self.pending_events.clear();
-
-                        let mut context = ProcessingContext::new(
-                            &input_values[..num_inputs],
-                            &value_inputs[..num_inputs],
-                            &event_inputs[..num_inputs],
-                            &mut self.pending_events,
-                        );
-
-                        node.processor.process(self.sample_rate, &mut context)
-                    };
-
-                    if let Some(&output_key) = node.outputs.first() {
-                        if let Some(state) = self.endpoints.get_mut(output_key) {
-                            state.set_scalar(output);
-                        }
-
-                        if let Some(connections) = self.connections.get(output_key) {
-                            for &target_input in connections {
-                                if let Some(target_state) = self.endpoints.get_mut(target_input) {
-                                    target_state.set_scalar(output);
-                                }
-                            }
+                            stream_output_idx += 1;
                         }
                     }
 
@@ -773,135 +894,40 @@ impl Graph {
     }
 
     fn topological_sort(&mut self) -> Result<Vec<NodeKey>, GraphError> {
+        // Build adjacency map: node -> list of nodes that depend on it
         let adjacency = self.build_node_adjacency();
 
-        let delay_nodes: HashSet<NodeKey> = self
-            .nodes
-            .iter()
-            .filter(|(_, data)| data.processor.allows_feedback())
-            .map(|(key, _)| key)
-            .collect();
+        // Create closures for the generic topological_sort function
+        let nodes: Vec<NodeKey> = self.nodes.keys().collect();
 
-        let mut sort_adjacency = adjacency.clone();
-        for &delay_node in &delay_nodes {
-            sort_adjacency.insert(delay_node, Vec::new());
-        }
-
-        let mut sorted = Vec::with_capacity(self.nodes.len());
-        let mut visited = HashSet::new();
-        let mut recursion_stack = HashSet::new();
-
-        fn visit(
-            node: NodeKey,
-            adjacency: &HashMap<NodeKey, Vec<NodeKey>>,
-            visited: &mut HashSet<NodeKey>,
-            recursion_stack: &mut HashSet<NodeKey>,
-            sorted: &mut Vec<NodeKey>,
-        ) -> Result<(), GraphError> {
-            if recursion_stack.contains(&node) {
-                let cycle = vec![node];
-                return Err(GraphError::CycleDetected(cycle));
-            }
-
-            if visited.contains(&node) {
-                return Ok(());
-            }
-
-            visited.insert(node);
-            recursion_stack.insert(node);
-
-            if let Some(neighbors) = adjacency.get(&node) {
-                for &neighbor in neighbors {
-                    visit(neighbor, adjacency, visited, recursion_stack, sorted)?;
+        let get_dependencies = |node: &NodeKey| -> Vec<NodeKey> {
+            // For topological sort, we need predecessors (dependencies)
+            // The adjacency map has successors, so we need to build the reverse
+            let mut deps = Vec::new();
+            for (from, tos) in &adjacency {
+                if tos.contains(node) {
+                    deps.push(*from);
                 }
             }
+            deps
+        };
 
-            recursion_stack.remove(&node);
-            sorted.push(node);
+        let allows_feedback = |node: &NodeKey| -> bool {
+            self.nodes
+                .get(*node)
+                .map(|data| data.processor.allows_feedback())
+                .unwrap_or(false)
+        };
 
-            Ok(())
-        }
-
-        for node in self.nodes.keys() {
-            if !visited.contains(&node) {
-                visit(
-                    node,
-                    &sort_adjacency,
-                    &mut visited,
-                    &mut recursion_stack,
-                    &mut sorted,
-                )?;
-            }
-        }
-
-        sorted.reverse();
-        self.verify_cycles_have_delays(&adjacency)?;
-
-        Ok(sorted)
-    }
-
-    fn verify_cycles_have_delays(
-        &self,
-        adjacency: &HashMap<NodeKey, Vec<NodeKey>>,
-    ) -> Result<(), GraphError> {
-        let mut visited = HashSet::new();
-        let mut recursion_stack = HashSet::new();
-        let mut path = Vec::new();
-
-        fn find_cycle(
-            node: NodeKey,
-            adjacency: &HashMap<NodeKey, Vec<NodeKey>>,
-            visited: &mut HashSet<NodeKey>,
-            recursion_stack: &mut HashSet<NodeKey>,
-            path: &mut Vec<NodeKey>,
-            nodes: &SlotMap<NodeKey, NodeData>,
-        ) -> Result<(), GraphError> {
-            visited.insert(node);
-            recursion_stack.insert(node);
-            path.push(node);
-
-            if let Some(neighbors) = adjacency.get(&node) {
-                for &neighbor in neighbors {
-                    if !visited.contains(&neighbor) {
-                        find_cycle(neighbor, adjacency, visited, recursion_stack, path, nodes)?;
-                    } else if recursion_stack.contains(&neighbor) {
-                        let cycle_start = path.iter().position(|&n| n == neighbor).unwrap();
-                        let cycle_nodes: Vec<NodeKey> = path[cycle_start..].to_vec();
-
-                        let has_delay = cycle_nodes.iter().any(|&n| {
-                            nodes
-                                .get(n)
-                                .map(|data| data.processor.allows_feedback())
-                                .unwrap_or(false)
-                        });
-
-                        if !has_delay {
-                            return Err(GraphError::CycleDetected(cycle_nodes));
-                        }
-                    }
+        // Call the generic topological sort
+        super::topology::topological_sort(nodes, get_dependencies, allows_feedback)
+            .map_err(|e| match e {
+                super::topology::TopologyError::CycleDetected { path } => {
+                    GraphError::CycleDetected(path)
                 }
-            }
-
-            recursion_stack.remove(&node);
-            path.pop();
-            Ok(())
-        }
-
-        for node in self.nodes.keys() {
-            if !visited.contains(&node) {
-                find_cycle(
-                    node,
-                    adjacency,
-                    &mut visited,
-                    &mut recursion_stack,
-                    &mut path,
-                    &self.nodes,
-                )?;
-            }
-        }
-
-        Ok(())
+            })
     }
+
 
     pub fn allocate_endpoint(&mut self, endpoint_type: EndpointType) -> ValueKey {
         let state = match endpoint_type {
@@ -981,5 +1007,26 @@ impl Graph {
             .get(node_key)
             .map(|node| node.processor.is_active())
             .unwrap_or(true)
+    }
+
+    /// Ensure the node execution order is up to date.
+    /// Called internally before processing and before converting to StaticGraph.
+    pub fn update_topology(&mut self) -> Result<(), GraphError> {
+        if self.topology_dirty {
+            self.node_order = self.topological_sort()?;
+            self.topology_dirty = false;
+        }
+        Ok(())
+    }
+
+    /// Get the node execution order (for StaticGraph conversion).
+    /// Returns None if topology hasn't been computed yet.
+    pub fn get_node_order(&self) -> &[NodeKey] {
+        &self.node_order
+    }
+
+    /// Access to value_to_node mapping (for StaticGraph conversion)
+    pub fn value_to_node(&self) -> &slotmap::SecondaryMap<ValueKey, NodeKey> {
+        &self.value_to_node
     }
 }

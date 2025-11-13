@@ -18,6 +18,10 @@ criterion = { version = "0.5", features = ["html_reports"] }
 name = "graph_bench"
 harness = false
 
-[[bin]]
-name = "profile_graph"
-path = "perf/profile_graph.rs"
+[[bench]]
+name = "static_vs_runtime"
+harness = false
+
+# [[bin]]
+# name = "profile_graph"
+# path = "perf/profile_graph.rs"

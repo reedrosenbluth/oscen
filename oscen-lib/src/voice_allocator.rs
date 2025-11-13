@@ -1,4 +1,4 @@
-use crate::graph::{EventPayload, ProcessingContext, ProcessingNode, SignalProcessor};
+use crate::graph::{EventPayload, IOStructAccess, ProcessingContext, ProcessingNode, SignalProcessor};
 use crate::midi::{NoteOffEvent, NoteOnEvent};
 
 const MAX_VOICES: usize = 24;
@@ -89,7 +89,11 @@ pub type VoiceAllocator2 = VoiceAllocator<2>;
 pub type VoiceAllocator4 = VoiceAllocator<4>;
 
 impl<const NUM_VOICES: usize> SignalProcessor for VoiceAllocator<NUM_VOICES> {
-    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) -> f32 {
+    fn process<'a>(
+        &mut self,
+        _sample_rate: f32,
+        context: &mut ProcessingContext<'a>,
+    ) {
         // Fast path: check if there are any events before allocating ArrayVec
         let note_on_slice = context.events(0);
         if !note_on_slice.is_empty() {
@@ -121,8 +125,6 @@ impl<const NUM_VOICES: usize> SignalProcessor for VoiceAllocator<NUM_VOICES> {
                 }
             }
         }
-
-        0.0 // VoiceAllocator doesn't output audio
     }
 }
 

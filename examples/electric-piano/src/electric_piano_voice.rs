@@ -160,7 +160,7 @@ impl SignalProcessor for ElectricPianoVoiceNode {
         self.sample_rate = sample_rate;
     }
 
-    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) -> f32 {
+    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) {
         // Handle gate events
         for event in self.events_gate(context).iter() {
             match &event.payload {
@@ -240,7 +240,6 @@ impl SignalProcessor for ElectricPianoVoiceNode {
         }
 
         self.output = out * 3.0;
-        self.output
     }
 
     fn is_active(&self) -> bool {

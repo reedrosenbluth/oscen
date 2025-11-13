@@ -28,6 +28,11 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut event_input_idx = 0usize;
     let mut event_output_idx = 0usize;
 
+    // Track IO struct fields for IOStructAccess implementation
+    let mut stream_input_fields = Vec::new(); // (field_name, index)
+    let mut stream_output_fields = Vec::new(); // (field_name, index)
+    let mut event_output_fields = Vec::new(); // (field_name, index)
+
     // Extract field information
     if let Data::Struct(data_struct) = input.data {
         if let Fields::Named(fields) = data_struct.fields {
@@ -75,17 +80,17 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         #field_name: #field_type::new(InputEndpoint::new(inputs[#input_idx]))
                     });
 
-                    // Add to IO struct if stream or event
+                    // Add to IO struct if stream (events accessed via ProcessingContext)
                     match accessor_kind {
                         EndpointTypeAttr::Stream => {
                             io_fields.push(quote! {
                                 pub #field_name: f32
                             });
+                            stream_input_fields.push((field_name.clone(), stream_input_fields.len()));
                         }
                         EndpointTypeAttr::Event => {
-                            io_fields.push(quote! {
-                                pub #field_name: &'io [::oscen::graph::EventInstance]
-                            });
+                            // Event inputs NOT in IO struct - accessed via context.events()
+                            // This avoids lifetime parameters and enables Default trait
                             event_input_idx += 1;
                         }
                         EndpointTypeAttr::Value => {
@@ -177,11 +182,13 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             io_fields.push(quote! {
                                 pub #field_name: f32
                             });
+                            stream_output_fields.push((field_name.clone(), stream_output_fields.len()));
                         }
                         EndpointTypeAttr::Event => {
                             io_fields.push(quote! {
                                 pub #field_name: ::std::vec::Vec<::oscen::graph::EventInstance>
                             });
+                            event_output_fields.push((field_name.clone(), event_output_fields.len()));
                             event_output_idx += 1;
                         }
                         EndpointTypeAttr::Value => {
@@ -211,54 +218,234 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         })
         .collect();
 
-    // Generate IO struct with lifetime parameter only if there are event endpoints
-    let has_event_endpoints = event_input_idx > 0 || event_output_idx > 0;
-    let io_struct = if io_fields.is_empty() {
+    // Generate IOStructAccess implementation
+    let num_stream_inputs = stream_input_fields.len();
+    let num_stream_outputs = stream_output_fields.len();
+    let num_event_outputs = event_output_fields.len();
+
+    // Generate match arms for set_stream_input (graph writes before processing)
+    let set_stream_input_arms: Vec<_> = stream_input_fields
+        .iter()
+        .map(|(field_name, idx)| {
+            quote! {
+                #idx => { self.#field_name = value; }
+            }
+        })
+        .collect();
+
+    // Generate match arms for get_stream_input (node reads during processing)
+    let get_stream_input_arms: Vec<_> = stream_input_fields
+        .iter()
+        .map(|(field_name, idx)| {
+            quote! {
+                #idx => Some(self.#field_name)
+            }
+        })
+        .collect();
+
+    // Generate match arms for set_stream_output (node writes during processing)
+    let set_stream_output_arms: Vec<_> = stream_output_fields
+        .iter()
+        .map(|(field_name, idx)| {
+            quote! {
+                #idx => { self.#field_name = value; }
+            }
+        })
+        .collect();
+
+    // Generate match arms for get_stream_output (graph reads after processing)
+    let get_stream_output_arms: Vec<_> = stream_output_fields
+        .iter()
+        .map(|(field_name, idx)| {
+            quote! {
+                #idx => Some(self.#field_name)
+            }
+        })
+        .collect();
+
+    // Generate match arms for get_event_output
+    let get_event_output_arms: Vec<_> = event_output_fields
+        .iter()
+        .map(|(field_name, idx)| {
+            quote! {
+                #idx => &self.#field_name[..]
+            }
+        })
+        .collect();
+
+    // Generate clear_event_outputs implementation
+    let clear_event_output_stmts: Vec<_> = event_output_fields
+        .iter()
+        .map(|(field_name, _)| {
+            quote! {
+                self.#field_name.clear();
+            }
+        })
+        .collect();
+
+    // Generate IO struct with lifetime parameter only if there are event input FIELDS
+    // Since we no longer add event inputs to IO struct (accessed via context.events()),
+    // and event outputs use Vec (no lifetime), we never need a lifetime parameter.
+    let has_event_endpoints = false;
+    let (io_struct, io_struct_access_impl) = if io_fields.is_empty() {
         // Empty IO struct (no stream/event endpoints)
-        quote! {
+        let io_def = quote! {
             #[allow(dead_code)]
-            #[derive(Debug)]
+            #[derive(Debug, Default)]
             pub struct #io_name {
                 _marker: ::std::marker::PhantomData<()>,
             }
-
-            impl #io_name {
-                pub fn new() -> Self {
-                    Self {
-                        _marker: ::std::marker::PhantomData,
-                    }
-                }
+        };
+        let io_access = quote! {
+            impl ::oscen::graph::IOStructAccess for #io_name {
+                fn num_stream_inputs(&self) -> usize { 0 }
+                fn num_stream_outputs(&self) -> usize { 0 }
+                fn num_event_outputs(&self) -> usize { 0 }
+                fn set_stream_input(&mut self, _index: usize, _value: f32) {}
+                fn get_stream_input(&self, _index: usize) -> Option<f32> { None }
+                fn set_stream_output(&mut self, _index: usize, _value: f32) {}
+                fn get_stream_output(&self, _index: usize) -> Option<f32> { None }
+                fn get_event_output(&self, _index: usize) -> &[::oscen::graph::EventInstance] { &[] }
+                fn clear_event_outputs(&mut self) {}
             }
-
-            impl Default for #io_name {
-                fn default() -> Self {
-                    Self::new()
-                }
-            }
-        }
+        };
+        (io_def, io_access)
     } else if has_event_endpoints {
         // IO struct with lifetime parameter for event slices
-        quote! {
+        let io_def = quote! {
             #[allow(dead_code)]
             #[derive(Debug)]
             pub struct #io_name<'io> {
                 #(#io_fields),*
             }
-        }
+        };
+        let io_access = quote! {
+            impl<'io> ::oscen::graph::IOStructAccess for #io_name<'io> {
+                fn num_stream_inputs(&self) -> usize {
+                    #num_stream_inputs
+                }
+
+                fn num_stream_outputs(&self) -> usize {
+                    #num_stream_outputs
+                }
+
+                fn num_event_outputs(&self) -> usize {
+                    #num_event_outputs
+                }
+
+                fn set_stream_input(&mut self, index: usize, value: f32) {
+                    match index {
+                        #(#set_stream_input_arms)*
+                        _ => {}
+                    }
+                }
+
+                fn get_stream_input(&self, index: usize) -> Option<f32> {
+                    match index {
+                        #(#get_stream_input_arms,)*
+                        _ => None
+                    }
+                }
+
+                fn set_stream_output(&mut self, index: usize, value: f32) {
+                    match index {
+                        #(#set_stream_output_arms)*
+                        _ => {}
+                    }
+                }
+
+                fn get_stream_output(&self, index: usize) -> Option<f32> {
+                    match index {
+                        #(#get_stream_output_arms,)*
+                        _ => None
+                    }
+                }
+
+                fn get_event_output(&self, index: usize) -> &[::oscen::graph::EventInstance] {
+                    match index {
+                        #(#get_event_output_arms,)*
+                        _ => &[]
+                    }
+                }
+
+                fn clear_event_outputs(&mut self) {
+                    #(#clear_event_output_stmts)*
+                }
+            }
+        };
+        (io_def, io_access)
     } else {
         // IO struct without lifetime parameter (only stream endpoints)
-        quote! {
+        let io_def = quote! {
             #[allow(dead_code)]
-            #[derive(Debug)]
+            #[derive(Debug, Default)]
             pub struct #io_name {
                 #(#io_fields),*
             }
-        }
+        };
+        let io_access = quote! {
+            impl ::oscen::graph::IOStructAccess for #io_name {
+                fn num_stream_inputs(&self) -> usize {
+                    #num_stream_inputs
+                }
+
+                fn num_stream_outputs(&self) -> usize {
+                    #num_stream_outputs
+                }
+
+                fn num_event_outputs(&self) -> usize {
+                    #num_event_outputs
+                }
+
+                fn set_stream_input(&mut self, index: usize, value: f32) {
+                    match index {
+                        #(#set_stream_input_arms)*
+                        _ => {}
+                    }
+                }
+
+                fn get_stream_input(&self, index: usize) -> Option<f32> {
+                    match index {
+                        #(#get_stream_input_arms,)*
+                        _ => None
+                    }
+                }
+
+                fn set_stream_output(&mut self, index: usize, value: f32) {
+                    match index {
+                        #(#set_stream_output_arms)*
+                        _ => {}
+                    }
+                }
+
+                fn get_stream_output(&self, index: usize) -> Option<f32> {
+                    match index {
+                        #(#get_stream_output_arms,)*
+                        _ => None
+                    }
+                }
+
+                fn get_event_output(&self, index: usize) -> &[::oscen::graph::EventInstance] {
+                    match index {
+                        #(#get_event_output_arms,)*
+                        _ => &[]
+                    }
+                }
+
+                fn clear_event_outputs(&mut self) {
+                    #(#clear_event_output_stmts)*
+                }
+            }
+        };
+        (io_def, io_access)
     };
 
     let expanded = quote! {
         // IO struct for stream and event endpoints
         #io_struct
+
+        // IOStructAccess implementation for type-erased field access
+        #io_struct_access_impl
 
         // Endpoints struct for typed endpoint handles
         #[allow(dead_code)]
@@ -292,6 +479,10 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             const ENDPOINT_DESCRIPTORS: &'static [::oscen::graph::types::EndpointDescriptor] = &[
                 #(#endpoint_descriptors),*
             ];
+
+            const CREATE_IO_FN: fn() -> Box<dyn ::oscen::graph::IOStructAccess> = || {
+                Box::new(#io_name::default())
+            };
 
             fn create_endpoints(
                 node_key: NodeKey,

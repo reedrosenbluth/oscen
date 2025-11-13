@@ -5,7 +5,7 @@ use quote::quote;
 use syn::Result;
 
 pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
-    let mut ctx = CodegenContext::new();
+    let mut ctx = CodegenContext::new(graph_def.compile_time);
 
     // Collect all declarations
     for item in &graph_def.items {
@@ -17,7 +17,13 @@ pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
 
     // Generate either module-level struct or expression-level builder
     if let Some(name) = &graph_def.name {
-        ctx.generate_module_struct(name)
+        if graph_def.compile_time {
+            // Compile-time: Generate static struct with concrete node fields
+            ctx.generate_static_struct(name)
+        } else {
+            // Runtime: Generate struct with Graph wrapper and endpoints
+            ctx.generate_runtime_struct(name)
+        }
     } else {
         ctx.generate_closure()
     }
@@ -28,15 +34,17 @@ struct CodegenContext {
     outputs: Vec<OutputDecl>,
     nodes: Vec<NodeDecl>,
     connections: Vec<ConnectionStmt>,
+    compile_time: bool,
 }
 
 impl CodegenContext {
-    fn new() -> Self {
+    fn new(compile_time: bool) -> Self {
         Self {
             inputs: Vec::new(),
             outputs: Vec::new(),
             nodes: Vec::new(),
             connections: Vec::new(),
+            compile_time,
         }
     }
 
@@ -69,6 +77,23 @@ impl CodegenContext {
             // Qualified type like oscen::PolyBlepOscillator
             quote! { #(#leading_segments)::* :: #endpoints_ident #generic_args }
         }
+    }
+
+    /// Construct the IO type from a node type
+    /// E.g., PolyBlepOscillator -> PolyBlepOscillatorIO
+    ///       TptFilter -> TptFilterIO
+    fn construct_io_type(node_type: &syn::Path) -> TokenStream {
+        // For now, use the full node path and append IO to the final segment
+        // This preserves the module path (e.g., oscen::PolyBlepOscillator becomes oscen::PolyBlepOscillatorIO)
+        let mut path = node_type.clone();
+
+        if let Some(last_seg) = path.segments.last_mut() {
+            let node_name = &last_seg.ident;
+            let io_name = syn::Ident::new(&format!("{}IO", node_name), node_name.span());
+            last_seg.ident = io_name;
+        }
+
+        quote! { #path }
     }
 
     fn collect_item(&mut self, item: &GraphItem) -> Result<()> {
@@ -262,6 +287,66 @@ impl CodegenContext {
                     vec![quote! {
                         let #name = graph.add_node(#constructor);
                     }]
+                }
+            })
+            .collect()
+    }
+
+    /// Generate static initialization for input parameters
+    /// Note: We still need a minimal graph for endpoint allocation for inputs/outputs
+    fn generate_static_input_params(&self) -> Vec<TokenStream> {
+        self.inputs.iter().map(|input| {
+            let name = &input.name;
+            let default_val = input.default.as_ref();
+
+            match input.kind {
+                EndpointKind::Value => {
+                    if let Some(default) = default_val {
+                        quote! {
+                            let #name = __temp_graph.value_param(#default);
+                        }
+                    } else {
+                        quote! {
+                            let #name = __temp_graph.value_param(0.0);
+                        }
+                    }
+                }
+                EndpointKind::Event => {
+                    quote! {
+                        let #name = __temp_graph.event_param();
+                    }
+                }
+                EndpointKind::Stream => {
+                    quote! {
+                        let #name = {
+                            let key = __temp_graph.allocate_endpoint(::oscen::graph::EndpointType::Stream);
+                            ::oscen::StreamInput::new(::oscen::graph::InputEndpoint::new(key))
+                        };
+                    }
+                }
+            }
+        }).collect()
+    }
+
+    /// Generate static initialization for nodes (direct constructor calls)
+    fn generate_static_node_init(&self) -> Vec<TokenStream> {
+        self.nodes
+            .iter()
+            .map(|node| {
+                let name = &node.name;
+                let constructor = &node.constructor;
+
+                if let Some(array_size) = node.array_size {
+                    // Generate array initialization by repeating constructor
+                    let constructors = vec![constructor; array_size];
+                    quote! {
+                        let #name = [#(#constructors),*];
+                    }
+                } else {
+                    // Single node initialization
+                    quote! {
+                        let #name = #constructor;
+                    }
                 }
             })
             .collect()
@@ -678,6 +763,30 @@ impl CodegenContext {
         quote! { #(#fields),* }
     }
 
+    /// Generate static struct initialization (includes sample_rate, nodes - no IO fields)
+    fn generate_static_struct_init(&self) -> TokenStream {
+        let mut fields = vec![quote! { sample_rate }];
+
+        // Add input/output fields
+        for input in &self.inputs {
+            let name = &input.name;
+            fields.push(quote! { #name });
+        }
+
+        for output in &self.outputs {
+            let name = &output.name;
+            fields.push(quote! { #name });
+        }
+
+        // Add node fields (no IO fields)
+        for node in &self.nodes {
+            let name = &node.name;
+            fields.push(quote! { #name });
+        }
+
+        quote! { #(#fields),* }
+    }
+
     /// Generate the Endpoints struct for a graph (e.g., VoiceEndpoints)
     fn generate_endpoints_struct(&self, graph_name: &syn::Ident) -> TokenStream {
         let endpoints_name =
@@ -817,7 +926,7 @@ impl CodegenContext {
                     &mut self,
                     _sample_rate: f32,
                     context: &mut ::oscen::ProcessingContext<'a>
-                ) -> f32 {
+                ) {
                     // Route external inputs to internal graph endpoints
                     #(#input_routing)*
 
@@ -826,9 +935,6 @@ impl CodegenContext {
 
                     // Route event outputs from internal graph to external context
                     #(#event_output_routing)*
-
-                    // Return primary output
-                    #return_expr
                 }
             }
         }
@@ -945,9 +1051,9 @@ impl CodegenContext {
         }
     }
 
-    /// Generate a module-level struct definition with a constructor
-    fn generate_module_struct(&self, name: &syn::Ident) -> Result<TokenStream> {
-        let mut fields = vec![quote! { pub graph: ::oscen::Graph }];
+    /// Generate a runtime struct with Graph wrapper and endpoints (compile_time: false)
+    fn generate_runtime_struct(&self, name: &syn::Ident) -> Result<TokenStream> {
+        let mut fields = vec![quote! { graph: ::oscen::Graph }];
 
         // Add input fields
         for input in &self.inputs {
@@ -971,16 +1077,14 @@ impl CodegenContext {
             fields.push(quote! { pub #field_name: #ty });
         }
 
-        // Add node handle fields
+        // Add node endpoint fields (using Endpoints types)
         for node in &self.nodes {
             let field_name = &node.name;
             if let Some(node_type) = &node.node_type {
                 let endpoints_type = Self::construct_endpoints_type(node_type);
                 if let Some(array_size) = node.array_size {
-                    // Array of endpoints
                     fields.push(quote! { pub #field_name: [#endpoints_type; #array_size] });
                 } else {
-                    // Single endpoint
                     fields.push(quote! { pub #field_name: #endpoints_type });
                 }
             }
@@ -991,7 +1095,7 @@ impl CodegenContext {
         let connections = self.generate_connections()?;
         let struct_init = self.generate_struct_init();
 
-        // Generate the additional trait implementations
+        // Generate trait implementations
         let endpoints_struct = self.generate_endpoints_struct(name);
         let signal_processor_impl = self.generate_signal_processor_impl(name);
         let processing_node_impl = self.generate_processing_node_impl(name);
@@ -1024,14 +1128,338 @@ impl CodegenContext {
                 }
             }
 
-            // Generate Endpoints struct
+            // Generate Endpoints struct (for use as a ProcessingNode)
             #endpoints_struct
 
-            // Generate SignalProcessor implementation
+            // Generate SignalProcessor implementation (for use as a ProcessingNode)
             #signal_processor_impl
 
-            // Generate ProcessingNode implementation
+            // Generate ProcessingNode implementation (for adding to other Graphs)
             #processing_node_impl
+        })
+    }
+
+    /// Generate a compile-time optimized struct with concrete node fields (compile_time: true)
+    /// Extract the root node identifier from a connection expression
+    /// For example: osc.output -> "osc", filter.cutoff -> "filter"
+    fn extract_root_node(expr: &ConnectionExpr) -> Option<&syn::Ident> {
+        match expr {
+            ConnectionExpr::Ident(ident) => Some(ident),
+            ConnectionExpr::Method(base, _, _) => Self::extract_root_node(base),
+            ConnectionExpr::ArrayIndex(base, _) => Self::extract_root_node(base),
+            ConnectionExpr::Binary(left, _, _) => Self::extract_root_node(left),
+            ConnectionExpr::Literal(_) | ConnectionExpr::Call(_, _) => None,
+        }
+    }
+
+    /// Build dependency map: node -> list of nodes it depends on
+    fn build_dependency_map(&self) -> std::collections::HashMap<syn::Ident, Vec<syn::Ident>> {
+        use std::collections::HashMap;
+
+        let mut deps: HashMap<syn::Ident, Vec<syn::Ident>> = HashMap::new();
+
+        // Initialize all nodes with empty dependency lists
+        for node in &self.nodes {
+            deps.insert(node.name.clone(), Vec::new());
+        }
+
+        // Build dependencies from connections: dest depends on source
+        for conn in &self.connections {
+            if let Some(source_node) = Self::extract_root_node(&conn.source) {
+                if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
+                    // Skip if source or dest is not a node (could be input/output)
+                    if deps.contains_key(source_node) && deps.contains_key(dest_node) {
+                        // dest depends on source
+                        deps.get_mut(dest_node).unwrap().push(source_node.clone());
+                    }
+                }
+            }
+        }
+
+        deps
+    }
+
+    /// Check if a node type allows feedback (like Delay nodes)
+    fn is_feedback_allowing_node(node_type: &Option<syn::Path>) -> bool {
+        if let Some(path) = node_type {
+            // Check if the type name ends with "Delay"
+            if let Some(last_segment) = path.segments.last() {
+                let type_name = last_segment.ident.to_string();
+                return type_name.contains("Delay");
+            }
+        }
+        false
+    }
+
+    /// Perform topological sort on nodes using the generic algorithm
+    fn topological_sort_nodes(&self) -> Result<Vec<syn::Ident>> {
+        let deps = self.build_dependency_map();
+
+        // Collect all node names
+        let nodes: Vec<syn::Ident> = self.nodes.iter().map(|n| n.name.clone()).collect();
+
+        // Create closures for the generic topological_sort function
+        let get_dependencies = |node: &syn::Ident| -> Vec<syn::Ident> {
+            deps.get(node).cloned().unwrap_or_default()
+        };
+
+        let allows_feedback = |node: &syn::Ident| -> bool {
+            self.nodes
+                .iter()
+                .find(|n| &n.name == node)
+                .map(|n| Self::is_feedback_allowing_node(&n.node_type))
+                .unwrap_or(false)
+        };
+
+        // We can't directly call oscen::graph::topology::topological_sort at compile time,
+        // so we'll implement a simplified version inline for now
+        // TODO: Extract this into a shared compile-time sorting function
+
+        use std::collections::{HashMap, HashSet};
+
+        // Build adjacency map: node -> nodes that depend on it
+        let mut adjacency: HashMap<syn::Ident, Vec<syn::Ident>> = HashMap::new();
+        for node in &nodes {
+            adjacency.insert(node.clone(), Vec::new());
+        }
+
+        for node in &nodes {
+            let dependencies = get_dependencies(node);
+            for dep in dependencies {
+                adjacency.entry(dep.clone())
+                    .or_insert_with(Vec::new)
+                    .push(node.clone());
+            }
+        }
+
+        // Identify feedback-allowing nodes
+        let feedback_nodes: HashSet<syn::Ident> = nodes
+            .iter()
+            .filter(|n| allows_feedback(n))
+            .cloned()
+            .collect();
+
+        // For sorting, remove outgoing edges from feedback nodes to break cycles
+        let mut sort_adjacency = adjacency.clone();
+        for feedback_node in &feedback_nodes {
+            sort_adjacency.insert(feedback_node.clone(), Vec::new());
+        }
+
+        // Perform DFS-based topological sort
+        let mut sorted = Vec::with_capacity(nodes.len());
+        let mut visited = HashSet::new();
+        let mut recursion_stack = HashSet::new();
+
+        fn visit(
+            node: syn::Ident,
+            adjacency: &HashMap<syn::Ident, Vec<syn::Ident>>,
+            visited: &mut HashSet<syn::Ident>,
+            recursion_stack: &mut HashSet<syn::Ident>,
+            sorted: &mut Vec<syn::Ident>,
+        ) -> Result<()> {
+            let node_str = node.to_string();
+
+            if recursion_stack.contains(&node) {
+                return Err(syn::Error::new(
+                    node.span(),
+                    format!("Cycle detected involving node '{}'", node_str),
+                ));
+            }
+
+            if visited.contains(&node) {
+                return Ok(());
+            }
+
+            visited.insert(node.clone());
+            recursion_stack.insert(node.clone());
+
+            if let Some(neighbors) = adjacency.get(&node) {
+                for neighbor in neighbors {
+                    visit(neighbor.clone(), adjacency, visited, recursion_stack, sorted)?;
+                }
+            }
+
+            recursion_stack.remove(&node);
+            sorted.push(node);
+
+            Ok(())
+        }
+
+        for node in &nodes {
+            if !visited.contains(node) {
+                visit(
+                    node.clone(),
+                    &sort_adjacency,
+                    &mut visited,
+                    &mut recursion_stack,
+                    &mut sorted,
+                )?;
+            }
+        }
+
+        // Reverse to get dependency order (dependencies first)
+        sorted.reverse();
+
+        Ok(sorted)
+    }
+
+    /// Extract the method name from a connection expression
+    /// For example: osc.output -> Some("output"), filter.cutoff -> Some("cutoff")
+    fn extract_endpoint_field(expr: &ConnectionExpr) -> Option<&syn::Ident> {
+        match expr {
+            ConnectionExpr::Method(_, method, _) => Some(method),
+            _ => None,
+        }
+    }
+
+    /// Generate connection assignments for a specific node
+    /// Returns assignments that should be executed before processing this node
+    fn generate_connection_assignments_for_node(&self, node_name: &syn::Ident) -> Vec<TokenStream> {
+        let mut assignments = Vec::new();
+
+        // Find all connections where this node is the destination
+        for conn in &self.connections {
+            if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
+                if dest_node == node_name {
+                    // This connection feeds into the current node
+                    if let Some(source_node) = Self::extract_root_node(&conn.source) {
+                        if let Some(source_field) = Self::extract_endpoint_field(&conn.source) {
+                            if let Some(dest_field) = Self::extract_endpoint_field(&conn.dest) {
+                                // Generate: self.dest_node.dest_field = self.source_node.source_field;
+                                assignments.push(quote! {
+                                    self.#dest_node.#dest_field = self.#source_node.#source_field;
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        assignments
+    }
+
+    /// Generate the static process() method for compile-time graphs
+    fn generate_static_process(&self) -> Result<TokenStream> {
+        let sorted_nodes = self.topological_sort_nodes()?;
+
+        // Generate process calls for each node in topological order
+        let mut process_body = Vec::new();
+
+        for node_name in &sorted_nodes {
+            // First, generate connection assignments that feed into this node
+            let assignments = self.generate_connection_assignments_for_node(node_name);
+            process_body.extend(assignments);
+
+            // Then generate the process call (3 parameters: node, sample_rate, context)
+            process_body.push(quote! {
+                // TODO: Build proper ProcessingContext with inputs
+                let mut __dummy_context = ::oscen::ProcessingContext::new(&[], &[], &[], &mut __emitted_events);
+                ::oscen::SignalProcessor::process(
+                    &mut self.#node_name,
+                    self.sample_rate,
+                    &mut __dummy_context
+                );
+            });
+        }
+
+        // Determine what to return - look for outputs or the last node's output
+        let return_value = if let Some(output) = self.outputs.first() {
+            let output_name = &output.name;
+            quote! { self.#output_name }
+        } else if let Some(last_node) = sorted_nodes.last() {
+            // Return the output field of the last processed node directly
+            quote! { self.#last_node.output }
+        } else {
+            quote! { 0.0 }
+        };
+
+        Ok(quote! {
+            pub fn process(&mut self) -> f32 {
+                // Storage for emitted events (required for ProcessingContext)
+                let mut __emitted_events = Vec::new();
+
+                #(#process_body)*
+
+                #return_value
+            }
+        })
+    }
+
+    fn generate_static_struct(&self, name: &syn::Ident) -> Result<TokenStream> {
+        let mut fields = vec![
+            quote! { sample_rate: f32 }
+        ];
+
+        // Add input fields
+        for input in &self.inputs {
+            let field_name = &input.name;
+            let ty = match input.kind {
+                EndpointKind::Value => quote! { ::oscen::ValueParam },
+                EndpointKind::Event => quote! { ::oscen::EventParam },
+                EndpointKind::Stream => quote! { ::oscen::StreamInput },
+            };
+            fields.push(quote! { pub #field_name: #ty });
+        }
+
+        // Add output fields
+        for output in &self.outputs {
+            let field_name = &output.name;
+            let ty = match output.kind {
+                EndpointKind::Value => quote! { ::oscen::ValueParam },
+                EndpointKind::Event => quote! { ::oscen::EventParam },
+                EndpointKind::Stream => quote! { ::oscen::StreamOutput },
+            };
+            fields.push(quote! { pub #field_name: #ty });
+        }
+
+        // Add concrete node fields (no IO structs)
+        for node in &self.nodes {
+            let field_name = &node.name;
+            if let Some(node_type) = &node.node_type {
+                if let Some(array_size) = node.array_size {
+                    // Array of nodes
+                    fields.push(quote! { pub #field_name: [#node_type; #array_size] });
+                } else {
+                    // Single node
+                    fields.push(quote! { pub #field_name: #node_type });
+                }
+            }
+        }
+
+        let input_params = self.generate_static_input_params();
+        let node_init = self.generate_static_node_init();
+        let struct_init = self.generate_static_struct_init();
+
+        // For compile-time graphs, generate a static process() method
+        let process_method = self.generate_static_process()?;
+
+        Ok(quote! {
+            #[allow(dead_code)]
+            #[derive(Debug)]
+            pub struct #name {
+                #(#fields),*
+            }
+
+            impl #name {
+                #[allow(unused_variables, unused_mut)]
+                pub fn new(sample_rate: f32) -> Self {
+                    // Create temporary graph for input/output endpoint allocation
+                    let mut __temp_graph = ::oscen::Graph::new(sample_rate);
+
+                    // Initialize input parameters (requires graph for endpoint allocation)
+                    #(#input_params)*
+
+                    // Initialize nodes (direct instantiation)
+                    #(#node_init)*
+
+                    Self {
+                        #struct_init
+                    }
+                }
+
+                #process_method
+            }
         })
     }
 }

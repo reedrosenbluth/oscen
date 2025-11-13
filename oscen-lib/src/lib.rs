@@ -16,8 +16,11 @@ pub mod voice_allocator;
 pub use delay::Delay;
 pub use envelope::AdsrEnvelope;
 pub use event_passthrough::EventPassthrough;
-pub use filters::{iir_lowpass::IirLowpass, tpt::TptFilter};
-pub use gain::{Gain, GainEndpoints};
+pub use filters::{
+    iir_lowpass::{IirLowpass, IirLowpassIO},
+    tpt::{TptFilter, TptFilterIO},
+};
+pub use gain::Gain;
 pub use graph::*;
 pub use midi::{
     queue_raw_midi, raw_midi_event, MidiParser, MidiVoiceHandler, NoteOffEvent, NoteOnEvent,
@@ -25,7 +28,8 @@ pub use midi::{
 };
 pub use oscen_macros::{graph, Node};
 pub use oscillators::{
-    Oscillator, OscillatorEndpoints, PolyBlepOscillator, PolyBlepOscillatorEndpoints,
+    Oscillator, OscillatorIO,
+    PolyBlepOscillator, PolyBlepOscillatorIO,
 };
 pub use oscilloscope::{
     Oscilloscope, OscilloscopeEndpoints, OscilloscopeHandle, OscilloscopeSnapshot,

@@ -1,4 +1,4 @@
-use super::traits::ProcessingContext;
+use super::traits::{IOStructAccess, ProcessingContext};
 use super::types::{EndpointDescriptor, EndpointDirection, EndpointType, EventPayload, ValueInput};
 use super::*;
 use crate::delay::Delay;
@@ -152,7 +152,10 @@ fn test_audio_endpoints_are_streams() {
 }
 
 #[derive(Debug)]
-struct ContextProbeNode;
+struct ContextProbeNode {
+    #[allow(dead_code)]
+    output: f32,
+}
 
 #[derive(Copy, Clone)]
 struct ProbeEndpoints {
@@ -164,16 +167,25 @@ struct ProbeEndpoints {
 
 impl ContextProbeNode {
     fn new() -> Self {
-        Self
+        Self { output: 0.0 }
     }
 }
 
 impl SignalProcessor for ContextProbeNode {
-    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
-        let value_ref = context
-            .value(0)
-            .expect("value input should provide ValueRef");
-        value_ref.as_scalar().unwrap_or(0.0)
+    fn process<'a>(
+        &mut self,
+        _sample_rate: f32,
+        context: &mut ProcessingContext<'a>,
+    ) {
+        let value = context.value_scalar(0);
+        self.output = value;
+    }
+
+    fn get_stream_output(&self, index: usize) -> Option<f32> {
+        match index {
+            0 => Some(self.output),
+            _ => None,
+        }
     }
 }
 
@@ -213,6 +225,7 @@ fn test_processing_context_invocation() {
     let output = graph
         .get_value(&endpoints.output)
         .expect("output value available");
+    eprintln!("Expected: 0.75, Got: {}", output);
     assert!((output - 0.75).abs() < f32::EPSILON);
 }
 
@@ -227,9 +240,12 @@ struct EventEmitterEndpoints {
 // EventEmitterEndpoints methods removed - field is accessed directly
 
 impl SignalProcessor for EventEmitterNode {
-    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+    fn process<'a>(
+        &mut self,
+        _sample_rate: f32,
+        context: &mut ProcessingContext<'a>,
+    ) {
         context.emit_scalar_event(0, 0, 1.25);
-        0.0
     }
 }
 
@@ -273,10 +289,13 @@ impl EventSinkNode {
 }
 
 impl SignalProcessor for EventSinkNode {
-    fn process<'a>(&mut self, _sample_rate: f32, context: &mut ProcessingContext<'a>) -> f32 {
+    fn process<'a>(
+        &mut self,
+        _sample_rate: f32,
+        context: &mut ProcessingContext<'a>,
+    ) {
         let events = context.events(0);
         self.counter.store(events.len(), Ordering::SeqCst);
-        0.0
     }
 }
 

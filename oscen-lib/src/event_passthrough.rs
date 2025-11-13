@@ -31,14 +31,17 @@ impl Default for EventPassthrough {
 }
 
 impl SignalProcessor for EventPassthrough {
-    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) -> f32 {
+    fn process<'a>(
+        &mut self,
+        _sample_rate: f32,
+        context: &mut ProcessingContext<'a>,
+    ) {
         // Forward all events from input to output
         // Collect events first to avoid borrow checker issues
         let events: Vec<_> = self.events_input(context).iter().cloned().collect();
         for event in events {
             context.emit_event(0, event);
         }
-        0.0 // Event nodes don't produce audio output
     }
 }
 

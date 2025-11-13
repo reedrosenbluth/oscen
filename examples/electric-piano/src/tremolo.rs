@@ -46,7 +46,7 @@ impl SignalProcessor for Tremolo {
         self.sample_rate = sample_rate;
     }
 
-    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) -> f32 {
+    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) {
         // Get input audio
         let input = self.get_input(context);
 
@@ -70,9 +70,6 @@ impl SignalProcessor for Tremolo {
         // Advance phase
         let phase_increment = rate / self.sample_rate;
         self.phase = (self.phase + phase_increment).fract();
-
-        // Return left channel as primary output
-        self.left_output
     }
 }
 
