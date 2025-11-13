@@ -1,6 +1,6 @@
 use crate::graph::types::EventPayload;
 use crate::graph::{
-    EventInstance, InputEndpoint, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor,
+    EventInstance, InputEndpoint, NodeKey, ProcessingNode, SignalProcessor,
     ValueKey,
 };
 use crate::Node;
@@ -34,7 +34,7 @@ pub struct AdsrEnvelope {
     release: f32,
 
     #[output(stream)]
-    output: f32,
+    pub output: f32,
 
     stage: Stage,
     attack_samples: u32,
@@ -258,41 +258,16 @@ impl SignalProcessor for AdsrEnvelope {
         self.update_sustain_level();
     }
 
-    /// Process using struct-of-arrays I/O pattern.
-    ///
-    /// IO struct contains { output: f32 }
-    /// Graph pre-populates inputs (none), node writes to output.
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
-        // Get value inputs
-        let attack = self.get_attack(context);
-        let decay = self.get_decay(context);
-        let sustain = self.get_sustain(context);
-        let release = self.get_release(context);
-        self.apply_parameters(attack, decay, sustain, release);
+    #[inline(always)]
+    fn process(&mut self, _sample_rate: f32) {
+        // Apply parameters from struct fields
+        self.apply_parameters(self.attack, self.decay, self.sustain, self.release);
 
-        // Process gate events directly from context
-        // Note: We can't store the event slice in self because of lifetime issues
-        let gate_events = self.events_gate(context);
-        for event in gate_events.iter() {
-            self.handle_gate_event(event);
-        }
-
-        // Update envelope stage
+        // Process envelope stage
         self.process_stage();
 
         // Update output level
         self.output = self.level;
-    }
-
-    fn get_stream_output(&self, index: usize) -> Option<f32> {
-        match index {
-            0 => Some(self.output),
-            _ => None,
-        }
     }
 
     fn is_active(&self) -> bool {
@@ -300,6 +275,13 @@ impl SignalProcessor for AdsrEnvelope {
         // We still process during Sustain stage even though it's static,
         // since we need to handle gate-off events
         !matches!(self.stage, Stage::Idle) || self.level > 0.0
+    }
+}
+
+impl AdsrEnvelope {
+    // Event handler called automatically by the macro-generated NodeIO
+    fn on_gate(&mut self, event: &EventInstance, _context: &mut crate::ProcessingContext) {
+        self.handle_gate_event(event);
     }
 }
 

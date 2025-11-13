@@ -1,5 +1,5 @@
 use crate::{
-    InputEndpoint, Node, NodeKey, ProcessingContext, ProcessingNode,
+    InputEndpoint, Node, NodeKey, ProcessingNode,
     SignalProcessor, ValueKey,
 };
 use std::f32::consts::{PI, TAU};
@@ -12,29 +12,17 @@ pub struct Oscillator {
     #[input(value)]
     frequency: f32,
     #[input(stream)]
-    pub frequency_mod: f32,  // PUBLIC for CMajor-style access
+    pub frequency_mod: f32, // PUBLIC for CMajor-style access
     #[input(value)]
     amplitude: f32,
 
     #[output(stream)]
-    pub output: f32,  // PUBLIC for CMajor-style access
+    pub output: f32, // PUBLIC for CMajor-style access
 
     waveform: fn(f32) -> f32,
 }
 
 impl Oscillator {
-    /// User-defined processing logic
-    pub fn process_dsp(&mut self, sample_rate: f32) {
-        let frequency = self.frequency * (1.0 + self.frequency_mod);
-        let amplitude = self.amplitude;
-
-        let modulated_phase = self.phase % 1.0;
-        self.output = (self.waveform)(modulated_phase) * amplitude;
-
-        self.phase += frequency / sample_rate;
-        self.phase %= 1.0;
-    }
-
     pub fn new(frequency: f32, amplitude: f32, waveform: fn(f32) -> f32) -> Self {
         Self {
             phase: 0.0,
@@ -75,47 +63,16 @@ impl Oscillator {
 }
 
 impl SignalProcessor for Oscillator {
-    /// Auto-populated implementation (TODO: auto-generate via macro)
-    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) {
-        // Populate stream inputs from context
-        self.frequency_mod = context.stream(0);
+    #[inline(always)]
+    fn process(&mut self, sample_rate: f32) {
+        let frequency = self.frequency * (1.0 + self.frequency_mod);
+        let amplitude = self.amplitude;
 
-        // Populate value inputs from context
-        if let Some(value_ref) = context.value(0) {
-            if let Some(scalar) = value_ref.as_scalar() {
-                self.phase = scalar;
-            }
-        }
-        if let Some(value_ref) = context.value(1) {
-            if let Some(scalar) = value_ref.as_scalar() {
-                self.frequency = scalar;
-            }
-        }
-        if let Some(value_ref) = context.value(2) {
-            if let Some(scalar) = value_ref.as_scalar() {
-                self.amplitude = scalar;
-            }
-        }
+        let modulated_phase = self.phase % 1.0;
+        self.output = (self.waveform)(modulated_phase) * amplitude;
 
-        // Call user's process method
-        self.process_dsp(sample_rate);
-
-        // Output is now in self.output - runtime graph reads it via get_stream_output()
-    }
-
-    // Accessor methods for runtime graph routing
-    fn get_stream_output(&self, index: usize) -> Option<f32> {
-        match index {
-            0 => Some(self.output),
-            _ => None,
-        }
-    }
-
-    fn set_stream_input(&mut self, index: usize, value: f32) {
-        match index {
-            0 => self.frequency_mod = value,
-            _ => {}
-        }
+        self.phase += frequency / sample_rate;
+        self.phase %= 1.0;
     }
 }
 
@@ -133,18 +90,18 @@ pub struct PolyBlepOscillator {
     #[input(value)]
     phase: f32,
     #[input(stream)]
-    pub phase_mod: f32,  // PUBLIC
+    pub phase_mod: f32,
     #[input(value)]
     frequency: f32,
     #[input(stream)]
-    pub frequency_mod: f32,  // PUBLIC
+    pub frequency_mod: f32,
     #[input(value)]
     amplitude: f32,
     #[input(value)]
     pulse_width: f32,
 
     #[output(stream)]
-    pub output: f32,  // PUBLIC
+    pub output: f32,
 
     waveform: PolyBlepWaveform,
 }
@@ -160,22 +117,6 @@ impl PolyBlepOscillator {
             pulse_width: 0.5,
             output: 0.0,
             waveform,
-        }
-    }
-
-    // Accessor methods for runtime graph (TODO: auto-generate via macro)
-    pub fn get_stream_output(&self, index: usize) -> Option<f32> {
-        match index {
-            0 => Some(self.output),
-            _ => None,
-        }
-    }
-
-    pub fn set_stream_input(&mut self, index: usize, value: f32) {
-        match index {
-            0 => self.phase_mod = value,
-            1 => self.frequency_mod = value,
-            _ => {}
         }
     }
 
@@ -230,27 +171,18 @@ impl PolyBlepOscillator {
     fn wrap_phase(phase: f32) -> f32 {
         phase.rem_euclid(1.0)
     }
+}
 
-    fn process_internal(
-        &mut self,
-        sample_rate: f32,
-        phase_offset: f32,
-        phase_mod_stream: f32,
-        freq_mod: f32,
-        freq_input: f32,
-        amp_mod: f32,
-        pulse_mod: f32,
-    ) -> f32 {
-        let base_freq = if freq_input == 0.0 {
-            self.frequency
-        } else {
-            freq_input
-        };
-        let frequency = (base_freq * (1.0 + freq_mod)).max(0.0);
-        let amplitude = self.amplitude * (1.0 + amp_mod);
-        let mut pulse_width = (self.pulse_width + pulse_mod).clamp(0.0001, 0.9999);
+impl SignalProcessor for PolyBlepOscillator {
+    #[inline(always)]
+    fn process(&mut self, sample_rate: f32) {
+        // Calculate modulated frequency
+        let frequency = (self.frequency * (1.0 + self.frequency_mod)).max(0.0);
+        let amplitude = self.amplitude;
+        let mut pulse_width = self.pulse_width.clamp(0.0001, 0.9999);
 
-        let mut phase = Self::wrap_phase(self.phase + phase_offset + phase_mod_stream);
+        // Calculate phase with modulation
+        let mut phase = Self::wrap_phase(self.phase + self.phase_mod);
         let freq_per_sample = frequency / sample_rate.max(f32::EPSILON);
         let dt = freq_per_sample.min(1.0);
 
@@ -258,6 +190,7 @@ impl PolyBlepOscillator {
             pulse_width = 0.0001;
         }
 
+        // Generate waveform with PolyBLEP anti-aliasing
         let mut value = if frequency >= sample_rate * 0.25 {
             (phase * TAU).sin()
         } else {
@@ -290,75 +223,12 @@ impl PolyBlepOscillator {
             }
         };
 
+        // Apply amplitude and update phase
         value *= amplitude;
         self.output = value;
 
         phase = Self::wrap_phase(self.phase + freq_per_sample);
         self.phase = phase;
-
-        self.output
-    }
-}
-
-impl SignalProcessor for PolyBlepOscillator {
-    /// Process with CMajor-style direct field access
-    fn process<'a>(
-        &mut self,
-        sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
-        // Populate stream inputs from context
-        self.phase_mod = context.stream(0);
-        self.frequency_mod = context.stream(1);
-
-        // Populate value inputs from context
-        if let Some(value_ref) = context.value(0) {
-            if let Some(scalar) = value_ref.as_scalar() {
-                self.phase = scalar;
-            }
-        }
-        if let Some(value_ref) = context.value(1) {
-            if let Some(scalar) = value_ref.as_scalar() {
-                self.frequency = scalar;
-            }
-        }
-        if let Some(value_ref) = context.value(2) {
-            if let Some(scalar) = value_ref.as_scalar() {
-                self.amplitude = scalar;
-            }
-        }
-        if let Some(value_ref) = context.value(3) {
-            if let Some(scalar) = value_ref.as_scalar() {
-                self.pulse_width = scalar;
-            }
-        }
-
-        // Call internal processing (TODO: simplify this later)
-        self.output = self.process_internal(
-            sample_rate,
-            0.0,  // phase_offset from value context
-            self.phase_mod,
-            self.frequency_mod,
-            self.frequency,
-            self.amplitude,
-            self.pulse_width,
-        );
-    }
-
-    // Accessor methods for runtime graph routing
-    fn get_stream_output(&self, index: usize) -> Option<f32> {
-        match index {
-            0 => Some(self.output),
-            _ => None,
-        }
-    }
-
-    fn set_stream_input(&mut self, index: usize, value: f32) {
-        match index {
-            0 => self.phase_mod = value,
-            1 => self.frequency_mod = value,
-            _ => {}
-        }
     }
 }
 
@@ -366,7 +236,7 @@ impl SignalProcessor for PolyBlepOscillator {
 mod tests {
     use super::{PolyBlepOscillator, PolyBlepWaveform, SignalProcessor};
     use crate::graph::types::{EventInstance, ValueData};
-    use crate::graph::{IOStructAccess, PendingEvent, ProcessingContext, ProcessingNode};
+    use crate::graph::{IOStructAccess, NodeIO, PendingEvent, ProcessingContext, ProcessingNode};
 
     #[test]
     fn test_poly_blep_saw_stays_bounded() {
@@ -393,7 +263,8 @@ mod tests {
             let mut context =
                 ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
 
-            osc.process(sample_rate, &mut context);
+            osc.read_inputs(&mut context);
+            osc.process(sample_rate);
             let value = osc.output;
             min = min.min(value);
             max = max.max(value);
@@ -427,7 +298,8 @@ mod tests {
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
                 ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
-            osc.process(sample_rate, &mut context);
+            osc.read_inputs(&mut context);
+            osc.process(sample_rate);
             osc.output
         };
         for _ in 0..1024 {
@@ -440,7 +312,8 @@ mod tests {
             let mut context =
                 ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
 
-            osc.process(sample_rate, &mut context);
+            osc.read_inputs(&mut context);
+            osc.process(sample_rate);
             let current = osc.output;
             let delta = (current - previous).abs();
             assert!(delta <= 1.6, "square produced discontinuity of {delta}");
@@ -458,7 +331,10 @@ mod tests {
 
         let mut samples = [0.0; 4];
         for i in 0..samples.len() {
-            osc.process(sample_rate, &mut ProcessingContext::new(&[], &[], &[], &mut Vec::new()));
+            let mut pending = Vec::new();
+            let mut context = ProcessingContext::new(&[], &[], &[], &mut pending);
+            osc.read_inputs(&mut context);
+            osc.process(sample_rate);
             samples[i] = osc.output;
         }
 

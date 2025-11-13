@@ -1,5 +1,6 @@
 use crate::{
-    InputEndpoint, Node, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor, ValueKey,
+    InputEndpoint, Node, NodeKey, ProcessingNode,
+    SignalProcessor, ValueKey,
 };
 use std::f32::consts::PI;
 
@@ -29,7 +30,6 @@ pub struct TptFilter {
     // frame counting
     frame_counter: usize,
     frames_per_update: usize,
-    io: TptFilterIO,
 }
 
 /// These filters are based on the designs outlined in The Art of VA Filter Design
@@ -42,7 +42,7 @@ pub struct TptFilter {
 /// `framesPerParameterUpdate`, smaller numbers causing more frequent updates.
 impl TptFilter {
     pub fn new(cutoff: f32, q: f32) -> Self {
-        Self {
+        let mut filter = Self {
             input: 0.0,
             cutoff,
             q,
@@ -55,12 +55,11 @@ impl TptFilter {
             k: 0.0,
             frame_counter: 0,
             frames_per_update: 32,
-            io: TptFilterIO {
-                input: 0.0,
-                f_mod: 0.0,
-                output: 0.0,
-            },
-        }
+        };
+        // Initialize coefficients with default sample rate
+        // Will be updated again on first process call with actual sample rate
+        filter.update_coefficients(44100.0);
+        filter
     }
 
     fn update_coefficients(&mut self, sample_rate: f32) {
@@ -77,6 +76,7 @@ impl TptFilter {
     }
 
     //TODO: why do we need this function?
+    #[inline(always)]
     fn apply_parameter_updates(&mut self, sample_rate: f32, cutoff_in: f32, q_in: f32, f_mod: f32) {
         if self.frame_counter == 0 {
             let nyquist = sample_rate * 0.5 - f32::EPSILON;
@@ -101,41 +101,37 @@ impl TptFilter {
     }
 }
 
-impl SignalProcessor for TptFilter {
-    fn init(&mut self, sample_rate: f32) {
-        self.update_coefficients(sample_rate);
-    }
-
-    /// Process using struct-of-arrays I/O pattern.
-    ///
-    /// Input and output are accessed via self.input/self.output
-    /// Graph pre-populates stream inputs, node writes to output.
-    fn process<'a>(
-        &mut self,
-        sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
-        // Read stream inputs from self (pre-populated by graph)
-        let input = self.input;
-        let f_mod = self.f_mod;
-
-        // Get value inputs from graph
-        let cutoff = self.get_cutoff(context);
-        let q = self.get_q(context);
-
+impl TptFilter {
+    /// DSP processing - inputs are already in self fields, write output to self.output
+    #[inline(always)]
+    pub fn process(&mut self, sample_rate: f32) {
         // Update parameters
-        self.apply_parameter_updates(sample_rate, cutoff, q, f_mod);
+        self.apply_parameter_updates(sample_rate, self.cutoff, self.q, self.f_mod);
 
-        // Process
-        let high = (input - self.k * self.z[0] - self.z[1]) * self.h;
+        // Process (state-variable filter)
+        let high = (self.input - self.k * self.z[0] - self.z[1]) * self.h;
         let band = self.g * high + self.z[0];
         let low = self.g * band + self.z[1];
 
         self.z[0] = self.g * high + band;
         self.z[1] = self.g * band + low;
 
-        // Write stream output to self
+        // Write output
         self.output = low;
+    }
+}
+
+// SignalProcessor must be manually implemented
+// The Node macro only generates NodeIO and ProcessingNode traits
+impl SignalProcessor for TptFilter {
+    fn init(&mut self, sample_rate: f32) {
+        self.update_coefficients(sample_rate);
+    }
+
+    #[inline(always)]
+    fn process(&mut self, sample_rate: f32) {
+        // Call our custom process method
+        self.process(sample_rate);
     }
 }
 
@@ -143,7 +139,7 @@ impl SignalProcessor for TptFilter {
 mod tests {
     use super::*;
     use crate::graph::types::{EventInstance, ValueData};
-    use crate::graph::{PendingEvent, ProcessingContext, ProcessingNode};
+    use crate::graph::{NodeIO, PendingEvent, ProcessingContext, ProcessingNode};
 
     const EPSILON: f32 = 1e-6;
 
@@ -204,7 +200,8 @@ mod tests {
                 ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
             filter.input = input;
             filter.f_mod = 0.0;
-            filter.process(sample_rate, &mut context);
+            filter.read_inputs(&mut context);
+            filter.process(sample_rate);
             outputs.push(filter.output);
         }
 

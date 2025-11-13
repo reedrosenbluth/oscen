@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
@@ -9,7 +9,7 @@ use slotmap::{SecondaryMap, SlotMap};
 use super::audio_input::AudioInput;
 use super::helpers::{BinaryFunctionNode, FunctionNode};
 use super::traits::{
-    IOStructAccess, PendingEvent, ProcessingContext, ProcessingNode, SignalProcessor,
+    DynNode, IOStructAccess, PendingEvent, ProcessingContext, ProcessingNode,
 };
 use super::types::{
     Connection, ConnectionBuilder, EndpointDescriptor, EndpointDirection, EndpointState,
@@ -29,7 +29,7 @@ impl fmt::Debug for NodeData {
 }
 
 pub struct NodeData {
-    pub processor: Box<dyn SignalProcessor>,
+    pub processor: Box<dyn DynNode>,
     pub inputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
     pub outputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
     pub input_types: ArrayVec<EndpointType, MAX_NODE_ENDPOINTS>,
@@ -433,7 +433,7 @@ impl Graph {
         O: Output,
     {
         let node = FunctionNode::new(f);
-        let processor: Box<dyn SignalProcessor> = Box::new(node);
+        let processor: Box<dyn DynNode> = Box::new(node);
 
         let input_key = self.allocate_endpoint(EndpointType::Stream);
         let mut input_keys = ArrayVec::new();
@@ -480,7 +480,7 @@ impl Graph {
         O2: Output,
     {
         let node = BinaryFunctionNode::new(f);
-        let processor: Box<dyn SignalProcessor> = Box::new(node);
+        let processor: Box<dyn DynNode> = Box::new(node);
 
         let input_key1 = self.allocate_endpoint(EndpointType::Stream);
         let input_key2 = self.allocate_endpoint(EndpointType::Stream);
@@ -767,8 +767,11 @@ impl Graph {
                         &mut self.pending_events,
                     );
 
-                    // Process (no IO struct - CMajor-style direct field access)
-                    node.processor.process(self.sample_rate, &mut context);
+                    // Read inputs into node fields
+                    node.processor.read_inputs(&mut context);
+
+                    // Process (CMajor-style: inputs already in fields)
+                    node.processor.process(self.sample_rate);
 
                     // Route ALL stream outputs via accessor methods
                     let mut stream_output_idx = 0;

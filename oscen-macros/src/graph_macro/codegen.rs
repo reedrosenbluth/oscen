@@ -5,7 +5,7 @@ use quote::quote;
 use syn::Result;
 
 pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
-    let mut ctx = CodegenContext::new(graph_def.compile_time);
+    let mut ctx = CodegenContext::new();
 
     // Collect all declarations
     for item in &graph_def.items {
@@ -34,17 +34,15 @@ struct CodegenContext {
     outputs: Vec<OutputDecl>,
     nodes: Vec<NodeDecl>,
     connections: Vec<ConnectionStmt>,
-    compile_time: bool,
 }
 
 impl CodegenContext {
-    fn new(compile_time: bool) -> Self {
+    fn new() -> Self {
         Self {
             inputs: Vec::new(),
             outputs: Vec::new(),
             nodes: Vec::new(),
             connections: Vec::new(),
-            compile_time,
         }
     }
 
@@ -72,7 +70,8 @@ impl CodegenContext {
 
         if leading_segments.is_empty() {
             // Simple type like PolyBlepOscillator or VoiceAllocator<4>
-            quote! { #endpoints_ident #generic_args }
+            // Assume it comes from oscen crate and generate fully-qualified path
+            quote! { ::oscen::#endpoints_ident #generic_args }
         } else {
             // Qualified type like oscen::PolyBlepOscillator
             quote! { #(#leading_segments)::* :: #endpoints_ident #generic_args }
@@ -82,6 +81,7 @@ impl CodegenContext {
     /// Construct the IO type from a node type
     /// E.g., PolyBlepOscillator -> PolyBlepOscillatorIO
     ///       TptFilter -> TptFilterIO
+    #[allow(dead_code)]
     fn construct_io_type(node_type: &syn::Path) -> TokenStream {
         // For now, use the full node path and append IO to the final segment
         // This preserves the module path (e.g., oscen::PolyBlepOscillator becomes oscen::PolyBlepOscillatorIO)
@@ -195,8 +195,10 @@ impl CodegenContext {
         }
     }
 
+    #[allow(dead_code)]
     fn generate_context_impl(&self) -> Result<TokenStream> {
         let input_params = self.generate_input_params();
+        let output_params = self.generate_output_params();
         let node_creation = self.generate_node_creation();
         let connections = self.generate_connections()?;
         let output_assignments = self.generate_output_assignments();
@@ -210,6 +212,9 @@ impl CodegenContext {
 
                     // Create input parameters
                     #(#input_params)*
+
+                    // Create output parameters
+                    #(#output_params)*
 
                     // Create nodes
                     #(#node_creation)*
@@ -258,6 +263,33 @@ impl CodegenContext {
                             let key = graph.allocate_endpoint(::oscen::graph::EndpointType::Stream);
                             ::oscen::StreamInput::new(::oscen::graph::InputEndpoint::new(key))
                         };
+                    }
+                }
+            }
+        }).collect()
+    }
+
+    fn generate_output_params(&self) -> Vec<TokenStream> {
+        self.outputs.iter().map(|output| {
+            let name = &output.name;
+
+            match output.kind {
+                EndpointKind::Stream => {
+                    quote! {
+                        let #name = {
+                            let key = graph.allocate_endpoint(::oscen::graph::EndpointType::Stream);
+                            ::oscen::StreamOutput::new(key)
+                        };
+                    }
+                }
+                EndpointKind::Value => {
+                    quote! {
+                        let #name = graph.value_param(0.0);
+                    }
+                }
+                EndpointKind::Event => {
+                    quote! {
+                        let #name = graph.event_param();
                     }
                 }
             }
@@ -691,6 +723,7 @@ impl CodegenContext {
     fn generate_closure(&self) -> Result<TokenStream> {
         let context_struct = self.generate_context_struct();
         let input_params = self.generate_input_params();
+        let output_params = self.generate_output_params();
         let node_creation = self.generate_node_creation();
         let connections = self.generate_connections()?;
         let struct_init = self.generate_struct_init();
@@ -727,6 +760,7 @@ impl CodegenContext {
         })
     }
 
+    #[allow(dead_code)]
     fn generate_output_assignments(&self) -> Vec<TokenStream> {
         // For now, outputs are handled in connections
         // We might need to track which connection assigns to each output
@@ -898,7 +932,7 @@ impl CodegenContext {
         }
 
         // Get the first output to return (required by SignalProcessor)
-        let return_expr = if let Some(first_output) = self.outputs.first() {
+        let _return_expr = if let Some(first_output) = self.outputs.first() {
             let field_name = &first_output.name;
             quote! {
                 self.graph.get_value(&self.#field_name).unwrap_or(0.0)
@@ -920,23 +954,31 @@ impl CodegenContext {
             }
         }
 
-        quote! {
-            impl ::oscen::SignalProcessor for #name {
-                fn process<'a>(
-                    &mut self,
-                    _sample_rate: f32,
-                    context: &mut ::oscen::ProcessingContext<'a>
-                ) {
+        // Generate NodeIO implementation for handling input/output routing
+        let node_io_impl = quote! {
+            impl ::oscen::NodeIO for #name {
+                #[inline(always)]
+                fn read_inputs<'a>(&mut self, context: &mut ::oscen::ProcessingContext<'a>) {
                     // Route external inputs to internal graph endpoints
                     #(#input_routing)*
-
-                    // Process internal graph
-                    let _ = self.graph.process();
-
-                    // Route event outputs from internal graph to external context
-                    #(#event_output_routing)*
                 }
             }
+        };
+
+        // Generate SignalProcessor implementation (CMajor-style)
+        let signal_processor_impl = quote! {
+            impl ::oscen::SignalProcessor for #name {
+                #[inline(always)]
+                fn process(&mut self, _sample_rate: f32) {
+                    // Process internal graph
+                    let _ = self.graph.process();
+                }
+            }
+        };
+
+        quote! {
+            #node_io_impl
+            #signal_processor_impl
         }
     }
 
@@ -1091,6 +1133,7 @@ impl CodegenContext {
         }
 
         let input_params = self.generate_input_params();
+        let output_params = self.generate_output_params();
         let node_creation = self.generate_node_creation();
         let connections = self.generate_connections()?;
         let struct_init = self.generate_struct_init();
@@ -1114,6 +1157,9 @@ impl CodegenContext {
 
                     // Create input parameters
                     #(#input_params)*
+
+                    // Create output parameters
+                    #(#output_params)*
 
                     // Create nodes
                     #(#node_creation)*
@@ -1351,15 +1397,9 @@ impl CodegenContext {
             let assignments = self.generate_connection_assignments_for_node(node_name);
             process_body.extend(assignments);
 
-            // Then generate the process call (3 parameters: node, sample_rate, context)
+            // Then generate the direct process call (bypasses trait dispatch for inlining)
             process_body.push(quote! {
-                // TODO: Build proper ProcessingContext with inputs
-                let mut __dummy_context = ::oscen::ProcessingContext::new(&[], &[], &[], &mut __emitted_events);
-                ::oscen::SignalProcessor::process(
-                    &mut self.#node_name,
-                    self.sample_rate,
-                    &mut __dummy_context
-                );
+                self.#node_name.process(self.sample_rate);
             });
         }
 
@@ -1375,10 +1415,9 @@ impl CodegenContext {
         };
 
         Ok(quote! {
+            #[inline(always)]
             pub fn process(&mut self) -> f32 {
-                // Storage for emitted events (required for ProcessingContext)
-                let mut __emitted_events = Vec::new();
-
+                use ::oscen::SignalProcessor as _;
                 #(#process_body)*
 
                 #return_value

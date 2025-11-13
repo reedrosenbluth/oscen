@@ -1,4 +1,4 @@
-use crate::graph::{EventPayload, IOStructAccess, ProcessingContext, ProcessingNode, SignalProcessor};
+use crate::graph::{EventPayload, ProcessingContext, ProcessingNode, SignalProcessor};
 use crate::midi::{NoteOffEvent, NoteOnEvent};
 
 const MAX_VOICES: usize = 24;
@@ -25,7 +25,6 @@ impl VoiceState {
 #[derive(Debug)]
 pub struct VoiceAllocator<const NUM_VOICES: usize> {
     voices: [VoiceState; MAX_VOICES],
-    next_voice: usize,
     current_age: u32,
 }
 
@@ -34,7 +33,6 @@ impl<const NUM_VOICES: usize> VoiceAllocator<NUM_VOICES> {
         assert!(NUM_VOICES <= MAX_VOICES, "NUM_VOICES must be <= MAX_VOICES");
         Self {
             voices: [VoiceState::new(); MAX_VOICES],
-            next_voice: 0,
             current_age: 0,
         }
     }
@@ -89,12 +87,16 @@ pub type VoiceAllocator2 = VoiceAllocator<2>;
 pub type VoiceAllocator4 = VoiceAllocator<4>;
 
 impl<const NUM_VOICES: usize> SignalProcessor for VoiceAllocator<NUM_VOICES> {
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
-        // Fast path: check if there are any events before allocating ArrayVec
+    fn process(&mut self, _sample_rate: f32) {
+        // All event processing is done in NodeIO::read_inputs
+        // This node has no stream outputs to update
+    }
+}
+
+// Manual NodeIO implementation for VoiceAllocator
+impl<const NUM_VOICES: usize> crate::graph::NodeIO for VoiceAllocator<NUM_VOICES> {
+    fn read_inputs<'a>(&mut self, context: &mut ProcessingContext<'a>) {
+        // Handle note_on events (input index 0)
         let note_on_slice = context.events(0);
         if !note_on_slice.is_empty() {
             use arrayvec::ArrayVec;
@@ -110,6 +112,7 @@ impl<const NUM_VOICES: usize> SignalProcessor for VoiceAllocator<NUM_VOICES> {
             }
         }
 
+        // Handle note_off events (input index 1)
         let note_off_slice = context.events(1);
         if !note_off_slice.is_empty() {
             use arrayvec::ArrayVec;

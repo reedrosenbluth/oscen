@@ -1,4 +1,4 @@
-use super::traits::{ProcessingContext, SignalProcessor};
+use super::traits::SignalProcessor;
 use super::{InputEndpoint, NodeKey, ProcessingNode, ValueKey};
 use crate::Node;
 
@@ -28,22 +28,9 @@ impl Default for AudioInput {
 }
 
 impl SignalProcessor for AudioInput {
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
-        // Get value input from graph
-        let input_val = self.get_input_value(context);
-
-        // Write to output field
-        self.output = input_val;
-    }
-
-    fn get_stream_output(&self, index: usize) -> Option<f32> {
-        match index {
-            0 => Some(self.output),
-            _ => None,
-        }
+    #[inline(always)]
+    fn process(&mut self, _sample_rate: f32) {
+        // Simply pass through the input value
+        self.output = self.input_value;
     }
 }

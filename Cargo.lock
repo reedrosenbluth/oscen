@@ -4626,8 +4626,11 @@ dependencies = [
 name = "oscen-macros"
 version = "0.2.0"
 dependencies = [
+ "arrayvec",
+ "oscen",
  "proc-macro2",
  "quote",
+ "slotmap",
  "syn 2.0.98",
 ]
 

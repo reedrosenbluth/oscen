@@ -13,30 +13,17 @@ pub mod ring_buffer;
 pub mod value;
 pub mod voice_allocator;
 
-pub use delay::Delay;
-pub use envelope::AdsrEnvelope;
-pub use event_passthrough::EventPassthrough;
-pub use filters::{
-    iir_lowpass::{IirLowpass, IirLowpassIO},
-    tpt::{TptFilter, TptFilterIO},
-};
-pub use gain::Gain;
+// Re-export everything from each module to make it easy for consumers
+pub use delay::*;
+pub use envelope::*;
+pub use event_passthrough::*;
+pub use filters::iir_lowpass::*;
+pub use filters::tpt::*;
+pub use gain::*;
 pub use graph::*;
-pub use midi::{
-    queue_raw_midi, raw_midi_event, MidiParser, MidiVoiceHandler, NoteOffEvent, NoteOnEvent,
-    RawMidiMessage,
-};
+pub use midi::*;
 pub use oscen_macros::{graph, Node};
-pub use oscillators::{
-    Oscillator, OscillatorIO,
-    PolyBlepOscillator, PolyBlepOscillatorIO,
-};
-pub use oscilloscope::{
-    Oscilloscope, OscilloscopeEndpoints, OscilloscopeHandle, OscilloscopeSnapshot,
-    DEFAULT_SCOPE_CAPACITY,
-};
-pub use value::Value;
-pub use voice_allocator::{
-    VoiceAllocator, VoiceAllocator2, VoiceAllocator2Endpoints, VoiceAllocator4,
-    VoiceAllocator4Endpoints, VoiceAllocatorEndpoints,
-};
+pub use oscillators::*;
+pub use oscilloscope::*;
+pub use value::*;
+pub use voice_allocator::*;

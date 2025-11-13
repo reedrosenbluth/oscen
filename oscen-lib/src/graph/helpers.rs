@@ -6,25 +6,27 @@ use super::types::{
 };
 
 #[derive(Debug)]
-pub struct FunctionNode {
-    pub(crate) f: fn(f32) -> f32,
-}
+pub struct FunctionNode {}
 
 impl FunctionNode {
-    pub fn new(f: fn(f32) -> f32) -> Self {
-        Self { f }
+    pub fn new(_f: fn(f32) -> f32) -> Self {
+        Self {}
     }
 }
 
 impl SignalProcessor for FunctionNode {
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
+    fn process(&mut self, _sample_rate: f32) {
         // FunctionNode doesn't support the new API properly yet
-        // For now, just call the function but don't return anything
-        let _result = (self.f)(context.stream(0));
+        // For now, process is a no-op since we don't have access to inputs/outputs
+        // This node needs to be refactored to use the struct-of-arrays pattern
+    }
+}
+
+// Manual NodeIO implementation for FunctionNode
+impl super::traits::NodeIO for FunctionNode {
+    fn read_inputs<'a>(&mut self, _context: &mut ProcessingContext<'a>) {
+        // FunctionNode doesn't support the new API properly yet
+        // This node needs to be refactored to use the struct-of-arrays pattern
     }
 }
 
@@ -46,25 +48,27 @@ impl ProcessingNode for FunctionNode {
 }
 
 #[derive(Debug)]
-pub struct BinaryFunctionNode {
-    pub(crate) f: fn(f32, f32) -> f32,
-}
+pub struct BinaryFunctionNode {}
 
 impl BinaryFunctionNode {
-    pub fn new(f: fn(f32, f32) -> f32) -> Self {
-        Self { f }
+    pub fn new(_f: fn(f32, f32) -> f32) -> Self {
+        Self {}
     }
 }
 
 impl SignalProcessor for BinaryFunctionNode {
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
+    fn process(&mut self, _sample_rate: f32) {
         // BinaryFunctionNode doesn't support the new API properly yet
-        // For now, just call the function but don't return anything
-        let _result = (self.f)(context.stream(0), context.stream(1));
+        // For now, process is a no-op since we don't have access to inputs/outputs
+        // This node needs to be refactored to use the struct-of-arrays pattern
+    }
+}
+
+// Manual NodeIO implementation for BinaryFunctionNode
+impl super::traits::NodeIO for BinaryFunctionNode {
+    fn read_inputs<'a>(&mut self, _context: &mut ProcessingContext<'a>) {
+        // BinaryFunctionNode doesn't support the new API properly yet
+        // This node needs to be refactored to use the struct-of-arrays pattern
     }
 }
 

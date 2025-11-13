@@ -1,5 +1,6 @@
 use crate::{
-    InputEndpoint, Node, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor, ValueKey,
+    InputEndpoint, Node, NodeKey, ProcessingNode,
+    SignalProcessor, ValueKey,
 };
 use std::f32::consts::PI;
 
@@ -15,14 +16,14 @@ use std::f32::consts::PI;
 #[derive(Debug, Node)]
 pub struct IirLowpass {
     #[input(stream)]
-    input: f32,
+    pub input: f32,
     #[input]
     cutoff: f32,
     #[input]
     q: f32,
 
     #[output(stream)]
-    output: f32,
+    pub output: f32,
 
     // Biquad coefficients
     b0: f32,
@@ -38,7 +39,6 @@ pub struct IirLowpass {
     // Parameter update management
     frame_counter: usize,
     frames_per_update: usize,
-    io: IirLowpassIO,
 }
 
 impl Default for IirLowpass {
@@ -57,10 +57,6 @@ impl Default for IirLowpass {
             v2: 0.0,
             frame_counter: 0,
             frames_per_update: 32,
-            io: IirLowpassIO {
-                input: 0.0,
-                output: 0.0,
-            },
         }
     }
 }
@@ -166,41 +162,13 @@ impl SignalProcessor for IirLowpass {
         self.update_coefficients(sample_rate);
     }
 
-    /// Process using struct-of-arrays I/O pattern.
-    ///
-    /// IirLowpassIO contains { input: f32, output: f32 }
-    /// Graph pre-populates input, node writes to output.
-    fn process<'a>(
-        &mut self,
-        sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
-        // Read stream input from context
-        self.input = context.stream(0);
-
-        // Get value inputs (cutoff, q) from graph
-        let cutoff = self.get_cutoff(context);
-        let q = self.get_q(context);
-
+    #[inline(always)]
+    fn process(&mut self, sample_rate: f32) {
         // Update filter parameters if needed
-        self.apply_parameter_updates(sample_rate, cutoff, q);
+        self.apply_parameter_updates(sample_rate, self.cutoff, self.q);
 
-        // Process
+        // Process sample
         self.output = self.process_sample(self.input);
-    }
-
-    fn get_stream_output(&self, index: usize) -> Option<f32> {
-        match index {
-            0 => Some(self.output),
-            _ => None,
-        }
-    }
-
-    fn set_stream_input(&mut self, index: usize, value: f32) {
-        match index {
-            0 => self.input = value,
-            _ => {}
-        }
     }
 }
 
@@ -208,7 +176,7 @@ impl SignalProcessor for IirLowpass {
 mod tests {
     use super::*;
     use crate::graph::types::{EventInstance, ValueData};
-    use crate::graph::{IOStructAccess, ProcessingContext, ProcessingNode};
+    use crate::graph::{IOStructAccess, NodeIO, ProcessingContext, ProcessingNode};
 
     const EPSILON: f32 = 1e-6;
 
@@ -295,7 +263,8 @@ mod tests {
             let mut context =
                 ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
             filter.input = dc_input;
-            filter.process(sample_rate, &mut context);
+            filter.read_inputs(&mut context);
+            filter.process(sample_rate);
             output = filter.output;
         }
 
@@ -333,7 +302,8 @@ mod tests {
             let mut context =
                 ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
             filter.input = input;
-            filter.process(sample_rate, &mut context);
+            filter.read_inputs(&mut context);
+            filter.process(sample_rate);
             outputs.push(filter.output);
         }
 
@@ -377,7 +347,8 @@ mod tests {
             let mut context =
                 ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
             filter.input = input;
-            filter.process(sample_rate, &mut context);
+            filter.read_inputs(&mut context);
+            filter.process(sample_rate);
             let output = filter.output;
 
             assert!(

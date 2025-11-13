@@ -43,7 +43,7 @@ impl TypeContext {
                 // Array indexing preserves the type of the base expression
                 self.infer_type(array_expr)
             }
-            ConnectionExpr::Method(obj, method, _args) => {
+            ConnectionExpr::Method(_obj, method, _args) => {
                 // Try to infer based on common method names
                 let method_name = method.to_string();
 
@@ -71,7 +71,7 @@ impl TypeContext {
                     _ => None,
                 }
             }
-            ConnectionExpr::Binary(left, op, right) => {
+            ConnectionExpr::Binary(left, _op, right) => {
                 // Arithmetic operations on streams produce streams
                 // Operations involving values produce values
                 let left_type = self.infer_type(left)?;

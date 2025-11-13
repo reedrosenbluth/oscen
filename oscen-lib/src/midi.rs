@@ -1,6 +1,6 @@
 use crate::graph::{
-    EventPayload, InputEndpoint, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor,
-    ValueKey,
+    EventInstance, EventPayload, InputEndpoint, NodeKey, ProcessingContext, ProcessingNode,
+    SignalProcessor, ValueKey,
 };
 use crate::Node;
 use std::sync::Arc;
@@ -82,48 +82,38 @@ impl Default for MidiVoiceHandler {
 }
 
 impl SignalProcessor for MidiVoiceHandler {
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
-        // Collect note-on events first to avoid borrow checker issues
-        let note_on_events: Vec<_> = self.events_note_on(context).iter().cloned().collect();
-        for event in note_on_events {
-            if let EventPayload::Object(obj) = &event.payload {
-                if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
-                    self.current_note = Some(note_on.note);
-                    self.current_frequency = Self::midi_note_to_freq(note_on.note);
-
-                    // Emit gate-on event with velocity (gate is output index 1)
-                    context.emit_scalar_event(1, event.frame_offset, note_on.velocity);
-                }
-            }
-        }
-
-        // Collect note-off events first to avoid borrow checker issues
-        let note_off_events: Vec<_> = self.events_note_off(context).iter().cloned().collect();
-        for event in note_off_events {
-            if let EventPayload::Object(obj) = &event.payload {
-                if let Some(note_off) = obj.as_any().downcast_ref::<NoteOffEvent>() {
-                    // Only turn off gate if this is the current note
-                    if self.current_note == Some(note_off.note) {
-                        // Emit gate-off event (gate is output index 1)
-                        context.emit_scalar_event(1, event.frame_offset, 0.0);
-                        self.current_note = None;
-                    }
-                }
-            }
-        }
-
+    #[inline(always)]
+    fn process(&mut self, _sample_rate: f32) {
         // Update frequency output
+        // Event handling is done via on_note_on/on_note_off handlers
         self.frequency = self.current_frequency;
     }
+}
 
-    fn get_stream_output(&self, index: usize) -> Option<f32> {
-        match index {
-            0 => Some(self.frequency),
-            _ => None,
+impl MidiVoiceHandler {
+    // Event handlers called automatically by macro-generated NodeIO
+    fn on_note_on(&mut self, event: &EventInstance, context: &mut ProcessingContext) {
+        if let EventPayload::Object(obj) = &event.payload {
+            if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
+                self.current_note = Some(note_on.note);
+                self.current_frequency = Self::midi_note_to_freq(note_on.note);
+
+                // Emit gate-on event with velocity (gate is output index 1)
+                context.emit_scalar_event(1, event.frame_offset, note_on.velocity);
+            }
+        }
+    }
+
+    fn on_note_off(&mut self, event: &EventInstance, context: &mut ProcessingContext) {
+        if let EventPayload::Object(obj) = &event.payload {
+            if let Some(note_off) = obj.as_any().downcast_ref::<NoteOffEvent>() {
+                // Only turn off gate if this is the current note
+                if self.current_note == Some(note_off.note) {
+                    // Emit gate-off event (gate is output index 1)
+                    context.emit_scalar_event(1, event.frame_offset, 0.0);
+                    self.current_note = None;
+                }
+            }
         }
     }
 }
@@ -192,33 +182,33 @@ impl Default for MidiParser {
 }
 
 impl SignalProcessor for MidiParser {
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
-        // Collect incoming raw MIDI events
-        let midi_events: Vec<_> = self.events_midi_in(context).iter().cloned().collect();
+    #[inline(always)]
+    fn process(&mut self, _sample_rate: f32) {
+        // All event processing is done via on_midi_in handler
+        // This node has no stream outputs to update
+    }
+}
 
-        for event in midi_events {
-            if let EventPayload::Object(obj) = &event.payload {
-                // Try to downcast to RawMidiMessage
-                if let Some(raw_midi) = obj.as_any().downcast_ref::<RawMidiMessage>() {
-                    // Parse the raw bytes
-                    if let Some(parsed) = Self::parse_bytes(&raw_midi.bytes[..raw_midi.len]) {
-                        match parsed {
-                            ParsedMidi::NoteOn { note, velocity } => {
-                                // Emit note-on event (output index 0)
-                                let note_on_payload =
-                                    EventPayload::Object(Arc::new(NoteOnEvent { note, velocity }));
-                                context.emit_timed_event(0, event.frame_offset, note_on_payload);
-                            }
-                            ParsedMidi::NoteOff { note } => {
-                                // Emit note-off event (output index 1)
-                                let note_off_payload =
-                                    EventPayload::Object(Arc::new(NoteOffEvent { note }));
-                                context.emit_timed_event(1, event.frame_offset, note_off_payload);
-                            }
+impl MidiParser {
+    // Event handler called automatically by macro-generated NodeIO
+    fn on_midi_in(&mut self, event: &EventInstance, context: &mut ProcessingContext) {
+        if let EventPayload::Object(obj) = &event.payload {
+            // Try to downcast to RawMidiMessage
+            if let Some(raw_midi) = obj.as_any().downcast_ref::<RawMidiMessage>() {
+                // Parse the raw bytes
+                if let Some(parsed) = Self::parse_bytes(&raw_midi.bytes[..raw_midi.len]) {
+                    match parsed {
+                        ParsedMidi::NoteOn { note, velocity } => {
+                            // Emit note-on event (output index 0)
+                            let note_on_payload =
+                                EventPayload::Object(Arc::new(NoteOnEvent { note, velocity }));
+                            context.emit_timed_event(0, event.frame_offset, note_on_payload);
+                        }
+                        ParsedMidi::NoteOff { note } => {
+                            // Emit note-off event (output index 1)
+                            let note_off_payload =
+                                EventPayload::Object(Arc::new(NoteOffEvent { note }));
+                            context.emit_timed_event(1, event.frame_offset, note_off_payload);
                         }
                     }
                 }

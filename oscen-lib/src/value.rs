@@ -1,5 +1,5 @@
 use crate::graph::{
-    InputEndpoint, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor, ValueKey,
+    InputEndpoint, NodeKey, ProcessingNode, SignalProcessor, ValueKey,
 };
 use oscen_macros::Node;
 
@@ -24,11 +24,9 @@ impl Value {
 }
 
 impl SignalProcessor for Value {
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
-        self.output = self.get_input(context);
+    #[inline(always)]
+    fn process(&mut self, _sample_rate: f32) {
+        // Simply pass through the input value
+        self.output = self.input;
     }
 }

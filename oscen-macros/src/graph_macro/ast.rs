@@ -24,6 +24,7 @@ pub struct NodeBlock(pub Vec<NodeDecl>);
 pub struct ConnectionBlock(pub Vec<ConnectionStmt>);
 
 /// Input endpoint declaration
+#[allow(dead_code)]
 pub struct InputDecl {
     pub kind: EndpointKind,
     pub name: Ident,
@@ -84,12 +85,14 @@ pub enum EndpointKind {
 }
 
 /// Parameter specification (range, curve, ramp)
+#[allow(dead_code)]
 pub struct ParamSpec {
     pub range: Option<RangeSpec>,
     pub curve: Option<Curve>,
     pub ramp: Option<usize>,
 }
 
+#[allow(dead_code)]
 pub struct RangeSpec {
     pub min: Expr,
     pub max: Expr,

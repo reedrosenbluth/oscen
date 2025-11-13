@@ -1,5 +1,5 @@
 use crate::graph::{
-    InputEndpoint, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor, ValueKey,
+    InputEndpoint, NodeKey, ProcessingNode, SignalProcessor, ValueKey,
 };
 use crate::ring_buffer::RingBuffer;
 use oscen_macros::Node;
@@ -7,14 +7,14 @@ use oscen_macros::Node;
 #[derive(Debug, Node)]
 pub struct Delay {
     #[input(stream)]
-    input: f32,
+    pub input: f32,
     #[input]
     delay_samples: f32,
     #[input]
     feedback: f32,
 
     #[output(stream)]
-    output: f32,
+    pub output: f32,
 
     buffer: RingBuffer,
     sample_rate: f32,
@@ -55,6 +55,7 @@ impl Delay {
 
         self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
     }
+
 }
 
 impl SignalProcessor for Delay {
@@ -76,40 +77,16 @@ impl SignalProcessor for Delay {
         true // Delay nodes can break feedback cycles
     }
 
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
-        // Read stream input from context
-        self.input = context.stream(0);
+    #[inline(always)]
+    fn process(&mut self, _sample_rate: f32) {
+        // Update parameters (uses self.delay_samples and self.feedback from fields)
+        self.apply_parameter_updates(self.delay_samples, self.feedback);
 
-        // Get value inputs from context
-        let delay_samples = self.get_delay_samples(context);
-        let feedback = self.get_feedback(context);
-
-        // Update parameters
-        self.apply_parameter_updates(delay_samples, feedback);
-
-        // Process
+        // Process delay
         let delayed = self.buffer.get(self.delay_samples);
         self.buffer.push(self.input + delayed * self.feedback);
 
-        // Write to output field
+        // Write output
         self.output = delayed;
-    }
-
-    fn get_stream_output(&self, index: usize) -> Option<f32> {
-        match index {
-            0 => Some(self.output),
-            _ => None,
-        }
-    }
-
-    fn set_stream_input(&mut self, index: usize, value: f32) {
-        match index {
-            0 => self.input = value,
-            _ => {}
-        }
     }
 }

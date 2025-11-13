@@ -12,7 +12,8 @@ pub use audio_input::AudioInput;
 pub use graph_impl::{Graph, GraphError, NodeData};
 pub use topology::TopologyError;
 pub use traits::{
-    IOStructAccess, PendingEvent, ProcessingContext, ProcessingNode, SignalProcessor, ValueRef,
+    DynNode, IOStructAccess, NodeIO, PendingEvent, ProcessingContext, ProcessingNode,
+    SignalProcessor, ValueRef,
 };
 pub use types::{
     Connection, ConnectionBuilder, EndpointDescriptor, EndpointDirection, EndpointType, EventInput,

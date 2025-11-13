@@ -25,13 +25,18 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut value_input_fields = Vec::new(); // Track (field_name, index) for value inputs
 
     // Track event I/O for determining if IO struct needs lifetime parameter
-    let mut event_input_idx = 0usize;
-    let mut event_output_idx = 0usize;
+    let mut _event_input_idx = 0usize;
+    let mut _event_output_idx = 0usize;
 
     // Track IO struct fields for IOStructAccess implementation
     let mut stream_input_fields = Vec::new(); // (field_name, index)
     let mut stream_output_fields = Vec::new(); // (field_name, index)
     let mut event_output_fields = Vec::new(); // (field_name, index)
+
+    // Track all input fields by type for SignalProcessor generation
+    let mut signal_processor_stream_inputs = Vec::new(); // (field_name, index)
+    let mut signal_processor_value_inputs = Vec::new(); // (field_name, index)
+    let mut signal_processor_event_inputs = Vec::new(); // (field_name, index)
 
     // Extract field information
     if let Data::Struct(data_struct) = input.data {
@@ -87,14 +92,17 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                                 pub #field_name: f32
                             });
                             stream_input_fields.push((field_name.clone(), stream_input_fields.len()));
+                            signal_processor_stream_inputs.push((field_name.clone(), input_idx));
                         }
                         EndpointTypeAttr::Event => {
                             // Event inputs NOT in IO struct - accessed via context.events()
                             // This avoids lifetime parameters and enables Default trait
-                            event_input_idx += 1;
+                            _event_input_idx += 1;
+                            signal_processor_event_inputs.push((field_name.clone(), input_idx));
                         }
                         EndpointTypeAttr::Value => {
                             // Value inputs stay in State (node struct), not IO
+                            signal_processor_value_inputs.push((field_name.clone(), input_idx));
                         }
                     }
 
@@ -112,6 +120,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         match kind {
                             EndpointTypeAttr::Stream => {
                                 input_scalar_getters.push(quote! {
+                                    #[inline(always)]
                                     pub fn #read_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> f32 {
                                         context.stream(#input_idx)
                                     }
@@ -119,6 +128,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             }
                             EndpointTypeAttr::Value => {
                                 input_scalar_getters.push(quote! {
+                                    #[inline(always)]
                                     pub fn #read_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> f32 {
                                         context.value_scalar(#input_idx)
                                     }
@@ -126,6 +136,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
                                 let value_ref_name = format_ident!("value_ref_{}", field_name);
                                 input_value_ref_getters.push(quote! {
+                                    #[inline(always)]
                                     pub fn #value_ref_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> Option<::oscen::graph::ValueRef<'a>> {
                                         context.value(#input_idx)
                                     }
@@ -137,6 +148,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             EndpointTypeAttr::Event => {
                                 let events_name = format_ident!("events_{}", field_name);
                                 input_event_getters.push(quote! {
+                                    #[inline(always)]
                                     pub fn #events_name<'a>(&self, context: &'a ::oscen::graph::ProcessingContext<'a>) -> &'a [::oscen::graph::EventInstance] {
                                         context.events(#input_idx)
                                     }
@@ -189,7 +201,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                                 pub #field_name: ::std::vec::Vec<::oscen::graph::EventInstance>
                             });
                             event_output_fields.push((field_name.clone(), event_output_fields.len()));
-                            event_output_idx += 1;
+                            _event_output_idx += 1;
                         }
                         EndpointTypeAttr::Value => {
                             // Value outputs stay in State (node struct), not IO
@@ -440,6 +452,39 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         (io_def, io_access)
     };
 
+    // Generate input reading statements for SignalProcessor::process()
+    let mut signal_processor_input_reads = Vec::new();
+
+    // Read stream inputs
+    for (field_name, idx) in &signal_processor_stream_inputs {
+        signal_processor_input_reads.push(quote! {
+            self.#field_name = context.stream(#idx);
+        });
+    }
+
+    // Read value inputs using the generated getter methods
+    for (field_name, _idx) in &signal_processor_value_inputs {
+        let getter_name = format_ident!("get_{}", field_name);
+        signal_processor_input_reads.push(quote! {
+            self.#field_name = self.#getter_name(context);
+        });
+    }
+
+    // Auto-dispatch event inputs to handler methods
+    // For each event input, call on_<field_name>(event, context)
+    // We need to clone events to avoid borrow checker issues when calling handlers
+    for (field_name, _idx) in &signal_processor_event_inputs {
+        let event_getter = format_ident!("events_{}", field_name);
+        let handler_method = format_ident!("on_{}", field_name);
+        signal_processor_input_reads.push(quote! {
+            // Clone events to avoid borrow conflict between reading and handler mutation
+            let events: Vec<_> = self.#event_getter(context).iter().cloned().collect();
+            for event in events {
+                self.#handler_method(&event, context);
+            }
+        });
+    }
+
     let expanded = quote! {
         // IO struct for stream and event endpoints
         #io_struct
@@ -499,6 +544,32 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 vec![
                     #(#default_value_entries),*
                 ]
+            }
+        }
+
+        // Auto-generate NodeIO implementation
+        // This handles all IO boilerplate so users only write process()
+        impl ::oscen::NodeIO for #name {
+            #[inline(always)]
+            fn read_inputs<'a>(&mut self, context: &mut ::oscen::ProcessingContext<'a>) {
+                // Read all inputs from context into struct fields
+                #(#signal_processor_input_reads)*
+            }
+
+            #[inline(always)]
+            fn get_stream_output(&self, index: usize) -> Option<f32> {
+                match index {
+                    #(#get_stream_output_arms,)*
+                    _ => None
+                }
+            }
+
+            #[inline(always)]
+            fn set_stream_input(&mut self, index: usize, value: f32) {
+                match index {
+                    #(#set_stream_input_arms)*
+                    _ => {}
+                }
             }
         }
     };

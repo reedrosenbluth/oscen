@@ -172,11 +172,15 @@ impl ContextProbeNode {
 }
 
 impl SignalProcessor for ContextProbeNode {
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
+    fn process(&mut self, _sample_rate: f32) {
+        // Output is already set by NodeIO::read_inputs
+        // Nothing to do in process
+    }
+}
+
+// Manual NodeIO implementation for test node
+impl NodeIO for ContextProbeNode {
+    fn read_inputs<'a>(&mut self, context: &mut ProcessingContext<'a>) {
         let value = context.value_scalar(0);
         self.output = value;
     }
@@ -240,11 +244,14 @@ struct EventEmitterEndpoints {
 // EventEmitterEndpoints methods removed - field is accessed directly
 
 impl SignalProcessor for EventEmitterNode {
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
+    fn process(&mut self, _sample_rate: f32) {
+        // Event emission happens in NodeIO::read_inputs
+    }
+}
+
+// Manual NodeIO implementation for test node
+impl NodeIO for EventEmitterNode {
+    fn read_inputs<'a>(&mut self, context: &mut ProcessingContext<'a>) {
         context.emit_scalar_event(0, 0, 1.25);
     }
 }
@@ -289,11 +296,14 @@ impl EventSinkNode {
 }
 
 impl SignalProcessor for EventSinkNode {
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
+    fn process(&mut self, _sample_rate: f32) {
+        // Event counting happens in NodeIO::read_inputs
+    }
+}
+
+// Manual NodeIO implementation for test node
+impl NodeIO for EventSinkNode {
+    fn read_inputs<'a>(&mut self, context: &mut ProcessingContext<'a>) {
         let events = context.events(0);
         self.counter.store(events.len(), Ordering::SeqCst);
     }

@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use crate::graph::{
-    InputEndpoint, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor, ValueKey,
+    InputEndpoint, NodeKey, ProcessingNode, SignalProcessor, ValueKey,
 };
 use crate::Node;
 
@@ -176,7 +176,6 @@ pub struct Oscilloscope {
     auto_detect_period: bool,
     period_sample_count: usize,
     detected_period: usize,
-    io: OscilloscopeIO,
 }
 
 impl Oscilloscope {
@@ -192,10 +191,6 @@ impl Oscilloscope {
             auto_detect_period: false,
             period_sample_count: 0,
             detected_period: capacity,
-            io: OscilloscopeIO {
-                input: 0.0,
-                output: 0.0,
-            },
         }
     }
 
@@ -211,10 +206,6 @@ impl Oscilloscope {
             auto_detect_period: false,
             period_sample_count: 0,
             detected_period: capacity,
-            io: OscilloscopeIO {
-                input: 0.0,
-                output: 0.0,
-            },
         }
     }
 
@@ -230,10 +221,6 @@ impl Oscilloscope {
             auto_detect_period: true,
             period_sample_count: 0,
             detected_period: capacity,
-            io: OscilloscopeIO {
-                input: 0.0,
-                output: 0.0,
-            },
         }
     }
 
@@ -253,11 +240,7 @@ impl SignalProcessor for Oscilloscope {
     ///
     /// Input and output are accessed via self.input/self.output
     /// Graph pre-populates input, node writes to output.
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
+    fn process(&mut self, _sample_rate: f32) {
         // Read stream input from self (pre-populated by graph)
         let input = self.input;
 
@@ -265,7 +248,7 @@ impl SignalProcessor for Oscilloscope {
         self.output = input;
         self.handle.push(input);
 
-        if self.get_trigger_enabled(context) > 0.5 {
+        if self.trigger_enabled > 0.5 {
             let prev = self.last_sample;
             let zero_crossing = prev <= 0.0 && input > 0.0;
 
@@ -292,7 +275,7 @@ impl SignalProcessor for Oscilloscope {
             } else {
                 // Manual mode: use trigger_period parameter
                 if zero_crossing {
-                    let period = self.get_trigger_period(context).max(1.0);
+                    let period = self.trigger_period.max(1.0);
                     let length = period.round() as usize;
                     if length > 0 {
                         self.handle.store_triggered(length);

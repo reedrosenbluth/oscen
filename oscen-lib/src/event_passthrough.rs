@@ -31,17 +31,17 @@ impl Default for EventPassthrough {
 }
 
 impl SignalProcessor for EventPassthrough {
-    fn process<'a>(
-        &mut self,
-        _sample_rate: f32,
-        context: &mut ProcessingContext<'a>,
-    ) {
-        // Forward all events from input to output
-        // Collect events first to avoid borrow checker issues
-        let events: Vec<_> = self.events_input(context).iter().cloned().collect();
-        for event in events {
-            context.emit_event(0, event);
-        }
+    fn process(&mut self, _sample_rate: f32) {
+        // All event processing is done via on_input handler
+        // This node has no stream outputs to update
+    }
+}
+
+impl EventPassthrough {
+    // Event handler called automatically by macro-generated NodeIO
+    fn on_input(&mut self, event: &crate::graph::EventInstance, context: &mut ProcessingContext) {
+        // Forward event to output (output index 0)
+        context.emit_event(0, event.clone());
     }
 }
 
