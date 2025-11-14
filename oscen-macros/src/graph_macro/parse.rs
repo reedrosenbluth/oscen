@@ -32,7 +32,11 @@ impl Parse for GraphDef {
             items.push(input.parse()?);
         }
 
-        Ok(GraphDef { name, compile_time, items })
+        Ok(GraphDef {
+            name,
+            compile_time,
+            items,
+        })
     }
 }
 

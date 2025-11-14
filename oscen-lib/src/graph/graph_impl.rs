@@ -8,9 +8,7 @@ use slotmap::{SecondaryMap, SlotMap};
 
 use super::audio_input::AudioInput;
 use super::helpers::{BinaryFunctionNode, FunctionNode};
-use super::traits::{
-    DynNode, IOStructAccess, PendingEvent, ProcessingContext, ProcessingNode,
-};
+use super::traits::{DynNode, IOStructAccess, PendingEvent, ProcessingContext, ProcessingNode};
 use super::types::{
     Connection, ConnectionBuilder, EndpointDescriptor, EndpointDirection, EndpointState,
     EndpointType, EventInstance, EventParam, EventPayload, InputEndpoint, NodeKey, Output,
@@ -506,7 +504,7 @@ impl Graph {
             input_types,
             output_types,
             has_event_inputs: false,
-            num_stream_inputs: 1,
+            num_stream_inputs: 2,
             num_stream_outputs: 1,
             create_io_fn: BinaryFunctionNode::CREATE_IO_FN,
         });
@@ -773,32 +771,64 @@ impl Graph {
                     // Process (CMajor-style: inputs already in fields)
                     node.processor.process(self.sample_rate);
 
-                    // Route ALL stream outputs via accessor methods
+                    // Route stream and value outputs via accessor methods
                     let mut stream_output_idx = 0;
+                    let mut value_output_idx = 0;
                     for (output_endpoint_idx, &output_type) in node.output_types.iter().enumerate()
                     {
-                        if output_type == EndpointType::Stream {
-                            // Read from node via accessor method
-                            if let Some(output_value) = node.processor.get_stream_output(stream_output_idx) {
-                                if let Some(&output_key) = node.outputs.get(output_endpoint_idx) {
-                                    // Write to output endpoint
-                                    if let Some(state) = self.endpoints.get_mut(output_key) {
-                                        state.set_scalar(output_value);
-                                    }
+                        match output_type {
+                            EndpointType::Stream => {
+                                if let Some(output_value) =
+                                    node.processor.get_stream_output(stream_output_idx)
+                                {
+                                    if let Some(&output_key) = node.outputs.get(output_endpoint_idx)
+                                    {
+                                        if let Some(state) = self.endpoints.get_mut(output_key) {
+                                            state.set_scalar(output_value);
+                                        }
 
-                                    // Copy to all connected inputs
-                                    if let Some(connections) = self.connections.get(output_key) {
-                                        for &target_input in connections {
-                                            if let Some(target_state) =
-                                                self.endpoints.get_mut(target_input)
-                                            {
-                                                target_state.set_scalar(output_value);
+                                        if let Some(connections) = self.connections.get(output_key)
+                                        {
+                                            for &target_input in connections {
+                                                if let Some(target_state) =
+                                                    self.endpoints.get_mut(target_input)
+                                                {
+                                                    target_state.set_scalar(output_value);
+                                                }
                                             }
                                         }
                                     }
                                 }
+                                stream_output_idx += 1;
                             }
-                            stream_output_idx += 1;
+                            EndpointType::Value => {
+                                if let Some(output_value) =
+                                    node.processor.get_value_output(value_output_idx)
+                                {
+                                    if let Some(&output_key) = node.outputs.get(output_endpoint_idx)
+                                    {
+                                        if let Some(state) = self.endpoints.get_mut(output_key) {
+                                            Self::write_value_state(state, &output_value);
+                                        }
+
+                                        if let Some(connections) = self.connections.get(output_key)
+                                        {
+                                            for &target_input in connections {
+                                                if let Some(target_state) =
+                                                    self.endpoints.get_mut(target_input)
+                                                {
+                                                    Self::write_value_state(
+                                                        target_state,
+                                                        &output_value,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                value_output_idx += 1;
+                            }
+                            EndpointType::Event => {}
                         }
                     }
 
@@ -923,14 +953,28 @@ impl Graph {
         };
 
         // Call the generic topological sort
-        super::topology::topological_sort(nodes, get_dependencies, allows_feedback)
-            .map_err(|e| match e {
+        super::topology::topological_sort(nodes, get_dependencies, allows_feedback).map_err(|e| {
+            match e {
                 super::topology::TopologyError::CycleDetected { path } => {
                     GraphError::CycleDetected(path)
                 }
-            })
+            }
+        })
     }
 
+    fn write_value_state(state: &mut EndpointState, value: &ValueData) {
+        match state {
+            EndpointState::Stream(slot) => {
+                if let Some(scalar) = value.as_scalar() {
+                    *slot = scalar;
+                }
+            }
+            EndpointState::Value(data) => {
+                *data = value.clone();
+            }
+            EndpointState::Event(_) => {}
+        }
+    }
 
     pub fn allocate_endpoint(&mut self, endpoint_type: EndpointType) -> ValueKey {
         let state = match endpoint_type {

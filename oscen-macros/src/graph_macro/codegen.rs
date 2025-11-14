@@ -723,7 +723,7 @@ impl CodegenContext {
     fn generate_closure(&self) -> Result<TokenStream> {
         let context_struct = self.generate_context_struct();
         let input_params = self.generate_input_params();
-        let output_params = self.generate_output_params();
+        let _output_params = self.generate_output_params();
         let node_creation = self.generate_node_creation();
         let connections = self.generate_connections()?;
         let struct_init = self.generate_struct_init();
@@ -954,6 +954,54 @@ impl CodegenContext {
             }
         }
 
+        // Generate code to route stream outputs from internal graph
+        let mut stream_output_routing = Vec::new();
+        let mut stream_output_idx = 0usize;
+        for output in &self.outputs {
+            if output.kind == EndpointKind::Stream {
+                let field_name = &output.name;
+                stream_output_routing.push(quote! {
+                    #stream_output_idx => {
+                        self.graph.get_value(&self.#field_name)
+                    }
+                });
+                stream_output_idx += 1;
+            }
+        }
+
+        // Generate code to route value outputs from internal graph
+        let mut value_output_routing = Vec::new();
+        let mut value_output_idx = 0usize;
+        for output in &self.outputs {
+            if output.kind == EndpointKind::Value {
+                let field_name = &output.name;
+                value_output_routing.push(quote! {
+                    #value_output_idx => {
+                        self.graph.get_value(&self.#field_name)
+                            .map(::oscen::graph::types::ValueData::scalar)
+                    }
+                });
+                value_output_idx += 1;
+            }
+        }
+
+        // Generate code to route stream inputs to internal graph
+        let mut stream_input_routing = Vec::new();
+        let mut stream_input_idx = 0usize;
+        for input in &self.inputs {
+            if input.kind == EndpointKind::Stream {
+                let field_name = &input.name;
+                stream_input_routing.push(quote! {
+                    #stream_input_idx => {
+                        if let Some(state) = self.graph.endpoints.get_mut(self.#field_name.key()) {
+                            state.set_scalar(value);
+                        }
+                    }
+                });
+                stream_input_idx += 1;
+            }
+        }
+
         // Generate NodeIO implementation for handling input/output routing
         let node_io_impl = quote! {
             impl ::oscen::NodeIO for #name {
@@ -961,6 +1009,30 @@ impl CodegenContext {
                 fn read_inputs<'a>(&mut self, context: &mut ::oscen::ProcessingContext<'a>) {
                     // Route external inputs to internal graph endpoints
                     #(#input_routing)*
+                }
+
+                #[inline(always)]
+                fn get_stream_output(&self, index: usize) -> Option<f32> {
+                    match index {
+                        #(#stream_output_routing,)*
+                        _ => None
+                    }
+                }
+
+                #[inline(always)]
+                fn set_stream_input(&mut self, index: usize, value: f32) {
+                    match index {
+                        #(#stream_input_routing,)*
+                        _ => {}
+                    }
+                }
+
+                #[inline(always)]
+                fn get_value_output(&self, index: usize) -> Option<::oscen::graph::types::ValueData> {
+                    match index {
+                        #(#value_output_routing,)*
+                        _ => None
+                    }
                 }
             }
         };
@@ -1245,9 +1317,8 @@ impl CodegenContext {
         let nodes: Vec<syn::Ident> = self.nodes.iter().map(|n| n.name.clone()).collect();
 
         // Create closures for the generic topological_sort function
-        let get_dependencies = |node: &syn::Ident| -> Vec<syn::Ident> {
-            deps.get(node).cloned().unwrap_or_default()
-        };
+        let get_dependencies =
+            |node: &syn::Ident| -> Vec<syn::Ident> { deps.get(node).cloned().unwrap_or_default() };
 
         let allows_feedback = |node: &syn::Ident| -> bool {
             self.nodes
@@ -1272,7 +1343,8 @@ impl CodegenContext {
         for node in &nodes {
             let dependencies = get_dependencies(node);
             for dep in dependencies {
-                adjacency.entry(dep.clone())
+                adjacency
+                    .entry(dep.clone())
                     .or_insert_with(Vec::new)
                     .push(node.clone());
             }
@@ -1321,7 +1393,13 @@ impl CodegenContext {
 
             if let Some(neighbors) = adjacency.get(&node) {
                 for neighbor in neighbors {
-                    visit(neighbor.clone(), adjacency, visited, recursion_stack, sorted)?;
+                    visit(
+                        neighbor.clone(),
+                        adjacency,
+                        visited,
+                        recursion_stack,
+                        sorted,
+                    )?;
                 }
             }
 
@@ -1426,9 +1504,7 @@ impl CodegenContext {
     }
 
     fn generate_static_struct(&self, name: &syn::Ident) -> Result<TokenStream> {
-        let mut fields = vec![
-            quote! { sample_rate: f32 }
-        ];
+        let mut fields = vec![quote! { sample_rate: f32 }];
 
         // Add input fields
         for input in &self.inputs {

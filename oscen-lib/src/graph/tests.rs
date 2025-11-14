@@ -1,9 +1,10 @@
-use super::traits::{IOStructAccess, ProcessingContext};
+use super::traits::ProcessingContext;
 use super::types::{EndpointDescriptor, EndpointDirection, EndpointType, EventPayload, ValueInput};
 use super::*;
 use crate::delay::Delay;
 use crate::filters::tpt::TptFilter;
 use crate::oscillators::Oscillator;
+use crate::Node;
 use arrayvec::ArrayVec;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -373,4 +374,109 @@ fn test_queue_event_host_to_node() {
 
     graph.process().expect("graph processes successfully");
     assert_eq!(sink_counter.load(Ordering::SeqCst), 0);
+}
+
+#[derive(Debug, Node)]
+struct StreamValueNode {
+    #[input(value)]
+    value: f32,
+    #[output(stream)]
+    output: f32,
+}
+
+impl StreamValueNode {
+    fn new(initial: f32) -> Self {
+        Self {
+            value: initial,
+            output: initial,
+        }
+    }
+}
+
+impl SignalProcessor for StreamValueNode {
+    fn process(&mut self, _sample_rate: f32) {
+        self.output = self.value;
+    }
+}
+
+#[test]
+fn test_function_node_transform_updates_output() {
+    let mut graph = Graph::new(44100.0);
+    let source = graph.add_node(StreamValueNode::new(0.25));
+    let doubled = graph.transform(source.output, |x| x * 2.0);
+
+    graph.process().expect("graph processes successfully");
+    let first = graph
+        .get_value(&doubled)
+        .expect("transform output available");
+    assert!((first - 0.5).abs() < 1e-6);
+
+    graph.set_value(source.value, 0.75);
+    graph.process().expect("graph processes successfully");
+    let second = graph
+        .get_value(&doubled)
+        .expect("transform output available");
+    assert!((second - 1.5).abs() < 1e-6);
+}
+
+#[test]
+fn test_binary_function_node_combines_inputs() {
+    let mut graph = Graph::new(44100.0);
+    let left = graph.add_node(StreamValueNode::new(0.3));
+    let right = graph.add_node(StreamValueNode::new(0.2));
+
+    let summed = graph.combine(left.output, right.output, |lhs, rhs| lhs + rhs);
+
+    graph.process().expect("graph processes successfully");
+    let first = graph.get_value(&summed).expect("combined output available");
+    assert!((first - 0.5).abs() < 1e-6);
+
+    graph.set_value(left.value, 0.6);
+    graph.set_value(right.value, 0.1);
+    graph.process().expect("graph processes successfully");
+    let second = graph.get_value(&summed).expect("combined output available");
+    assert!((second - 0.7).abs() < 1e-6);
+}
+
+#[test]
+fn test_poly_blep_oscillator_emits_audio() {
+    let mut direct = crate::PolyBlepOscillator::saw(440.0, 0.5);
+    let mut standalone_non_zero = 0;
+    for _ in 0..64 {
+        direct.process(44100.0);
+        if direct.output.abs() > 1e-6 {
+            standalone_non_zero += 1;
+        }
+    }
+    assert!(
+        standalone_non_zero > 0,
+        "standalone oscillator did not emit output"
+    );
+
+    let mut graph = Graph::new(44100.0);
+    let osc = graph.add_node(crate::PolyBlepOscillator::saw(440.0, 0.5));
+
+    let node_data = graph.nodes.get(osc.node_key()).expect("node data");
+    assert_eq!(
+        node_data.output_types[0],
+        EndpointType::Stream,
+        "oscillator output not registered as stream"
+    );
+
+    let mut non_zero_samples = 0;
+    for _ in 0..32 {
+        graph.process().expect("graph processes successfully");
+        let node_data = graph.nodes.get(osc.node_key()).unwrap();
+        let sample_direct = node_data.processor.get_stream_output(0).unwrap_or(0.0);
+        let sample = graph.get_value(&osc.output).unwrap_or(0.0);
+        if sample.abs() > 1e-6 {
+            non_zero_samples += 1;
+        }
+        assert!(
+            (sample - sample_direct).abs() < 1e-6,
+            "endpoint sample differs from node output"
+        );
+    }
+
+    assert!(non_zero_samples > 0, "oscillator output remained silent");
 }

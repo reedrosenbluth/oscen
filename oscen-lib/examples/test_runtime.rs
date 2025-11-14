@@ -1,6 +1,6 @@
-use oscen::{graph, PolyBlepOscillator, TptFilter};
-use oscen::oscillators::PolyBlepOscillatorEndpoints;
 use oscen::filters::tpt::TptFilterEndpoints;
+use oscen::oscillators::PolyBlepOscillatorEndpoints;
+use oscen::{graph, PolyBlepOscillator, TptFilter};
 
 graph! {
     name: RuntimeGraph;
@@ -19,7 +19,10 @@ graph! {
 fn main() {
     let mut graph = RuntimeGraph::new(44100.0);
     println!("Created runtime graph: {:?}", graph);
-    println!("Has graph field: {}", std::mem::size_of_val(&graph.graph) > 0);
+    println!(
+        "Has graph field: {}",
+        std::mem::size_of_val(&graph.graph) > 0
+    );
 
     // Process a sample to verify it works
     let _ = graph.graph.process();

@@ -1,6 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use oscen::{
-    Graph, InputEndpoint, Node, NodeKey, PolyBlepOscillator, ProcessingContext, ProcessingNode,
+    EndpointType, Graph, InputEndpoint, Node, NodeKey, PolyBlepOscillator, ProcessingNode,
     SignalProcessor, StreamOutput, TptFilter, ValueKey,
 };
 use std::cell::RefCell;
@@ -127,10 +127,10 @@ fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     AudioContext {
         graph,
         base_freq_param: base_param,
-        spread_param: spread_param,
-        cutoff_param: cutoff_param,
-        q_param: q_param,
-        volume_param: volume_param,
+        spread_param,
+        cutoff_param,
+        q_param,
+        volume_param,
         output,
         channels,
     }
@@ -257,4 +257,73 @@ fn run_ui(tx: Sender<SynthParams>) -> Result<(), slint::PlatformError> {
     ui.set_spread(0.0);
 
     ui.run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc::channel;
+
+    #[test]
+    fn audio_callback_produces_signal() {
+        let mut context = build_audio_context(48_000.0, 2);
+        let (_tx, rx) = channel();
+        let mut buffer = [0.0_f32; 128];
+
+        // Prime the graph and ensure internal endpoints are not all silent
+        for _ in 0..32 {
+            context.graph.process().expect("graph processes");
+        }
+        let mut stream_energy = 0.0;
+        for key in context.graph.endpoints.keys() {
+            if let Some(EndpointType::Stream) = context.graph.endpoint_types.get(key) {
+                if let Some(state) = context.graph.endpoints.get(key) {
+                    stream_energy += state.as_scalar().unwrap_or(0.0).abs();
+                }
+            }
+        }
+        assert!(
+            stream_energy > 0.0,
+            "stream endpoints are zero before callback"
+        );
+        let direct_sample = context
+            .graph
+            .get_value(&context.output)
+            .unwrap_or(0.0)
+            .abs();
+        assert!(
+            direct_sample > 0.0,
+            "final output sample is zero before callback"
+        );
+
+        audio_callback(&mut buffer, &mut context, &rx);
+
+        let energy: f32 = buffer.iter().map(|v| v.abs()).sum();
+        assert!(energy > 0.0, "expected non-zero audio, got silence");
+    }
+
+    #[test]
+    fn filter_cutoff_changes_output() {
+        fn render_with_cutoff(cutoff: f32) -> Vec<f32> {
+            let mut context = build_audio_context(48_000.0, 1);
+            context.graph.set_value(context.cutoff_param, cutoff);
+            let (_tx, rx) = channel::<SynthParams>();
+            let mut buffer = vec![0.0_f32; 2048];
+            audio_callback(&mut buffer, &mut context, &rx);
+            buffer
+        }
+
+        let low = render_with_cutoff(200.0);
+        let high = render_with_cutoff(8_000.0);
+        let diff: f32 = low
+            .iter()
+            .zip(high.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum();
+
+        assert!(
+            diff > 1e-2,
+            "expected filter cutoff change to alter output signal"
+        );
+    }
 }

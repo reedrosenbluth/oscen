@@ -1,7 +1,6 @@
 use crate::graph::types::EventPayload;
 use crate::graph::{
-    EventInstance, InputEndpoint, NodeKey, ProcessingNode, SignalProcessor,
-    ValueKey,
+    EventInstance, InputEndpoint, NodeKey, ProcessingNode, SignalProcessor, ValueKey,
 };
 use crate::Node;
 
@@ -284,7 +283,6 @@ impl AdsrEnvelope {
         self.handle_gate_event(event);
     }
 }
-
 
 #[cfg(test)]
 mod tests {

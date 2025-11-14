@@ -32,6 +32,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut stream_input_fields = Vec::new(); // (field_name, index)
     let mut stream_output_fields = Vec::new(); // (field_name, index)
     let mut event_output_fields = Vec::new(); // (field_name, index)
+    let mut value_output_fields = Vec::new(); // (field_name, index, is_scalar)
 
     // Track all input fields by type for SignalProcessor generation
     let mut signal_processor_stream_inputs = Vec::new(); // (field_name, index)
@@ -48,6 +49,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 let field_name = field.ident.unwrap();
                 let field_name_str = field_name.to_string();
                 let mut input_type: Option<(TokenStream2, EndpointTypeAttr)> = None;
+                let field_ty = field.ty.clone();
                 let mut input_type_kind = None;
                 let mut output_type = None;
 
@@ -91,7 +93,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             io_fields.push(quote! {
                                 pub #field_name: f32
                             });
-                            stream_input_fields.push((field_name.clone(), stream_input_fields.len()));
+                            stream_input_fields
+                                .push((field_name.clone(), stream_input_fields.len()));
                             signal_processor_stream_inputs.push((field_name.clone(), input_idx));
                         }
                         EndpointTypeAttr::Event => {
@@ -194,17 +197,24 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             io_fields.push(quote! {
                                 pub #field_name: f32
                             });
-                            stream_output_fields.push((field_name.clone(), stream_output_fields.len()));
+                            stream_output_fields
+                                .push((field_name.clone(), stream_output_fields.len()));
                         }
                         EndpointTypeAttr::Event => {
                             io_fields.push(quote! {
                                 pub #field_name: ::std::vec::Vec<::oscen::graph::EventInstance>
                             });
-                            event_output_fields.push((field_name.clone(), event_output_fields.len()));
+                            event_output_fields
+                                .push((field_name.clone(), event_output_fields.len()));
                             _event_output_idx += 1;
                         }
                         EndpointTypeAttr::Value => {
-                            // Value outputs stay in State (node struct), not IO
+                            let is_scalar = is_f32_type(&field_ty);
+                            value_output_fields.push((
+                                field_name.clone(),
+                                value_output_fields.len(),
+                                is_scalar,
+                            ));
                         }
                     }
 
@@ -271,6 +281,20 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         .map(|(field_name, idx)| {
             quote! {
                 #idx => Some(self.#field_name)
+            }
+        })
+        .collect();
+
+    let get_value_output_arms: Vec<_> = value_output_fields
+        .iter()
+        .map(|(field_name, idx, is_scalar)| {
+            let expr = if *is_scalar {
+                quote! { ::oscen::graph::types::ValueData::scalar(self.#field_name) }
+            } else {
+                quote! { ::oscen::graph::types::ValueData::object(self.#field_name.clone()) }
+            };
+            quote! {
+                #idx => Some(#expr)
             }
         })
         .collect();
@@ -571,6 +595,14 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     _ => {}
                 }
             }
+
+            #[inline(always)]
+            fn get_value_output(&self, index: usize) -> Option<::oscen::graph::types::ValueData> {
+                match index {
+                    #(#get_value_output_arms,)*
+                    _ => None
+                }
+            }
         }
     };
 
@@ -587,6 +619,15 @@ fn endpoint_type_tokens(attr: EndpointTypeAttr) -> TokenStream2 {
         EndpointTypeAttr::Value => quote! { ::oscen::graph::EndpointType::Value },
         EndpointTypeAttr::Event => quote! { ::oscen::graph::EndpointType::Event },
     }
+}
+
+fn is_f32_type(ty: &syn::Type) -> bool {
+    if let syn::Type::Path(type_path) = ty {
+        if type_path.qself.is_none() && type_path.path.segments.len() == 1 {
+            return type_path.path.segments.first().unwrap().ident == "f32";
+        }
+    }
+    false
 }
 
 #[derive(Clone, Copy)]

@@ -1,6 +1,4 @@
-use crate::graph::{
-    InputEndpoint, NodeKey, ProcessingNode, SignalProcessor, ValueKey,
-};
+use crate::graph::{InputEndpoint, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
 use crate::ring_buffer::RingBuffer;
 use oscen_macros::Node;
 
@@ -55,7 +53,6 @@ impl Delay {
 
         self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
     }
-
 }
 
 impl SignalProcessor for Delay {

@@ -9,11 +9,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use arrayvec;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use electric_piano_voice::{ElectricPianoVoiceNode, ElectricPianoVoiceNodeEndpoints};
-use oscen::midi::{MidiParserEndpoints, MidiVoiceHandlerEndpoints};
-use oscen::{graph, queue_raw_midi, MidiParser, MidiVoiceHandler, VoiceAllocator, VoiceAllocatorEndpoints};
+use oscen::{graph, queue_raw_midi, MidiParser, MidiVoiceHandler, VoiceAllocator};
 use slint::ComponentHandle;
-use tremolo::{Tremolo, TremoloEndpoints};
 
 use midi_input::MidiConnection;
 
@@ -29,44 +26,6 @@ enum ParamChange {
     ReleaseRate(f32),
     VibratoIntensity(f32),
     VibratoSpeed(f32),
-}
-
-// Electric piano voice using combined oscillator+envelope node (32 harmonics)
-graph! {
-    name: ElectricPianoVoice;
-
-    input value frequency = 440.0;
-    input event gate;
-    input value brightness = 0.5;
-    input value velocity_scaling = 0.5;
-    input value decay_rate = 0.5;
-    input value harmonic_decay = 0.5;
-    input value key_scaling = 0.5;
-    input value release_rate = 0.5;
-
-    output stream audio;
-
-    node {
-        // Combined node that generates 32 harmonics with per-harmonic envelopes
-        // This matches the CMajor architecture where envelope amplitudes are applied
-        // to each oscillator individually before summing
-        voice = ElectricPianoVoiceNode::new(sample_rate);
-    }
-
-    connection {
-        // Connect all inputs to the combined voice node
-        frequency -> voice.frequency;
-        gate -> voice.gate;
-        brightness -> voice.brightness;
-        velocity_scaling -> voice.velocity_scaling;
-        decay_rate -> voice.decay_rate;
-        harmonic_decay -> voice.harmonic_decay;
-        key_scaling -> voice.key_scaling;
-        release_rate -> voice.release_rate;
-
-        // Output from voice (harmonics with per-harmonic envelopes applied)
-        voice.output -> audio;
-    }
 }
 
 // Main polyphonic electric piano with 16 voices and tremolo
@@ -89,8 +48,8 @@ graph! {
         midi_parser = MidiParser::new();
         voice_allocator = VoiceAllocator<16>::new();
         voice_handlers = [MidiVoiceHandler::new(); 16];
-        voices = [ElectricPianoVoice::new(sample_rate); 16];
-        tremolo = Tremolo::new(sample_rate);
+        voices = [crate::electric_piano_voice::ElectricPianoVoiceNode::new(sample_rate); 16];
+        tremolo = crate::tremolo::Tremolo::new(sample_rate);
     }
 
     connection {
@@ -103,8 +62,8 @@ graph! {
         voice_allocator.voices() -> voice_handlers.note_off;
 
         // Voice handlers to voices
-        voice_handlers.frequency -> voices.frequency;
-        voice_handlers.gate -> voices.gate;
+        voice_handlers.frequency() -> voices.frequency();
+        voice_handlers.gate() -> voices.gate();
 
         // Broadcast parameters to all voices
         brightness -> voices.brightness;
@@ -115,7 +74,7 @@ graph! {
         release_rate -> voices.release_rate;
 
         // Mix voices and process through tremolo
-        voices.audio -> tremolo.input;
+        voices.output -> tremolo.input;
         vibrato_intensity -> tremolo.depth;
         vibrato_speed -> tremolo.rate;
 
@@ -193,10 +152,11 @@ fn audio_callback(
                     .set_value_with_ramp(context.synth.release_rate, value, 441);
             }
             ParamChange::VibratoIntensity(value) => {
-                context
-                    .synth
-                    .graph
-                    .set_value_with_ramp(context.synth.vibrato_intensity, value, 441);
+                context.synth.graph.set_value_with_ramp(
+                    context.synth.vibrato_intensity,
+                    value,
+                    441,
+                );
             }
             ParamChange::VibratoSpeed(value) => {
                 context
@@ -248,57 +208,57 @@ fn main() -> Result<()> {
     thread::Builder::new()
         .stack_size(8 * 1024 * 1024)
         .spawn(move || {
-        let host = cpal::default_host();
-        let device = match host.default_output_device() {
-            Some(device) => device,
-            None => {
-                eprintln!("No output device available");
+            let host = cpal::default_host();
+            let device = match host.default_output_device() {
+                Some(device) => device,
+                None => {
+                    eprintln!("No output device available");
+                    return;
+                }
+            };
+
+            let default_config = match device.default_output_config() {
+                Ok(config) => config,
+                Err(err) => {
+                    eprintln!("Failed to fetch default output config: {}", err);
+                    return;
+                }
+            };
+
+            let config = cpal::StreamConfig {
+                channels: default_config.channels(),
+                sample_rate: default_config.sample_rate(),
+                buffer_size: cpal::BufferSize::Fixed(512),
+            };
+
+            let sample_rate = config.sample_rate.0 as f32;
+            let mut audio_context = build_audio_context(sample_rate, config.channels as usize);
+
+            let stream = match device.build_output_stream(
+                &config,
+                move |data: &mut [f32], _| {
+                    audio_callback(data, &mut audio_context, &param_rx, &midi_rx);
+                },
+                |err| eprintln!("Audio stream error: {}", err),
+                None,
+            ) {
+                Ok(stream) => stream,
+                Err(err) => {
+                    eprintln!("Failed to build output stream: {}", err);
+                    return;
+                }
+            };
+
+            if let Err(err) = stream.play() {
+                eprintln!("Failed to start audio stream: {}", err);
                 return;
             }
-        };
 
-        let default_config = match device.default_output_config() {
-            Ok(config) => config,
-            Err(err) => {
-                eprintln!("Failed to fetch default output config: {}", err);
-                return;
+            loop {
+                thread::sleep(Duration::from_millis(100));
             }
-        };
-
-        let config = cpal::StreamConfig {
-            channels: default_config.channels(),
-            sample_rate: default_config.sample_rate(),
-            buffer_size: cpal::BufferSize::Fixed(512),
-        };
-
-        let sample_rate = config.sample_rate.0 as f32;
-        let mut audio_context = build_audio_context(sample_rate, config.channels as usize);
-
-        let stream = match device.build_output_stream(
-            &config,
-            move |data: &mut [f32], _| {
-                audio_callback(data, &mut audio_context, &param_rx, &midi_rx);
-            },
-            |err| eprintln!("Audio stream error: {}", err),
-            None,
-        ) {
-            Ok(stream) => stream,
-            Err(err) => {
-                eprintln!("Failed to build output stream: {}", err);
-                return;
-            }
-        };
-
-        if let Err(err) = stream.play() {
-            eprintln!("Failed to start audio stream: {}", err);
-            return;
-        }
-
-        loop {
-            thread::sleep(Duration::from_millis(100));
-        }
-    })
-    .context("failed to spawn audio thread")?;
+        })
+        .context("failed to spawn audio thread")?;
 
     run_ui(param_tx)?;
     Ok(())
@@ -382,4 +342,83 @@ fn run_ui(tx: Sender<ParamChange>) -> Result<()> {
     ui.set_vibrato_speed(5.0);
 
     ui.run().context("failed to run UI")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn responds_to_midi_note_on() {
+        let stats = std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let mut synth = ElectricPianoGraph::new(48_000.0);
+                let note_on = [0x90, 60, 100];
+
+                queue_raw_midi(&mut synth.graph, synth.midi_parser.midi_in, 0, &note_on);
+
+                let mut max = 0.0;
+                for _ in 0..4096 {
+                    synth.graph.process().unwrap();
+                    let sample = synth.graph.get_value(&synth.left_out).unwrap_or(0.0).abs();
+                    if sample > max {
+                        max = sample;
+                    }
+                }
+
+                // Inspect whether events propagated
+                let mut note_on_events = Vec::new();
+                synth
+                    .graph
+                    .drain_events(synth.midi_parser.note_on, |event| {
+                        note_on_events.push(event.clone());
+                    });
+                let mut gate_events = Vec::new();
+                synth
+                    .graph
+                    .drain_events(synth.voice_handlers[0].gate, |event| {
+                        gate_events.push(event.clone());
+                    });
+
+                let voice0 = synth
+                    .graph
+                    .get_value(&synth.voices[0].output)
+                    .unwrap_or(0.0)
+                    .abs();
+
+                let handler_freq = synth
+                    .graph
+                    .get_value(&synth.voice_handlers[0].frequency)
+                    .unwrap_or(0.0);
+                let voice_freq = synth
+                    .graph
+                    .endpoints
+                    .get(synth.voices[0].frequency.key())
+                    .and_then(|state| state.as_scalar())
+                    .unwrap_or(0.0);
+
+                (
+                    max,
+                    note_on_events.len(),
+                    gate_events.len(),
+                    voice0,
+                    handler_freq,
+                    voice_freq,
+                )
+            })
+            .expect("spawn test thread")
+            .join()
+            .expect("thread panicked");
+
+        assert!(
+            stats.0 > 1e-4,
+            "expected non-zero output after MIDI note on (note_on_events={}, gate_events={}, voice_sample={}, handler_freq={}, voice_input_freq={})",
+            stats.1,
+            stats.2,
+            stats.3,
+            stats.4,
+            stats.5,
+        );
+    }
 }

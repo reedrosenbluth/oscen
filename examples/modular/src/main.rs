@@ -489,7 +489,11 @@ fn update_jack_positions(ui: &ModularWindow) {
             (knob_count - 1) / 3 + 1
         };
         let knobs_area_height = (knob_rows as f32) * KNOB_HEIGHT;
-        KNOB_AREA_Y + knobs_area_height + KNOBS_BOTTOM_PADDING + JACK_SPACING + extra_height
+        KNOB_AREA_Y
+            + knobs_area_height
+            + KNOBS_BOTTOM_PADDING
+            + JACK_SPACING
+            + extra_height
             + JACK_CENTER_OFFSET
     };
 

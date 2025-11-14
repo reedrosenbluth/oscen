@@ -1,6 +1,4 @@
-use crate::graph::{
-    InputEndpoint, NodeKey, ProcessingNode, SignalProcessor, ValueKey,
-};
+use crate::graph::{InputEndpoint, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
 use oscen_macros::Node;
 
 /// A simple node that holds a value and passes it through.

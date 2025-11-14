@@ -1,4 +1,4 @@
-use oscen::{InputEndpoint, Node, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor, ValueKey};
+use oscen::{InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
 use std::f32::consts::PI;
 
 /// Tremolo effect with stereo output
@@ -46,13 +46,10 @@ impl SignalProcessor for Tremolo {
         self.sample_rate = sample_rate;
     }
 
-    fn process(&mut self, _sample_rate: f32, context: &mut ProcessingContext) {
-        // Get input audio
-        let input = self.get_input(context);
-
-        // Get tremolo parameters
-        let rate = self.get_rate(context);
-        let depth = self.get_depth(context);
+    fn process(&mut self, _sample_rate: f32) {
+        let input = self.input;
+        let rate = self.rate;
+        let depth = self.depth;
 
         // Generate LFO (sine wave) that oscillates between 0 and 1
         let lfo = (self.phase * 2.0 * PI).sin();

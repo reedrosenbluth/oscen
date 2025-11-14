@@ -47,7 +47,7 @@ pub struct MidiVoiceHandler {
     #[input(event)]
     note_off: (),
 
-    #[output(stream)]
+    #[output(value)]
     frequency: f32,
 
     #[output(event)]

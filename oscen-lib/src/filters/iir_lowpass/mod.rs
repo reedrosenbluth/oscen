@@ -1,7 +1,4 @@
-use crate::{
-    InputEndpoint, Node, NodeKey, ProcessingNode,
-    SignalProcessor, ValueKey,
-};
+use crate::{InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
 use std::f32::consts::PI;
 
 /// IIR Lowpass Filter using biquad design with bilinear transformation.
@@ -138,9 +135,7 @@ impl IirLowpass {
             let cutoff = cutoff_in.clamp(20.0, nyquist);
             let q = q_in.clamp(0.01, 100.0);
 
-            if (cutoff - self.cutoff).abs() > f32::EPSILON
-                || (q - self.q).abs() > f32::EPSILON
-            {
+            if (cutoff - self.cutoff).abs() > f32::EPSILON || (q - self.q).abs() > f32::EPSILON {
                 self.cutoff = cutoff;
                 self.q = q;
                 self.update_coefficients(sample_rate);
@@ -308,7 +303,10 @@ mod tests {
         }
 
         // First output should be positive (impulse response of lowpass)
-        assert!(outputs[0] > 0.0, "First impulse response should be positive");
+        assert!(
+            outputs[0] > 0.0,
+            "First impulse response should be positive"
+        );
 
         // Outputs should decay over time (no instability)
         for i in 1..outputs.len() {

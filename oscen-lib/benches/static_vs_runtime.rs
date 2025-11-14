@@ -198,5 +198,10 @@ fn bench_batch_processing(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_static_vs_runtime, bench_complex_graph, bench_batch_processing);
+criterion_group!(
+    benches,
+    bench_static_vs_runtime,
+    bench_complex_graph,
+    bench_batch_processing
+);
 criterion_main!(benches);

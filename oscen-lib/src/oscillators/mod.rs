@@ -1,13 +1,9 @@
-use crate::{
-    InputEndpoint, Node, NodeKey, ProcessingNode,
-    SignalProcessor, ValueKey,
-};
+use crate::{InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
 use std::f32::consts::{PI, TAU};
 
 #[allow(dead_code)]
 #[derive(Debug, Node)]
 pub struct Oscillator {
-    #[input(value)]
     phase: f32,
     #[input(value)]
     frequency: f32,
@@ -87,7 +83,6 @@ pub enum PolyBlepWaveform {
 #[allow(dead_code)]
 #[derive(Debug, Node)]
 pub struct PolyBlepOscillator {
-    #[input(value)]
     phase: f32,
     #[input(stream)]
     pub phase_mod: f32,

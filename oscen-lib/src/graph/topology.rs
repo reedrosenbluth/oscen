@@ -63,7 +63,8 @@ where
         let deps = get_dependencies(node);
         for dep in deps {
             // Edge from dep -> node (dep must be processed before node)
-            adjacency.entry(dep.clone())
+            adjacency
+                .entry(dep.clone())
                 .or_insert_with(Vec::new)
                 .push(node.clone());
         }
@@ -113,7 +114,13 @@ where
 
         if let Some(neighbors) = adjacency.get(&node) {
             for neighbor in neighbors {
-                visit(neighbor.clone(), adjacency, visited, recursion_stack, sorted)?;
+                visit(
+                    neighbor.clone(),
+                    adjacency,
+                    visited,
+                    recursion_stack,
+                    sorted,
+                )?;
             }
         }
 

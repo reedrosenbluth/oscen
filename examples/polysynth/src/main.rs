@@ -102,8 +102,8 @@ graph! {
         voice_allocator.voices() -> voice_handlers.note_off;
 
         // Connect voice handlers to voices (array-to-array)
-        voice_handlers.frequency -> voices.frequency;
-        voice_handlers.gate -> voices.gate;
+        voice_handlers.frequency() -> voices.frequency();
+        voice_handlers.gate() -> voices.gate();
 
         // Broadcast shared parameters to all voices (scalar-to-array)
         cutoff -> voices.cutoff;

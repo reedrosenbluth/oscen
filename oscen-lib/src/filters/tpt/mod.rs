@@ -1,7 +1,4 @@
-use crate::{
-    InputEndpoint, Node, NodeKey, ProcessingNode,
-    SignalProcessor, ValueKey,
-};
+use crate::{InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
 use std::f32::consts::PI;
 
 #[derive(Debug, Node)]
@@ -17,6 +14,10 @@ pub struct TptFilter {
 
     #[output(stream)]
     pub output: f32,
+
+    // last applied, sanitized parameters
+    current_cutoff: f32,
+    current_q: f32,
 
     // state
     z: [f32; 2],
@@ -48,6 +49,8 @@ impl TptFilter {
             q,
             f_mod: 0.0,
             output: 0.0,
+            current_cutoff: cutoff,
+            current_q: q,
             z: [0.0; 2],
             h: 0.0,
             g: 0.0,
@@ -58,21 +61,23 @@ impl TptFilter {
         };
         // Initialize coefficients with default sample rate
         // Will be updated again on first process call with actual sample rate
-        filter.update_coefficients(44100.0);
+        filter.update_coefficients(44100.0, cutoff, q);
         filter
     }
 
-    fn update_coefficients(&mut self, sample_rate: f32) {
+    fn update_coefficients(&mut self, sample_rate: f32, cutoff: f32, q: f32) {
         let nyquist = sample_rate * 0.5 - f32::EPSILON;
-        let freq = self.cutoff.clamp(20.0, nyquist);
+        let freq = cutoff.clamp(20.0, nyquist);
         let period = 0.5 / sample_rate;
         let f = (2.0 * sample_rate) * (2.0 * PI * freq * period).tan() * period;
-        let inv_q = 1.0 / self.q;
+        let inv_q = 1.0 / q;
 
         self.h = 1.0 / (1.0 + inv_q * f + f * f);
         self.g = f;
         self.r = inv_q;
         self.k = self.g + self.r;
+        self.current_cutoff = cutoff;
+        self.current_q = q;
     }
 
     //TODO: why do we need this function?
@@ -90,10 +95,10 @@ impl TptFilter {
             let factor = (1.0 + modulation).clamp(min_factor, max_factor);
             let cutoff = (cutoff_base * factor).clamp(20.0, max_cutoff);
 
-            if cutoff != self.cutoff || q != self.q {
-                self.cutoff = cutoff;
-                self.q = q;
-                self.update_coefficients(sample_rate);
+            if (cutoff - self.current_cutoff).abs() > f32::EPSILON
+                || (q - self.current_q).abs() > f32::EPSILON
+            {
+                self.update_coefficients(sample_rate, cutoff, q);
             }
         }
 
@@ -125,7 +130,7 @@ impl TptFilter {
 // The Node macro only generates NodeIO and ProcessingNode traits
 impl SignalProcessor for TptFilter {
     fn init(&mut self, sample_rate: f32) {
-        self.update_coefficients(sample_rate);
+        self.update_coefficients(sample_rate, self.cutoff, self.q);
     }
 
     #[inline(always)]
@@ -155,9 +160,9 @@ mod tests {
         filter.init(sample_rate);
 
         let period = 0.5 / sample_rate;
-        let freq = filter.cutoff;
+        let freq = filter.current_cutoff;
         let f = (2.0 * sample_rate) * (2.0 * PI * freq * period).tan() * period;
-        let r = 1.0 / filter.q;
+        let r = 1.0 / filter.current_q;
         let expected_d = 1.0 / (1.0 + r * f + f * f);
 
         assert!(approx_eq(filter.g, f), "expected g to equal tan transform");
