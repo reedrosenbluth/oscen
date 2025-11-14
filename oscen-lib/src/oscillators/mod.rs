@@ -8,12 +8,12 @@ pub struct Oscillator {
     #[input(value)]
     frequency: f32,
     #[input(stream)]
-    pub frequency_mod: f32, // PUBLIC for CMajor-style access
+    pub frequency_mod: f32,
     #[input(value)]
     amplitude: f32,
 
     #[output(stream)]
-    pub output: f32, // PUBLIC for CMajor-style access
+    pub output: f32,
 
     waveform: fn(f32) -> f32,
 }

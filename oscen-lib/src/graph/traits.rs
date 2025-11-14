@@ -142,8 +142,6 @@ pub trait IOStructAccess: Send {
     fn clear_event_outputs(&mut self);
 }
 
-/// CMajor-style signal processing trait.
-///
 /// Users implement this trait to define their DSP logic. Inputs are already
 /// populated in the struct fields by the time process() is called.
 pub trait SignalProcessor: Send + std::fmt::Debug {

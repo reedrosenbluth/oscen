@@ -768,7 +768,7 @@ impl Graph {
                     // Read inputs into node fields
                     node.processor.read_inputs(&mut context);
 
-                    // Process (CMajor-style: inputs already in fields)
+                    // Process
                     node.processor.process(self.sample_rate);
 
                     // Route stream and value outputs via accessor methods

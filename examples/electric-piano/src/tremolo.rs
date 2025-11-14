@@ -54,7 +54,7 @@ impl SignalProcessor for Tremolo {
         // Generate LFO (sine wave) that oscillates between 0 and 1
         let lfo = (self.phase * 2.0 * PI).sin();
 
-        // Create complementary stereo panning effect like CMajor
+        // Create complementary stereo panning effect
         // The signal pans between left and right based on LFO
         // Scale depth to reasonable range (divide by larger number for subtler effect)
         let scaled_depth = depth / 3.0;

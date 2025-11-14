@@ -848,7 +848,7 @@ impl CodegenContext {
                     quote! { ::oscen::StreamInput },
                 ),
             };
-            fields.push(quote! { #field_name: #ty });
+            fields.push(quote! { pub #field_name: #ty });
             accessor_methods.push(quote! {
                 pub fn #method_name(&self) -> #accessor_ty {
                     self.#field_name
@@ -874,7 +874,7 @@ impl CodegenContext {
                     quote! { ::oscen::StreamOutput },
                 ),
             };
-            fields.push(quote! { #field_name: #ty });
+            fields.push(quote! { pub #field_name: #ty });
             accessor_methods.push(quote! {
                 pub fn #method_name(&self) -> #accessor_ty {
                     self.#field_name
@@ -1037,7 +1037,7 @@ impl CodegenContext {
             }
         };
 
-        // Generate SignalProcessor implementation (CMajor-style)
+        // Generate SignalProcessor implementation
         let signal_processor_impl = quote! {
             impl ::oscen::SignalProcessor for #name {
                 #[inline(always)]

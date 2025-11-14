@@ -119,7 +119,6 @@ impl MidiVoiceHandler {
 }
 
 /// A node that parses raw MIDI messages and emits typed note events.
-/// Similar to CMajor's MPEConverter - handles MIDI parsing inside the graph.
 #[derive(Debug, Node)]
 pub struct MidiParser {
     #[input(event)]
