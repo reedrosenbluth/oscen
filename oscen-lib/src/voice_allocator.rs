@@ -6,6 +6,7 @@ const MAX_VOICES: usize = 24;
 #[derive(Debug, Clone, Copy)]
 struct VoiceState {
     active: bool,
+    released: bool, // True if note_off received but voice may still be sounding
     note: Option<u8>,
     age: u32, // For voice stealing - higher age = older
 }
@@ -14,6 +15,7 @@ impl VoiceState {
     fn new() -> Self {
         Self {
             active: false,
+            released: false,
             note: None,
             age: 0,
         }
@@ -43,6 +45,7 @@ impl<const NUM_VOICES: usize> VoiceAllocator<NUM_VOICES> {
         for i in 0..NUM_VOICES {
             if !self.voices[i].active {
                 self.voices[i].active = true;
+                self.voices[i].released = false;
                 self.voices[i].note = Some(note);
                 self.voices[i].age = self.current_age;
                 self.current_age += 1;
@@ -50,28 +53,41 @@ impl<const NUM_VOICES: usize> VoiceAllocator<NUM_VOICES> {
             }
         }
 
-        // All voices active - steal the oldest voice (voice stealing)
-        let oldest_voice = (0..NUM_VOICES)
-            .min_by_key(|&i| self.voices[i].age)
+        // All voices active - prefer released voices over held voices
+        // Among voices of the same release state, prefer oldest
+        let stolen_voice = (0..NUM_VOICES)
+            .min_by_key(|&i| {
+                let voice = &self.voices[i];
+                // Priority: released voices first (0), then held voices (1)
+                // Within each group, prefer older voices (lower age)
+                let release_priority = if voice.released { 0 } else { 1 };
+                (release_priority, voice.age)
+            })
             .unwrap_or(0);
 
-        self.voices[oldest_voice].note = Some(note);
-        self.voices[oldest_voice].age = self.current_age;
+        self.voices[stolen_voice].active = true;
+        self.voices[stolen_voice].released = false;
+        self.voices[stolen_voice].note = Some(note);
+        self.voices[stolen_voice].age = self.current_age;
         self.current_age += 1;
 
-        oldest_voice
+        stolen_voice
     }
 
-    /// Find which voice is playing a specific note
+    /// Find which voice is playing a specific note (not yet released)
     fn find_voice_for_note(&self, note: u8) -> Option<usize> {
-        (0..NUM_VOICES).find(|&i| self.voices[i].active && self.voices[i].note == Some(note))
+        (0..NUM_VOICES).find(|&i| {
+            self.voices[i].active && !self.voices[i].released && self.voices[i].note == Some(note)
+        })
     }
 
-    /// Release a voice
+    /// Release a voice (mark as released but keep active for release phase)
     fn release_voice(&mut self, voice_idx: usize) {
         if voice_idx < NUM_VOICES {
-            self.voices[voice_idx].active = false;
-            self.voices[voice_idx].note = None;
+            self.voices[voice_idx].released = true;
+            self.voices[voice_idx].note = None; // Clear note to prevent duplicate note_offs
+            // Keep active = true so the voice continues processing its release
+            // It will be marked inactive when stolen or reused
         }
     }
 }
@@ -87,7 +103,7 @@ pub type VoiceAllocator2 = VoiceAllocator<2>;
 pub type VoiceAllocator4 = VoiceAllocator<4>;
 
 impl<const NUM_VOICES: usize> SignalProcessor for VoiceAllocator<NUM_VOICES> {
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // All event processing is done in NodeIO::read_inputs
         // This node has no stream outputs to update
     }
@@ -396,9 +412,56 @@ mod tests {
 
         // Release it
         allocator.release_voice(1);
-        assert!(!allocator.voices[1].active);
+        assert!(allocator.voices[1].active); // Still active (in release phase)
+        assert!(allocator.voices[1].released); // But marked as released
 
-        // Should not be found anymore
+        // Should not be found anymore (note is cleared)
         assert_eq!(allocator.find_voice_for_note(64), None);
+    }
+
+    #[test]
+    fn test_prefer_released_voices_for_stealing() {
+        let mut allocator = VoiceAllocator::<4>::new();
+
+        // Allocate 4 voices
+        allocator.allocate_voice(60);
+        allocator.allocate_voice(64);
+        allocator.allocate_voice(67);
+        allocator.allocate_voice(72);
+
+        // Release voice 1
+        allocator.release_voice(1);
+
+        // Allocate a 5th note - should steal voice 1 (released) instead of voice 0 (held)
+        let stolen_voice = allocator.allocate_voice(76);
+        assert_eq!(stolen_voice, 1);
+        assert_eq!(allocator.voices[1].note, Some(76));
+        assert!(!allocator.voices[1].released); // Reset on allocation
+    }
+
+    #[test]
+    fn test_releasing_voice_continues_to_sound() {
+        let mut allocator = VoiceAllocator::<2>::new();
+
+        // Play first note
+        let voice0 = allocator.allocate_voice(60);
+        assert_eq!(voice0, 0);
+        assert!(allocator.voices[0].active);
+        assert!(!allocator.voices[0].released);
+
+        // Release first note (it should continue in release phase)
+        allocator.release_voice(0);
+        assert!(allocator.voices[0].active); // Still active!
+        assert!(allocator.voices[0].released); // But marked as released
+
+        // Play second note - should use voice 1, not steal voice 0
+        let voice1 = allocator.allocate_voice(64);
+        assert_eq!(voice1, 1);
+        assert!(allocator.voices[0].active); // Voice 0 still in release
+        assert!(allocator.voices[1].active); // Voice 1 now playing
+
+        // Play third note while first is releasing - NOW it should steal voice 0
+        let voice2 = allocator.allocate_voice(67);
+        assert_eq!(voice2, 0); // Steals the released voice, not the held one
     }
 }

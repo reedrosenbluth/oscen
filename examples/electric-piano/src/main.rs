@@ -7,9 +7,8 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use arrayvec;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::{graph, queue_raw_midi, MidiParser, MidiVoiceHandler, VoiceAllocator};
+use oscen::prelude::*;
 use slint::ComponentHandle;
 
 use midi_input::MidiConnection;
@@ -31,28 +30,29 @@ enum ParamChange {
 // Main polyphonic electric piano with 16 voices and tremolo
 graph! {
     name: ElectricPianoGraph;
+    compile_time: true;
 
-    input value brightness = 0.5;
-    input value velocity_scaling = 0.5;
-    input value decay_rate = 0.5;
-    input value harmonic_decay = 0.5;
-    input value key_scaling = 0.5;
-    input value release_rate = 0.5;
+    input value brightness = 30.0;
+    input value velocity_scaling = 50.0;
+    input value decay_rate = 90.0;
+    input value harmonic_decay = 70.0;
+    input value key_scaling = 50.0;
+    input value release_rate = 40.0;
     input value vibrato_intensity = 0.3;
     input value vibrato_speed = 5.0;
 
     output stream left_out;
     output stream right_out;
 
-    node {
+    nodes {
         midi_parser = MidiParser::new();
         voice_allocator = VoiceAllocator<16>::new();
         voice_handlers = [MidiVoiceHandler::new(); 16];
-        voices = [crate::electric_piano_voice::ElectricPianoVoiceNode::new(sample_rate); 16];
-        tremolo = crate::tremolo::Tremolo::new(sample_rate);
+        voices = [crate::electric_piano_voice::ElectricPianoVoiceNode::new(); 16];
+        tremolo = crate::tremolo::Tremolo::new();
     }
 
-    connection {
+    connections {
         // MIDI routing
         midi_parser.note_on -> voice_allocator.note_on;
         midi_parser.note_off -> voice_allocator.note_off;
@@ -331,13 +331,13 @@ fn run_ui(tx: Sender<ParamChange>) -> Result<()> {
         });
     }
 
-    // Set default values
-    ui.set_brightness(0.5);
-    ui.set_velocity_scaling(0.5);
-    ui.set_decay_rate(0.5);
-    ui.set_harmonic_decay(0.5);
-    ui.set_key_scaling(0.5);
-    ui.set_release_rate(0.5);
+    // Set default values (CMajor defaults, inverted for intuitive control)
+    ui.set_brightness(30.0);
+    ui.set_velocity_scaling(50.0);
+    ui.set_decay_rate(90.0);
+    ui.set_harmonic_decay(70.0);
+    ui.set_key_scaling(50.0);
+    ui.set_release_rate(40.0);
     ui.set_vibrato_intensity(0.3);
     ui.set_vibrato_speed(5.0);
 

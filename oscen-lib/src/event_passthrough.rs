@@ -31,7 +31,7 @@ impl Default for EventPassthrough {
 }
 
 impl SignalProcessor for EventPassthrough {
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // All event processing is done via on_input handler
         // This node has no stream outputs to update
     }

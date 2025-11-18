@@ -13,7 +13,7 @@ use super::types::{
     Connection, ConnectionBuilder, EndpointDescriptor, EndpointDirection, EndpointState,
     EndpointType, EventInstance, EventParam, EventPayload, InputEndpoint, NodeKey, Output,
     StreamOutput, ValueData, ValueInput, ValueKey, ValueParam, MAX_CONNECTIONS_PER_OUTPUT,
-    MAX_NODE_ENDPOINTS,
+    MAX_NODE_ENDPOINTS, MAX_STREAM_CHANNELS,
 };
 
 impl fmt::Debug for NodeData {
@@ -709,7 +709,8 @@ impl Graph {
             {
                 if let Some(node) = self.nodes.get_mut(node_key) {
                     // Populate context arrays with input data
-                    let mut input_values: [f32; MAX_NODE_ENDPOINTS] = [0.0; MAX_NODE_ENDPOINTS];
+                    let mut input_values: [ArrayVec<f32, MAX_STREAM_CHANNELS>; MAX_NODE_ENDPOINTS] =
+                        std::array::from_fn(|_| ArrayVec::new());
                     let mut value_inputs: [Option<&ValueData>; MAX_NODE_ENDPOINTS] =
                         [None; MAX_NODE_ENDPOINTS];
                     let mut event_inputs: [&[EventInstance]; MAX_NODE_ENDPOINTS] =
@@ -732,12 +733,21 @@ impl Graph {
                             }
                             EndpointType::Stream => {
                                 let endpoint_state = self.endpoints.get(input_key);
-                                let value = endpoint_state
-                                    .and_then(EndpointState::as_scalar)
-                                    .unwrap_or(0.0);
-                                input_values[idx] = value;
-                                // Write to node via accessor method
-                                node.processor.set_stream_input(stream_input_idx, value);
+                                if let Some(channels) = endpoint_state.and_then(EndpointState::as_channels) {
+                                    input_values[idx].try_extend_from_slice(channels).ok();
+                                    // Write to node via accessor methods
+                                    if channels.len() == 1 {
+                                        // Single channel - use scalar method
+                                        node.processor.set_stream_input(stream_input_idx, channels[0]);
+                                    } else {
+                                        // Multi-channel - use channels method
+                                        node.processor.set_stream_input_channels(stream_input_idx, channels);
+                                    }
+                                } else {
+                                    // No data - write zero
+                                    input_values[idx].push(0.0);
+                                    node.processor.set_stream_input(stream_input_idx, 0.0);
+                                }
                                 stream_input_idx += 1;
                             }
                             EndpointType::Value => {
@@ -749,9 +759,11 @@ impl Graph {
                                         None
                                     }
                                 });
-                                input_values[idx] = endpoint_state
+                                // For value inputs, store scalar in stream array for backward compat
+                                let scalar = endpoint_state
                                     .and_then(EndpointState::as_scalar)
                                     .unwrap_or(0.0);
+                                input_values[idx].push(scalar);
                             }
                         }
                     }
@@ -769,7 +781,7 @@ impl Graph {
                     node.processor.read_inputs(&mut context);
 
                     // Process
-                    node.processor.process(self.sample_rate);
+                    node.processor.process();
 
                     // Route stream and value outputs via accessor methods
                     let mut stream_output_idx = 0;
@@ -778,17 +790,36 @@ impl Graph {
                     {
                         match output_type {
                             EndpointType::Stream => {
-                                if let Some(output_value) =
+                                // Try multi-channel first, fall back to scalar
+                                let output_channels = node.processor.get_stream_output_channels(stream_output_idx);
+
+                                if !output_channels.is_empty() {
+                                    // Multi-channel output
+                                    if let Some(&output_key) = node.outputs.get(output_endpoint_idx) {
+                                        if let Some(state) = self.endpoints.get_mut(output_key) {
+                                            state.set_channels(output_channels);
+                                        }
+
+                                        if let Some(connections) = self.connections.get(output_key) {
+                                            for &target_input in connections {
+                                                if let Some(target_state) =
+                                                    self.endpoints.get_mut(target_input)
+                                                {
+                                                    target_state.set_channels(output_channels);
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if let Some(output_value) =
                                     node.processor.get_stream_output(stream_output_idx)
                                 {
-                                    if let Some(&output_key) = node.outputs.get(output_endpoint_idx)
-                                    {
+                                    // Single-channel (scalar) output
+                                    if let Some(&output_key) = node.outputs.get(output_endpoint_idx) {
                                         if let Some(state) = self.endpoints.get_mut(output_key) {
                                             state.set_scalar(output_value);
                                         }
 
-                                        if let Some(connections) = self.connections.get(output_key)
-                                        {
+                                        if let Some(connections) = self.connections.get(output_key) {
                                             for &target_input in connections {
                                                 if let Some(target_state) =
                                                     self.endpoints.get_mut(target_input)
@@ -964,9 +995,10 @@ impl Graph {
 
     fn write_value_state(state: &mut EndpointState, value: &ValueData) {
         match state {
-            EndpointState::Stream(slot) => {
+            EndpointState::Stream(channels) => {
                 if let Some(scalar) = value.as_scalar() {
-                    *slot = scalar;
+                    channels.clear();
+                    channels.push(scalar);
                 }
             }
             EndpointState::Value(data) => {

@@ -28,6 +28,7 @@ pub struct ConnectionBlock(pub Vec<ConnectionStmt>);
 pub struct InputDecl {
     pub kind: EndpointKind,
     pub name: Ident,
+    pub ty: Option<syn::Type>, // Optional type annotation (e.g., [f32; 32])
     pub default: Option<Expr>,
     pub spec: Option<ParamSpec>,
 }
@@ -36,6 +37,7 @@ pub struct InputDecl {
 pub struct OutputDecl {
     pub kind: EndpointKind,
     pub name: Ident,
+    pub ty: Option<syn::Type>, // Optional type annotation (e.g., [f32; 32])
 }
 
 /// Node declaration

@@ -16,6 +16,7 @@ pub struct Oscillator {
     pub output: f32,
 
     waveform: fn(f32) -> f32,
+    sample_rate: f32,
 }
 
 impl Oscillator {
@@ -27,6 +28,7 @@ impl Oscillator {
             amplitude,
             waveform,
             output: 0.0,
+            sample_rate: 44100.0, // Default, will be set in init()
         }
     }
 
@@ -59,15 +61,19 @@ impl Oscillator {
 }
 
 impl SignalProcessor for Oscillator {
+    fn init(&mut self, sample_rate: f32) {
+        self.sample_rate = sample_rate;
+    }
+
     #[inline(always)]
-    fn process(&mut self, sample_rate: f32) {
+    fn process(&mut self) {
         let frequency = self.frequency * (1.0 + self.frequency_mod);
         let amplitude = self.amplitude;
 
         let modulated_phase = self.phase % 1.0;
         self.output = (self.waveform)(modulated_phase) * amplitude;
 
-        self.phase += frequency / sample_rate;
+        self.phase += frequency / self.sample_rate;
         self.phase %= 1.0;
     }
 }
@@ -99,6 +105,7 @@ pub struct PolyBlepOscillator {
     pub output: f32,
 
     waveform: PolyBlepWaveform,
+    sample_rate: f32,
 }
 
 impl PolyBlepOscillator {
@@ -112,6 +119,7 @@ impl PolyBlepOscillator {
             pulse_width: 0.5,
             output: 0.0,
             waveform,
+            sample_rate: 44100.0,
         }
     }
 
@@ -169,8 +177,12 @@ impl PolyBlepOscillator {
 }
 
 impl SignalProcessor for PolyBlepOscillator {
+    fn init(&mut self, sample_rate: f32) {
+        self.sample_rate = sample_rate;
+    }
+
     #[inline(always)]
-    fn process(&mut self, sample_rate: f32) {
+    fn process(&mut self) {
         // Calculate modulated frequency
         let frequency = (self.frequency * (1.0 + self.frequency_mod)).max(0.0);
         let amplitude = self.amplitude;
@@ -178,7 +190,7 @@ impl SignalProcessor for PolyBlepOscillator {
 
         // Calculate phase with modulation
         let mut phase = Self::wrap_phase(self.phase + self.phase_mod);
-        let freq_per_sample = frequency / sample_rate.max(f32::EPSILON);
+        let freq_per_sample = frequency / self.sample_rate.max(f32::EPSILON);
         let dt = freq_per_sample.min(1.0);
 
         if pulse_width <= 0.0 {
@@ -186,7 +198,7 @@ impl SignalProcessor for PolyBlepOscillator {
         }
 
         // Generate waveform with PolyBLEP anti-aliasing
-        let mut value = if frequency >= sample_rate * 0.25 {
+        let mut value = if frequency >= self.sample_rate * 0.25 {
             (phase * TAU).sin()
         } else {
             match self.waveform {
@@ -230,6 +242,7 @@ impl SignalProcessor for PolyBlepOscillator {
 #[cfg(test)]
 mod tests {
     use super::{PolyBlepOscillator, PolyBlepWaveform, SignalProcessor};
+    use arrayvec::ArrayVec;
     use crate::graph::types::{EventInstance, ValueData};
     use crate::graph::{IOStructAccess, NodeIO, PendingEvent, ProcessingContext, ProcessingNode};
 
@@ -249,14 +262,20 @@ mod tests {
         ];
 
         for _ in 0..(sample_rate as usize / 10) {
-            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+            let stream_inputs: Vec<ArrayVec<f32, 128>> = (0..6)
+                .map(|_| {
+                    let mut av = ArrayVec::new();
+                    av.push(0.0);
+                    av
+                })
+                .collect();
             let value_storage = value_template.clone();
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
-            let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
+            let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
+                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
 
             osc.read_inputs(&mut context);
             osc.process(sample_rate);
@@ -285,27 +304,39 @@ mod tests {
         ];
 
         let mut previous = {
-            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+            let stream_inputs: Vec<ArrayVec<f32, 128>> = (0..6)
+                .map(|_| {
+                    let mut av = ArrayVec::new();
+                    av.push(0.0);
+                    av
+                })
+                .collect();
             let value_storage = value_template.clone();
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
-            let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
+            let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
+                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
             osc.read_inputs(&mut context);
             osc.process(sample_rate);
             osc.output
         };
         for _ in 0..1024 {
-            let scalars = vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+            let stream_inputs: Vec<ArrayVec<f32, 128>> = (0..6)
+                .map(|_| {
+                    let mut av = ArrayVec::new();
+                    av.push(0.0);
+                    av
+                })
+                .collect();
             let value_storage = value_template.clone();
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
-            let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
+            let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
+                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
 
             osc.read_inputs(&mut context);
             osc.process(sample_rate);
@@ -326,8 +357,9 @@ mod tests {
 
         let mut samples = [0.0; 4];
         for i in 0..samples.len() {
+            let stream_inputs: Vec<ArrayVec<f32, 128>> = Vec::new();
             let mut pending = Vec::new();
-            let mut context = ProcessingContext::new(&[], &[], &[], &mut pending);
+            let mut context = ProcessingContext::new(&stream_inputs, &[], &[], &mut pending);
             osc.read_inputs(&mut context);
             osc.process(sample_rate);
             samples[i] = osc.output;

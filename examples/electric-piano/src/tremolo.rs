@@ -28,7 +28,7 @@ pub struct Tremolo {
 }
 
 impl Tremolo {
-    pub fn new(sample_rate: f32) -> Self {
+    pub fn new() -> Self {
         Self {
             input: 0.0,
             rate: 5.0,
@@ -36,7 +36,7 @@ impl Tremolo {
             left_output: 0.0,
             right_output: 0.0,
             phase: 0.0,
-            sample_rate,
+            sample_rate: 44100.0, // Will be set via init()
         }
     }
 }
@@ -46,7 +46,7 @@ impl SignalProcessor for Tremolo {
         self.sample_rate = sample_rate;
     }
 
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         let input = self.input;
         let rate = self.rate;
         let depth = self.depth;

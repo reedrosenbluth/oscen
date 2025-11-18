@@ -31,7 +31,7 @@ impl Default for Gain {
 
 impl SignalProcessor for Gain {
     #[inline(always)]
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // Inputs already populated in self.input and self.gain
         self.output = self.input * self.gain;
     }

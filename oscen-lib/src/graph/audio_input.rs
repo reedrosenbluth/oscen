@@ -29,7 +29,7 @@ impl Default for AudioInput {
 
 impl SignalProcessor for AudioInput {
     #[inline(always)]
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // Simply pass through the input value
         self.output = self.input_value;
     }

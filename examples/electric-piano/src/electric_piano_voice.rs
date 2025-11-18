@@ -82,11 +82,14 @@ pub struct OscillatorBank {
     #[input(value)]
     frequency: f32,
 
-    #[input(value)]
-    amplitudes: [f32; NUM_HARMONICS],
+    #[input(event)]
+    gate: (),
+
+    #[input(stream)]
+    pub amplitudes: [f32; NUM_HARMONICS],
 
     #[output(stream)]
-    output: f32,
+    pub output: f32,
 
     /// Complex oscillators (one per harmonic) - rotated each sample
     oscillators: [Complex; NUM_HARMONICS],
@@ -99,15 +102,25 @@ pub struct OscillatorBank {
 }
 
 impl OscillatorBank {
-    pub fn new(sample_rate: f32) -> Self {
+    pub fn new() -> Self {
         Self {
             frequency: 440.0,
+            gate: (),
             amplitudes: [0.0; NUM_HARMONICS],
             output: 0.0,
             oscillators: [Complex::one(); NUM_HARMONICS],
             multipliers: [Complex::one(); NUM_HARMONICS],
             last_frequency: 0.0,
-            sample_rate,
+            sample_rate: 44100.0, // Will be set via init()
+        }
+    }
+
+    fn on_gate(&mut self, event: &EventInstance, _context: &mut ProcessingContext) {
+        // Reset oscillators to zero phase on note-on (matches CMajor implementation)
+        if let EventPayload::Scalar(velocity) = &event.payload {
+            if *velocity > 0.0 {
+                self.oscillators = [Complex::one(); NUM_HARMONICS];
+            }
         }
     }
 
@@ -144,8 +157,7 @@ impl SignalProcessor for OscillatorBank {
         self.sample_rate = sample_rate;
     }
 
-    fn process(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
+    fn process(&mut self) {
 
         // Update multipliers if frequency changed
         if self.frequency > 0.0 {
@@ -191,11 +203,13 @@ pub struct AmplitudeSource {
     #[input(value)]
     release_rate: f32,
 
-    #[output(value)]
-    amplitudes: [f32; NUM_HARMONICS],
+    #[output(stream)]
+    pub amplitudes: [f32; NUM_HARMONICS],
 
     /// Current amplitude values for each harmonic
     current_value: [f32; NUM_HARMONICS],
+    /// Target amplitude values for interpolation
+    target_value: [f32; NUM_HARMONICS],
     /// Decay multipliers per harmonic (applied when note is held)
     decay: [f32; NUM_HARMONICS],
     /// Release multipliers per harmonic (applied after note off)
@@ -215,14 +229,15 @@ impl AmplitudeSource {
         Self {
             frequency: 440.0,
             gate: (),
-            brightness: 0.5,
-            velocity_scaling: 0.5,
-            decay_rate: 0.5,
-            harmonic_decay: 0.5,
-            key_scaling: 0.5,
-            release_rate: 0.5,
+            brightness: 30.0,
+            velocity_scaling: 50.0,
+            decay_rate: 90.0,  // CMajor default 10, inverted
+            harmonic_decay: 70.0,  // CMajor default 30, inverted
+            key_scaling: 50.0,
+            release_rate: 40.0,  // CMajor default 60, inverted
             amplitudes: [0.0; NUM_HARMONICS],
             current_value: [0.0; NUM_HARMONICS],
+            target_value: [0.0; NUM_HARMONICS],
             decay: [0.0; NUM_HARMONICS],
             release: [0.0; NUM_HARMONICS],
             released: false,
@@ -233,8 +248,9 @@ impl AmplitudeSource {
     }
 
     fn get_decay(&self, note: f32) -> [f32; NUM_HARMONICS] {
-        let base_decay_rate = self.decay_rate / 40000.0;
-        let harmonic_scaling = 1.0 - (self.harmonic_decay / 200000.0);
+        // Invert so higher values = longer decay (more intuitive than CMajor)
+        let base_decay_rate = (100.0 - self.decay_rate) / 40000.0;
+        let harmonic_scaling = 1.0 - ((100.0 - self.harmonic_decay) / 200000.0);
 
         let scaling_multiplier = (48.0 - note) / 12.0;
         let key_scaling_factor = scaling_multiplier * (self.key_scaling * 0.02);
@@ -257,7 +273,8 @@ impl AmplitudeSource {
     }
 
     fn get_release(&self, _note: f32) -> [f32; NUM_HARMONICS] {
-        let release_value = 0.999 - (self.release_rate / 1000.0);
+        // Invert so higher values = longer release (more intuitive than CMajor)
+        let release_value = 0.999 - ((100.0 - self.release_rate) / 1000.0);
         [release_value; NUM_HARMONICS]
     }
 
@@ -308,29 +325,31 @@ impl AmplitudeSource {
 }
 
 impl SignalProcessor for AmplitudeSource {
-    fn process(&mut self, _sample_rate: f32) {
-        // Use decay or release multipliers based on note state
-        let multiplier = if self.released {
-            self.release
-        } else {
-            self.decay
-        };
+    fn process(&mut self) {
+        // At the start of each interpolation cycle, calculate new target
+        if self.interpolation_step == 0 {
+            let multiplier = if self.released {
+                self.release
+            } else {
+                self.decay
+            };
 
-        // Calculate target values
-        let mut target = [0.0; NUM_HARMONICS];
-        for i in 0..NUM_HARMONICS {
-            target[i] = self.current_value[i] * multiplier[i];
+            // Apply multiplier once per cycle (every 64 samples), matching CMajor
+            for i in 0..NUM_HARMONICS {
+                self.target_value[i] = self.current_value[i] * multiplier[i];
+            }
         }
 
+        // Interpolate towards target over INTERPOLATION_STEPS samples
         if self.interpolation_step < INTERPOLATION_STEPS {
-            let t = self.interpolation_step as f32 / INTERPOLATION_STEPS as f32;
+            let t = (self.interpolation_step + 1) as f32 / INTERPOLATION_STEPS as f32;
             for i in 0..NUM_HARMONICS {
-                self.current_value[i] = self.current_value[i] * (1.0 - t) + target[i] * t;
+                self.current_value[i] = self.current_value[i] * (1.0 - t) + self.target_value[i] * t;
             }
             self.interpolation_step += 1;
         } else {
-            // Reset interpolation for next cycle
-            self.current_value = target;
+            // End of cycle - set to target and reset counter
+            self.current_value = self.target_value;
             self.interpolation_step = 0;
         }
 
@@ -348,24 +367,25 @@ use oscen::graph;
 
 graph! {
     name: ElectricPianoVoiceNode;
+    compile_time: true;
 
     input value frequency = 440.0;
     input event gate;
-    input value brightness = 0.5;
-    input value velocity_scaling = 0.5;
-    input value decay_rate = 0.5;
-    input value harmonic_decay = 0.5;
-    input value key_scaling = 0.5;
-    input value release_rate = 0.5;
+    input value brightness = 30.0;
+    input value velocity_scaling = 50.0;
+    input value decay_rate = 90.0;
+    input value harmonic_decay = 70.0;
+    input value key_scaling = 50.0;
+    input value release_rate = 40.0;
 
     output stream output;
 
-    node {
+    nodes {
         amplitude_source = crate::electric_piano_voice::AmplitudeSource::new();
-        oscillator_bank = crate::electric_piano_voice::OscillatorBank::new(sample_rate);
+        oscillator_bank = crate::electric_piano_voice::OscillatorBank::new();
     }
 
-    connection {
+    connections {
         // Forward parameters to amplitude source
         frequency -> amplitude_source.frequency;
         gate -> amplitude_source.gate;
@@ -376,8 +396,9 @@ graph! {
         key_scaling -> amplitude_source.key_scaling;
         release_rate -> amplitude_source.release_rate;
 
-        // Forward frequency to oscillator bank
+        // Forward frequency and gate to oscillator bank
         frequency -> oscillator_bank.frequency;
+        gate -> oscillator_bank.gate;
 
         // Connect amplitude source output to oscillator bank input (key connection!)
         amplitude_source.amplitudes -> oscillator_bank.amplitudes;

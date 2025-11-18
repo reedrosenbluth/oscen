@@ -9,6 +9,7 @@ use slotmap::new_key_type;
 pub const MAX_EVENTS: usize = 256;
 pub const MAX_CONNECTIONS_PER_OUTPUT: usize = 1024;
 pub const MAX_NODE_ENDPOINTS: usize = 32;
+pub const MAX_STREAM_CHANNELS: usize = 128;
 
 new_key_type! { pub struct NodeKey; }
 new_key_type! { pub struct ValueKey; }
@@ -193,14 +194,16 @@ impl EventEndpointState {
 
 #[derive(Debug)]
 pub enum EndpointState {
-    Stream(f32),
+    Stream(ArrayVec<f32, MAX_STREAM_CHANNELS>),
     Value(ValueData),
     Event(EventEndpointState),
 }
 
 impl EndpointState {
     pub fn stream(initial: f32) -> Self {
-        Self::Stream(initial)
+        let mut channels = ArrayVec::new();
+        channels.push(initial);
+        Self::Stream(channels)
     }
 
     pub fn value(initial: f32) -> Self {
@@ -214,7 +217,7 @@ impl EndpointState {
     #[inline]
     pub fn as_scalar(&self) -> Option<f32> {
         match self {
-            Self::Stream(v) => Some(*v),
+            Self::Stream(channels) => channels.first().copied(),
             Self::Value(data) => data.as_scalar(),
             Self::Event(_) => None,
         }
@@ -223,7 +226,7 @@ impl EndpointState {
     #[inline]
     pub fn as_scalar_mut(&mut self) -> Option<&mut f32> {
         match self {
-            Self::Stream(v) => Some(v),
+            Self::Stream(channels) => channels.first_mut(),
             Self::Value(data) => data.as_scalar_mut(),
             Self::Event(_) => None,
         }
@@ -232,9 +235,36 @@ impl EndpointState {
     #[inline]
     pub fn set_scalar(&mut self, value: f32) {
         match self {
-            Self::Stream(slot) => *slot = value,
+            Self::Stream(channels) => {
+                channels.clear();
+                channels.push(value);
+            }
             Self::Value(data) => data.set_scalar(value),
             Self::Event(_) => {}
+        }
+    }
+
+    #[inline]
+    pub fn as_channels(&self) -> Option<&[f32]> {
+        match self {
+            Self::Stream(channels) => Some(channels.as_slice()),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn as_channels_mut(&mut self) -> Option<&mut ArrayVec<f32, MAX_STREAM_CHANNELS>> {
+        match self {
+            Self::Stream(channels) => Some(channels),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn set_channels(&mut self, values: &[f32]) {
+        if let Self::Stream(channels) = self {
+            channels.clear();
+            channels.try_extend_from_slice(values).ok();
         }
     }
 

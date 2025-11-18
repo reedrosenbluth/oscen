@@ -238,7 +238,7 @@ impl SignalProcessor for Oscilloscope {
     ///
     /// Input and output are accessed via self.input/self.output
     /// Graph pre-populates input, node writes to output.
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // Read stream input from self (pre-populated by graph)
         let input = self.input;
 

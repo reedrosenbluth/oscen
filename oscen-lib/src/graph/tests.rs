@@ -173,7 +173,7 @@ impl ContextProbeNode {
 }
 
 impl SignalProcessor for ContextProbeNode {
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // Output is already set by NodeIO::read_inputs
         // Nothing to do in process
     }
@@ -245,7 +245,7 @@ struct EventEmitterEndpoints {
 // EventEmitterEndpoints methods removed - field is accessed directly
 
 impl SignalProcessor for EventEmitterNode {
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // Event emission happens in NodeIO::read_inputs
     }
 }
@@ -297,7 +297,7 @@ impl EventSinkNode {
 }
 
 impl SignalProcessor for EventSinkNode {
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // Event counting happens in NodeIO::read_inputs
     }
 }
@@ -394,7 +394,7 @@ impl StreamValueNode {
 }
 
 impl SignalProcessor for StreamValueNode {
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         self.output = self.value;
     }
 }

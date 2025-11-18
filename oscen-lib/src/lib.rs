@@ -9,9 +9,13 @@ pub mod graph;
 pub mod midi;
 pub mod oscillators;
 pub mod oscilloscope;
+pub mod prelude;
 pub mod ring_buffer;
 pub mod value;
 pub mod voice_allocator;
+
+#[cfg(test)]
+mod multi_channel_test;
 
 // Re-export everything from each module to make it easy for consumers
 pub use delay::*;

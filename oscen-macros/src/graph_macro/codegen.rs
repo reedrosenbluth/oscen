@@ -360,6 +360,32 @@ impl CodegenContext {
         }).collect()
     }
 
+    /// Generate static initialization for output parameters
+    /// For static graphs, outputs store actual values (f32) not endpoint wrappers
+    fn generate_static_output_params(&self) -> Vec<TokenStream> {
+        self.outputs.iter().map(|output| {
+            let name = &output.name;
+
+            match output.kind {
+                EndpointKind::Stream => {
+                    quote! {
+                        let #name = 0.0f32;
+                    }
+                }
+                EndpointKind::Value => {
+                    quote! {
+                        let #name = 0.0f32;
+                    }
+                }
+                EndpointKind::Event => {
+                    quote! {
+                        let #name = ::std::vec::Vec::new();
+                    }
+                }
+            }
+        }).collect()
+    }
+
     /// Generate static initialization for nodes (direct constructor calls)
     fn generate_static_node_init(&self) -> Vec<TokenStream> {
         self.nodes
@@ -1041,7 +1067,7 @@ impl CodegenContext {
         let signal_processor_impl = quote! {
             impl ::oscen::SignalProcessor for #name {
                 #[inline(always)]
-                fn process(&mut self, _sample_rate: f32) {
+                fn process(&mut self) {
                     // Process internal graph
                     let _ = self.graph.process();
                 }
@@ -1477,30 +1503,62 @@ impl CodegenContext {
 
             // Then generate the direct process call (bypasses trait dispatch for inlining)
             process_body.push(quote! {
-                self.#node_name.process(self.sample_rate);
+                self.#node_name.process();
             });
         }
 
-        // Determine what to return - look for outputs or the last node's output
-        let return_value = if let Some(output) = self.outputs.first() {
-            let output_name = &output.name;
-            quote! { self.#output_name }
-        } else if let Some(last_node) = sorted_nodes.last() {
-            // Return the output field of the last processed node directly
-            quote! { self.#last_node.output }
-        } else {
-            quote! { 0.0 }
-        };
+        // Generate assignments for connections to outputs
+        for conn in &self.connections {
+            if let Some(dest_ident) = Self::extract_root_node(&conn.dest) {
+                // Check if destination is an output
+                if self.outputs.iter().any(|o| o.name == *dest_ident) {
+                    // This connection targets an output - generate assignment
+                    if let Some(source_node) = Self::extract_root_node(&conn.source) {
+                        if let Some(source_field) = Self::extract_endpoint_field(&conn.source) {
+                            process_body.push(quote! {
+                                self.#dest_ident = self.#source_node.#source_field;
+                            });
+                        }
+                    }
+                }
+            }
+        }
 
+        // Match dynamic graph API: process() with no return value
         Ok(quote! {
             #[inline(always)]
-            pub fn process(&mut self) -> f32 {
+            pub fn process(&mut self) {
                 use ::oscen::SignalProcessor as _;
                 #(#process_body)*
-
-                #return_value
             }
         })
+    }
+
+    /// Generate get_stream_output() method for static graphs
+    fn generate_static_get_stream_output(&self) -> TokenStream {
+        // Generate match arms for each stream output
+        let mut match_arms = Vec::new();
+        let mut output_idx = 0usize;
+
+        for output in &self.outputs {
+            if output.kind == EndpointKind::Stream {
+                let field_name = &output.name;
+                match_arms.push(quote! {
+                    #output_idx => Some(self.#field_name)
+                });
+                output_idx += 1;
+            }
+        }
+
+        quote! {
+            #[inline(always)]
+            pub fn get_stream_output(&self, index: usize) -> Option<f32> {
+                match index {
+                    #(#match_arms,)*
+                    _ => None
+                }
+            }
+        }
     }
 
     fn generate_static_struct(&self, name: &syn::Ident) -> Result<TokenStream> {
@@ -1517,13 +1575,13 @@ impl CodegenContext {
             fields.push(quote! { pub #field_name: #ty });
         }
 
-        // Add output fields
+        // Add output fields (store actual values for static graphs)
         for output in &self.outputs {
             let field_name = &output.name;
             let ty = match output.kind {
-                EndpointKind::Value => quote! { ::oscen::ValueParam },
-                EndpointKind::Event => quote! { ::oscen::EventParam },
-                EndpointKind::Stream => quote! { ::oscen::StreamOutput },
+                EndpointKind::Stream => quote! { f32 },  // Store actual f32 value
+                EndpointKind::Value => quote! { f32 },   // Simplified: only scalar values for now
+                EndpointKind::Event => quote! { ::std::vec::Vec<::oscen::graph::EventInstance> },
             };
             fields.push(quote! { pub #field_name: #ty });
         }
@@ -1543,11 +1601,13 @@ impl CodegenContext {
         }
 
         let input_params = self.generate_static_input_params();
+        let output_params = self.generate_static_output_params();
         let node_init = self.generate_static_node_init();
         let struct_init = self.generate_static_struct_init();
 
         // For compile-time graphs, generate a static process() method
         let process_method = self.generate_static_process()?;
+        let get_stream_output_method = self.generate_static_get_stream_output();
 
         Ok(quote! {
             #[allow(dead_code)]
@@ -1565,6 +1625,9 @@ impl CodegenContext {
                     // Initialize input parameters (requires graph for endpoint allocation)
                     #(#input_params)*
 
+                    // Initialize output parameters (static values, not endpoint wrappers)
+                    #(#output_params)*
+
                     // Initialize nodes (direct instantiation)
                     #(#node_init)*
 
@@ -1574,6 +1637,8 @@ impl CodegenContext {
                 }
 
                 #process_method
+
+                #get_stream_output_method
             }
         })
     }
@@ -1585,6 +1650,7 @@ impl Clone for InputDecl {
         Self {
             kind: self.kind,
             name: self.name.clone(),
+            ty: self.ty.clone(),
             default: self.default.clone(),
             spec: None, // Skip spec for now
         }
@@ -1596,6 +1662,7 @@ impl Clone for OutputDecl {
         Self {
             kind: self.kind,
             name: self.name.clone(),
+            ty: self.ty.clone(),
         }
     }
 }

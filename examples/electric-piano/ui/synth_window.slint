@@ -289,8 +289,8 @@ export component SynthWindow inherits Window {
                 RotaryKnob {
                     label: "Brightness";
                     minimum: 0.0;
-                    maximum: 1.0;
-                    step: 0.01;
+                    maximum: 100.0;
+                    step: 1.0;
                     vertical-stretch: 0;
                     value: root.brightness;
                     value_edited(value) => {
@@ -302,8 +302,8 @@ export component SynthWindow inherits Window {
                 RotaryKnob {
                     label: "Vel Scale";
                     minimum: 0.0;
-                    maximum: 1.0;
-                    step: 0.01;
+                    maximum: 100.0;
+                    step: 1.0;
                     vertical-stretch: 0;
                     value: root.velocity_scaling;
                     value_edited(value) => {
@@ -324,8 +324,8 @@ export component SynthWindow inherits Window {
                 RotaryKnob {
                     label: "Decay";
                     minimum: 0.0;
-                    maximum: 1.0;
-                    step: 0.01;
+                    maximum: 100.0;
+                    step: 1.0;
                     value: root.decay_rate;
                     value_edited(value) => {
                         root.decay_rate = value;
@@ -336,8 +336,8 @@ export component SynthWindow inherits Window {
                 RotaryKnob {
                     label: "Harm Decay";
                     minimum: 0.0;
-                    maximum: 1.0;
-                    step: 0.01;
+                    maximum: 100.0;
+                    step: 1.0;
                     value: root.harmonic_decay;
                     value_edited(value) => {
                         root.harmonic_decay = value;
@@ -348,8 +348,8 @@ export component SynthWindow inherits Window {
                 RotaryKnob {
                     label: "Key Scale";
                     minimum: 0.0;
-                    maximum: 1.0;
-                    step: 0.01;
+                    maximum: 100.0;
+                    step: 1.0;
                     value: root.key_scaling;
                     value_edited(value) => {
                         root.key_scaling = value;
@@ -360,8 +360,8 @@ export component SynthWindow inherits Window {
                 RotaryKnob {
                     label: "Release";
                     minimum: 0.0;
-                    maximum: 1.0;
-                    step: 0.01;
+                    maximum: 100.0;
+                    step: 1.0;
                     value: root.release_rate;
                     value_edited(value) => {
                         root.release_rate = value;

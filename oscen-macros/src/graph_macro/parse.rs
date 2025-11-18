@@ -84,6 +84,14 @@ impl Parse for InputDecl {
         let kind = input.parse()?;
         let name = input.parse()?;
 
+        // Parse optional type annotation: `: Type`
+        let ty = if input.peek(Token![:]) {
+            input.parse::<Token![:]>()?;
+            Some(input.parse()?)
+        } else {
+            None
+        };
+
         let mut default = None;
         let mut spec = None;
 
@@ -105,6 +113,7 @@ impl Parse for InputDecl {
         Ok(InputDecl {
             kind,
             name,
+            ty,
             default,
             spec,
         })
@@ -145,9 +154,18 @@ impl Parse for OutputDecl {
         input.parse::<kw::output>()?;
         let kind = input.parse()?;
         let name = input.parse()?;
+
+        // Parse optional type annotation: `: Type`
+        let ty = if input.peek(Token![:]) {
+            input.parse::<Token![:]>()?;
+            Some(input.parse()?)
+        } else {
+            None
+        };
+
         input.parse::<Token![;]>()?;
 
-        Ok(OutputDecl { kind, name })
+        Ok(OutputDecl { kind, name, ty })
     }
 }
 

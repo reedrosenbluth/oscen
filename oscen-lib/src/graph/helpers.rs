@@ -24,7 +24,7 @@ impl FunctionNode {
 }
 
 impl SignalProcessor for FunctionNode {
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         self.output = (self.func)(self.input);
     }
 }
@@ -140,7 +140,7 @@ impl BinaryFunctionNode {
 }
 
 impl SignalProcessor for BinaryFunctionNode {
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         self.output = (self.func)(self.lhs, self.rhs);
     }
 }

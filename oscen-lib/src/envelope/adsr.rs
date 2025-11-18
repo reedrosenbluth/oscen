@@ -258,7 +258,7 @@ impl SignalProcessor for AdsrEnvelope {
     }
 
     #[inline(always)]
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // Apply parameters from struct fields
         self.apply_parameters(self.attack, self.decay, self.sustain, self.release);
 

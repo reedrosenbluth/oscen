@@ -3,7 +3,7 @@ use arrayvec::ArrayVec;
 use super::types::NodeKey;
 use super::types::{
     EndpointDescriptor, EventInstance, EventPayload, ValueData, ValueKey, ValueObject,
-    MAX_NODE_ENDPOINTS,
+    MAX_NODE_ENDPOINTS, MAX_STREAM_CHANNELS,
 };
 
 #[derive(Copy, Clone)]
@@ -37,7 +37,7 @@ pub struct PendingEvent {
 }
 
 pub struct ProcessingContext<'a> {
-    scalar_inputs: &'a [f32],
+    stream_inputs: &'a [ArrayVec<f32, MAX_STREAM_CHANNELS>],
     value_inputs: &'a [Option<&'a ValueData>],
     event_inputs: &'a [&'a [EventInstance]],
     emitted_events: &'a mut Vec<PendingEvent>,
@@ -45,13 +45,13 @@ pub struct ProcessingContext<'a> {
 
 impl<'a> ProcessingContext<'a> {
     pub fn new(
-        scalar_inputs: &'a [f32],
+        stream_inputs: &'a [ArrayVec<f32, MAX_STREAM_CHANNELS>],
         value_inputs: &'a [Option<&'a ValueData>],
         event_inputs: &'a [&'a [EventInstance]],
         emitted_events: &'a mut Vec<PendingEvent>,
     ) -> Self {
         Self {
-            scalar_inputs,
+            stream_inputs,
             value_inputs,
             event_inputs,
             emitted_events,
@@ -60,7 +60,19 @@ impl<'a> ProcessingContext<'a> {
 
     #[inline]
     pub fn stream(&self, index: usize) -> f32 {
-        self.scalar_inputs.get(index).copied().unwrap_or(0.0)
+        self.stream_inputs
+            .get(index)
+            .and_then(|channels| channels.first())
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    #[inline]
+    pub fn stream_channels(&self, index: usize) -> &[f32] {
+        self.stream_inputs
+            .get(index)
+            .map(|channels| channels.as_slice())
+            .unwrap_or(&[])
     }
 
     #[inline]
@@ -135,6 +147,20 @@ pub trait IOStructAccess: Send {
     /// Get a stream output field value (graph reads after processing to route)
     fn get_stream_output(&self, index: usize) -> Option<f32>;
 
+    /// Set multi-channel stream input (for arrays/multi-channel streams)
+    fn set_stream_input_channels(&mut self, index: usize, channels: &[f32]) {
+        // Default: set first channel only for backward compatibility
+        if let Some(&first) = channels.first() {
+            self.set_stream_input(index, first);
+        }
+    }
+
+    /// Get multi-channel stream output (returns channels as slice)
+    fn get_stream_output_channels(&self, _index: usize) -> &[f32] {
+        // Default: return empty slice (no multi-channel support)
+        &[]
+    }
+
     /// Get event output instances (used after node processing to route events)
     fn get_event_output(&self, index: usize) -> &[EventInstance];
 
@@ -153,9 +179,10 @@ pub trait SignalProcessor: Send + std::fmt::Debug {
     /// All inputs are already populated in struct fields. Write outputs to
     /// output fields. No context object to deal with!
     ///
+    /// Sample rate is stored in the node during init() or construction.
     /// For static graphs, this is called directly with zero overhead.
     /// For runtime graphs, NodeIO::read_inputs() is called first to populate inputs.
-    fn process(&mut self, sample_rate: f32);
+    fn process(&mut self);
 
     /// Whether this node can break feedback cycles (e.g., delay lines).
     #[inline]
@@ -188,6 +215,21 @@ pub trait NodeIO {
     #[inline]
     fn set_stream_input(&mut self, _index: usize, _value: f32) {
         // Default: do nothing
+    }
+
+    /// Get multi-channel stream output (returns channels as slice)
+    #[inline]
+    fn get_stream_output_channels(&self, _index: usize) -> &[f32] {
+        &[]
+    }
+
+    /// Set multi-channel stream input
+    #[inline]
+    fn set_stream_input_channels(&mut self, index: usize, channels: &[f32]) {
+        // Default: set first channel only for backward compatibility
+        if let Some(&first) = channels.first() {
+            self.set_stream_input(index, first);
+        }
     }
 
     /// Get value output by index (for runtime graph routing).

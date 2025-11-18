@@ -29,13 +29,13 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut _event_output_idx = 0usize;
 
     // Track IO struct fields for IOStructAccess implementation
-    let mut stream_input_fields = Vec::new(); // (field_name, index)
-    let mut stream_output_fields = Vec::new(); // (field_name, index)
+    let mut stream_input_fields = Vec::new(); // (field_name, index, Option<array_size>)
+    let mut stream_output_fields = Vec::new(); // (field_name, index, Option<array_size>)
     let mut event_output_fields = Vec::new(); // (field_name, index)
     let mut value_output_fields = Vec::new(); // (field_name, index, is_scalar)
 
     // Track all input fields by type for SignalProcessor generation
-    let mut signal_processor_stream_inputs = Vec::new(); // (field_name, index)
+    let mut signal_processor_stream_inputs = Vec::new(); // (field_name, index, Option<array_size>)
     let mut signal_processor_value_inputs = Vec::new(); // (field_name, index)
     let mut signal_processor_event_inputs = Vec::new(); // (field_name, index)
 
@@ -90,12 +90,22 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     // Add to IO struct if stream (events accessed via ProcessingContext)
                     match accessor_kind {
                         EndpointTypeAttr::Stream => {
-                            io_fields.push(quote! {
-                                pub #field_name: f32
-                            });
+                            // Check if field is array type [f32; N] or scalar f32
+                            let array_size = extract_array_size(&field_ty);
+                            if array_size.is_some() {
+                                // Multi-channel stream input - use original field type
+                                io_fields.push(quote! {
+                                    pub #field_name: #field_ty
+                                });
+                            } else {
+                                // Single-channel stream input
+                                io_fields.push(quote! {
+                                    pub #field_name: f32
+                                });
+                            }
                             stream_input_fields
-                                .push((field_name.clone(), stream_input_fields.len()));
-                            signal_processor_stream_inputs.push((field_name.clone(), input_idx));
+                                .push((field_name.clone(), stream_input_fields.len(), array_size));
+                            signal_processor_stream_inputs.push((field_name.clone(), input_idx, array_size));
                         }
                         EndpointTypeAttr::Event => {
                             // Event inputs NOT in IO struct - accessed via context.events()
@@ -194,11 +204,21 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     // Add to IO struct if stream or event
                     match output_kind {
                         EndpointTypeAttr::Stream => {
-                            io_fields.push(quote! {
-                                pub #field_name: f32
-                            });
+                            // Check if field is array type [f32; N] or scalar f32
+                            let array_size = extract_array_size(&field_ty);
+                            if array_size.is_some() {
+                                // Multi-channel stream output - use original field type
+                                io_fields.push(quote! {
+                                    pub #field_name: #field_ty
+                                });
+                            } else {
+                                // Single-channel stream output
+                                io_fields.push(quote! {
+                                    pub #field_name: f32
+                                });
+                            }
                             stream_output_fields
-                                .push((field_name.clone(), stream_output_fields.len()));
+                                .push((field_name.clone(), stream_output_fields.len(), array_size));
                         }
                         EndpointTypeAttr::Event => {
                             io_fields.push(quote! {
@@ -246,41 +266,94 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let num_event_outputs = event_output_fields.len();
 
     // Generate match arms for set_stream_input (graph writes before processing)
+    // For scalar fields only - array fields handled by set_stream_input_channels
     let set_stream_input_arms: Vec<_> = stream_input_fields
         .iter()
-        .map(|(field_name, idx)| {
-            quote! {
-                #idx => { self.#field_name = value; }
+        .filter_map(|(field_name, idx, array_size)| {
+            if array_size.is_none() {
+                // Scalar field
+                Some(quote! {
+                    #idx => { self.#field_name = value; }
+                })
+            } else {
+                // Array field - skip (handled by set_stream_input_channels)
+                None
             }
         })
         .collect();
 
     // Generate match arms for get_stream_input (node reads during processing)
+    // For scalar fields only
     let get_stream_input_arms: Vec<_> = stream_input_fields
         .iter()
-        .map(|(field_name, idx)| {
-            quote! {
-                #idx => Some(self.#field_name)
+        .filter_map(|(field_name, idx, array_size)| {
+            if array_size.is_none() {
+                Some(quote! {
+                    #idx => Some(self.#field_name)
+                })
+            } else {
+                None
             }
         })
         .collect();
 
     // Generate match arms for set_stream_output (node writes during processing)
+    // For scalar fields only
     let set_stream_output_arms: Vec<_> = stream_output_fields
         .iter()
-        .map(|(field_name, idx)| {
-            quote! {
-                #idx => { self.#field_name = value; }
+        .filter_map(|(field_name, idx, array_size)| {
+            if array_size.is_none() {
+                Some(quote! {
+                    #idx => { self.#field_name = value; }
+                })
+            } else {
+                None
             }
         })
         .collect();
 
     // Generate match arms for get_stream_output (graph reads after processing)
+    // For scalar fields only
     let get_stream_output_arms: Vec<_> = stream_output_fields
         .iter()
-        .map(|(field_name, idx)| {
-            quote! {
-                #idx => Some(self.#field_name)
+        .filter_map(|(field_name, idx, array_size)| {
+            if array_size.is_none() {
+                Some(quote! {
+                    #idx => Some(self.#field_name)
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Generate match arms for set_stream_input_channels (for array input fields)
+    let set_stream_input_channels_arms: Vec<_> = stream_input_fields
+        .iter()
+        .filter_map(|(field_name, idx, array_size)| {
+            if array_size.is_some() {
+                Some(quote! {
+                    #idx => {
+                        let copy_len = channels.len().min(self.#field_name.len());
+                        self.#field_name[..copy_len].copy_from_slice(&channels[..copy_len]);
+                    }
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Generate match arms for get_stream_output_channels (for array output fields)
+    let get_stream_output_channels_arms: Vec<_> = stream_output_fields
+        .iter()
+        .filter_map(|(field_name, idx, array_size)| {
+            if array_size.is_some() {
+                Some(quote! {
+                    #idx => &self.#field_name[..]
+                })
+            } else {
+                None
             }
         })
         .collect();
@@ -341,6 +414,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 fn get_stream_input(&self, _index: usize) -> Option<f32> { None }
                 fn set_stream_output(&mut self, _index: usize, _value: f32) {}
                 fn get_stream_output(&self, _index: usize) -> Option<f32> { None }
+                fn set_stream_input_channels(&mut self, _index: usize, _channels: &[f32]) {}
+                fn get_stream_output_channels(&self, _index: usize) -> &[f32] { &[] }
                 fn get_event_output(&self, _index: usize) -> &[::oscen::graph::EventInstance] { &[] }
                 fn clear_event_outputs(&mut self) {}
             }
@@ -394,6 +469,25 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     match index {
                         #(#get_stream_output_arms,)*
                         _ => None
+                    }
+                }
+
+                fn set_stream_input_channels(&mut self, index: usize, channels: &[f32]) {
+                    match index {
+                        #(#set_stream_input_channels_arms)*
+                        _ => {
+                            // Fall back to scalar set for backward compatibility
+                            if let Some(&first) = channels.first() {
+                                self.set_stream_input(index, first);
+                            }
+                        }
+                    }
+                }
+
+                fn get_stream_output_channels(&self, index: usize) -> &[f32] {
+                    match index {
+                        #(#get_stream_output_channels_arms,)*
+                        _ => &[]
                     }
                 }
 
@@ -461,6 +555,25 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
                 }
 
+                fn set_stream_input_channels(&mut self, index: usize, channels: &[f32]) {
+                    match index {
+                        #(#set_stream_input_channels_arms)*
+                        _ => {
+                            // Fall back to scalar set for backward compatibility
+                            if let Some(&first) = channels.first() {
+                                self.set_stream_input(index, first);
+                            }
+                        }
+                    }
+                }
+
+                fn get_stream_output_channels(&self, index: usize) -> &[f32] {
+                    match index {
+                        #(#get_stream_output_channels_arms,)*
+                        _ => &[]
+                    }
+                }
+
                 fn get_event_output(&self, index: usize) -> &[::oscen::graph::EventInstance] {
                     match index {
                         #(#get_event_output_arms,)*
@@ -480,10 +593,22 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut signal_processor_input_reads = Vec::new();
 
     // Read stream inputs
-    for (field_name, idx) in &signal_processor_stream_inputs {
-        signal_processor_input_reads.push(quote! {
-            self.#field_name = context.stream(#idx);
-        });
+    for (field_name, idx, array_size) in &signal_processor_stream_inputs {
+        if array_size.is_some() {
+            // Array field - copy from stream_channels
+            signal_processor_input_reads.push(quote! {
+                {
+                    let channels = context.stream_channels(#idx);
+                    let copy_len = channels.len().min(self.#field_name.len());
+                    self.#field_name[..copy_len].copy_from_slice(&channels[..copy_len]);
+                }
+            });
+        } else {
+            // Scalar field - read single value
+            signal_processor_input_reads.push(quote! {
+                self.#field_name = context.stream(#idx);
+            });
+        }
     }
 
     // Read value inputs using the generated getter methods
@@ -603,6 +728,27 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     _ => None
                 }
             }
+
+            #[inline(always)]
+            fn set_stream_input_channels(&mut self, index: usize, channels: &[f32]) {
+                match index {
+                    #(#set_stream_input_channels_arms)*
+                    _ => {
+                        // Fall back to scalar set for backward compatibility
+                        if let Some(&first) = channels.first() {
+                            self.set_stream_input(index, first);
+                        }
+                    }
+                }
+            }
+
+            #[inline(always)]
+            fn get_stream_output_channels(&self, index: usize) -> &[f32] {
+                match index {
+                    #(#get_stream_output_channels_arms,)*
+                    _ => &[]
+                }
+            }
         }
     };
 
@@ -628,6 +774,26 @@ fn is_f32_type(ty: &syn::Type) -> bool {
         }
     }
     false
+}
+
+/// Extract array size from [f32; N] type, returns None for non-array types
+/// For arrays with non-literal sizes (like NUM_HARMONICS), returns Some(0) as a sentinel
+fn extract_array_size(ty: &syn::Type) -> Option<usize> {
+    if let syn::Type::Array(type_array) = ty {
+        // Check that element type is f32
+        if is_f32_type(&*type_array.elem) {
+            // Try to extract the array length
+            if let syn::Expr::Lit(expr_lit) = &type_array.len {
+                if let syn::Lit::Int(lit_int) = &expr_lit.lit {
+                    return lit_int.base10_parse().ok();
+                }
+            }
+            // If we can't parse a literal (e.g., it's a const like NUM_HARMONICS),
+            // return Some(0) as a sentinel to indicate "array with non-literal size"
+            return Some(0);
+        }
+    }
+    None
 }
 
 #[derive(Clone, Copy)]

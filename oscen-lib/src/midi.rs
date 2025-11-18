@@ -83,7 +83,7 @@ impl Default for MidiVoiceHandler {
 
 impl SignalProcessor for MidiVoiceHandler {
     #[inline(always)]
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // Update frequency output
         // Event handling is done via on_note_on/on_note_off handlers
         self.frequency = self.current_frequency;
@@ -182,7 +182,7 @@ impl Default for MidiParser {
 
 impl SignalProcessor for MidiParser {
     #[inline(always)]
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // All event processing is done via on_midi_in handler
         // This node has no stream outputs to update
     }

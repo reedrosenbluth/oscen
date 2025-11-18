@@ -31,6 +31,8 @@ pub struct TptFilter {
     // frame counting
     frame_counter: usize,
     frames_per_update: usize,
+
+    sample_rate: f32,
 }
 
 /// These filters are based on the designs outlined in The Art of VA Filter Design
@@ -58,9 +60,10 @@ impl TptFilter {
             k: 0.0,
             frame_counter: 0,
             frames_per_update: 32,
+            sample_rate: 44100.0,
         };
         // Initialize coefficients with default sample rate
-        // Will be updated again on first process call with actual sample rate
+        // Will be updated again in init() with actual sample rate
         filter.update_coefficients(44100.0, cutoff, q);
         filter
     }
@@ -109,9 +112,9 @@ impl TptFilter {
 impl TptFilter {
     /// DSP processing - inputs are already in self fields, write output to self.output
     #[inline(always)]
-    pub fn process(&mut self, sample_rate: f32) {
+    pub fn process_internal(&mut self) {
         // Update parameters
-        self.apply_parameter_updates(sample_rate, self.cutoff, self.q, self.f_mod);
+        self.apply_parameter_updates(self.sample_rate, self.cutoff, self.q, self.f_mod);
 
         // Process (state-variable filter)
         let high = (self.input - self.k * self.z[0] - self.z[1]) * self.h;
@@ -130,19 +133,21 @@ impl TptFilter {
 // The Node macro only generates NodeIO and ProcessingNode traits
 impl SignalProcessor for TptFilter {
     fn init(&mut self, sample_rate: f32) {
+        self.sample_rate = sample_rate;
         self.update_coefficients(sample_rate, self.cutoff, self.q);
     }
 
     #[inline(always)]
-    fn process(&mut self, sample_rate: f32) {
+    fn process(&mut self) {
         // Call our custom process method
-        self.process(sample_rate);
+        self.process_internal();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrayvec::ArrayVec;
     use crate::graph::types::{EventInstance, ValueData};
     use crate::graph::{NodeIO, PendingEvent, ProcessingContext, ProcessingNode};
 
@@ -190,7 +195,14 @@ mod tests {
 
         for n in 0..8 {
             let input = if n == 0 { 1.0 } else { 0.0 };
-            let scalars = vec![input, cutoff, q, 0.0];
+            let stream_inputs: Vec<ArrayVec<f32, 128>> = vec![input, cutoff, q, 0.0]
+                .into_iter()
+                .map(|v| {
+                    let mut av = ArrayVec::new();
+                    av.push(v);
+                    av
+                })
+                .collect();
             let value_storage = vec![
                 None,
                 Some(ValueData::scalar(cutoff)),
@@ -199,14 +211,14 @@ mod tests {
             ];
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
-            let event_inputs: Vec<&[EventInstance]> = vec![&[]; scalars.len()];
+            let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
             let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(&scalars, &value_refs, &event_inputs, &mut pending);
+                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
             filter.input = input;
             filter.f_mod = 0.0;
             filter.read_inputs(&mut context);
-            filter.process(sample_rate);
+            filter.process();
             outputs.push(filter.output);
         }
 

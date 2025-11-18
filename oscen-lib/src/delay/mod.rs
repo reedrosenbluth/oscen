@@ -75,7 +75,7 @@ impl SignalProcessor for Delay {
     }
 
     #[inline(always)]
-    fn process(&mut self, _sample_rate: f32) {
+    fn process(&mut self) {
         // Update parameters (uses self.delay_samples and self.feedback from fields)
         self.apply_parameter_updates(self.delay_samples, self.feedback);
 

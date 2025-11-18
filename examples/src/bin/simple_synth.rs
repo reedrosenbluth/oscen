@@ -1,19 +1,22 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::{Graph, Oscillator, StreamOutput, TptFilter};
+use oscen::prelude::*;
 use std::thread;
 
-fn create_audio_graph(sample_rate: f32) -> (Graph, StreamOutput) {
-    let mut graph = Graph::new(sample_rate);
+graph! {
+    name: SynthGraph;
+    compile_time: true;
 
-    // Create a sine oscillator and low-pass filter
-    let osc = graph.add_node(Oscillator::sine(440.0, 0.5));
-    let filter = graph.add_node(TptFilter::new(1200.0, 0.707));
+    output stream out;
 
-    // Connect oscillator to filter
-    graph.connect(osc.output, filter.input);
+    nodes {
+        osc = PolyBlepOscillator::saw(440.0, 0.6);
+        filter = TptFilter::new(4000.0, 0.707);
+    }
 
-    // Return graph and the final output node
-    (graph, filter.output)
+    connections {
+        osc.output -> filter.input;
+        filter.output -> out;
+    }
 }
 
 fn main() {
@@ -23,7 +26,7 @@ fn main() {
         let device = host.default_output_device().expect("no output device");
         let default_config = device.default_output_config().unwrap();
         let config = cpal::StreamConfig {
-            channels: default_config.channels(),
+            channels: 2,
             sample_rate: default_config.sample_rate(),
             buffer_size: cpal::BufferSize::Fixed(512),
         };
@@ -32,7 +35,8 @@ fn main() {
         let channels = config.channels as usize;
 
         // Create audio graph
-        let (mut graph, output) = create_audio_graph(sample_rate);
+        let mut graph = SynthGraph::new(sample_rate);
+        let mut counter = 0;
 
         // Build the audio stream
         let stream = device
@@ -41,13 +45,22 @@ fn main() {
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     // Process audio in chunks
                     for frame in data.chunks_mut(channels) {
-                        // Process the graph and handle potential errors
-                        if let Err(e) = graph.process() {
-                            eprintln!("Graph process error: {}", e);
+                        // Process the graph
+                        counter += 1;
+                        if counter >= 48000 {
+                            let start = std::time::Instant::now();
+                            graph.process();
+                            println!(
+                                "simple_synth/process    time:   [{} ns]",
+                                start.elapsed().as_nanos()
+                            );
+                            counter = 0;
+                        } else {
+                            graph.process();
                         }
 
                         // Get the output value and write to all channels
-                        if let Some(value) = graph.get_value(&output) {
+                        if let Some(value) = graph.get_stream_output(0) {
                             for sample in frame.iter_mut() {
                                 *sample = value;
                             }
