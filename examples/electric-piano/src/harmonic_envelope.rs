@@ -1,5 +1,8 @@
 use oscen::graph::types::EventPayload;
-use oscen::{InputEndpoint, Node, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor, ValueKey};
+use oscen::{
+    EventInput, InputEndpoint, Node, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor,
+    ValueKey,
+};
 
 const NUM_HARMONICS: usize = 32;
 const INTERPOLATION_STEPS: usize = 64;
@@ -26,7 +29,7 @@ const VELOCITY_127_SPECTRUM: [f32; NUM_HARMONICS] = [
 #[allow(dead_code)]
 pub struct HarmonicEnvelope {
     #[input(event)]
-    gate: (),
+    gate: EventInput,
 
     #[input(value)]
     brightness: f32,
@@ -68,7 +71,7 @@ pub struct HarmonicEnvelope {
 impl HarmonicEnvelope {
     pub fn new(sample_rate: f32) -> Self {
         Self {
-            gate: (),
+            gate: EventInput::default(),
             brightness: 0.5,
             velocity_scaling: 0.5,
             decay_rate: 0.5,

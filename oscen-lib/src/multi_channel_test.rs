@@ -61,7 +61,7 @@ mod tests {
         let sample_rate = 48_000.0;
 
         source.init(sample_rate);
-        source.process(sample_rate);
+        source.process();
 
         assert_eq!(source.outputs[0], 10.0);
         assert_eq!(source.outputs[1], 20.0);
@@ -74,8 +74,8 @@ mod tests {
         let mut receiver = MultiChannelReceiver::new();
         receiver.inputs = [1.0, 2.0, 3.0, 4.0];
 
-        let sample_rate = 48_000.0;
-        receiver.process(sample_rate);
+        let _sample_rate = 48_000.0;
+        receiver.process();
 
         assert_eq!(receiver.sum, 10.0);
     }
@@ -85,7 +85,7 @@ mod tests {
         use crate::graph::NodeIO;
 
         let mut source = MultiChannelSource::new(1.0);
-        source.process(48_000.0);
+        source.process();
 
         // Test get_stream_output_channels via NodeIO trait
         let channels = source.get_stream_output_channels(0);
@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(receiver.inputs[3], 10.0);
 
         // Process and verify sum
-        receiver.process(48_000.0);
+        receiver.process();
         assert_eq!(receiver.sum, 34.0); // 7 + 8 + 9 + 10
     }
 }

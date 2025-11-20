@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt;
+use std::marker::PhantomData;
 use std::ops::Shr;
 use std::sync::Arc;
 
@@ -10,6 +11,14 @@ pub const MAX_EVENTS: usize = 256;
 pub const MAX_CONNECTIONS_PER_OUTPUT: usize = 1024;
 pub const MAX_NODE_ENDPOINTS: usize = 32;
 pub const MAX_STREAM_CHANNELS: usize = 128;
+
+/// Maximum number of events per static graph event input/output.
+/// This is smaller than MAX_EVENTS to reduce stack usage.
+pub const MAX_STATIC_EVENTS_PER_ENDPOINT: usize = 32;
+
+/// Fixed-capacity event queue for static graphs.
+/// Uses stack-allocated ArrayVec instead of heap-allocated Vec for zero-overhead event handling.
+pub type StaticEventQueue = ArrayVec<EventInstance, MAX_STATIC_EVENTS_PER_ENDPOINT>;
 
 new_key_type! { pub struct NodeKey; }
 new_key_type! { pub struct ValueKey; }
@@ -340,6 +349,14 @@ pub struct InputEndpoint {
     key: ValueKey,
 }
 
+impl Default for InputEndpoint {
+    fn default() -> Self {
+        Self {
+            key: ValueKey::default(),
+        }
+    }
+}
+
 impl InputEndpoint {
     pub fn new(key: ValueKey) -> Self {
         Self { key }
@@ -440,14 +457,35 @@ impl From<&StreamInput> for InputEndpoint {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct EventInput {
+#[derive(Debug)]
+pub struct EventInput<T = EventPayload> {
     endpoint: InputEndpoint,
+    _marker: PhantomData<T>,
 }
 
-impl EventInput {
+impl<T> Copy for EventInput<T> {}
+
+impl<T> Clone for EventInput<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Default for EventInput<T> {
+    fn default() -> Self {
+        Self {
+            endpoint: InputEndpoint::default(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T> EventInput<T> {
     pub fn new(endpoint: InputEndpoint) -> Self {
-        Self { endpoint }
+        Self {
+            endpoint,
+            _marker: PhantomData,
+        }
     }
 
     pub fn endpoint(&self) -> InputEndpoint {
@@ -459,26 +497,26 @@ impl EventInput {
     }
 }
 
-impl From<EventInput> for ValueKey {
-    fn from(handle: EventInput) -> Self {
+impl<T> From<EventInput<T>> for ValueKey {
+    fn from(handle: EventInput<T>) -> Self {
         handle.key()
     }
 }
 
-impl From<&EventInput> for ValueKey {
-    fn from(handle: &EventInput) -> Self {
+impl<T> From<&EventInput<T>> for ValueKey {
+    fn from(handle: &EventInput<T>) -> Self {
         handle.key()
     }
 }
 
-impl From<EventInput> for InputEndpoint {
-    fn from(handle: EventInput) -> Self {
+impl<T> From<EventInput<T>> for InputEndpoint {
+    fn from(handle: EventInput<T>) -> Self {
         handle.endpoint()
     }
 }
 
-impl From<&EventInput> for InputEndpoint {
-    fn from(handle: &EventInput) -> Self {
+impl<T> From<&EventInput<T>> for InputEndpoint {
+    fn from(handle: &EventInput<T>) -> Self {
         handle.endpoint()
     }
 }
@@ -534,14 +572,35 @@ impl Output for ValueOutput {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct EventOutput {
+#[derive(Debug)]
+pub struct EventOutput<T = EventPayload> {
     key: ValueKey,
+    _marker: PhantomData<T>,
 }
 
-impl EventOutput {
+impl<T> Copy for EventOutput<T> {}
+
+impl<T> Clone for EventOutput<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Default for EventOutput<T> {
+    fn default() -> Self {
+        Self {
+            key: ValueKey::default(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T> EventOutput<T> {
     pub fn new(key: ValueKey) -> Self {
-        Self { key }
+        Self {
+            key,
+            _marker: PhantomData,
+        }
     }
 
     pub fn key(&self) -> ValueKey {
@@ -549,7 +608,7 @@ impl EventOutput {
     }
 }
 
-impl Output for EventOutput {
+impl<T> Output for EventOutput<T> {
     fn key(&self) -> ValueKey {
         self.key
     }
@@ -594,33 +653,41 @@ impl From<&ValueParam> for ValueKey {
 
 /// An opaque handle to an event parameter that can be both queued and connected.
 /// Created by `Graph::event_param()`.
-#[derive(Copy, Clone, Debug)]
-pub struct EventParam {
-    pub(crate) input: EventInput,
-    pub(crate) output: EventOutput,
+#[derive(Debug)]
+pub struct EventParam<T = EventPayload> {
+    pub(crate) input: EventInput<T>,
+    pub(crate) output: EventOutput<T>,
 }
 
-impl EventParam {
-    pub fn new(input: EventInput, output: EventOutput) -> Self {
+impl<T> Copy for EventParam<T> {}
+
+impl<T> Clone for EventParam<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> EventParam<T> {
+    pub fn new(input: EventInput<T>, output: EventOutput<T>) -> Self {
         Self { input, output }
     }
 }
 
-impl Output for EventParam {
+impl<T> Output for EventParam<T> {
     fn key(&self) -> ValueKey {
         self.output.key()
     }
 }
 
 // Allow EventParam to be used where InputEndpoint is expected (for queue_event)
-impl From<EventParam> for InputEndpoint {
-    fn from(param: EventParam) -> Self {
+impl<T> From<EventParam<T>> for InputEndpoint {
+    fn from(param: EventParam<T>) -> Self {
         param.input.into()
     }
 }
 
-impl From<&EventParam> for InputEndpoint {
-    fn from(param: &EventParam) -> Self {
+impl<T> From<&EventParam<T>> for InputEndpoint {
+    fn from(param: &EventParam<T>) -> Self {
         param.input.into()
     }
 }
@@ -712,10 +779,10 @@ impl Shr<ValueInput> for ValueParam {
 // Type-safe Event connections
 // ============================================================================
 
-impl Shr<EventInput> for EventOutput {
+impl<T> Shr<EventInput<T>> for EventOutput<T> {
     type Output = ConnectionBuilder;
 
-    fn shr(self, to: EventInput) -> ConnectionBuilder {
+    fn shr(self, to: EventInput<T>) -> ConnectionBuilder {
         let mut builder = ConnectionBuilder {
             from: self.key(),
             connections: ArrayVec::new(),
@@ -730,10 +797,10 @@ impl Shr<EventInput> for EventOutput {
 
 // Allow routing event inputs to other event inputs
 // This enables graph-level event inputs to be forwarded to node event inputs
-impl Shr<EventInput> for EventInput {
+impl<T> Shr<EventInput<T>> for EventInput<T> {
     type Output = ConnectionBuilder;
 
-    fn shr(self, to: EventInput) -> ConnectionBuilder {
+    fn shr(self, to: EventInput<T>) -> ConnectionBuilder {
         let mut builder = ConnectionBuilder {
             from: self.key(),
             connections: ArrayVec::new(),
@@ -747,10 +814,10 @@ impl Shr<EventInput> for EventInput {
 }
 
 // Allow EventParam to connect to EventInput (uses the output of the passthrough node)
-impl Shr<EventInput> for EventParam {
+impl<T> Shr<EventInput<T>> for EventParam<T> {
     type Output = ConnectionBuilder;
 
-    fn shr(self, to: EventInput) -> ConnectionBuilder {
+    fn shr(self, to: EventInput<T>) -> ConnectionBuilder {
         self.output >> to
     }
 }

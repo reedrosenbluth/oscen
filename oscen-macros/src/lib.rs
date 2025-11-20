@@ -9,6 +9,8 @@ mod graph_macro;
 pub fn derive_node(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
+    let generics = input.generics;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     let endpoints_name = format_ident!("{}Endpoints", name);
     let io_name = format_ident!("{}IO", name);
@@ -48,22 +50,38 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             for field in fields.named {
                 let field_name = field.ident.unwrap();
                 let field_name_str = field_name.to_string();
-                let mut input_type: Option<(TokenStream2, EndpointTypeAttr)> = None;
                 let field_ty = field.ty.clone();
+                let mut input_type: Option<(TokenStream2, EndpointTypeAttr)> = None;
+                let mut output_type: Option<(TokenStream2, EndpointTypeAttr)> = None;
                 let mut input_type_kind = None;
-                let mut output_type = None;
+                let mut output_type_kind = None;
 
                 for attr in field.attrs.iter() {
                     if attr.path().is_ident("input") {
-                        let kind = parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
-                        let ty = endpoint_type_tokens(kind);
-                        input_type = Some((ty, kind));
-                        input_type_kind = Some(kind);
+                        input_type_kind =
+                            Some(parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value));
                     } else if attr.path().is_ident("output") {
-                        let kind = parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
-                        let ty = endpoint_type_tokens(kind);
-                        output_type = Some(ty);
+                        output_type_kind =
+                            Some(parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value));
                     }
+                }
+
+                if input_type_kind.is_none() {
+                    input_type_kind = detect_input_kind_from_type(&field_ty);
+                }
+
+                if output_type_kind.is_none() {
+                    output_type_kind = detect_output_kind_from_type(&field_ty);
+                }
+
+                if let Some(kind) = input_type_kind {
+                    let ty = endpoint_type_tokens(kind);
+                    input_type = Some((ty, kind));
+                }
+
+                if let Some(kind) = output_type_kind {
+                    let ty = endpoint_type_tokens(kind);
+                    output_type = Some((ty, kind));
                 }
 
                 if let Some((endpoint_ty, _kind_tag)) = input_type {
@@ -73,7 +91,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     // Generate field type based on endpoint kind
                     let field_type = match accessor_kind {
                         EndpointTypeAttr::Stream => quote! { ::oscen::graph::types::StreamInput },
-                        EndpointTypeAttr::Event => quote! { ::oscen::graph::types::EventInput },
+                        EndpointTypeAttr::Event => event_input_field_type(&field_ty),
                         EndpointTypeAttr::Value => quote! { ::oscen::graph::types::ValueInput },
                     };
 
@@ -128,78 +146,70 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         )
                     });
 
-                    if let Some(kind) = input_type_kind {
-                        let read_name = format_ident!("get_{}", field_name);
-                        match kind {
-                            EndpointTypeAttr::Stream => {
-                                input_scalar_getters.push(quote! {
-                                    #[inline(always)]
-                                    pub fn #read_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> f32 {
-                                        context.stream(#input_idx)
-                                    }
-                                });
-                            }
-                            EndpointTypeAttr::Value => {
-                                input_scalar_getters.push(quote! {
-                                    #[inline(always)]
-                                    pub fn #read_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> f32 {
-                                        context.value_scalar(#input_idx)
-                                    }
-                                });
+                    let read_name = format_ident!("get_{}", field_name);
+                    match accessor_kind {
+                        EndpointTypeAttr::Stream => {
+                            input_scalar_getters.push(quote! {
+                                #[inline(always)]
+                                pub fn #read_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> f32 {
+                                    context.stream(#input_idx)
+                                }
+                            });
+                        }
+                        EndpointTypeAttr::Value => {
+                            input_scalar_getters.push(quote! {
+                                #[inline(always)]
+                                pub fn #read_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> f32 {
+                                    context.value_scalar(#input_idx)
+                                }
+                            });
 
-                                let value_ref_name = format_ident!("value_ref_{}", field_name);
-                                input_value_ref_getters.push(quote! {
-                                    #[inline(always)]
-                                    pub fn #value_ref_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> Option<::oscen::graph::ValueRef<'a>> {
-                                        context.value(#input_idx)
-                                    }
-                                });
+                            let value_ref_name = format_ident!("value_ref_{}", field_name);
+                            input_value_ref_getters.push(quote! {
+                                #[inline(always)]
+                                pub fn #value_ref_name<'a>(&self, context: &::oscen::graph::ProcessingContext<'a>) -> Option<::oscen::graph::ValueRef<'a>> {
+                                    context.value(#input_idx)
+                                }
+                            });
 
-                                // Track value inputs for default_values() generation
-                                value_input_fields.push((field_name.clone(), input_idx));
-                            }
-                            EndpointTypeAttr::Event => {
-                                let events_name = format_ident!("events_{}", field_name);
-                                input_event_getters.push(quote! {
-                                    #[inline(always)]
-                                    pub fn #events_name<'a>(&self, context: &'a ::oscen::graph::ProcessingContext<'a>) -> &'a [::oscen::graph::EventInstance] {
-                                        context.events(#input_idx)
-                                    }
-                                });
-                            }
+                            // Track value inputs for default_values() generation
+                            value_input_fields.push((field_name.clone(), input_idx));
+                        }
+                        EndpointTypeAttr::Event => {
+                            let events_name = format_ident!("events_{}", field_name);
+                            input_event_getters.push(quote! {
+                                #[inline(always)]
+                                pub fn #events_name<'a>(&self, context: &'a ::oscen::graph::ProcessingContext<'a>) -> &'a [::oscen::graph::EventInstance] {
+                                    context.events(#input_idx)
+                                }
+                            });
                         }
                     }
 
                     input_idx += 1;
                 }
 
-                if let Some(endpoint_ty) = output_type {
-                    let descriptor_ty = endpoint_ty.clone();
-
-                    // Determine output type from endpoint_ty
-                    let mut output_kind = EndpointTypeAttr::Value; // default
-                    for attr in field.attrs.iter() {
-                        if attr.path().is_ident("output") {
-                            output_kind =
-                                parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value);
-                        }
-                    }
-
+                if let Some((descriptor_ty, output_kind)) = output_type {
                     let output_type_token = match output_kind {
                         EndpointTypeAttr::Stream => quote! { ::oscen::graph::types::StreamOutput },
                         EndpointTypeAttr::Value => quote! { ::oscen::graph::types::ValueOutput },
-                        EndpointTypeAttr::Event => quote! { ::oscen::graph::types::EventOutput },
+                        EndpointTypeAttr::Event => event_output_field_type(&field_ty),
                     };
 
-                    // Generate field definition for Endpoints struct
-                    endpoint_fields.push(quote! {
-                        pub #field_name: #output_type_token
-                    });
+                    // Check if this is an array event output (skip in Endpoints struct - handled by ArrayEventOutput trait)
+                    let is_array_event_output = output_kind == EndpointTypeAttr::Event && matches!(&field_ty, syn::Type::Array(_));
 
-                    // Generate field assignment in create_endpoints
-                    create_endpoints_assignments.push(quote! {
-                        #field_name: #output_type_token::new(outputs[#output_idx])
-                    });
+                    if !is_array_event_output {
+                        // Generate field definition for Endpoints struct
+                        endpoint_fields.push(quote! {
+                            pub #field_name: #output_type_token
+                        });
+
+                        // Generate field assignment in create_endpoints
+                        create_endpoints_assignments.push(quote! {
+                            #field_name: #output_type_token::new(outputs[#output_idx])
+                        });
+                    }
 
                     // Add to IO struct if stream or event
                     match output_kind {
@@ -619,7 +629,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         });
     }
 
-    // Auto-dispatch event inputs to handler methods
+    // Auto-dispatch event inputs to handler methods (for runtime graphs)
     // For each event input, call on_<field_name>(event, context)
     // We need to clone events to avoid borrow checker issues when calling handlers
     for (field_name, _idx) in &signal_processor_event_inputs {
@@ -633,6 +643,40 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             }
         });
     }
+
+    // Generate handle_events method for static graphs
+    // For static graphs, the graph struct holds event storage, not the node
+    // So this method takes the event slice and a StaticContext
+    let handle_events_method = if !signal_processor_event_inputs.is_empty() {
+        let mut event_handler_calls = Vec::new();
+
+        // For each event input, generate a method that processes events from a slice
+        for (field_name, _idx) in &signal_processor_event_inputs {
+            let handler_method = format_ident!("on_{}", field_name);
+            let handle_method = format_ident!("handle_{}_events", field_name);
+
+            event_handler_calls.push(quote! {
+                /// Handle events for this endpoint (called by static graphs)
+                #[inline]
+                #[allow(dead_code)]
+                pub fn #handle_method<Ctx: ::oscen::graph::EventContext>(
+                    &mut self,
+                    events: &[::oscen::graph::EventInstance],
+                    ctx: &mut Ctx
+                ) {
+                    for event in events {
+                        self.#handler_method(event, ctx);
+                    }
+                }
+            });
+        }
+
+        quote! {
+            #(#event_handler_calls)*
+        }
+    } else {
+        quote! {}
+    };
 
     let expanded = quote! {
         // IO struct for stream and event endpoints
@@ -655,10 +699,12 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl #name {
+        impl #impl_generics #name #ty_generics #where_clause {
             #(#input_scalar_getters)*
             #(#input_value_ref_getters)*
             #(#input_event_getters)*
+
+            #handle_events_method
 
             #[allow(dead_code)]
             fn __oscen_suppress_unused(&self) {
@@ -667,7 +713,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl ProcessingNode for #name {
+        impl #impl_generics ProcessingNode for #name #ty_generics #where_clause {
             type Endpoints = #endpoints_name;
 
             const ENDPOINT_DESCRIPTORS: &'static [::oscen::graph::types::EndpointDescriptor] = &[
@@ -698,7 +744,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
         // Auto-generate NodeIO implementation
         // This handles all IO boilerplate so users only write process()
-        impl ::oscen::NodeIO for #name {
+        impl #impl_generics ::oscen::NodeIO for #name #ty_generics #where_clause {
             #[inline(always)]
             fn read_inputs<'a>(&mut self, context: &mut ::oscen::ProcessingContext<'a>) {
                 // Read all inputs from context into struct fields
@@ -767,6 +813,58 @@ fn endpoint_type_tokens(attr: EndpointTypeAttr) -> TokenStream2 {
     }
 }
 
+fn detect_input_kind_from_type(ty: &syn::Type) -> Option<EndpointTypeAttr> {
+    match last_segment_ident(ty)?.as_str() {
+        "StreamInput" => Some(EndpointTypeAttr::Stream),
+        "ValueInput" => Some(EndpointTypeAttr::Value),
+        "EventInput" => Some(EndpointTypeAttr::Event),
+        _ => None,
+    }
+}
+
+fn detect_output_kind_from_type(ty: &syn::Type) -> Option<EndpointTypeAttr> {
+    match last_segment_ident(ty)?.as_str() {
+        "StreamOutput" => Some(EndpointTypeAttr::Stream),
+        "ValueOutput" => Some(EndpointTypeAttr::Value),
+        "EventOutput" => Some(EndpointTypeAttr::Event),
+        _ => None,
+    }
+}
+
+fn event_input_field_type(ty: &syn::Type) -> TokenStream2 {
+    if last_segment_ident(ty).as_deref() == Some("EventInput") {
+        quote! { #ty }
+    } else {
+        quote! { ::oscen::graph::types::EventInput }
+    }
+}
+
+fn event_output_field_type(ty: &syn::Type) -> TokenStream2 {
+    // Check if it's an array type first
+    if let syn::Type::Array(array_ty) = ty {
+        // Check if the array element is EventOutput
+        if last_segment_ident(&array_ty.elem).as_deref() == Some("EventOutput") {
+            // Preserve the full array type
+            return quote! { #ty };
+        }
+    }
+
+    // Otherwise check if it's a direct EventOutput type
+    if last_segment_ident(ty).as_deref() == Some("EventOutput") {
+        quote! { #ty }
+    } else {
+        quote! { ::oscen::graph::types::EventOutput }
+    }
+}
+
+fn last_segment_ident(ty: &syn::Type) -> Option<String> {
+    if let syn::Type::Path(type_path) = ty {
+        type_path.path.segments.last().map(|seg| seg.ident.to_string())
+    } else {
+        None
+    }
+}
+
 fn is_f32_type(ty: &syn::Type) -> bool {
     if let syn::Type::Path(type_path) = ty {
         if type_path.qself.is_none() && type_path.path.segments.len() == 1 {
@@ -796,7 +894,7 @@ fn extract_array_size(ty: &syn::Type) -> Option<usize> {
     None
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum EndpointTypeAttr {
     Stream,
     Value,

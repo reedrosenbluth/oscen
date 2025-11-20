@@ -7,28 +7,28 @@ use std::f32::consts::PI;
 #[allow(dead_code)]
 pub struct Tremolo {
     #[input(stream)]
-    input: f32,
+    pub input: f32,
 
     #[input(value)]
-    rate: f32,
+    pub rate: f32,
 
     #[input(value)]
-    depth: f32,
+    pub depth: f32,
 
     #[output(stream)]
-    left_output: f32,
+    pub left_output: f32,
 
     #[output(stream)]
-    right_output: f32,
+    pub right_output: f32,
 
     /// LFO phase (0.0 to 1.0)
-    phase: f32,
+    pub phase: f32,
     /// Sample rate
-    sample_rate: f32,
+    pub sample_rate: f32,
 }
 
 impl Tremolo {
-    pub fn new() -> Self {
+    pub fn new(sample_rate: f32) -> Self {
         Self {
             input: 0.0,
             rate: 5.0,
@@ -36,7 +36,7 @@ impl Tremolo {
             left_output: 0.0,
             right_output: 0.0,
             phase: 0.0,
-            sample_rate: 44100.0, // Will be set via init()
+            sample_rate,
         }
     }
 }

@@ -1,7 +1,6 @@
 use oscen::graph::types::{EventInstance, EventPayload};
-use oscen::{
-    InputEndpoint, Node, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor, ValueKey,
-};
+use oscen::graph::EventContext;
+use oscen::{EventInput, InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
 use std::f32::consts::PI;
 
 const NUM_HARMONICS: usize = 32;
@@ -83,7 +82,7 @@ pub struct OscillatorBank {
     frequency: f32,
 
     #[input(event)]
-    gate: (),
+    gate: EventInput,
 
     #[input(stream)]
     pub amplitudes: [f32; NUM_HARMONICS],
@@ -105,7 +104,7 @@ impl OscillatorBank {
     pub fn new() -> Self {
         Self {
             frequency: 440.0,
-            gate: (),
+            gate: EventInput::default(),
             amplitudes: [0.0; NUM_HARMONICS],
             output: 0.0,
             oscillators: [Complex::one(); NUM_HARMONICS],
@@ -115,7 +114,7 @@ impl OscillatorBank {
         }
     }
 
-    fn on_gate(&mut self, event: &EventInstance, _context: &mut ProcessingContext) {
+    fn on_gate(&mut self, event: &EventInstance, _ctx: &mut impl EventContext) {
         // Reset oscillators to zero phase on note-on (matches CMajor implementation)
         if let EventPayload::Scalar(velocity) = &event.payload {
             if *velocity > 0.0 {
@@ -158,7 +157,6 @@ impl SignalProcessor for OscillatorBank {
     }
 
     fn process(&mut self) {
-
         // Update multipliers if frequency changed
         if self.frequency > 0.0 {
             self.update_multipliers(self.frequency);
@@ -183,7 +181,7 @@ pub struct AmplitudeSource {
     frequency: f32,
 
     #[input(event)]
-    gate: (),
+    gate: EventInput,
 
     #[input(value)]
     brightness: f32,
@@ -228,13 +226,13 @@ impl AmplitudeSource {
     pub fn new() -> Self {
         Self {
             frequency: 440.0,
-            gate: (),
+            gate: EventInput::default(),
             brightness: 30.0,
             velocity_scaling: 50.0,
-            decay_rate: 90.0,  // CMajor default 10, inverted
-            harmonic_decay: 70.0,  // CMajor default 30, inverted
+            decay_rate: 90.0,     // CMajor default 10, inverted
+            harmonic_decay: 70.0, // CMajor default 30, inverted
             key_scaling: 50.0,
-            release_rate: 40.0,  // CMajor default 60, inverted
+            release_rate: 40.0, // CMajor default 60, inverted
             amplitudes: [0.0; NUM_HARMONICS],
             current_value: [0.0; NUM_HARMONICS],
             target_value: [0.0; NUM_HARMONICS],
@@ -312,7 +310,7 @@ impl AmplitudeSource {
 }
 
 impl AmplitudeSource {
-    fn on_gate(&mut self, event: &EventInstance, _context: &mut ProcessingContext) {
+    fn on_gate(&mut self, event: &EventInstance, _ctx: &mut impl EventContext) {
         match &event.payload {
             EventPayload::Scalar(velocity) if *velocity > 0.0 => {
                 self.trigger_note(*velocity);
@@ -344,7 +342,8 @@ impl SignalProcessor for AmplitudeSource {
         if self.interpolation_step < INTERPOLATION_STEPS {
             let t = (self.interpolation_step + 1) as f32 / INTERPOLATION_STEPS as f32;
             for i in 0..NUM_HARMONICS {
-                self.current_value[i] = self.current_value[i] * (1.0 - t) + self.target_value[i] * t;
+                self.current_value[i] =
+                    self.current_value[i] * (1.0 - t) + self.target_value[i] * t;
             }
             self.interpolation_step += 1;
         } else {
@@ -367,18 +366,18 @@ use oscen::graph;
 
 graph! {
     name: ElectricPianoVoiceNode;
-    compile_time: true;
 
-    input value frequency = 440.0;
-    input event gate;
-    input value brightness = 30.0;
-    input value velocity_scaling = 50.0;
-    input value decay_rate = 90.0;
-    input value harmonic_decay = 70.0;
-    input value key_scaling = 50.0;
-    input value release_rate = 40.0;
+    // CMajor-style explicit type declarations
+    input frequency: value = 440.0;
+    input gate: event;
+    input brightness: value = 30.0;
+    input velocity_scaling: value = 50.0;
+    input decay_rate: value = 90.0;
+    input harmonic_decay: value = 70.0;
+    input key_scaling: value = 50.0;
+    input release_rate: value = 40.0;
 
-    output stream output;
+    output output: stream;
 
     nodes {
         amplitude_source = crate::electric_piano_voice::AmplitudeSource::new();

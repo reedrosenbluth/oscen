@@ -1,6 +1,6 @@
 use crate::graph::types::EventPayload;
 use crate::graph::{
-    EventInstance, InputEndpoint, NodeKey, ProcessingNode, SignalProcessor, ValueKey,
+    EventInput, EventInstance, InputEndpoint, NodeKey, ProcessingNode, SignalProcessor, ValueKey,
 };
 use crate::Node;
 
@@ -18,7 +18,7 @@ enum Stage {
 #[derive(Debug, Node)]
 pub struct AdsrEnvelope {
     #[input(event)]
-    gate: (),
+    gate: EventInput,
 
     #[input(value)]
     attack: f32,
@@ -51,7 +51,7 @@ pub struct AdsrEnvelope {
 impl AdsrEnvelope {
     pub fn new(attack: f32, decay: f32, sustain: f32, release: f32) -> Self {
         let mut envelope = Self {
-            gate: (),
+            gate: EventInput::default(),
             attack,
             decay,
             sustain,
@@ -279,7 +279,7 @@ impl SignalProcessor for AdsrEnvelope {
 
 impl AdsrEnvelope {
     // Event handler called automatically by the macro-generated NodeIO
-    fn on_gate(&mut self, event: &EventInstance, _context: &mut crate::ProcessingContext) {
+    fn on_gate(&mut self, event: &EventInstance, _ctx: &mut impl crate::graph::EventContext) {
         self.handle_gate_event(event);
     }
 }

@@ -120,6 +120,79 @@ impl<'a> ProcessingContext<'a> {
     pub fn emit_scalar_event(&mut self, output_index: usize, frame_offset: u32, payload: f32) {
         self.emit_timed_event(output_index, frame_offset, EventPayload::scalar(payload));
     }
+
+    pub fn emit_event_to_array(
+        &mut self,
+        output_index: usize,
+        _array_index: usize,
+        event: EventInstance,
+    ) {
+        // For ProcessingContext, we don't have direct array routing
+        // Just emit the event normally - routing happens in the graph
+        self.emit_event(output_index, event);
+    }
+}
+
+/// Trait for event emission that works in both runtime and static graphs.
+/// This provides a unified API for nodes to emit events regardless of graph type.
+pub trait EventContext {
+    /// Emit an event from an output endpoint
+    fn emit_event(&mut self, output_index: usize, event: EventInstance);
+
+    /// Emit a timed event with a frame offset and payload
+    fn emit_timed_event(
+        &mut self,
+        output_index: usize,
+        frame_offset: u32,
+        payload: EventPayload,
+    );
+
+    /// Emit a scalar event (convenience method for f32 payloads)
+    fn emit_scalar_event(&mut self, output_index: usize, frame_offset: u32, payload: f32);
+
+    /// Emit an event to a specific array index (for array event outputs)
+    /// This is used by nodes like VoiceAllocator that route to multiple destinations
+    fn emit_event_to_array(
+        &mut self,
+        output_index: usize,
+        array_index: usize,
+        event: EventInstance,
+    );
+}
+
+/// Implement EventContext for ProcessingContext (runtime graphs)
+impl<'a> EventContext for ProcessingContext<'a> {
+    #[inline]
+    fn emit_event(&mut self, output_index: usize, event: EventInstance) {
+        self.emit_event(output_index, event);
+    }
+
+    #[inline]
+    fn emit_timed_event(
+        &mut self,
+        output_index: usize,
+        frame_offset: u32,
+        payload: EventPayload,
+    ) {
+        self.emit_timed_event(output_index, frame_offset, payload);
+    }
+
+    #[inline]
+    fn emit_scalar_event(&mut self, output_index: usize, frame_offset: u32, payload: f32) {
+        self.emit_scalar_event(output_index, frame_offset, payload);
+    }
+
+    #[inline]
+    fn emit_event_to_array(
+        &mut self,
+        output_index: usize,
+        _array_index: usize,
+        event: EventInstance,
+    ) {
+        // For ProcessingContext, we don't have direct array routing
+        // Just emit the event normally - routing happens in the graph
+        self.emit_event(output_index, event);
+    }
 }
 
 /// Trait for safe, type-erased access to IO struct fields.
@@ -245,6 +318,22 @@ pub trait DynNode: SignalProcessor + NodeIO {}
 
 // Blanket implementation: any type that implements both traits gets this for free
 impl<T: SignalProcessor + NodeIO> DynNode for T {}
+
+/// Trait for nodes that route events to array outputs at runtime.
+/// Inspired by CMajor's `voiceEventOut[index] <- event` pattern.
+///
+/// Nodes like VoiceAllocator implement this to provide runtime multiplexing:
+/// incoming events are routed to different output indices based on runtime state
+/// (e.g., voice allocation, round-robin, etc.).
+pub trait ArrayEventOutput {
+    /// Process an event from the given input and return which output index to route it to.
+    /// Returns None if the event should not be routed.
+    ///
+    /// # Arguments
+    /// * `input_index` - Which input endpoint the event arrived at (e.g., 0 for note_on, 1 for note_off)
+    /// * `event` - The event to process
+    fn route_event(&mut self, input_index: usize, event: &EventInstance) -> Option<usize>;
+}
 
 pub trait ProcessingNode: SignalProcessor + NodeIO {
     type Endpoints;

@@ -8,6 +8,8 @@ pub struct TypeContext {
     inputs: HashMap<String, EndpointKind>,
     /// Known types for outputs
     outputs: HashMap<String, EndpointKind>,
+    /// Node endpoint types: (node_name, endpoint_name) -> EndpointKind
+    node_endpoints: HashMap<(String, String), EndpointKind>,
 }
 
 impl TypeContext {
@@ -15,6 +17,7 @@ impl TypeContext {
         Self {
             inputs: HashMap::new(),
             outputs: HashMap::new(),
+            node_endpoints: HashMap::new(),
         }
     }
 
@@ -26,6 +29,16 @@ impl TypeContext {
     /// Register an output declaration
     pub fn register_output(&mut self, name: &Ident, kind: EndpointKind) {
         self.outputs.insert(name.to_string(), kind);
+    }
+
+    /// Register a node endpoint (from connection analysis or explicit declaration)
+    pub fn register_node_endpoint(&mut self, node_name: &str, endpoint_name: &str, kind: EndpointKind) {
+        self.node_endpoints.insert((node_name.to_string(), endpoint_name.to_string()), kind);
+    }
+
+    /// Get the type of a node endpoint if known
+    pub fn get_node_endpoint_type(&self, node_name: &str, endpoint_name: &str) -> Option<EndpointKind> {
+        self.node_endpoints.get(&(node_name.to_string(), endpoint_name.to_string())).copied()
     }
 
     /// Infer the type of a connection expression
@@ -43,33 +56,19 @@ impl TypeContext {
                 // Array indexing preserves the type of the base expression
                 self.infer_type(array_expr)
             }
-            ConnectionExpr::Method(_obj, method, _args) => {
-                // Try to infer based on common method names
+            ConnectionExpr::Method(obj, method, _args) => {
                 let method_name = method.to_string();
 
-                // Common output methods (return StreamOutput)
-                if method_name == "output" {
-                    return Some(EndpointKind::Stream);
-                }
-
-                // Common input methods (return various input types)
-                // These are heuristics based on oscen's API patterns
-                match method_name.as_str() {
-                    // Stream inputs
-                    "input" | "audio_in" | "signal_in" => Some(EndpointKind::Stream),
-
-                    // Value inputs (control parameters)
-                    "frequency" | "amplitude" | "cutoff" | "q" | "resonance" | "attack"
-                    | "decay" | "sustain" | "release" | "f_mod" | "q_mod" => {
-                        Some(EndpointKind::Value)
+                // Try to look up the node endpoint type from our registry
+                if let ConnectionExpr::Ident(node_name) = &**obj {
+                    if let Some(kind) = self.get_node_endpoint_type(&node_name.to_string(), &method_name) {
+                        return Some(kind);
                     }
-
-                    // Event inputs
-                    "gate" | "trigger" | "note_on" | "note_off" => Some(EndpointKind::Event),
-
-                    // Unknown method
-                    _ => None,
                 }
+
+                // Fallback: check if it's a graph input/output being accessed
+                // (shouldn't normally happen, but handle gracefully)
+                None
             }
             ConnectionExpr::Binary(left, _op, right) => {
                 // Arithmetic operations on streams produce streams
@@ -145,70 +144,24 @@ impl TypeContext {
     }
 
     /// Validate that a source expression can be used as an output
-    pub fn validate_source(&self, expr: &ConnectionExpr) -> Result<()> {
-        // Sources should produce outputs (not inputs)
-        match expr {
-            ConnectionExpr::Method(_, method, _) => {
-                let method_name = method.to_string();
-
-                // Check for common input-only methods being used as sources
-                // Note: Some methods like "frequency" can be both inputs and outputs
-                // depending on the node, so we only list truly input-only methods here
-                let input_methods = [
-                    "input",
-                    "amplitude",
-                    "cutoff",
-                    "q",
-                    "trigger",
-                    "attack",
-                    "decay",
-                    "sustain",
-                    "release",
-                    "f_mod",
-                    "q_mod",
-                ];
-
-                if input_methods.contains(&method_name.as_str()) {
-                    return Err(syn::Error::new_spanned(
-                        method,
-                        format!(
-                            "Method '{}' is an input endpoint and cannot be used as a source in a connection. Did you mean to use this as the destination?",
-                            method_name
-                        ),
-                    ));
-                }
-            }
-            _ => {}
-        }
-
+    /// This is now mostly delegated to Rust's type system since we don't use string matching
+    pub fn validate_source(&self, _expr: &ConnectionExpr) -> Result<()> {
+        // We rely on type inference and Rust's type system
+        // If a node.method() doesn't return an output endpoint, compilation will fail
         Ok(())
     }
 
     /// Validate that a destination expression can receive input
+    /// This is now mostly delegated to Rust's type system since we don't use string matching
     pub fn validate_destination(&self, expr: &ConnectionExpr) -> Result<()> {
-        // Destinations should be inputs
-        match expr {
-            ConnectionExpr::Method(_, method, _) => {
-                let method_name = method.to_string();
-
-                // Check for output methods being used as destinations
-                if method_name == "output" {
-                    return Err(syn::Error::new_spanned(
-                        method,
-                        "Method 'output' produces an output endpoint and cannot be used as a destination in a connection. Did you mean to use this as the source?",
-                    ));
-                }
+        // Allow graph outputs as destinations (common case)
+        if let ConnectionExpr::Ident(ident) = expr {
+            if self.outputs.contains_key(&ident.to_string()) {
+                return Ok(());
             }
-            ConnectionExpr::Ident(ident) => {
-                // Check if it's a declared output
-                if self.outputs.contains_key(&ident.to_string()) {
-                    // This is OK - outputs can be destinations for final graph outputs
-                    return Ok(());
-                }
-            }
-            _ => {}
         }
 
+        // Everything else is validated by type compatibility check
         Ok(())
     }
 }

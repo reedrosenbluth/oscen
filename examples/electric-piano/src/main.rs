@@ -30,40 +30,56 @@ enum ParamChange {
 // Main polyphonic electric piano with 16 voices and tremolo
 graph! {
     name: ElectricPianoGraph;
-    compile_time: true;
 
-    input value brightness = 30.0;
-    input value velocity_scaling = 50.0;
-    input value decay_rate = 90.0;
-    input value harmonic_decay = 70.0;
-    input value key_scaling = 50.0;
-    input value release_rate = 40.0;
-    input value vibrato_intensity = 0.3;
-    input value vibrato_speed = 5.0;
+    // MIDI input (raw MIDI bytes)
+    input midi_in: event;
 
-    output stream left_out;
-    output stream right_out;
+    // CMajor-style explicit type declarations (name: type = default)
+    input brightness: value = 30.0;
+    input velocity_scaling: value = 50.0;
+    input decay_rate: value = 90.0;
+    input harmonic_decay: value = 70.0;
+    input key_scaling: value = 50.0;
+    input release_rate: value = 40.0;
+    input vibrato_intensity: value = 0.3;
+    input vibrato_speed: value = 5.0;
+
+    // Event outputs to establish type flow (CMajor pattern)
+    output note_on_out: event;
+    output note_off_out: event;
+    output gate_witness: event;  // Type witness for gate events
+
+    output left_out: stream;
+    output right_out: stream;
 
     nodes {
         midi_parser = MidiParser::new();
-        voice_allocator = VoiceAllocator<16>::new();
+        voice_allocator = VoiceAllocator::<16>::new(sample_rate);
         voice_handlers = [MidiVoiceHandler::new(); 16];
-        voices = [crate::electric_piano_voice::ElectricPianoVoiceNode::new(); 16];
-        tremolo = crate::tremolo::Tremolo::new();
+        voices = [crate::electric_piano_voice::ElectricPianoVoiceNode::new(sample_rate); 16];
+        tremolo = crate::tremolo::Tremolo::new(sample_rate);
     }
 
     connections {
-        // MIDI routing
+        // MIDI parsing
+        midi_in -> midi_parser.midi_in;
+
+        // Connect parser outputs to graph outputs to establish event types
+        midi_parser.note_on -> note_on_out;
+        midi_parser.note_off -> note_off_out;
+        voice_handlers[0].gate -> gate_witness;  // Establish gate type
+
+        // Now types flow to voice allocator
         midi_parser.note_on -> voice_allocator.note_on;
         midi_parser.note_off -> voice_allocator.note_off;
 
-        // Voice allocation
-        voice_allocator.voices() -> voice_handlers.note_on;
-        voice_allocator.voices() -> voice_handlers.note_off;
+        // Voice allocator routes events to voice handlers via ArrayEventOutput
+        voice_allocator.voices -> voice_handlers.note_on;
+        voice_allocator.voices -> voice_handlers.note_off;
 
         // Voice handlers to voices
-        voice_handlers.frequency() -> voices.frequency();
-        voice_handlers.gate() -> voices.gate();
+        voice_handlers.frequency -> voices.frequency;
+        voice_handlers.gate -> voices.gate;
 
         // Broadcast parameters to all voices
         brightness -> voices.brightness;
@@ -87,12 +103,23 @@ graph! {
 struct AudioContext {
     synth: ElectricPianoGraph,
     channels: usize,
+    // Timing stats
+    process_time_sum: Duration,
+    process_time_min: Duration,
+    process_time_max: Duration,
+    frame_count: u64,
+    last_print: std::time::Instant,
 }
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
     AudioContext {
         synth: ElectricPianoGraph::new(sample_rate),
         channels,
+        process_time_sum: Duration::ZERO,
+        process_time_min: Duration::from_secs(u64::MAX),
+        process_time_max: Duration::ZERO,
+        frame_count: 0,
+        last_print: std::time::Instant::now(),
     }
 }
 
@@ -102,87 +129,63 @@ fn audio_callback(
     param_rx: &Receiver<ParamChange>,
     midi_rx: &Receiver<midi_input::RawMidiBytes>,
 ) {
-    // Handle incoming MIDI events
+    use oscen::graph::{EventInstance, EventPayload};
+    use oscen::midi::RawMidiMessage;
+
+    // Handle incoming MIDI events - pass raw MIDI to parser
     while let Ok(raw_midi) = midi_rx.try_recv() {
-        queue_raw_midi(
-            &mut context.synth.graph,
-            context.synth.midi_parser.midi_in,
-            0,
-            &raw_midi.bytes,
-        );
+        let msg = RawMidiMessage::new(&raw_midi.bytes);
+        let event = EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Object(std::sync::Arc::new(msg)),
+        };
+        let _ = context.synth.midi_in.try_push(event);
     }
 
-    // Handle parameter changes
+    // Handle parameter changes (static graph: direct field assignment)
     while let Ok(change) = param_rx.try_recv() {
         match change {
             ParamChange::Brightness(value) => {
-                context
-                    .synth
-                    .graph
-                    .set_value_with_ramp(context.synth.brightness, value, 441);
+                context.synth.brightness = value;
             }
             ParamChange::VelocityScaling(value) => {
-                context
-                    .synth
-                    .graph
-                    .set_value_with_ramp(context.synth.velocity_scaling, value, 441);
+                context.synth.velocity_scaling = value;
             }
             ParamChange::DecayRate(value) => {
-                context
-                    .synth
-                    .graph
-                    .set_value_with_ramp(context.synth.decay_rate, value, 441);
+                context.synth.decay_rate = value;
             }
             ParamChange::HarmonicDecay(value) => {
-                context
-                    .synth
-                    .graph
-                    .set_value_with_ramp(context.synth.harmonic_decay, value, 441);
+                context.synth.harmonic_decay = value;
             }
             ParamChange::KeyScaling(value) => {
-                context
-                    .synth
-                    .graph
-                    .set_value_with_ramp(context.synth.key_scaling, value, 441);
+                context.synth.key_scaling = value;
             }
             ParamChange::ReleaseRate(value) => {
-                context
-                    .synth
-                    .graph
-                    .set_value_with_ramp(context.synth.release_rate, value, 441);
+                context.synth.release_rate = value;
             }
             ParamChange::VibratoIntensity(value) => {
-                context.synth.graph.set_value_with_ramp(
-                    context.synth.vibrato_intensity,
-                    value,
-                    441,
-                );
+                context.synth.vibrato_intensity = value;
             }
             ParamChange::VibratoSpeed(value) => {
-                context
-                    .synth
-                    .graph
-                    .set_value_with_ramp(context.synth.vibrato_speed, value, 441);
+                context.synth.vibrato_speed = value;
             }
         }
     }
 
     for frame in data.chunks_mut(context.channels) {
-        if let Err(err) = context.synth.graph.process() {
-            eprintln!("Graph processing error: {}", err);
-            for sample in frame.iter_mut() {
-                *sample = 0.0;
-            }
-            continue;
-        }
+        // Time the process() call
+        let start = std::time::Instant::now();
+        context.synth.process();
+        let elapsed = start.elapsed();
 
-        // Get mono output and create stereo in the callback
-        // (The tremolo's right_output field isn't being copied by the graph)
-        let mono = context
-            .synth
-            .graph
-            .get_value(&context.synth.left_out)
-            .unwrap_or(0.0);
+        // Update timing stats
+        context.process_time_sum += elapsed;
+        context.process_time_min = context.process_time_min.min(elapsed);
+        context.process_time_max = context.process_time_max.max(elapsed);
+        context.frame_count += 1;
+
+        // Static graph: direct field access for outputs
+        let mono = context.synth.left_out;
 
         // Write to output channels - duplicate mono to stereo
         if context.channels >= 2 {
@@ -195,6 +198,24 @@ fn audio_callback(
         } else if context.channels == 1 {
             frame[0] = mono;
         }
+    }
+
+    // Print timing stats every 2 seconds
+    if context.last_print.elapsed() >= Duration::from_secs(2) {
+        let avg_nanos = context.process_time_sum.as_nanos() / context.frame_count as u128;
+        eprintln!(
+            "[TIMING] frames: {}, avg: {:.2}µs, min: {:.2}µs, max: {:.2}µs",
+            context.frame_count,
+            avg_nanos as f64 / 1000.0,
+            context.process_time_min.as_nanos() as f64 / 1000.0,
+            context.process_time_max.as_nanos() as f64 / 1000.0,
+        );
+        // Reset stats for next interval
+        context.process_time_sum = Duration::ZERO;
+        context.process_time_min = Duration::from_secs(u64::MAX);
+        context.process_time_max = Duration::ZERO;
+        context.frame_count = 0;
+        context.last_print = std::time::Instant::now();
     }
 }
 
@@ -353,59 +374,60 @@ mod tests {
         let stats = std::thread::Builder::new()
             .stack_size(8 * 1024 * 1024)
             .spawn(|| {
+                use oscen::graph::{EventInstance, EventPayload};
+                use oscen::midi::RawMidiMessage;
+
                 let mut synth = ElectricPianoGraph::new(48_000.0);
                 let note_on = [0x90, 60, 100];
 
-                queue_raw_midi(&mut synth.graph, synth.midi_parser.midi_in, 0, &note_on);
+                // For static graphs, push events directly to the input queue
+                let msg = RawMidiMessage::new(&note_on);
+                let event = EventInstance {
+                    frame_offset: 0,
+                    payload: EventPayload::Object(std::sync::Arc::new(msg)),
+                };
+                let _ = synth.midi_in.try_push(event);
 
                 let mut max = 0.0;
-                for _ in 0..4096 {
-                    synth.graph.process().unwrap();
-                    let sample = synth.graph.get_value(&synth.left_out).unwrap_or(0.0).abs();
+                for i in 0..8192 {
+                    synth.process();
+                    let sample = synth.left_out.abs();
                     if sample > max {
                         max = sample;
+                        eprintln!("New max at frame {}: {}", i, max);
                     }
                 }
 
-                // Inspect whether events propagated
-                let mut note_on_events = Vec::new();
-                synth
-                    .graph
-                    .drain_events(synth.midi_parser.note_on, |event| {
-                        note_on_events.push(event.clone());
-                    });
-                let mut gate_events = Vec::new();
-                synth
-                    .graph
-                    .drain_events(synth.voice_handlers[0].gate, |event| {
-                        gate_events.push(event.clone());
-                    });
+                // For static graphs, values are accessed directly as fields
+                let voice0 = synth.voices[0].output.abs();
+                let handler_freq = synth.voice_handlers[0].frequency;
+                let voice_freq = synth.voices[0].frequency;
 
-                let voice0 = synth
-                    .graph
-                    .get_value(&synth.voices[0].output)
-                    .unwrap_or(0.0)
-                    .abs();
+                eprintln!("Final state:");
+                eprintln!("  max output: {}", max);
+                eprintln!("  voice[0] output: {}", voice0);
+                eprintln!("  handler[0] freq: {}", handler_freq);
+                eprintln!("  voice[0] freq: {}", voice_freq);
+                eprintln!("  midi_in events: {}", synth.midi_in.len());
+                eprintln!(
+                    "  midi_parser_midi_in_events: {}",
+                    synth.midi_parser_midi_in_events.len()
+                );
+                eprintln!(
+                    "  voice_handlers_note_on_events[0]: {}",
+                    synth.voice_handlers_note_on_events[0].len()
+                );
+                eprintln!(
+                    "  voices_gate_events[0]: {}",
+                    synth.voices_gate_events[0].len()
+                );
+                eprintln!("  voices[0].gate events: {}", synth.voices[0].gate.len());
+                eprintln!(
+                    "  voices[0].amplitude_source_gate_events: {}",
+                    synth.voices[0].amplitude_source_gate_events.len()
+                );
 
-                let handler_freq = synth
-                    .graph
-                    .get_value(&synth.voice_handlers[0].frequency)
-                    .unwrap_or(0.0);
-                let voice_freq = synth
-                    .graph
-                    .endpoints
-                    .get(synth.voices[0].frequency.key())
-                    .and_then(|state| state.as_scalar())
-                    .unwrap_or(0.0);
-
-                (
-                    max,
-                    note_on_events.len(),
-                    gate_events.len(),
-                    voice0,
-                    handler_freq,
-                    voice_freq,
-                )
+                (max, voice0, handler_freq, voice_freq)
             })
             .expect("spawn test thread")
             .join()
@@ -413,12 +435,10 @@ mod tests {
 
         assert!(
             stats.0 > 1e-4,
-            "expected non-zero output after MIDI note on (note_on_events={}, gate_events={}, voice_sample={}, handler_freq={}, voice_input_freq={})",
+            "expected non-zero output after MIDI note on (voice_sample={}, handler_freq={}, voice_freq={})",
             stats.1,
             stats.2,
             stats.3,
-            stats.4,
-            stats.5,
         );
     }
 }

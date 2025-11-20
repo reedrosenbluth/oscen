@@ -81,10 +81,26 @@ impl Parse for GraphItem {
 impl Parse for InputDecl {
     fn parse(input: ParseStream) -> Result<Self> {
         input.parse::<kw::input>()?;
-        let kind = input.parse()?;
-        let name = input.parse()?;
 
-        // Parse optional type annotation: `: Type`
+        // Try to parse: either "name: kind" (new CMajor-style) or "kind name" (old style)
+        let first_ident = input.parse::<Ident>()?;
+
+        let (name, kind) = if input.peek(Token![:]) {
+            // NEW SYNTAX: input name: kind
+            input.parse::<Token![:]>()?;
+            let kind = input.parse::<EndpointKind>()?;
+            (first_ident, kind)
+        } else {
+            // OLD SYNTAX: input kind name
+            // Parse first_ident as EndpointKind
+            let kind = parse_endpoint_kind_from_ident(&first_ident)?;
+            let name = input.parse::<Ident>()?;
+            (name, kind)
+        };
+
+        // Parse optional type annotation: `: Type` (for array types like [f32; 32])
+        // This is a SECOND colon for the new syntax: input name: event: [Type; N]
+        // For old syntax it's the first: input event name: [Type; N]
         let ty = if input.peek(Token![:]) {
             input.parse::<Token![:]>()?;
             Some(input.parse()?)
@@ -152,10 +168,25 @@ fn parse_simple_expr(input: ParseStream) -> Result<Expr> {
 impl Parse for OutputDecl {
     fn parse(input: ParseStream) -> Result<Self> {
         input.parse::<kw::output>()?;
-        let kind = input.parse()?;
-        let name = input.parse()?;
 
-        // Parse optional type annotation: `: Type`
+        // Try to parse: either "name: kind" (new CMajor-style) or "kind name" (old style)
+        let first_ident = input.parse::<Ident>()?;
+
+        let (name, kind) = if input.peek(Token![:]) {
+            // NEW SYNTAX: output name: kind
+            input.parse::<Token![:]>()?;
+            let kind = input.parse::<EndpointKind>()?;
+            (first_ident, kind)
+        } else {
+            // OLD SYNTAX: output kind name
+            // Parse first_ident as EndpointKind
+            let kind = parse_endpoint_kind_from_ident(&first_ident)?;
+            let name = input.parse::<Ident>()?;
+            (name, kind)
+        };
+
+        // Parse optional type annotation: `: Type` (for array types)
+        // This is a SECOND colon for the new syntax
         let ty = if input.peek(Token![:]) {
             input.parse::<Token![:]>()?;
             Some(input.parse()?)
@@ -403,9 +434,12 @@ fn extract_node_type(expr: &Expr) -> Option<syn::Path> {
                     // Extract everything except the last segment (the method name)
                     let path = &path_expr.path;
                     if path.segments.len() >= 2 {
-                        // Clone all segments except the last one (which is the method name)
-                        let mut type_path = path.clone();
-                        type_path.segments.pop();
+                        // Build a new path with all segments except the last
+                        let segments: Vec<_> = path.segments.iter().take(path.segments.len() - 1).cloned().collect();
+                        let mut type_path = syn::Path {
+                            leading_colon: path.leading_colon,
+                            segments: segments.into_iter().collect(),
+                        };
                         return Some(type_path);
                     }
                     None
@@ -421,6 +455,7 @@ fn extract_node_type(expr: &Expr) -> Option<syn::Path> {
                 }
             }
         }
+        Expr::Path(path_expr) => Some(path_expr.path.clone()),
         _ => None,
     }
 }
@@ -606,6 +641,20 @@ fn parse_call_args(input: ParseStream) -> Result<Vec<ConnectionExpr>> {
         input.parse::<Token![,]>()?;
     }
     Ok(args)
+}
+
+/// Helper function to parse EndpointKind from an Ident (for old syntax compatibility)
+fn parse_endpoint_kind_from_ident(ident: &Ident) -> Result<EndpointKind> {
+    let ident_str = ident.to_string();
+    match ident_str.as_str() {
+        "stream" => Ok(EndpointKind::Stream),
+        "value" => Ok(EndpointKind::Value),
+        "event" => Ok(EndpointKind::Event),
+        _ => Err(syn::Error::new_spanned(
+            ident,
+            format!("expected 'stream', 'value', or 'event', found '{}'", ident_str)
+        )),
+    }
 }
 
 impl Parse for EndpointKind {

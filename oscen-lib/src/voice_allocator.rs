@@ -1,5 +1,9 @@
-use crate::graph::{EventPayload, ProcessingContext, ProcessingNode, SignalProcessor};
+use crate::graph::{
+    ArrayEventOutput, EventContext, EventInput, EventInstance, EventOutput, EventPayload,
+    InputEndpoint, NodeKey, ProcessingNode, SignalProcessor, ValueKey,
+};
 use crate::midi::{NoteOffEvent, NoteOnEvent};
+use oscen_macros::Node;
 
 const MAX_VOICES: usize = 24;
 
@@ -12,7 +16,7 @@ struct VoiceState {
 }
 
 impl VoiceState {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             active: false,
             released: false,
@@ -22,42 +26,58 @@ impl VoiceState {
     }
 }
 
-/// Voice allocator that distributes note events across multiple voices
-/// Implements round-robin allocation with voice stealing when all voices are busy
-#[derive(Debug)]
+    /// Voice allocator that distributes note events across multiple voices using CMajor-style pattern.
+/// Implements LRU (least-recently-used) allocation with voice stealing when all voices are busy.
+#[derive(Debug, Node)]
 pub struct VoiceAllocator<const NUM_VOICES: usize> {
-    voices: [VoiceState; MAX_VOICES],
+    #[input(event)]
+    pub note_on: EventInput,
+
+    #[input(event)]
+    pub note_off: EventInput,
+
+    #[output(event)]
+    pub voices: [EventOutput; NUM_VOICES],
+
+    // Internal state
+    voice_state: [VoiceState; MAX_VOICES],
     current_age: u32,
+    #[allow(dead_code)]
+    sample_rate: f32,
 }
 
 impl<const NUM_VOICES: usize> VoiceAllocator<NUM_VOICES> {
-    pub fn new() -> Self {
+    pub fn new(sample_rate: f32) -> Self {
         assert!(NUM_VOICES <= MAX_VOICES, "NUM_VOICES must be <= MAX_VOICES");
         Self {
-            voices: [VoiceState::new(); MAX_VOICES],
+            note_on: EventInput::default(),
+            note_off: EventInput::default(),
+            voices: [EventOutput::default(); NUM_VOICES],
+            voice_state: [VoiceState::new(); MAX_VOICES],
             current_age: 0,
+            sample_rate,
         }
     }
 
-    /// Find a voice to allocate for a new note
+    /// Find a voice to allocate for a new note (CMajor: findOldestIndex + start logic)
     fn allocate_voice(&mut self, note: u8) -> usize {
         // First, try to find an inactive voice
         for i in 0..NUM_VOICES {
-            if !self.voices[i].active {
-                self.voices[i].active = true;
-                self.voices[i].released = false;
-                self.voices[i].note = Some(note);
-                self.voices[i].age = self.current_age;
+            if !self.voice_state[i].active {
+                self.voice_state[i].active = true;
+                self.voice_state[i].released = false;
+                self.voice_state[i].note = Some(note);
+                self.voice_state[i].age = self.current_age;
                 self.current_age += 1;
                 return i;
             }
         }
 
         // All voices active - prefer released voices over held voices
-        // Among voices of the same release state, prefer oldest
+        // Among voices of the same release state, prefer oldest (CMajor: LRU algorithm)
         let stolen_voice = (0..NUM_VOICES)
             .min_by_key(|&i| {
-                let voice = &self.voices[i];
+                let voice = &self.voice_state[i];
                 // Priority: released voices first (0), then held voices (1)
                 // Within each group, prefer older voices (lower age)
                 let release_priority = if voice.released { 0 } else { 1 };
@@ -65,10 +85,10 @@ impl<const NUM_VOICES: usize> VoiceAllocator<NUM_VOICES> {
             })
             .unwrap_or(0);
 
-        self.voices[stolen_voice].active = true;
-        self.voices[stolen_voice].released = false;
-        self.voices[stolen_voice].note = Some(note);
-        self.voices[stolen_voice].age = self.current_age;
+        self.voice_state[stolen_voice].active = true;
+        self.voice_state[stolen_voice].released = false;
+        self.voice_state[stolen_voice].note = Some(note);
+        self.voice_state[stolen_voice].age = self.current_age;
         self.current_age += 1;
 
         stolen_voice
@@ -77,24 +97,48 @@ impl<const NUM_VOICES: usize> VoiceAllocator<NUM_VOICES> {
     /// Find which voice is playing a specific note (not yet released)
     fn find_voice_for_note(&self, note: u8) -> Option<usize> {
         (0..NUM_VOICES).find(|&i| {
-            self.voices[i].active && !self.voices[i].released && self.voices[i].note == Some(note)
+            self.voice_state[i].active && !self.voice_state[i].released && self.voice_state[i].note == Some(note)
         })
     }
 
     /// Release a voice (mark as released but keep active for release phase)
     fn release_voice(&mut self, voice_idx: usize) {
         if voice_idx < NUM_VOICES {
-            self.voices[voice_idx].released = true;
-            self.voices[voice_idx].note = None; // Clear note to prevent duplicate note_offs
+            self.voice_state[voice_idx].released = true;
+            self.voice_state[voice_idx].note = None; // Clear note to prevent duplicate note_offs
             // Keep active = true so the voice continues processing its release
             // It will be marked inactive when stolen or reused
+        }
+    }
+
+    // CMajor-style event handlers (called by Node derive macro)
+
+    fn on_note_on(&mut self, event: &EventInstance, ctx: &mut impl EventContext) {
+        if let EventPayload::Object(obj) = &event.payload {
+            if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
+                let voice_idx = self.allocate_voice(note_on.note);
+                // Forward the event to the allocated voice (CMajor: voiceEventOut[oldest] <- noteOn)
+                ctx.emit_event_to_array(0, voice_idx, event.clone());
+            }
+        }
+    }
+
+    fn on_note_off(&mut self, event: &EventInstance, ctx: &mut impl EventContext) {
+        if let EventPayload::Object(obj) = &event.payload {
+            if let Some(note_off) = obj.as_any().downcast_ref::<NoteOffEvent>() {
+                if let Some(voice_idx) = self.find_voice_for_note(note_off.note) {
+                    // Forward the event to the voice (CMajor: voiceEventOut[i] <- noteOff)
+                    ctx.emit_event_to_array(0, voice_idx, event.clone());
+                    self.release_voice(voice_idx);
+                }
+            }
         }
     }
 }
 
 impl<const NUM_VOICES: usize> Default for VoiceAllocator<NUM_VOICES> {
     fn default() -> Self {
-        Self::new()
+        Self::new(44100.0) // Default to 44.1kHz
     }
 }
 
@@ -104,258 +148,41 @@ pub type VoiceAllocator4 = VoiceAllocator<4>;
 
 impl<const NUM_VOICES: usize> SignalProcessor for VoiceAllocator<NUM_VOICES> {
     fn process(&mut self) {
-        // All event processing is done in NodeIO::read_inputs
+        // Event processing is handled by on_note_on() and on_note_off() event handlers
         // This node has no stream outputs to update
     }
 }
 
-// Manual NodeIO implementation for VoiceAllocator
-impl<const NUM_VOICES: usize> crate::graph::NodeIO for VoiceAllocator<NUM_VOICES> {
-    fn read_inputs<'a>(&mut self, context: &mut ProcessingContext<'a>) {
-        // Handle note_on events (input index 0)
-        let note_on_slice = context.events(0);
-        if !note_on_slice.is_empty() {
-            use arrayvec::ArrayVec;
-            // Collect events into stack-allocated buffer to avoid borrow checker issues
-            let note_on_events: ArrayVec<_, 64> = note_on_slice.iter().cloned().collect();
-            for event in note_on_events {
+// Implement ArrayEventOutput for static graph runtime multiplexing
+impl<const NUM_VOICES: usize> ArrayEventOutput for VoiceAllocator<NUM_VOICES> {
+    fn route_event(&mut self, input_index: usize, event: &EventInstance) -> Option<usize> {
+        match input_index {
+            // Input 0: note_on events
+            0 => {
                 if let EventPayload::Object(obj) = &event.payload {
                     if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
                         let voice_idx = self.allocate_voice(note_on.note);
-                        context.emit_event(voice_idx, event);
+                        return Some(voice_idx);
                     }
                 }
+                None
             }
-        }
-
-        // Handle note_off events (input index 1)
-        let note_off_slice = context.events(1);
-        if !note_off_slice.is_empty() {
-            use arrayvec::ArrayVec;
-            let note_off_events: ArrayVec<_, 64> = note_off_slice.iter().cloned().collect();
-            for event in note_off_events {
+            // Input 1: note_off events
+            1 => {
                 if let EventPayload::Object(obj) = &event.payload {
                     if let Some(note_off) = obj.as_any().downcast_ref::<NoteOffEvent>() {
                         if let Some(voice_idx) = self.find_voice_for_note(note_off.note) {
-                            context.emit_event(voice_idx, event);
                             self.release_voice(voice_idx);
+                            return Some(voice_idx);
                         }
                     }
                 }
+                None
             }
+            _ => None,
         }
     }
 }
-
-// Generic endpoints struct using arrays instead of separate fields
-#[derive(Debug, Copy, Clone)]
-pub struct VoiceAllocatorEndpoints<const NUM_VOICES: usize> {
-    pub node_key: crate::NodeKey,
-    pub note_on: crate::EventInput,
-    pub note_off: crate::EventInput,
-    voice_outputs: [crate::EventOutput; MAX_VOICES],
-}
-
-impl<const NUM_VOICES: usize> VoiceAllocatorEndpoints<NUM_VOICES> {
-    pub fn voice(&self, index: usize) -> crate::EventOutput {
-        assert!(
-            index < NUM_VOICES,
-            "Voice index {} out of range (max: {})",
-            index,
-            NUM_VOICES
-        );
-        self.voice_outputs[index]
-    }
-
-    /// Broadcast marker for use in graph! macro
-    /// This method is recognized by the macro to expand broadcasting patterns
-    /// Example: `voice_allocator.voices() -> voice_handlers.note_on()`
-    /// expands to: `voice_allocator.voice(0) -> voice_handlers[0].note_on()`, etc.
-    #[allow(unused)]
-    pub fn voices(&self) -> () {
-        // This is just a marker method for the macro - never called at runtime
-    }
-
-    pub fn node_key(&self) -> crate::NodeKey {
-        self.node_key
-    }
-}
-
-// Static descriptor array for all possible voices (up to MAX_VOICES)
-const ALL_VOICE_DESCRIPTORS: [crate::graph::EndpointDescriptor; MAX_VOICES + 2] = [
-    crate::graph::EndpointDescriptor::new(
-        "note_on",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Input,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "note_off",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Input,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_0",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_1",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_2",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_3",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_4",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_5",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_6",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_7",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_8",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_9",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_10",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_11",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_12",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_13",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_14",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_15",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_16",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_17",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_18",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_19",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_20",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_21",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_22",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-    crate::graph::EndpointDescriptor::new(
-        "voice_23",
-        crate::graph::EndpointType::Event,
-        crate::graph::EndpointDirection::Output,
-    ),
-];
-
-// Generic implementation for any NUM_VOICES
-impl<const NUM_VOICES: usize> ProcessingNode for VoiceAllocator<NUM_VOICES> {
-    type Endpoints = VoiceAllocatorEndpoints<NUM_VOICES>;
-
-    // Return all descriptors (2 inputs + MAX_VOICES outputs)
-    // The graph system will only use the first NUM_VOICES + 2 descriptors
-    const ENDPOINT_DESCRIPTORS: &'static [crate::graph::EndpointDescriptor] =
-        &ALL_VOICE_DESCRIPTORS;
-
-    fn create_endpoints(
-        node_key: crate::NodeKey,
-        inputs: arrayvec::ArrayVec<crate::ValueKey, { crate::graph::MAX_NODE_ENDPOINTS }>,
-        outputs: arrayvec::ArrayVec<crate::ValueKey, { crate::graph::MAX_NODE_ENDPOINTS }>,
-    ) -> Self::Endpoints {
-        use crate::ValueKey;
-
-        // Create voice outputs array - initialize with default
-        let default_key = if outputs.is_empty() {
-            ValueKey::default()
-        } else {
-            outputs[0]
-        };
-        let mut voice_outputs = [crate::EventOutput::new(default_key); MAX_VOICES];
-
-        // Fill in the actual voice outputs
-        for i in 0..NUM_VOICES.min(outputs.len()) {
-            voice_outputs[i] = crate::EventOutput::new(outputs[i]);
-        }
-
-        VoiceAllocatorEndpoints {
-            node_key,
-            note_on: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[0])),
-            note_off: crate::EventInput::new(crate::graph::InputEndpoint::new(inputs[1])),
-            voice_outputs,
-        }
-    }
-}
-
-// Keep type aliases and specific endpoint types for backward compatibility
-pub type VoiceAllocator2Endpoints = VoiceAllocatorEndpoints<2>;
-pub type VoiceAllocator4Endpoints = VoiceAllocatorEndpoints<4>;
 
 #[cfg(test)]
 mod tests {
@@ -363,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_voice_allocation() {
-        let mut allocator = VoiceAllocator::<4>::new();
+        let mut allocator = VoiceAllocator::<4>::new(44100.0);
 
         // Allocate 4 notes
         let voice0 = allocator.allocate_voice(60);
@@ -377,15 +204,15 @@ mod tests {
         assert_eq!(voice3, 3);
 
         // All voices should be active
-        assert!(allocator.voices[0].active);
-        assert!(allocator.voices[1].active);
-        assert!(allocator.voices[2].active);
-        assert!(allocator.voices[3].active);
+        assert!(allocator.voice_state[0].active);
+        assert!(allocator.voice_state[1].active);
+        assert!(allocator.voice_state[2].active);
+        assert!(allocator.voice_state[3].active);
     }
 
     #[test]
     fn test_voice_stealing() {
-        let mut allocator = VoiceAllocator::<4>::new();
+        let mut allocator = VoiceAllocator::<4>::new(44100.0);
 
         // Allocate 4 voices
         allocator.allocate_voice(60);
@@ -396,12 +223,12 @@ mod tests {
         // Allocate a 5th note - should steal the oldest voice (voice 0)
         let stolen_voice = allocator.allocate_voice(76);
         assert_eq!(stolen_voice, 0);
-        assert_eq!(allocator.voices[0].note, Some(76));
+        assert_eq!(allocator.voice_state[0].note, Some(76));
     }
 
     #[test]
     fn test_find_and_release_voice() {
-        let mut allocator = VoiceAllocator::<4>::new();
+        let mut allocator = VoiceAllocator::<4>::new(44100.0);
 
         allocator.allocate_voice(60);
         allocator.allocate_voice(64);
@@ -412,8 +239,8 @@ mod tests {
 
         // Release it
         allocator.release_voice(1);
-        assert!(allocator.voices[1].active); // Still active (in release phase)
-        assert!(allocator.voices[1].released); // But marked as released
+        assert!(allocator.voice_state[1].active); // Still active (in release phase)
+        assert!(allocator.voice_state[1].released); // But marked as released
 
         // Should not be found anymore (note is cleared)
         assert_eq!(allocator.find_voice_for_note(64), None);
@@ -421,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_prefer_released_voices_for_stealing() {
-        let mut allocator = VoiceAllocator::<4>::new();
+        let mut allocator = VoiceAllocator::<4>::new(44100.0);
 
         // Allocate 4 voices
         allocator.allocate_voice(60);
@@ -435,30 +262,30 @@ mod tests {
         // Allocate a 5th note - should steal voice 1 (released) instead of voice 0 (held)
         let stolen_voice = allocator.allocate_voice(76);
         assert_eq!(stolen_voice, 1);
-        assert_eq!(allocator.voices[1].note, Some(76));
-        assert!(!allocator.voices[1].released); // Reset on allocation
+        assert_eq!(allocator.voice_state[1].note, Some(76));
+        assert!(!allocator.voice_state[1].released); // Reset on allocation
     }
 
     #[test]
     fn test_releasing_voice_continues_to_sound() {
-        let mut allocator = VoiceAllocator::<2>::new();
+        let mut allocator = VoiceAllocator::<2>::new(44100.0);
 
         // Play first note
         let voice0 = allocator.allocate_voice(60);
         assert_eq!(voice0, 0);
-        assert!(allocator.voices[0].active);
-        assert!(!allocator.voices[0].released);
+        assert!(allocator.voice_state[0].active);
+        assert!(!allocator.voice_state[0].released);
 
         // Release first note (it should continue in release phase)
         allocator.release_voice(0);
-        assert!(allocator.voices[0].active); // Still active!
-        assert!(allocator.voices[0].released); // But marked as released
+        assert!(allocator.voice_state[0].active); // Still active!
+        assert!(allocator.voice_state[0].released); // But marked as released
 
         // Play second note - should use voice 1, not steal voice 0
         let voice1 = allocator.allocate_voice(64);
         assert_eq!(voice1, 1);
-        assert!(allocator.voices[0].active); // Voice 0 still in release
-        assert!(allocator.voices[1].active); // Voice 1 now playing
+        assert!(allocator.voice_state[0].active); // Voice 0 still in release
+        assert!(allocator.voice_state[1].active); // Voice 1 now playing
 
         // Play third note while first is releasing - NOW it should steal voice 0
         let voice2 = allocator.allocate_voice(67);
