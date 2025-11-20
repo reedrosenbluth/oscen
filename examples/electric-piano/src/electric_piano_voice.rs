@@ -366,8 +366,8 @@ use oscen::graph;
 
 graph! {
     name: ElectricPianoVoiceNode;
+    compile_time: true;
 
-    // CMajor-style explicit type declarations
     input frequency: value = 440.0;
     input gate: event;
     input brightness: value = 30.0;

@@ -36,6 +36,8 @@ pub struct NodeData {
     pub num_stream_inputs: usize,
     pub num_stream_outputs: usize,
     pub create_io_fn: fn() -> Box<dyn IOStructAccess>,
+    /// True if this node implements ArrayEventOutput trait for indexed event routing
+    pub is_array_event_output: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -153,6 +155,10 @@ pub struct Graph {
     ramp_indices: SecondaryMap<ValueKey, usize>,
     current_frame: u32,
     pending_events: Vec<PendingEvent>,
+    /// Tracks array node membership: array_id -> Vec of node keys in that array
+    node_arrays: HashMap<String, Vec<NodeKey>>,
+    /// Maps individual node keys to their array metadata (array_id, index)
+    node_to_array: HashMap<NodeKey, (String, usize)>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -179,13 +185,15 @@ impl Graph {
             ramp_indices: SecondaryMap::new(),
             current_frame: 0,
             pending_events: Vec::with_capacity(64),
+            node_arrays: HashMap::new(),
+            node_to_array: HashMap::new(),
         }
     }
 
     /// Adds a processing node by initializing it, allocating value slots for its declared
     /// endpoints, and storing the boxed processor; the node-specific endpoint handle produced
     /// by `ProcessingNode::create_endpoints` is returned for ergonomic graph wiring.
-    pub fn add_node<T: ProcessingNode + 'static>(&mut self, mut node: T) -> T::Endpoints {
+    pub fn add_node<T: ProcessingNode + DynNode + 'static>(&mut self, mut node: T) -> T::Endpoints {
         node.init(self.sample_rate);
 
         let mut inputs = ArrayVec::<ValueKey, MAX_NODE_ENDPOINTS>::new();
@@ -239,6 +247,7 @@ impl Graph {
             num_stream_inputs,
             num_stream_outputs,
             create_io_fn: T::CREATE_IO_FN,
+            is_array_event_output: false, // TODO: detect ArrayEventOutput trait
         });
 
         for &value_key in inputs.iter().chain(outputs.iter()) {
@@ -248,6 +257,50 @@ impl Graph {
         self.topology_dirty = true;
 
         T::create_endpoints(node_key, inputs, outputs)
+    }
+
+    /// Adds an array of N identical processing nodes for polyphonic/parallel processing.
+    /// Returns an array of endpoint structs for each node, similar to add_node.
+    ///
+    /// Example:
+    /// ```ignore
+    /// let voices = graph.add_node_array("voices", || VoiceNode::new(), 16);
+    /// ```
+    pub fn add_node_array<T, F, const N: usize>(
+        &mut self,
+        array_id: &str,
+        create_fn: F,
+    ) -> [T::Endpoints; N]
+    where
+        T: ProcessingNode + DynNode + 'static,
+        F: Fn() -> T,
+    {
+        let mut endpoints_vec = Vec::with_capacity(N);
+        let mut node_keys = Vec::with_capacity(N);
+
+        // Create N identical nodes
+        for i in 0..N {
+            let node = create_fn();
+            let endpoints = self.add_node(node);
+            // Get the last inserted node key
+            let node_key = self.nodes.iter().last().map(|(k, _)| k).unwrap();
+
+            // Track array membership
+            self.node_to_array
+                .insert(node_key, (array_id.to_string(), i));
+            node_keys.push(node_key);
+            endpoints_vec.push(endpoints);
+        }
+
+        // Store the array
+        self.node_arrays
+            .insert(array_id.to_string(), node_keys);
+
+        // Convert Vec to array (this is safe because we know the size)
+        let array: [T::Endpoints; N] = endpoints_vec
+            .try_into()
+            .unwrap_or_else(|_| panic!("Failed to convert endpoints vec to array"));
+        array
     }
 
     pub fn add_audio_input(&mut self) -> (<AudioInput as ProcessingNode>::Endpoints, ValueInput) {
@@ -321,6 +374,99 @@ impl Graph {
                 self.topology_dirty = true;
             }
         }
+    }
+
+    /// Broadcast a single output to all elements in a node array.
+    /// Connects the source output to the same input endpoint on each array element.
+    ///
+    /// Example:
+    /// ```ignore
+    /// // Connect frequency to all voices
+    /// graph.connect_broadcast(osc.output(), &voice_array, |voice_key| {
+    ///     // Get the frequency input ValueKey for this voice
+    ///     voice_input_key
+    /// });
+    /// ```
+    pub fn connect_broadcast<O, F>(
+        &mut self,
+        from: O,
+        array_keys: &[NodeKey],
+        get_input: F,
+    ) where
+        O: Output,
+        F: Fn(NodeKey) -> ValueKey,
+    {
+        for &node_key in array_keys {
+            let input_key = get_input(node_key);
+            self.connections
+                .entry(from.key())
+                .unwrap()
+                .or_default()
+                .push(input_key);
+        }
+        self.topology_dirty = true;
+    }
+
+    /// Sum outputs from all array elements into a single destination.
+    /// For now, this creates individual connections - the summing happens
+    /// in the destination node if it accepts multiple connections.
+    ///
+    /// Note: This requires the destination to properly handle summing multiple inputs.
+    pub fn connect_sum<F, I>(
+        &mut self,
+        array_keys: &[NodeKey],
+        get_output: F,
+        to: I,
+    ) where
+        F: Fn(NodeKey) -> ValueKey,
+        I: Into<InputEndpoint>,
+    {
+        let to_endpoint = to.into();
+        for &node_key in array_keys {
+            let output_key = get_output(node_key);
+            self.connections
+                .entry(output_key)
+                .unwrap()
+                .or_default()
+                .push(to_endpoint.key());
+        }
+        self.topology_dirty = true;
+    }
+
+    /// Connect an array event output (e.g., VoiceAllocator.voices) to an array of event inputs.
+    /// The ArrayEventOutput implementation determines which array element receives each event.
+    ///
+    /// Example:
+    /// ```ignore
+    /// let allocator = graph.add_node(VoiceAllocator::<4>::new(sample_rate));
+    /// let voices = graph.add_node_array("voices", || Voice::new(), 4);
+    /// // Connect voices array output to voice event inputs
+    /// graph.connect_array_event_output(
+    ///     allocator.voices_output, // The array event output
+    ///     &voices.map(|v| v.note_on) // Array of event inputs
+    /// );
+    /// ```
+    pub fn connect_array_event_output<O, I>(
+        &mut self,
+        from: O,
+        to_array: &[I],
+    ) where
+        O: Output,
+        I: Into<InputEndpoint> + Copy,
+    {
+        let from_key = from.key();
+
+        // Connect the array event output to all array element inputs
+        // The route_event() call in Graph::process() determines which one receives the event
+        for &input in to_array {
+            self.connections
+                .entry(from_key)
+                .unwrap()
+                .or_default()
+                .push(input.into().key());
+        }
+
+        self.topology_dirty = true;
     }
 
     pub fn disconnect<O, I>(&mut self, from: O, to: I) -> bool
@@ -457,6 +603,7 @@ impl Graph {
             num_stream_inputs: 1,
             num_stream_outputs: 1,
             create_io_fn: FunctionNode::CREATE_IO_FN,
+            is_array_event_output: false,
         });
 
         for &value_key in input_keys.iter().chain(output_keys.iter()) {
@@ -507,6 +654,7 @@ impl Graph {
             num_stream_inputs: 2,
             num_stream_outputs: 1,
             create_io_fn: BinaryFunctionNode::CREATE_IO_FN,
+            is_array_event_output: false,
         });
 
         for &value_key in input_keys.iter().chain(output_keys.iter()) {
@@ -668,6 +816,14 @@ impl Graph {
         self.endpoints
             .get(endpoint.key())
             .and_then(EndpointState::as_scalar)
+    }
+
+    /// Read a value from an endpoint by its ValueKey (for internal use by generated code)
+    pub fn read_endpoint_value(&self, key: ValueKey) -> f32 {
+        self.endpoints
+            .get(key)
+            .and_then(EndpointState::as_scalar)
+            .unwrap_or(0.0)
     }
 
     pub fn process(&mut self) -> Result<(), GraphError> {
@@ -883,16 +1039,40 @@ impl Graph {
                                     }
 
                                     if let Some(targets) = self.connections.get(event_output_key) {
-                                        for &target_input in targets {
-                                            if let Some(target_state) =
-                                                self.endpoints.get_mut(target_input)
-                                            {
-                                                if let Some(event_state) =
-                                                    target_state.as_event_mut()
+                                        // Check if this node implements ArrayEventOutput
+                                        if node.is_array_event_output {
+                                            // Get the array index from the node's route_event method
+                                            // We need to determine which input this event came from
+                                            // For now, assume the event's output_idx maps to an input
+                                            if let Some(array_idx) = node.processor.route_event(output_idx, &pending.event) {
+                                                // Route only to the specific array element
+                                                if let Some(&target_input) = targets.get(array_idx) {
+                                                    if let Some(target_state) =
+                                                        self.endpoints.get_mut(target_input)
+                                                    {
+                                                        if let Some(event_state) =
+                                                            target_state.as_event_mut()
+                                                        {
+                                                            let _ = event_state
+                                                                .queue_mut()
+                                                                .push(pending.event.clone());
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            // Regular event routing - broadcast to all targets
+                                            for &target_input in targets {
+                                                if let Some(target_state) =
+                                                    self.endpoints.get_mut(target_input)
                                                 {
-                                                    let _ = event_state
-                                                        .queue_mut()
-                                                        .push(pending.event.clone());
+                                                    if let Some(event_state) =
+                                                        target_state.as_event_mut()
+                                                    {
+                                                        let _ = event_state
+                                                            .queue_mut()
+                                                            .push(pending.event.clone());
+                                                    }
                                                 }
                                             }
                                         }

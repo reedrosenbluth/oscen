@@ -30,11 +30,11 @@ enum ParamChange {
 // Main polyphonic electric piano with 16 voices and tremolo
 graph! {
     name: ElectricPianoGraph;
+    compile_time: true;
 
     // MIDI input (raw MIDI bytes)
     input midi_in: event;
 
-    // CMajor-style explicit type declarations (name: type = default)
     input brightness: value = 30.0;
     input velocity_scaling: value = 50.0;
     input decay_rate: value = 90.0;
@@ -44,7 +44,6 @@ graph! {
     input vibrato_intensity: value = 0.3;
     input vibrato_speed: value = 5.0;
 
-    // Event outputs to establish type flow (CMajor pattern)
     output note_on_out: event;
     output note_off_out: event;
     output gate_witness: event;  // Type witness for gate events
@@ -54,10 +53,10 @@ graph! {
 
     nodes {
         midi_parser = MidiParser::new();
-        voice_allocator = VoiceAllocator::<16>::new(sample_rate);
+        voice_allocator = VoiceAllocator::<16>::new();
         voice_handlers = [MidiVoiceHandler::new(); 16];
-        voices = [crate::electric_piano_voice::ElectricPianoVoiceNode::new(sample_rate); 16];
-        tremolo = crate::tremolo::Tremolo::new(sample_rate);
+        voices = [crate::electric_piano_voice::ElectricPianoVoiceNode::new(); 16];
+        tremolo = crate::tremolo::Tremolo::new();
     }
 
     connections {
@@ -103,24 +102,13 @@ graph! {
 struct AudioContext {
     synth: ElectricPianoGraph,
     channels: usize,
-    // Timing stats
-    process_time_sum: Duration,
-    process_time_min: Duration,
-    process_time_max: Duration,
-    frame_count: u64,
-    last_print: std::time::Instant,
 }
 
 fn build_audio_context(sample_rate: f32, channels: usize) -> AudioContext {
-    AudioContext {
-        synth: ElectricPianoGraph::new(sample_rate),
-        channels,
-        process_time_sum: Duration::ZERO,
-        process_time_min: Duration::from_secs(u64::MAX),
-        process_time_max: Duration::ZERO,
-        frame_count: 0,
-        last_print: std::time::Instant::now(),
-    }
+    let mut synth = ElectricPianoGraph::new();
+    synth.init(sample_rate);
+
+    AudioContext { synth, channels }
 }
 
 fn audio_callback(
@@ -173,16 +161,7 @@ fn audio_callback(
     }
 
     for frame in data.chunks_mut(context.channels) {
-        // Time the process() call
-        let start = std::time::Instant::now();
         context.synth.process();
-        let elapsed = start.elapsed();
-
-        // Update timing stats
-        context.process_time_sum += elapsed;
-        context.process_time_min = context.process_time_min.min(elapsed);
-        context.process_time_max = context.process_time_max.max(elapsed);
-        context.frame_count += 1;
 
         // Static graph: direct field access for outputs
         let mono = context.synth.left_out;
@@ -199,24 +178,6 @@ fn audio_callback(
             frame[0] = mono;
         }
     }
-
-    // Print timing stats every 2 seconds
-    if context.last_print.elapsed() >= Duration::from_secs(2) {
-        let avg_nanos = context.process_time_sum.as_nanos() / context.frame_count as u128;
-        eprintln!(
-            "[TIMING] frames: {}, avg: {:.2}µs, min: {:.2}µs, max: {:.2}µs",
-            context.frame_count,
-            avg_nanos as f64 / 1000.0,
-            context.process_time_min.as_nanos() as f64 / 1000.0,
-            context.process_time_max.as_nanos() as f64 / 1000.0,
-        );
-        // Reset stats for next interval
-        context.process_time_sum = Duration::ZERO;
-        context.process_time_min = Duration::from_secs(u64::MAX);
-        context.process_time_max = Duration::ZERO;
-        context.frame_count = 0;
-        context.last_print = std::time::Instant::now();
-    }
 }
 
 fn main() -> Result<()> {
@@ -224,10 +185,7 @@ fn main() -> Result<()> {
     let (midi_tx, midi_rx) = mpsc::channel();
     let _midi_connection = MidiConnection::new(midi_tx.clone())?;
 
-    // Spawn audio thread with larger stack size (8MB instead of default 2MB)
-    // This is needed because we have 16 voices with large harmonic arrays
     thread::Builder::new()
-        .stack_size(8 * 1024 * 1024)
         .spawn(move || {
             let host = cpal::default_host();
             let device = match host.default_output_device() {
@@ -377,7 +335,8 @@ mod tests {
                 use oscen::graph::{EventInstance, EventPayload};
                 use oscen::midi::RawMidiMessage;
 
-                let mut synth = ElectricPianoGraph::new(48_000.0);
+                let mut synth = ElectricPianoGraph::new();
+                synth.init(48_000.0);
                 let note_on = [0x90, 60, 100];
 
                 // For static graphs, push events directly to the input queue

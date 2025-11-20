@@ -5,7 +5,7 @@ use quote::quote;
 use syn::{Expr, Result};
 
 pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
-    let mut ctx = CodegenContext::new();
+    let mut ctx = CodegenContext::new(graph_def.compile_time);
 
     // Collect all declarations
     for item in &graph_def.items {
@@ -30,6 +30,7 @@ pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
 }
 
 struct CodegenContext {
+    compile_time: bool,
     inputs: Vec<InputDecl>,
     outputs: Vec<OutputDecl>,
     nodes: Vec<NodeDecl>,
@@ -37,8 +38,9 @@ struct CodegenContext {
 }
 
 impl CodegenContext {
-    fn new() -> Self {
+    fn new(compile_time: bool) -> Self {
         Self {
+            compile_time,
             inputs: Vec::new(),
             outputs: Vec::new(),
             nodes: Vec::new(),
@@ -355,7 +357,7 @@ impl CodegenContext {
     /// Get the output index for a named endpoint on a node
     /// The output index is the position among ALL outputs (value, event, stream)
     /// This matches the order in ProcessingNode::ENDPOINT_DESCRIPTORS
-    fn get_node_output_index(&self, node_name: &str, endpoint_name: &str) -> Option<usize> {
+    fn get_node_output_index(&self, _node_name: &str, endpoint_name: &str) -> Option<usize> {
         // For nodes defined in the graph, we'd need type information
         // For now, we'll use a heuristic based on common patterns
         // TODO: Parse endpoint descriptors from actual node types
@@ -1079,21 +1081,31 @@ impl CodegenContext {
 
             match output.kind {
                 EndpointKind::Stream => {
+                    // Runtime graph outputs are inputs TO the output capture
                     quote! {
                         let #name = {
                             let key = graph.allocate_endpoint(::oscen::graph::EndpointType::Stream);
-                            ::oscen::StreamOutput::new(key)
+                            let endpoint = ::oscen::InputEndpoint::new(key);
+                            ::oscen::StreamInput::new(endpoint)
                         };
                     }
                 }
                 EndpointKind::Value => {
                     quote! {
-                        let #name = graph.value_param(0.0);
+                        let #name = {
+                            let key = graph.allocate_endpoint(::oscen::graph::EndpointType::Value);
+                            let endpoint = ::oscen::InputEndpoint::new(key);
+                            ::oscen::ValueInput::new(endpoint)
+                        };
                     }
                 }
                 EndpointKind::Event => {
                     quote! {
-                        let #name = graph.event_param();
+                        let #name = {
+                            let key = graph.allocate_endpoint(::oscen::graph::EndpointType::Event);
+                            let endpoint = ::oscen::InputEndpoint::new(key);
+                            ::oscen::EventInput::new(endpoint)
+                        };
                     }
                 }
             }
@@ -1107,17 +1119,15 @@ impl CodegenContext {
                 let name = &node.name;
                 let constructor = Self::normalize_constructor(&node.constructor);
 
-                if let Some(array_size) = node.array_size {
-                    // Generate multiple instances with indexed names
-                    (0..array_size)
-                        .map(|i| {
-                            let indexed_name =
-                                syn::Ident::new(&format!("{}_{}", name, i), name.span());
-                            quote! {
-                                let #indexed_name = graph.add_node(#constructor);
-                            }
-                        })
-                        .collect::<Vec<_>>()
+                if let Some(_array_size) = node.array_size {
+                    // Use add_node_array for runtime graphs
+                    let array_id = name.to_string();
+                    vec![quote! {
+                        let #name = graph.add_node_array(
+                            #array_id,
+                            || #constructor
+                        );
+                    }]
                 } else {
                     // Single instance
                     vec![quote! {
@@ -1195,14 +1205,13 @@ impl CodegenContext {
             .map(|node| {
                 let name = &node.name;
                 // For static graphs:
-                // - If constructor is a path (Type), try new(sample_rate) first, fall back to new()
+                // - If constructor is a path (Type), call Type::new() (Pattern 2)
                 // - If constructor is already a call, use it as-is
                 let constructor = match &node.constructor {
                     Expr::Path(path) => {
-                        // Try with sample_rate first (for nested compile-time graphs)
-                        // The actual check happens at compile time - if new() doesn't take
-                        // sample_rate, the user should use an explicit call in the graph! macro
-                        quote! { #path::new(sample_rate) }
+                        // Pattern 2: call new() without arguments
+                        // init(sample_rate) will be called later
+                        quote! { #path::new() }
                     },
                     Expr::Call(_) => {
                         let expr = &node.constructor;
@@ -1241,17 +1250,19 @@ impl CodegenContext {
         let mut temp_counter = 0;
 
         for conn in &self.connections {
-            // Check if destination is an output
-            if let ConnectionExpr::Ident(dest_ident) = &conn.dest {
-                if self.outputs.iter().any(|o| o.name == *dest_ident) {
-                    // This is an output assignment with potential intermediate values
-                    let (stmts, final_expr) =
-                        self.generate_expr_with_temps(&conn.source, &mut temp_counter)?;
-                    output_assignments.extend(stmts);
-                    output_assignments.push(quote! {
-                        let #dest_ident = #final_expr;
-                    });
-                    continue;
+            // Check if destination is an output (only for static graphs)
+            if self.compile_time {
+                if let ConnectionExpr::Ident(dest_ident) = &conn.dest {
+                    if self.outputs.iter().any(|o| o.name == *dest_ident) {
+                        // This is an output assignment with potential intermediate values
+                        let (stmts, final_expr) =
+                            self.generate_expr_with_temps(&conn.source, &mut temp_counter)?;
+                        output_assignments.extend(stmts);
+                        output_assignments.push(quote! {
+                            let #dest_ident = #final_expr;
+                        });
+                        continue;
+                    }
                 }
             }
 
@@ -1292,9 +1303,10 @@ impl CodegenContext {
     }
 
     /// Try to expand array broadcasting patterns:
-    /// 1. Broadcast marker: `voice_allocator.voices() -> voice_handlers.note_on()`
+    /// 1. Broadcast marker: `voice_allocator.voice() -> voice_handlers.note_on()`
     /// 2. Array-to-array: `voice_handlers.frequency() -> voices.frequency()`
     /// 3. Scalar-to-array: `cutoff -> voices.cutoff()`
+    /// 4. Array-to-single: `voices.output() -> tremolo.input()` (automatic sum/mix)
     fn try_expand_array_broadcast(
         &self,
         source: &ConnectionExpr,
@@ -1310,23 +1322,31 @@ impl CodegenContext {
                     .find(|n| n.name == *dest_base)
                     .and_then(|n| n.array_size)
                 {
-                    // Pattern 1: Broadcast marker (e.g., voices())
+                    // Pattern 1: Broadcast marker (e.g., voice())
                     if let ConnectionExpr::Method(src_obj, src_method, _src_args) = source {
                         if let ConnectionExpr::Ident(src_base) = &**src_obj {
-                            if src_method == "voices" {
+                            if src_method == "voice" {
                                 // Generate N connections: src.voice(i) -> dest[i].method()
                                 let mut connections = Vec::new();
                                 for i in 0..dest_array_size {
                                     let src_indexed = quote! { #src_base.voice(#i) };
-                                    let dest_indexed_name = syn::Ident::new(
-                                        &format!("{}_{}", dest_base, i),
-                                        dest_base.span(),
-                                    );
+
+                                    let dest_access = if self.compile_time {
+                                        // Static: voice_handlers_0
+                                        let dest_indexed_name = syn::Ident::new(
+                                            &format!("{}_{}", dest_base, i),
+                                            dest_base.span(),
+                                        );
+                                        quote! { #dest_indexed_name }
+                                    } else {
+                                        // Runtime: voice_handlers[0]
+                                        quote! { #dest_base[#i] }
+                                    };
 
                                     let dest_call = if dest_args.is_empty() {
-                                        quote! { #dest_indexed_name.#dest_method }
+                                        quote! { #dest_access.#dest_method }
                                     } else {
-                                        quote! { #dest_indexed_name.#dest_method(#(#dest_args),*) }
+                                        quote! { #dest_access.#dest_method(#(#dest_args),*) }
                                     };
 
                                     connections.push(quote! {
@@ -1351,25 +1371,33 @@ impl CodegenContext {
                                 if src_array_size == dest_array_size {
                                     let mut connections = Vec::new();
                                     for i in 0..src_array_size {
-                                        let src_indexed_name = syn::Ident::new(
-                                            &format!("{}_{}", src_base, i),
-                                            src_base.span(),
-                                        );
-                                        let dest_indexed_name = syn::Ident::new(
-                                            &format!("{}_{}", dest_base, i),
-                                            dest_base.span(),
-                                        );
+                                        // Different syntax for static vs runtime graphs
+                                        let (src_access, dest_access) = if self.compile_time {
+                                            // Static: voice_handlers_0
+                                            let src_indexed_name = syn::Ident::new(
+                                                &format!("{}_{}", src_base, i),
+                                                src_base.span(),
+                                            );
+                                            let dest_indexed_name = syn::Ident::new(
+                                                &format!("{}_{}", dest_base, i),
+                                                dest_base.span(),
+                                            );
+                                            (quote! { #src_indexed_name }, quote! { #dest_indexed_name })
+                                        } else {
+                                            // Runtime: voice_handlers[0]
+                                            (quote! { #src_base[#i] }, quote! { #dest_base[#i] })
+                                        };
 
                                         let src_call = if src_args.is_empty() {
-                                            quote! { #src_indexed_name.#src_method }
+                                            quote! { #src_access.#src_method }
                                         } else {
-                                            quote! { #src_indexed_name.#src_method(#(#src_args),*) }
+                                            quote! { #src_access.#src_method(#(#src_args),*) }
                                         };
 
                                         let dest_call = if dest_args.is_empty() {
-                                            quote! { #dest_indexed_name.#dest_method }
+                                            quote! { #dest_access.#dest_method }
                                         } else {
-                                            quote! { #dest_indexed_name.#dest_method(#(#dest_args),*) }
+                                            quote! { #dest_access.#dest_method(#(#dest_args),*) }
                                         };
 
                                         connections.push(quote! {
@@ -1391,15 +1419,22 @@ impl CodegenContext {
                         if is_scalar {
                             let mut connections = Vec::new();
                             for i in 0..dest_array_size {
-                                let dest_indexed_name = syn::Ident::new(
-                                    &format!("{}_{}", dest_base, i),
-                                    dest_base.span(),
-                                );
+                                let dest_access = if self.compile_time {
+                                    // Static: voice_handlers_0
+                                    let dest_indexed_name = syn::Ident::new(
+                                        &format!("{}_{}", dest_base, i),
+                                        dest_base.span(),
+                                    );
+                                    quote! { #dest_indexed_name }
+                                } else {
+                                    // Runtime: voice_handlers[0]
+                                    quote! { #dest_base[#i] }
+                                };
 
                                 let dest_call = if dest_args.is_empty() {
-                                    quote! { #dest_indexed_name.#dest_method }
+                                    quote! { #dest_access.#dest_method }
                                 } else {
-                                    quote! { #dest_indexed_name.#dest_method(#(#dest_args),*) }
+                                    quote! { #dest_access.#dest_method(#(#dest_args),*) }
                                 };
 
                                 connections.push(quote! {
@@ -1409,6 +1444,47 @@ impl CodegenContext {
                             return Ok(Some(connections));
                         }
                     }
+                }
+            }
+        }
+
+        // Pattern 4: Array-to-single (e.g., voices.output() -> tremolo.input())
+        // All array elements connect to the same single destination (automatic sum/mix)
+        if let ConnectionExpr::Method(src_obj, src_method, src_args) = source {
+            if let ConnectionExpr::Ident(src_base) = &**src_obj {
+                if let Some(src_array_size) = self
+                    .nodes
+                    .iter()
+                    .find(|n| n.name == *src_base)
+                    .and_then(|n| n.array_size)
+                {
+                    // Destination is NOT an array (single input for mixing)
+                    let mut connections = Vec::new();
+                    for i in 0..src_array_size {
+                        let src_access = if self.compile_time {
+                            // Static: voices_0
+                            let src_indexed_name = syn::Ident::new(
+                                &format!("{}_{}", src_base, i),
+                                src_base.span(),
+                            );
+                            quote! { #src_indexed_name }
+                        } else {
+                            // Runtime: voices[0]
+                            quote! { #src_base[#i] }
+                        };
+
+                        let src_call = if src_args.is_empty() {
+                            quote! { #src_access.#src_method }
+                        } else {
+                            quote! { #src_access.#src_method(#(#src_args),*) }
+                        };
+
+                        let dest_expr = self.generate_connection_expr(dest)?;
+                        connections.push(quote! {
+                            #src_call >> #dest_expr
+                        });
+                    }
+                    return Ok(Some(connections));
                 }
             }
         }
@@ -1623,21 +1699,16 @@ impl CodegenContext {
 
         for output in &self.outputs {
             let name = &output.name;
+            let cache_name = syn::Ident::new(&format!("{}_cache", name), name.span());
             fields.push(quote! { #name });
+            fields.push(quote! { #cache_name: 0.0 });
         }
 
         // Add node handles
         for node in &self.nodes {
             let name = &node.name;
-            if let Some(array_size) = node.array_size {
-                // Generate array initializer: [name_0, name_1, ...]
-                let indexed_names: Vec<_> = (0..array_size)
-                    .map(|i| syn::Ident::new(&format!("{}_{}", name, i), name.span()))
-                    .collect();
-                fields.push(quote! { #name: [#(#indexed_names),*] });
-            } else {
-                fields.push(quote! { #name });
-            }
+            // For arrays, add_node_array already returns [NodeKey; N], so just use the name
+            fields.push(quote! { #name });
         }
 
         quote! { #(#fields),* }
@@ -1799,7 +1870,7 @@ impl CodegenContext {
         let _return_expr = if let Some(first_output) = self.outputs.first() {
             let field_name = &first_output.name;
             quote! {
-                self.graph.get_value(&self.#field_name).unwrap_or(0.0)
+                self.graph.read_endpoint_value(self.#field_name.key())
             }
         } else {
             quote! { 0.0 }
@@ -1826,7 +1897,7 @@ impl CodegenContext {
                 let field_name = &output.name;
                 stream_output_routing.push(quote! {
                     #stream_output_idx => {
-                        self.graph.get_value(&self.#field_name)
+                        Some(self.graph.read_endpoint_value(self.#field_name.key()))
                     }
                 });
                 stream_output_idx += 1;
@@ -1841,8 +1912,9 @@ impl CodegenContext {
                 let field_name = &output.name;
                 value_output_routing.push(quote! {
                     #value_output_idx => {
-                        self.graph.get_value(&self.#field_name)
-                            .map(::oscen::graph::types::ValueData::scalar)
+                        Some(::oscen::graph::types::ValueData::scalar(
+                            self.graph.read_endpoint_value(self.#field_name.key())
+                        ))
                     }
                 });
                 value_output_idx += 1;
@@ -2044,15 +2116,19 @@ impl CodegenContext {
             fields.push(quote! { pub #field_name: #ty });
         }
 
-        // Add output fields
+        // Add output capture fields
+        // Store both the connection endpoint and cached value
         for output in &self.outputs {
             let field_name = &output.name;
+            let cache_name = syn::Ident::new(&format!("{}_cache", field_name), field_name.span());
+
             let ty = match output.kind {
-                EndpointKind::Value => quote! { ::oscen::ValueParam },
-                EndpointKind::Event => quote! { ::oscen::EventParam },
-                EndpointKind::Stream => quote! { ::oscen::StreamOutput },
+                EndpointKind::Value => quote! { ::oscen::ValueInput },
+                EndpointKind::Event => quote! { ::oscen::EventInput },
+                EndpointKind::Stream => quote! { ::oscen::StreamInput },
             };
-            fields.push(quote! { pub #field_name: #ty });
+            fields.push(quote! { #field_name: #ty });
+            fields.push(quote! { #cache_name: f32 });
         }
 
         // Add node endpoint fields (using Endpoints types)
@@ -2073,6 +2149,17 @@ impl CodegenContext {
         let node_creation = self.generate_node_creation();
         let connections = self.generate_connections()?;
         let struct_init = self.generate_struct_init();
+
+        // Collect input/output names for GraphInterface
+        // Only collect value inputs for set_input_value (event/stream inputs can't be set)
+        let value_input_names: Vec<_> = self.inputs.iter()
+            .filter(|i| matches!(i.kind, EndpointKind::Value))
+            .map(|i| &i.name)
+            .collect();
+        let output_names: Vec<_> = self.outputs.iter().map(|o| &o.name).collect();
+        let output_cache_names: Vec<_> = self.outputs.iter().map(|o| {
+            syn::Ident::new(&format!("{}_cache", o.name), o.name.span())
+        }).collect();
 
         // Generate trait implementations
         let endpoints_struct = self.generate_endpoints_struct(name);
@@ -2118,6 +2205,41 @@ impl CodegenContext {
 
             // Generate ProcessingNode implementation (for adding to other Graphs)
             #processing_node_impl
+
+            // Generate DynNode implementation (required for runtime graphs)
+            impl ::oscen::graph::DynNode for #name {}
+
+            // Generate GraphInterface implementation (unified API)
+            impl ::oscen::graph::GraphInterface for #name {
+                fn process_sample(&mut self) -> f32 {
+                    let _ = self.graph.process();
+
+                    // Update output caches by reading from connected endpoints
+                    #(self.#output_cache_names = self.graph.read_endpoint_value(self.#output_names.key());)*
+
+                    // Return first output value (or 0.0 if no outputs)
+                    #(return self.#output_cache_names;)*
+                    0.0
+                }
+
+                fn set_input_value(&mut self, name: &str, value: f32) {
+                    match name {
+                        #(stringify!(#value_input_names) => { self.graph.set_value(&self.#value_input_names, value); },)*
+                        _ => {}
+                    }
+                }
+
+                fn get_output_value(&self, name: &str) -> f32 {
+                    match name {
+                        #(stringify!(#output_names) => self.#output_cache_names,)*
+                        _ => 0.0
+                    }
+                }
+
+                fn sample_rate(&self) -> f32 {
+                    self.graph.sample_rate
+                }
+            }
         })
     }
 
@@ -2471,7 +2593,7 @@ impl CodegenContext {
             };
 
             // Special handling for array nodes with event inputs/outputs
-            if let Some(array_size) = self.get_node_array_size(node_name) {
+            if let Some(_array_size) = self.get_node_array_size(node_name) {
                 // Check if this array node has event inputs that need handlers
                 let has_event_inputs = self.connections.iter().any(|conn| {
                     if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
@@ -2775,6 +2897,36 @@ impl CodegenContext {
         let get_stream_output_method = self.generate_static_get_stream_output();
         let event_handler_methods = self.generate_static_event_handler_methods();
 
+        // Collect input/output names for GraphInterface
+        // Only collect value inputs for set_input_value (event/stream inputs can't be set as f32)
+        let input_names: Vec<_> = self.inputs.iter()
+            .filter(|i| matches!(i.kind, EndpointKind::Value))
+            .map(|i| &i.name)
+            .collect();
+        // Only collect stream/value outputs (event outputs are StaticEventQueue, not f32)
+        let output_names: Vec<_> = self.outputs.iter()
+            .filter(|o| matches!(o.kind, EndpointKind::Stream | EndpointKind::Value))
+            .map(|o| &o.name)
+            .collect();
+
+        // Generate init() calls for each node (handling arrays)
+        let node_init_calls: Vec<_> = self.nodes.iter().map(|node| {
+            let name = &node.name;
+            if node.array_size.is_some() {
+                // Array: iterate and init each element
+                quote! {
+                    for node in self.#name.iter_mut() {
+                        node.init(sample_rate);
+                    }
+                }
+            } else {
+                // Single node: init directly
+                quote! {
+                    self.#name.init(sample_rate);
+                }
+            }
+        }).collect();
+
         Ok(quote! {
             #[allow(dead_code)]
             #[derive(Debug)]
@@ -2784,7 +2936,9 @@ impl CodegenContext {
 
             impl #name {
                 #[allow(unused_variables, unused_mut)]
-                pub fn new(sample_rate: f32) -> Self {
+                pub fn new() -> Self {
+                    let sample_rate = 44100.0; // Default sample rate, will be set via init()
+
                     // Create temporary graph for input/output endpoint allocation
                     let mut __temp_graph = ::oscen::Graph::new(sample_rate);
 
@@ -2807,6 +2961,49 @@ impl CodegenContext {
                 #get_stream_output_method
 
                 #(#event_handler_methods)*
+            }
+
+            // Generate GraphInterface implementation (unified API)
+            impl ::oscen::graph::GraphInterface for #name {
+                fn process_sample(&mut self) -> f32 {
+                    self.process();
+                    // Return first output (or 0.0 if no outputs)
+                    if let Some(first_output) = vec![#(self.#output_names),*].first() {
+                        return *first_output;
+                    }
+                    0.0
+                }
+
+                fn set_input_value(&mut self, name: &str, value: f32) {
+                    match name {
+                        #(stringify!(#input_names) => { self.#input_names = value; },)*
+                        _ => {}
+                    }
+                }
+
+                fn get_output_value(&self, name: &str) -> f32 {
+                    match name {
+                        #(stringify!(#output_names) => self.#output_names,)*
+                        _ => 0.0
+                    }
+                }
+
+                fn sample_rate(&self) -> f32 {
+                    self.sample_rate
+                }
+            }
+
+            // Generate SignalProcessor implementation for compile-time graphs
+            impl ::oscen::SignalProcessor for #name {
+                fn init(&mut self, sample_rate: f32) {
+                    self.sample_rate = sample_rate;
+                    // Call init() on all child nodes
+                    #(#node_init_calls)*
+                }
+
+                fn process(&mut self) {
+                    // This is already implemented in the impl block above
+                }
             }
         })
     }

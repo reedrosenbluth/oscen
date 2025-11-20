@@ -28,7 +28,7 @@ pub struct Tremolo {
 }
 
 impl Tremolo {
-    pub fn new(sample_rate: f32) -> Self {
+    pub fn new() -> Self {
         Self {
             input: 0.0,
             rate: 5.0,
@@ -36,7 +36,7 @@ impl Tremolo {
             left_output: 0.0,
             right_output: 0.0,
             phase: 0.0,
-            sample_rate,
+            sample_rate: 44100.0, // Will be set via init()
         }
     }
 }
@@ -76,7 +76,8 @@ mod tests {
 
     #[test]
     fn test_tremolo_creates() {
-        let tremolo = Tremolo::new(44100.0);
+        let mut tremolo = Tremolo::new();
+        tremolo.init(44100.0);
         assert_eq!(tremolo.sample_rate, 44100.0);
         assert_eq!(tremolo.phase, 0.0);
     }

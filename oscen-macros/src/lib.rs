@@ -29,6 +29,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     // Track event I/O for determining if IO struct needs lifetime parameter
     let mut _event_input_idx = 0usize;
     let mut _event_output_idx = 0usize;
+    let mut has_array_event_output = false; // Track if this node has array event outputs
 
     // Track IO struct fields for IOStructAccess implementation
     let mut stream_input_fields = Vec::new(); // (field_name, index, Option<array_size>)
@@ -198,6 +199,9 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
                     // Check if this is an array event output (skip in Endpoints struct - handled by ArrayEventOutput trait)
                     let is_array_event_output = output_kind == EndpointTypeAttr::Event && matches!(&field_ty, syn::Type::Array(_));
+                    if is_array_event_output {
+                        has_array_event_output = true;
+                    }
 
                     if !is_array_event_output {
                         // Generate field definition for Endpoints struct
@@ -796,9 +800,37 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 }
             }
         }
+
+        // Auto-generate DynNode implementation
+        // For nodes with array event outputs, delegate to ArrayEventOutput trait
+        // For other nodes, use default route_event (returns None)
     };
 
-    TokenStream::from(expanded)
+    // Generate DynNode implementation conditionally
+    let dyn_node_impl = if has_array_event_output {
+        quote! {
+            impl #impl_generics ::oscen::graph::DynNode for #name #ty_generics #where_clause {
+                #[inline]
+                fn route_event(&mut self, input_index: usize, event: &::oscen::graph::EventInstance) -> Option<usize> {
+                    // Delegate to ArrayEventOutput implementation
+                    <Self as ::oscen::graph::ArrayEventOutput>::route_event(self, input_index, event)
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl #impl_generics ::oscen::graph::DynNode for #name #ty_generics #where_clause {
+                // Uses default route_event implementation (returns None)
+            }
+        }
+    };
+
+    let final_output = quote! {
+        #expanded
+        #dyn_node_impl
+    };
+
+    TokenStream::from(final_output)
 }
 
 fn parse_endpoint_attr(attr: &syn::Attribute) -> Option<EndpointTypeAttr> {

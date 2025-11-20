@@ -436,7 +436,7 @@ fn extract_node_type(expr: &Expr) -> Option<syn::Path> {
                     if path.segments.len() >= 2 {
                         // Build a new path with all segments except the last
                         let segments: Vec<_> = path.segments.iter().take(path.segments.len() - 1).cloned().collect();
-                        let mut type_path = syn::Path {
+                        let type_path = syn::Path {
                             leading_colon: path.leading_colon,
                             segments: segments.into_iter().collect(),
                         };

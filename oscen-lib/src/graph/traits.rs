@@ -313,11 +313,14 @@ pub trait NodeIO {
 }
 
 /// Marker trait for nodes that can be processed in the runtime graph.
-/// Automatically implemented for all types that are SignalProcessor + NodeIO.
-pub trait DynNode: SignalProcessor + NodeIO {}
-
-// Blanket implementation: any type that implements both traits gets this for free
-impl<T: SignalProcessor + NodeIO> DynNode for T {}
+/// Implemented by the #[derive(Node)] macro.
+pub trait DynNode: SignalProcessor + NodeIO {
+    /// Optional array event routing. Returns None if this node doesn't support it.
+    /// Nodes that implement ArrayEventOutput should override this.
+    fn route_event(&mut self, _input_index: usize, _event: &EventInstance) -> Option<usize> {
+        None
+    }
+}
 
 /// Trait for nodes that route events to array outputs at runtime.
 /// Inspired by CMajor's `voiceEventOut[index] <- event` pattern.
@@ -334,6 +337,14 @@ pub trait ArrayEventOutput {
     /// * `event` - The event to process
     fn route_event(&mut self, input_index: usize, event: &EventInstance) -> Option<usize>;
 }
+
+/// Helper trait to expose ArrayEventOutput through type erasure.
+/// This allows us to call route_event on Box<dyn DynNode> when needed.
+#[allow(dead_code)]
+pub trait DynArrayEventOutput: DynNode + ArrayEventOutput {}
+
+// Automatic implementation for all types that implement both DynNode and ArrayEventOutput
+impl<T: DynNode + ArrayEventOutput> DynArrayEventOutput for T {}
 
 pub trait ProcessingNode: SignalProcessor + NodeIO {
     type Endpoints;

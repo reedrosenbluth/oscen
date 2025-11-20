@@ -1,6 +1,6 @@
 use arrayvec::ArrayVec;
 
-use super::traits::{IOStructAccess, ProcessingContext, ProcessingNode, SignalProcessor};
+use super::traits::{DynNode, IOStructAccess, ProcessingContext, ProcessingNode, SignalProcessor};
 use super::types::{
     EndpointDescriptor, EndpointDirection, EndpointType, EventInstance, NodeKey, ValueKey,
     MAX_NODE_ENDPOINTS,
@@ -248,3 +248,7 @@ impl ProcessingNode for BinaryFunctionNode {
     const CREATE_IO_FN: fn() -> Box<dyn IOStructAccess> =
         || Box::new(BinaryFunctionNodeIO::default());
 }
+
+// DynNode implementations for helper nodes
+impl DynNode for FunctionNode {}
+impl DynNode for BinaryFunctionNode {}
