@@ -8,89 +8,46 @@
 <br />
 <br />
 
-Oscen _[“oh-sin”]_ is a library for building modular synthesizers in Rust.
+Oscen _["oh-sin"]_ is a library for writing audio software in Rust.
 
-It contains a collection of components frequently used in sound synthesis
-such as oscillators, filters, and envelope generators. It lets you
-connect (or patch) the output of one module into the input of another.
+At its core is a graph-based processing engine where nodes (oscillators, filters,
+envelopes, effects) connect through typed endpoints. The `graph!` macro lets you
+define synthesizers declaratively, with automatic topological sorting and
+sample-by-sample processing.
 
 ## Example
 
-```Rust
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use oscen::{Graph, Oscillator, TptFilter, StreamOutput};
-use std::thread;
+```rust
+use oscen::{graph, PolyBlepOscillator, TptFilter};
 
-fn create_audio_graph(sample_rate: f32) -> (Graph, StreamOutput) {
-    // Create oscen audio graph
-    let mut graph = Graph::new(sample_rate);
-    
-    // Create oscillators and filter
-    let modulator = graph.add_node(Oscillator::sine(5.0, 0.2));
-    let carrier = graph.add_node(Oscillator::saw(440.0, 0.5));
-    let filter = graph.add_node(TptFilter::new(1200.0, 0.707));
-    
-    // Connect nodes to eachother
-    let routing = vec![
-        modulator.output() >> carrier.frequency_mod(),  // FM synthesis
-        carrier.output() >> filter.input(),             // Filter the carrier
-    ];
-    
-    // Make graph connections
-    graph.connect_all(routing);
-    
-    // Return graph and the final output node
-    (graph, filter.output())
-}
+graph! {
+    name: Synth;
 
-fn main() {
-    thread::spawn(move || {
-        // Set up audio
-        let host = cpal::default_host();
-        let device = host.default_output_device().expect("no output device");
-        let default_config = device.default_output_config().unwrap();
-        let config = cpal::StreamConfig {
-            channels: default_config.channels(),
-            sample_rate: default_config.sample_rate(),
-            buffer_size: cpal::BufferSize::Fixed(512),
-        };
-        
-        let sample_rate = config.sample_rate.0 as f32;
-        let channels = config.channels as usize;
+    // Control inputs with defaults
+    input value mod_freq = 5.0;
+    input value mod_depth = 0.2;
+    input value carrier_freq = 440.0;
+    input value cutoff = 1200.0;
 
-        // Create audio graph
-        let (mut graph, output) = create_audio_graph(sample_rate);
+    // Audio output
+    output stream audio_out;
 
-        // Build the audio stream
-        let stream = device
-            .build_output_stream(
-                &config,
-                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    // Process audio in chunks
-                    for frame in data.chunks_mut(channels) {
-                        // Process the graph
-                        graph.process();
-                        
-                        // Get the output value and write to all channels
-                        if let Some(value) = graph.get_value(&output) {
-                            for sample in frame.iter_mut() {
-                                *sample = value;
-                            }
-                        }
-                    }
-                },
-                |err| eprintln!("Audio stream error: {}", err),
-                None,
-            )
-            .unwrap();
+    // Define nodes
+    node {
+        modulator = PolyBlepOscillator::sine(5.0, 0.2);
+        carrier = PolyBlepOscillator::saw(440.0, 0.5);
+        filter = TptFilter::new(1200.0, 0.707);
+    }
 
-        // Start playback
-        stream.play().unwrap();
-        
-        // Keep the thread alive
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
-    }).join().unwrap();
+    // Connect nodes
+    connection {
+        mod_freq -> modulator.frequency;
+        mod_depth -> modulator.amplitude;
+        carrier_freq -> carrier.frequency;
+        cutoff -> filter.cutoff;
+        modulator.output -> carrier.frequency_mod;
+        carrier.output -> filter.input;
+        filter.output -> audio_out;
+    }
 }
 ```
