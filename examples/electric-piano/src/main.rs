@@ -48,8 +48,7 @@ graph! {
 
     node {
         // Combined node that generates 32 harmonics with per-harmonic envelopes
-        // This matches the CMajor architecture where envelope amplitudes are applied
-        // to each oscillator individually before summing
+        // Envelope amplitudes are applied to each oscillator individually before summing
         voice = ElectricPianoVoiceNode::new(sample_rate);
     }
 

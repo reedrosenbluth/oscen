@@ -50,8 +50,7 @@ const VELOCITY_127_SPECTRUM: [f32; NUM_HARMONICS] = [
 ];
 
 /// Combined electric piano voice with per-harmonic oscillators and envelopes
-/// This matches the CMajor implementation where each harmonic has its own envelope
-/// that is applied to its oscillator output before summing
+/// Each harmonic has its own envelope that is applied to its oscillator output before summing
 #[derive(Debug, Node)]
 pub struct ElectricPianoVoiceNode {
     #[input(value)]
