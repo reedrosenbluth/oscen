@@ -8,7 +8,7 @@ use syn::{
 impl Parse for GraphDef {
     fn parse(input: ParseStream) -> Result<Self> {
         let mut name = None;
-        let mut compile_time = false; // Default to runtime (false)
+        let mut compile_time = true; // Default to static (true)
         let mut items = Vec::new();
 
         // Check for optional name declaration at the start
