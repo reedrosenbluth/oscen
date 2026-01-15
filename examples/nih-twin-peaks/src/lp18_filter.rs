@@ -1,6 +1,4 @@
-use oscen::{
-    InputEndpoint, Node, NodeKey, ProcessingContext, ProcessingNode, SignalProcessor, ValueKey,
-};
+use oscen::{InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
 use std::f32::consts::PI;
 
 /// A three-pole, 18dB/octave lowpass filter in the style of Rob Hordijk's TwinPeak filter.
@@ -9,19 +7,19 @@ use std::f32::consts::PI;
 pub struct LP18Filter {
     /// Input audio signal to be filtered
     #[input(stream)]
-    input: f32,
+    pub input: f32,
 
     /// Cutoff frequency in Hz
     #[input(value)]
-    cutoff: f32,
+    pub cutoff: f32,
 
     /// frequency modulation input
     #[input(value)]
-    fmod: f32,
+    pub fmod: f32,
 
     /// Resonance amount (0.0 to 1.0)
     #[input(value)]
-    resonance: f32,
+    pub resonance: f32,
 
     /// Integrator memories for the three poles
     z: [f32; 3],
@@ -30,9 +28,17 @@ pub struct LP18Filter {
     g: f32,
     h: f32,
 
+    /// Cached values for change detection
+    last_cutoff: f32,
+    last_fmod: f32,
+    last_resonance: f32,
+
+    /// Sample rate
+    sample_rate: f32,
+
     /// Filtered output signal
     #[output(stream)]
-    output: f32,
+    pub output: f32,
 }
 
 impl LP18Filter {
@@ -45,12 +51,17 @@ impl LP18Filter {
             z: [0.0; 3],
             g: 0.0,
             h: 0.0,
+            last_cutoff: cutoff,
+            last_fmod: 0.0,
+            last_resonance: resonance,
+            sample_rate: 44100.0,
             output: 0.0,
         }
     }
 
-    fn update_cutoff_coefficient(&mut self, sample_rate: f32) {
-        let fc = (self.cutoff / sample_rate).clamp(0.001, 0.499);
+    fn update_cutoff_coefficient(&mut self) {
+        let modulated_cutoff = self.cutoff + self.fmod;
+        let fc = (modulated_cutoff / self.sample_rate).clamp(0.001, 0.33);
         self.g = (PI * fc).tan();
     }
 
@@ -61,33 +72,28 @@ impl LP18Filter {
 
 impl SignalProcessor for LP18Filter {
     fn init(&mut self, sample_rate: f32) {
-        self.update_cutoff_coefficient(sample_rate);
+        self.sample_rate = sample_rate;
+        self.update_cutoff_coefficient();
         self.update_resonance_coefficient();
     }
 
-    fn process<'a>(&mut self, sample_rate: f32, context: &mut ProcessingContext<'a>) {
-        let input = self.get_input(context);
-        let cutoff = self.get_cutoff(context);
-        let fmod = self.get_fmod(context);
-        let resonance = self.get_resonance(context);
-
-        let modulated_cutoff = cutoff + fmod;
-
-        if cutoff != self.cutoff || fmod != self.fmod {
-            self.cutoff = cutoff;
-            self.fmod = fmod;
-
-            let fc = (modulated_cutoff / sample_rate).clamp(0.001, 0.33);
-            self.g = (PI * fc).tan();
+    fn process(&mut self) {
+        // Check if cutoff or fmod changed
+        if self.cutoff != self.last_cutoff || self.fmod != self.last_fmod {
+            self.last_cutoff = self.cutoff;
+            self.last_fmod = self.fmod;
+            self.update_cutoff_coefficient();
         }
 
-        if resonance != self.resonance {
-            self.resonance = resonance.clamp(0.0, 0.99);
+        // Check if resonance changed
+        if self.resonance != self.last_resonance {
+            self.last_resonance = self.resonance;
+            self.resonance = self.resonance.clamp(0.0, 0.99);
             self.update_resonance_coefficient();
         }
 
         // 3-pole filter implementation (18dB/octave)
-        let hp = (input - self.h * self.z[0] - self.z[1] - self.z[2]) / (1.0 + self.g);
+        let hp = (self.input - self.h * self.z[0] - self.z[1] - self.z[2]) / (1.0 + self.g);
 
         let bp1 = self.g * hp + self.z[0];
         self.z[0] = bp1.tanh();

@@ -14,4 +14,3 @@ proc-macro2 = "1.0"
 [dev-dependencies]
 oscen = { path = "../oscen-lib" }
 arrayvec = "0.7"
-slotmap = "1.0"

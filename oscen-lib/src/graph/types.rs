@@ -5,7 +5,6 @@ use std::ops::Shr;
 use std::sync::Arc;
 
 use arrayvec::ArrayVec;
-use slotmap::new_key_type;
 
 pub const MAX_EVENTS: usize = 256;
 pub const MAX_CONNECTIONS_PER_OUTPUT: usize = 1024;
@@ -20,8 +19,15 @@ pub const MAX_STATIC_EVENTS_PER_ENDPOINT: usize = 32;
 /// Uses stack-allocated ArrayVec instead of heap-allocated Vec for zero-overhead event handling.
 pub type StaticEventQueue = ArrayVec<EventInstance, MAX_STATIC_EVENTS_PER_ENDPOINT>;
 
-new_key_type! { pub struct NodeKey; }
-new_key_type! { pub struct ValueKey; }
+/// Opaque key type for node identification.
+/// Used by the derive macro for endpoint generation.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct NodeKey(());
+
+/// Opaque key type for value/endpoint identification.
+/// Used by the derive macro for endpoint generation.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ValueKey(());
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum EndpointType {
@@ -697,6 +703,7 @@ impl<T> From<&EventParam<T>> for InputEndpoint {
 // ============================================================================
 
 /// Internal representation of a connection (stores keys, not typed handles)
+#[allow(dead_code)]
 pub struct Connection {
     pub(crate) from: ValueKey,
     pub(crate) to: ValueKey,

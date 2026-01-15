@@ -3,7 +3,6 @@ use oscen::prelude::*;
 // Test connecting node event output to graph event output
 graph! {
     name: EventPassthroughGraph;
-    compile_time: true;
 
     input midi_in: event;
     output note_on_out: event;
@@ -21,7 +20,8 @@ graph! {
 }
 
 fn main() {
-    let mut graph = EventPassthroughGraph::new(48000.0);
+    let mut graph = EventPassthroughGraph::new();
+    graph.init(48000.0);
     graph.process();
     println!("Success!");
 }

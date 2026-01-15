@@ -3,7 +3,6 @@ use syn::{Expr, Ident};
 /// Root AST node for a graph definition
 pub struct GraphDef {
     pub name: Option<syn::Ident>,
-    pub compile_time: bool,
     pub items: Vec<GraphItem>,
 }
 

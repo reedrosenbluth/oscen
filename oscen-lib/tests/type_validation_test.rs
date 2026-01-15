@@ -1,7 +1,4 @@
-use oscen::{
-    filters::tpt::TptFilterEndpoints, graph, PolyBlepOscillator, PolyBlepOscillatorEndpoints,
-    TptFilter,
-};
+use oscen::{graph, PolyBlepOscillator, SignalProcessor, TptFilter};
 
 // This test verifies that type validation catches common mistakes
 
@@ -11,20 +8,22 @@ graph! {
 
     input value freq = 440.0;
 
-    node {
+    nodes {
         osc = PolyBlepOscillator::saw(440.0, 0.6);
         filter = TptFilter::new(1000.0, 0.707);
     }
 
-    connection {
-        freq -> osc.frequency();
-        osc.output() -> filter.input();
+    connections {
+        // Use frequency_mod (public stream input) instead of frequency (private value input)
+        freq -> osc.frequency_mod;
+        osc.output -> filter.input;
     }
 }
 
 #[test]
 fn test_valid_connections() {
-    let _ctx = ValidGraph::new(44100.0);
+    let mut graph = ValidGraph::new();
+    graph.init(44100.0);
 }
 
 // Uncomment these to test error messages:

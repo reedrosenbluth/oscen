@@ -221,191 +221,45 @@ pub fn raw_midi_event(bytes: &[u8]) -> EventPayload {
     EventPayload::Object(Arc::new(RawMidiMessage::new(bytes)))
 }
 
-/// Queue raw MIDI bytes to a MidiParser input
-/// Returns true if the event was successfully queued
-pub fn queue_raw_midi<I>(
-    graph: &mut crate::Graph,
-    midi_input: I,
-    frame_offset: u32,
-    bytes: &[u8],
-) -> bool
-where
-    I: Into<InputEndpoint>,
-{
-    graph.queue_event(midi_input, frame_offset, raw_midi_event(bytes))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Graph;
-
-    #[test]
-    fn test_midi_voice_handler_with_typed_events() {
-        let mut graph = Graph::new(44100.0);
-        let voice = graph.add_node(MidiVoiceHandler::new());
-
-        // Send note-on event for middle C (note 60)
-        let note_on_payload = EventPayload::Object(Arc::new(NoteOnEvent {
-            note: 60,
-            velocity: 0.8,
-        }));
-        assert!(graph.queue_event(voice.note_on, 0, note_on_payload));
-
-        // Process
-        graph.process().expect("graph processes");
-
-        // Check frequency output (middle C should be ~261.63 Hz)
-        let freq = graph.get_value(&voice.frequency).unwrap();
-        assert!((freq - 261.626).abs() < 0.01);
-
-        // Check gate event was emitted
-        let mut gate_events = Vec::new();
-        graph.drain_events(voice.gate, |event| {
-            gate_events.push(event.clone());
-        });
-        assert_eq!(gate_events.len(), 1);
-        match gate_events[0].payload {
-            EventPayload::Scalar(v) => assert_eq!(v, 0.8),
-            _ => panic!("expected scalar gate event"),
-        }
-
-        // Send note-off event
-        let note_off_payload = EventPayload::Object(Arc::new(NoteOffEvent { note: 60 }));
-        assert!(graph.queue_event(voice.note_off, 0, note_off_payload));
-
-        // Process
-        graph.process().expect("graph processes");
-
-        // Check gate-off event was emitted
-        let mut gate_events = Vec::new();
-        graph.drain_events(voice.gate, |event| {
-            gate_events.push(event.clone());
-        });
-        assert_eq!(gate_events.len(), 1);
-        match gate_events[0].payload {
-            EventPayload::Scalar(v) => assert_eq!(v, 0.0),
-            _ => panic!("expected scalar gate event"),
-        }
-    }
 
     #[test]
     fn test_note_to_frequency_conversion() {
         assert_eq!(MidiVoiceHandler::midi_note_to_freq(69), 440.0); // A4
         assert!((MidiVoiceHandler::midi_note_to_freq(60) - 261.626).abs() < 0.01); // C4
-        assert!((MidiVoiceHandler::midi_note_to_freq(81) - 880.0).abs() < 0.01);
-        // A5
+        assert!((MidiVoiceHandler::midi_note_to_freq(81) - 880.0).abs() < 0.01); // A5
     }
 
     #[test]
-    fn test_midi_parser() {
-        let mut graph = Graph::new(44100.0);
-        let parser = graph.add_node(MidiParser::new());
-
-        // Send raw MIDI note-on message (0x90 = note-on, 60 = middle C, 100 = velocity)
-        assert!(queue_raw_midi(
-            &mut graph,
-            parser.midi_in,
-            0,
-            &[0x90, 60, 100]
+    fn test_midi_parser_parse_note_on() {
+        let parsed = MidiParser::parse_bytes(&[0x90, 60, 100]);
+        assert!(matches!(
+            parsed,
+            Some(ParsedMidi::NoteOn { note: 60, velocity }) if (velocity - 100.0/127.0).abs() < 0.01
         ));
-
-        // Process
-        graph.process().expect("graph processes");
-
-        // Check that note-on event was emitted
-        let mut note_on_events = Vec::new();
-        graph.drain_events(parser.note_on, |event| {
-            note_on_events.push(event.clone());
-        });
-        assert_eq!(note_on_events.len(), 1);
-        match &note_on_events[0].payload {
-            EventPayload::Object(obj) => {
-                let note_on = obj.as_any().downcast_ref::<NoteOnEvent>().unwrap();
-                assert_eq!(note_on.note, 60);
-                assert!((note_on.velocity - 100.0 / 127.0).abs() < 0.01);
-            }
-            _ => panic!("expected object payload"),
-        }
-
-        // Send raw MIDI note-off message (0x80 = note-off, 60 = middle C)
-        assert!(queue_raw_midi(
-            &mut graph,
-            parser.midi_in,
-            0,
-            &[0x80, 60, 0]
-        ));
-
-        // Process
-        graph.process().expect("graph processes");
-
-        // Check that note-off event was emitted
-        let mut note_off_events = Vec::new();
-        graph.drain_events(parser.note_off, |event| {
-            note_off_events.push(event.clone());
-        });
-        assert_eq!(note_off_events.len(), 1);
-        match &note_off_events[0].payload {
-            EventPayload::Object(obj) => {
-                let note_off = obj.as_any().downcast_ref::<NoteOffEvent>().unwrap();
-                assert_eq!(note_off.note, 60);
-            }
-            _ => panic!("expected object payload"),
-        }
     }
 
     #[test]
-    fn test_midi_parser_to_voice_handler() {
-        let mut graph = Graph::new(44100.0);
-        let parser = graph.add_node(MidiParser::new());
-        let voice = graph.add_node(MidiVoiceHandler::new());
+    fn test_midi_parser_parse_note_off() {
+        let parsed = MidiParser::parse_bytes(&[0x80, 60, 0]);
+        assert!(matches!(parsed, Some(ParsedMidi::NoteOff { note: 60 })));
+    }
 
-        // Connect parser outputs to voice handler inputs
-        graph.connect(parser.note_on, voice.note_on);
-        graph.connect(parser.note_off, voice.note_off);
+    #[test]
+    fn test_midi_parser_note_on_velocity_zero_is_note_off() {
+        // Note-on with velocity 0 should be treated as note-off
+        let parsed = MidiParser::parse_bytes(&[0x90, 60, 0]);
+        assert!(matches!(parsed, Some(ParsedMidi::NoteOff { note: 60 })));
+    }
 
-        // Send raw MIDI note-on
-        assert!(queue_raw_midi(
-            &mut graph,
-            parser.midi_in,
-            0,
-            &[0x90, 60, 100]
-        ));
-
-        // Process
-        graph.process().expect("graph processes");
-
-        // Check frequency output
-        let freq = graph.get_value(&voice.frequency).unwrap();
-        assert!((freq - 261.626).abs() < 0.01);
-
-        // Check gate event was emitted
-        let mut gate_events = Vec::new();
-        graph.drain_events(voice.gate, |event| {
-            gate_events.push(event.clone());
-        });
-        assert_eq!(gate_events.len(), 1);
-
-        // Send raw MIDI note-off
-        assert!(queue_raw_midi(
-            &mut graph,
-            parser.midi_in,
-            0,
-            &[0x80, 60, 0]
-        ));
-
-        // Process
-        graph.process().expect("graph processes");
-
-        // Check gate-off event was emitted
-        let mut gate_events = Vec::new();
-        graph.drain_events(voice.gate, |event| {
-            gate_events.push(event.clone());
-        });
-        assert_eq!(gate_events.len(), 1);
-        match gate_events[0].payload {
-            EventPayload::Scalar(v) => assert_eq!(v, 0.0),
-            _ => panic!("expected scalar gate event"),
-        }
+    #[test]
+    fn test_raw_midi_message() {
+        let msg = RawMidiMessage::new(&[0x90, 60, 100]);
+        assert_eq!(msg.bytes[0], 0x90);
+        assert_eq!(msg.bytes[1], 60);
+        assert_eq!(msg.bytes[2], 100);
+        assert_eq!(msg.len, 3);
     }
 }

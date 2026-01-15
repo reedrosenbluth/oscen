@@ -4,7 +4,6 @@ use std::thread;
 
 graph! {
     name: SynthGraph;
-    compile_time: true;
 
     output stream out;
 
@@ -35,7 +34,8 @@ fn main() {
         let channels = config.channels as usize;
 
         // Create audio graph
-        let mut graph = SynthGraph::new(sample_rate);
+        let mut graph = SynthGraph::new();
+        graph.init(sample_rate);
         let mut counter = 0;
 
         // Build the audio stream

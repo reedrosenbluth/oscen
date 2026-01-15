@@ -269,7 +269,7 @@ mod tests {
                 ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
             filter.input = dc_input;
             filter.read_inputs(&mut context);
-            filter.process(sample_rate);
+            filter.process();
             output = filter.output;
         }
 
@@ -315,7 +315,7 @@ mod tests {
                 ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
             filter.input = input;
             filter.read_inputs(&mut context);
-            filter.process(sample_rate);
+            filter.process();
             outputs.push(filter.output);
         }
 
@@ -370,7 +370,7 @@ mod tests {
                 ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
             filter.input = input;
             filter.read_inputs(&mut context);
-            filter.process(sample_rate);
+            filter.process();
             let output = filter.output;
 
             assert!(

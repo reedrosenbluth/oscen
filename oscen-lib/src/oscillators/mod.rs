@@ -242,43 +242,21 @@ impl SignalProcessor for PolyBlepOscillator {
 #[cfg(test)]
 mod tests {
     use super::{PolyBlepOscillator, PolyBlepWaveform, SignalProcessor};
-    use arrayvec::ArrayVec;
-    use crate::graph::types::{EventInstance, ValueData};
-    use crate::graph::{IOStructAccess, NodeIO, PendingEvent, ProcessingContext, ProcessingNode};
 
     #[test]
     fn test_poly_blep_saw_stays_bounded() {
         let sample_rate = 48_000.0;
         let mut osc = PolyBlepOscillator::saw(440.0, 1.0);
+        osc.init(sample_rate);
+        // Initialize modulation inputs
+        osc.phase_mod = 0.0;
+        osc.frequency_mod = 0.0;
+
         let mut min = f32::MAX;
         let mut max = f32::MIN;
-        let value_template: Vec<Option<ValueData>> = vec![
-            Some(ValueData::scalar(0.0)), // phase
-            None,                         // phase_mod (stream)
-            Some(ValueData::scalar(0.0)), // frequency override
-            None,                         // frequency mod (stream)
-            Some(ValueData::scalar(0.0)), // amplitude mod
-            Some(ValueData::scalar(0.0)), // pulse width mod
-        ];
 
         for _ in 0..(sample_rate as usize / 10) {
-            let stream_inputs: Vec<ArrayVec<f32, 128>> = (0..6)
-                .map(|_| {
-                    let mut av = ArrayVec::new();
-                    av.push(0.0);
-                    av
-                })
-                .collect();
-            let value_storage = value_template.clone();
-            let value_refs: Vec<Option<&ValueData>> =
-                value_storage.iter().map(|opt| opt.as_ref()).collect();
-            let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
-            let mut pending = Vec::<PendingEvent>::new();
-            let mut context =
-                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
-
-            osc.read_inputs(&mut context);
-            osc.process(sample_rate);
+            osc.process();
             let value = osc.output;
             min = min.min(value);
             max = max.max(value);
@@ -294,52 +272,16 @@ mod tests {
     fn test_poly_blep_square_continuity() {
         let sample_rate = 48_000.0;
         let mut osc = PolyBlepOscillator::square(880.0, 0.8);
-        let value_template: Vec<Option<ValueData>> = vec![
-            Some(ValueData::scalar(0.0)),
-            None,
-            Some(ValueData::scalar(0.0)),
-            None,
-            Some(ValueData::scalar(0.0)),
-            Some(ValueData::scalar(0.0)),
-        ];
+        osc.init(sample_rate);
+        // Initialize modulation inputs
+        osc.phase_mod = 0.0;
+        osc.frequency_mod = 0.0;
 
-        let mut previous = {
-            let stream_inputs: Vec<ArrayVec<f32, 128>> = (0..6)
-                .map(|_| {
-                    let mut av = ArrayVec::new();
-                    av.push(0.0);
-                    av
-                })
-                .collect();
-            let value_storage = value_template.clone();
-            let value_refs: Vec<Option<&ValueData>> =
-                value_storage.iter().map(|opt| opt.as_ref()).collect();
-            let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
-            let mut pending = Vec::<PendingEvent>::new();
-            let mut context =
-                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
-            osc.read_inputs(&mut context);
-            osc.process(sample_rate);
-            osc.output
-        };
+        osc.process();
+        let mut previous = osc.output;
+
         for _ in 0..1024 {
-            let stream_inputs: Vec<ArrayVec<f32, 128>> = (0..6)
-                .map(|_| {
-                    let mut av = ArrayVec::new();
-                    av.push(0.0);
-                    av
-                })
-                .collect();
-            let value_storage = value_template.clone();
-            let value_refs: Vec<Option<&ValueData>> =
-                value_storage.iter().map(|opt| opt.as_ref()).collect();
-            let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
-            let mut pending = Vec::<PendingEvent>::new();
-            let mut context =
-                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
-
-            osc.read_inputs(&mut context);
-            osc.process(sample_rate);
+            osc.process();
             let current = osc.output;
             let delta = (current - previous).abs();
             assert!(delta <= 1.6, "square produced discontinuity of {delta}");
@@ -351,17 +293,14 @@ mod tests {
     fn test_poly_blep_triangle_shape() {
         let sample_rate = 48_000.0;
         let mut osc = PolyBlepOscillator::new(220.0, 1.0, PolyBlepWaveform::Triangle);
+        osc.init(sample_rate);
         // Initialize stream input fields before calling process()
         osc.phase_mod = 0.0;
         osc.frequency_mod = 0.0;
 
         let mut samples = [0.0; 4];
         for i in 0..samples.len() {
-            let stream_inputs: Vec<ArrayVec<f32, 128>> = Vec::new();
-            let mut pending = Vec::new();
-            let mut context = ProcessingContext::new(&stream_inputs, &[], &[], &mut pending);
-            osc.read_inputs(&mut context);
-            osc.process(sample_rate);
+            osc.process();
             samples[i] = osc.output;
         }
 

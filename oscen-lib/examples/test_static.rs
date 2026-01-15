@@ -1,13 +1,14 @@
-use oscen::{graph, PolyBlepOscillator, TptFilter};
+use oscen::{graph, PolyBlepOscillator, SignalProcessor, TptFilter};
 
 graph! {
     name: SimpleGraph;
-    compile_time: true;
 
     input value freq = 440.0;
 
-    node osc = PolyBlepOscillator::saw(440.0, 1.0);
-    node filter = TptFilter::new(1000.0, 0.7);
+    nodes {
+        osc = PolyBlepOscillator::saw(440.0, 1.0);
+        filter = TptFilter::new(1000.0, 0.7);
+    }
 
     connections {
         osc.output -> filter.input;
@@ -15,14 +16,15 @@ graph! {
 }
 
 fn main() {
-    let mut graph = SimpleGraph::new(44100.0);
-    println!("Created static graph with compile_time: true");
+    let mut graph = SimpleGraph::new();
+    graph.init(44100.0);
+    println!("Created static graph");
     println!("sample_rate: {}", graph.sample_rate);
     println!("\nProcessing first 10 samples:");
 
     for i in 0..10 {
-        let output = graph.process();
-        println!("  Sample {}: {:.6}", i, output);
+        graph.process();
+        println!("  Sample {}: {:.6}", i, graph.filter.output);
     }
 
     println!("\nFilter output after processing:");

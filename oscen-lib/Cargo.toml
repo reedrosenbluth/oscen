@@ -8,15 +8,10 @@ oscen-macros = { path = "../oscen-macros" }
 arrayvec = "0.7.6"
 cpal = "0.15.3"
 hound = "3.5.1"
-slotmap = "1.0.7"
 
 [dev-dependencies]
 float-cmp = "0.10.0"
 criterion = { version = "0.5", features = ["html_reports"] }
-
-[[bench]]
-name = "graph_bench"
-harness = false
 
 [[bench]]
 name = "static_vs_runtime"

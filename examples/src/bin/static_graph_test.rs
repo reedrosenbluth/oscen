@@ -1,25 +1,26 @@
 use oscen::graph;
+use oscen::SignalProcessor;
 
 // Mock node for testing
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct MockVoice {
     pub brightness: f32,
     pub gate: bool,
 }
 
 impl MockVoice {
-    pub fn new(_sample_rate: f32) -> Self {
-        Self {
-            brightness: 0.0,
-            gate: false,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
-    pub fn process(&mut self) {}
+}
+
+impl SignalProcessor for MockVoice {
+    fn init(&mut self, _sample_rate: f32) {}
+    fn process(&mut self) {}
 }
 
 graph! {
     name: StaticGraphTest;
-    compile_time: true;
 
     input value brightness = 30.0;
     // input event gate; // Skipping EventParam for now as it requires more setup
@@ -40,7 +41,8 @@ graph! {
 }
 
 fn main() {
-    let mut graph = StaticGraphTest::new(44100.0);
+    let mut graph = StaticGraphTest::new();
+    graph.init(44100.0);
     
     // Test if inputs are generated as fields
     graph.brightness = 0.5;

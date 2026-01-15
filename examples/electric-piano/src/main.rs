@@ -30,7 +30,6 @@ enum ParamChange {
 // Main polyphonic electric piano with 16 voices and tremolo
 graph! {
     name: ElectricPianoGraph;
-    compile_time: true;
 
     // MIDI input (raw MIDI bytes)
     input midi_in: event;

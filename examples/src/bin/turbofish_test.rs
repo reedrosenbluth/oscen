@@ -1,21 +1,25 @@
 use oscen::graph;
+use oscen::SignalProcessor;
 
 // Simple node with const generic
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct GenericNode<const N: usize> {
     pub val: f32,
 }
 
 impl<const N: usize> GenericNode<N> {
-    pub fn new(_sample_rate: f32) -> Self {
-        Self { val: 0.0 }
+    pub fn new() -> Self {
+        Self::default()
     }
-    pub fn process(&mut self) {}
+}
+
+impl<const N: usize> SignalProcessor for GenericNode<N> {
+    fn init(&mut self, _sample_rate: f32) {}
+    fn process(&mut self) {}
 }
 
 graph! {
     name: TurbofishTest;
-    compile_time: true;
 
     input value test_input = 1.0;
 
@@ -29,7 +33,8 @@ graph! {
 }
 
 fn main() {
-    let mut graph = TurbofishTest::new(44100.0);
+    let mut graph = TurbofishTest::new();
+    graph.init(44100.0);
     graph.test_input = 5.0;
     graph.process();
 

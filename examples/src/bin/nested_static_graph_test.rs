@@ -1,12 +1,29 @@
 use oscen::graph;
+use oscen::SignalProcessor;
+
+// Define the node first so it can be used in graphs
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DummyNode {
+    pub val: f32,
+}
+
+impl DummyNode {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl SignalProcessor for DummyNode {
+    fn init(&mut self, _sample_rate: f32) {}
+    fn process(&mut self) {}
+}
 
 // Inner static graph
 graph! {
     name: InnerGraph;
-    compile_time: true;
 
     input value inner_input = 1.0;
-    
+
     nodes {
         // Just a dummy node to verify structure
         dummy = DummyNode;
@@ -17,22 +34,9 @@ graph! {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct DummyNode {
-    pub val: f32,
-}
-
-impl DummyNode {
-    pub fn new(_sample_rate: f32) -> Self {
-        Self { val: 0.0 }
-    }
-    pub fn process(&mut self) {}
-}
-
 // Outer static graph using InnerGraph
 graph! {
     name: OuterGraph;
-    compile_time: true;
 
     input value outer_input = 10.0;
 
@@ -50,7 +54,8 @@ graph! {
 }
 
 fn main() {
-    let mut graph = OuterGraph::new(44100.0);
+    let mut graph = OuterGraph::new();
+    graph.init(44100.0);
     
     graph.outer_input = 5.0;
     graph.process();

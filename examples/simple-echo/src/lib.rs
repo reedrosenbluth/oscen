@@ -1,12 +1,61 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
-use oscen::{filters::tpt::TptFilter, graph::ValueInput, Delay, Graph, StreamOutput, Value};
+use oscen::delay::Delay;
+use oscen::filters::tpt::TptFilter;
+use oscen::SignalProcessor;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
+/// A single channel of the echo effect
+pub struct EchoChannel {
+    delay: Delay,
+    filter: TptFilter,
+    sample_rate: f32,
+}
+
+impl EchoChannel {
+    fn new(sample_rate: f32) -> Self {
+        let mut delay = Delay::new(11025.0, 0.0);  // 0.25s at 44.1kHz, no internal feedback
+        delay.init(sample_rate);
+
+        let mut filter = TptFilter::new(4000.0, 0.7);
+        filter.init(sample_rate);
+
+        Self {
+            delay,
+            filter,
+            sample_rate,
+        }
+    }
+
+    fn process(&mut self, input: f32, delay_time: f32, filter_cutoff: f32, feedback: f32, mix: f32) -> f32 {
+        // Update delay time (convert seconds to samples)
+        let delay_samples = delay_time * self.sample_rate;
+
+        // Get feedback from previous filter output
+        let feedback_signal = self.filter.output * feedback;
+
+        // Feed input + feedback into delay (with soft clipping to prevent runaway)
+        self.delay.input = (input + feedback_signal).tanh();
+
+        // Update filter cutoff
+        self.filter.cutoff = filter_cutoff;
+
+        // Process delay -> filter chain
+        self.delay.process();
+        self.filter.input = self.delay.output;
+        self.filter.process();
+
+        // Mix dry and wet
+        let wet = self.filter.output;
+        input * (1.0 - mix) + wet * mix
+    }
+}
+
 pub struct SimpleEcho {
     params: Arc<SimpleEchoParams>,
-    audio_context: RwLock<Option<AudioContext>>,
+    left: RwLock<Option<EchoChannel>>,
+    right: RwLock<Option<EchoChannel>>,
 }
 
 #[derive(Params)]
@@ -75,161 +124,12 @@ impl Default for SimpleEchoParams {
     }
 }
 
-pub struct ChannelContext {
-    graph: Graph,
-    delay_time_input: ValueInput,
-    filter_cutoff_input: ValueInput,
-    feedback_input: ValueInput,
-    mix_input: ValueInput,
-    output: StreamOutput,
-    input_endpoint: ValueInput,
-}
-
-pub struct AudioContext {
-    left: ChannelContext,
-    right: ChannelContext,
-}
-
-fn build_channel_graph(
-    sample_rate: f32,
-    params: &SimpleEchoParams,
-) -> Result<ChannelContext, &'static str> {
-    let mut graph = Graph::new(sample_rate);
-
-    let (input_signal, input_endpoint) = graph.add_audio_input();
-
-    // Add nodes to graph
-    let delay = graph.add_node(Delay::from_seconds(
-        params.delay_time.value(),
-        0.0,
-        sample_rate,
-    ));
-    let filter = graph.add_node(TptFilter::new(params.filter_cutoff.value(), 0.7));
-
-    let feedback_node = graph.add_node(Value::new(params.feedback.value()));
-    let mix_node = graph.add_node(Value::new(params.mix.value()));
-
-    // Connect delay output to filter
-    graph.connect(delay.output, filter.input);
-
-    // Create feedback loop with controllable amount
-    let feedback_scaled = graph.combine(
-        filter.output,
-        feedback_node.output,
-        |filtered, feedback| filtered * feedback, // Scale by feedback amount
-    );
-
-    // Mix input with feedback and send to delay (with limiter to prevent runaway)
-    let delay_input = graph.combine(input_signal.output, feedback_scaled, |input, feedback| {
-        (input + feedback).tanh()
-    });
-
-    graph.connect(delay_input, delay.input);
-
-    // Mix dry and wet signals with controllable mix
-    let wet_signal = filter.output;
-    let dry_signal = input_signal.output;
-
-    // Create dry component (input * (1 - mix))
-    let dry_mixed = graph.combine(dry_signal, mix_node.output, |dry, mix| dry * (1.0 - mix));
-
-    // Create wet component (wet * mix)
-    let wet_mixed = graph.combine(wet_signal, mix_node.output, |wet, mix| wet * mix);
-
-    // Combine dry and wet
-    let output = graph.combine(dry_mixed, wet_mixed, |dry, wet| dry + wet);
-
-    // Set up parameter controls
-    // Convert delay time from seconds to samples
-    let delay_samples = params.delay_time.value() * sample_rate;
-    if graph
-        .insert_value_input(delay.delay_samples, delay_samples)
-        .is_none()
-    {
-        return Err("Failed to insert delay time input");
-    }
-
-    if graph
-        .insert_value_input(filter.cutoff, params.filter_cutoff.value())
-        .is_none()
-    {
-        return Err("Failed to insert filter cutoff input");
-    }
-
-    if graph
-        .insert_value_input(feedback_node.input, params.feedback.value())
-        .is_none()
-    {
-        return Err("Failed to insert feedback input");
-    }
-
-    if graph
-        .insert_value_input(mix_node.input, params.mix.value())
-        .is_none()
-    {
-        return Err("Failed to insert mix input");
-    }
-
-    Ok(ChannelContext {
-        graph,
-        delay_time_input: delay.delay_samples,
-        filter_cutoff_input: filter.cutoff,
-        feedback_input: feedback_node.input,
-        mix_input: mix_node.input,
-        output,
-        input_endpoint,
-    })
-}
-
-impl AudioContext {
-    fn new(sample_rate: f32, params: &SimpleEchoParams) -> Result<Self, &'static str> {
-        let left = build_channel_graph(sample_rate, params)?;
-        let right = build_channel_graph(sample_rate, params)?;
-
-        Ok(Self { left, right })
-    }
-
-    fn update_params(&mut self, params: &SimpleEchoParams) {
-        let delay_time = params.delay_time.smoothed.next();
-        let filter_cutoff = params.filter_cutoff.smoothed.next();
-        let feedback = params.feedback.smoothed.next();
-        let mix = params.mix.smoothed.next();
-
-        // Convert delay time from seconds to samples
-        let delay_samples_left = delay_time * self.left.graph.sample_rate;
-        let delay_samples_right = delay_time * self.right.graph.sample_rate;
-
-        // Update left channel
-        self.left
-            .graph
-            .set_value(self.left.delay_time_input, delay_samples_left);
-        self.left
-            .graph
-            .set_value(self.left.filter_cutoff_input, filter_cutoff);
-        self.left
-            .graph
-            .set_value(self.left.feedback_input, feedback);
-        self.left.graph.set_value(self.left.mix_input, mix);
-
-        // Update right channel
-        self.right
-            .graph
-            .set_value(self.right.delay_time_input, delay_samples_right);
-        self.right
-            .graph
-            .set_value(self.right.filter_cutoff_input, filter_cutoff);
-        self.right
-            .graph
-            .set_value(self.right.feedback_input, feedback);
-        self.right.graph.set_value(self.right.mix_input, mix);
-    }
-}
-
 impl Default for SimpleEcho {
     fn default() -> Self {
         Self {
             params: Arc::new(SimpleEchoParams::default()),
-            audio_context: RwLock::new(None),
+            left: RwLock::new(None),
+            right: RwLock::new(None),
         }
     }
 }
@@ -325,13 +225,10 @@ impl Plugin for SimpleEcho {
     ) -> bool {
         let sample_rate = buffer_config.sample_rate;
 
-        match AudioContext::new(sample_rate, &self.params) {
-            Ok(audio_context) => {
-                *self.audio_context.write() = Some(audio_context);
-                true
-            }
-            Err(_) => false,
-        }
+        *self.left.write() = Some(EchoChannel::new(sample_rate));
+        *self.right.write() = Some(EchoChannel::new(sample_rate));
+
+        true
     }
 
     fn process(
@@ -340,11 +237,16 @@ impl Plugin for SimpleEcho {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        let mut audio_context_guard = self.audio_context.write();
-        if let Some(audio_context) = audio_context_guard.as_mut() {
+        let mut left_guard = self.left.write();
+        let mut right_guard = self.right.write();
+
+        if let (Some(left), Some(right)) = (left_guard.as_mut(), right_guard.as_mut()) {
             for mut channel_samples in buffer.iter_samples() {
-                // Update parameters
-                audio_context.update_params(&self.params);
+                // Get smoothed parameter values
+                let delay_time = self.params.delay_time.smoothed.next();
+                let filter_cutoff = self.params.filter_cutoff.smoothed.next();
+                let feedback = self.params.feedback.smoothed.next();
+                let mix = self.params.mix.smoothed.next();
 
                 // Get input samples
                 let inputs: Vec<f32> = channel_samples.iter_mut().map(|s| *s).collect();
@@ -352,47 +254,16 @@ impl Plugin for SimpleEcho {
                 // Process based on channel count
                 if inputs.len() >= 2 {
                     // Stereo processing
-                    audio_context
-                        .left
-                        .graph
-                        .set_value(audio_context.left.input_endpoint, inputs[0]);
-                    audio_context
-                        .right
-                        .graph
-                        .set_value(audio_context.right.input_endpoint, inputs[1]);
-
-                    let _ = audio_context.left.graph.process();
-                    let _ = audio_context.right.graph.process();
-
-                    let output_left = audio_context
-                        .left
-                        .graph
-                        .get_value(&audio_context.left.output)
-                        .unwrap_or(0.0);
-                    let output_right = audio_context
-                        .right
-                        .graph
-                        .get_value(&audio_context.right.output)
-                        .unwrap_or(0.0);
+                    let output_left = left.process(inputs[0], delay_time, filter_cutoff, feedback, mix);
+                    let output_right = right.process(inputs[1], delay_time, filter_cutoff, feedback, mix);
 
                     for (i, sample) in channel_samples.into_iter().enumerate() {
                         *sample = if i == 0 { output_left } else { output_right };
                     }
                 } else {
                     // Mono processing - just use left channel
-                    audio_context
-                        .left
-                        .graph
-                        .set_value(audio_context.left.input_endpoint, inputs[0]);
-                    let _ = audio_context.left.graph.process();
+                    let output_mono = left.process(inputs[0], delay_time, filter_cutoff, feedback, mix);
 
-                    let output_mono = audio_context
-                        .left
-                        .graph
-                        .get_value(&audio_context.left.output)
-                        .unwrap_or(0.0);
-
-                    //TODO: make stereo
                     for sample in channel_samples {
                         *sample = output_mono;
                     }

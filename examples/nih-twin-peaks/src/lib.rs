@@ -3,15 +3,51 @@ mod lp18_filter;
 use lp18_filter::LP18Filter;
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
-use oscen::{graph::ValueInput, Graph, StreamOutput};
+use oscen::prelude::*;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
 const OUTPUT_GAIN: f32 = 5.0;
 
+// Static graph definition for the twin peaks filter
+graph! {
+    name: TwinPeaksGraph;
+
+    // Audio input
+    input audio_in: stream;
+
+    // Parameters
+    input cutoff_a: value = 1000.0;
+    input cutoff_b: value = 1900.0;
+    input resonance: value = 0.54;
+
+    // Audio output (raw filter difference, post-processing done outside graph)
+    output audio_out: stream;
+
+    nodes {
+        filter_a = LP18Filter::new(1000.0, 0.54);
+        filter_b = LP18Filter::new(1900.0, 0.54);
+    }
+
+    connections {
+        // Feed input to both filters
+        audio_in -> filter_a.input;
+        audio_in -> filter_b.input;
+
+        // Connect parameters
+        cutoff_a -> filter_a.cutoff;
+        cutoff_b -> filter_b.cutoff;
+        resonance -> filter_a.resonance;
+        resonance -> filter_b.resonance;
+
+        // Twin peaks: difference of two filters
+        filter_a.output - filter_b.output -> audio_out;
+    }
+}
+
 pub struct TwinPeaks {
     params: Arc<TwinPeaksParams>,
-    audio_context: RwLock<Option<AudioContext>>,
+    synth: RwLock<Option<TwinPeaksGraph>>,
 }
 
 #[derive(Params)]
@@ -74,98 +110,11 @@ impl Default for TwinPeaksParams {
     }
 }
 
-pub struct AudioContext {
-    graph: Graph,
-    cutoff_input_a: ValueInput,
-    cutoff_input_b: ValueInput,
-    resonance_input_a: ValueInput,
-    resonance_input_b: ValueInput,
-    output: StreamOutput,
-    input_endpoint: ValueInput,
-}
-
-impl AudioContext {
-    fn new(sample_rate: f32, params: &TwinPeaksParams) -> Result<Self, &'static str> {
-        let mut graph = Graph::new(sample_rate);
-
-        let (input_signal, input_endpoint) = graph.add_audio_input();
-
-        let filter_a = graph.add_node(LP18Filter::new(
-            params.cutoff_a.value(),
-            params.resonance.value(),
-        ));
-        let filter_b = graph.add_node(LP18Filter::new(
-            params.cutoff_b.value(),
-            params.resonance.value(),
-        ));
-
-        // Connect input signal to both filters
-        graph.connect(input_signal.output, filter_a.input);
-        graph.connect(input_signal.output, filter_b.input);
-
-        // Process through twin peak filters
-        let filter_diff = graph.combine(filter_a.output, filter_b.output, |x, y| x - y);
-        let limited_output = graph.transform(filter_diff, |x| x.tanh());
-        let output = graph.transform(limited_output, |x| x * OUTPUT_GAIN);
-
-        // Connect graph
-        if graph
-            .insert_value_input(filter_a.cutoff, params.cutoff_a.value())
-            .is_none()
-        {
-            return Err("Failed to insert filter A cutoff input");
-        }
-
-        if graph
-            .insert_value_input(filter_b.cutoff, params.cutoff_b.value())
-            .is_none()
-        {
-            return Err("Failed to insert filter B cutoff input");
-        }
-
-        if graph
-            .insert_value_input(filter_a.resonance, params.resonance.value())
-            .is_none()
-        {
-            return Err("Failed to insert filter A Q input");
-        }
-
-        if graph
-            .insert_value_input(filter_b.resonance, params.resonance.value())
-            .is_none()
-        {
-            return Err("Failed to insert filter B Q input");
-        }
-
-        Ok(Self {
-            graph,
-            cutoff_input_a: filter_a.cutoff,
-            cutoff_input_b: filter_b.cutoff,
-            resonance_input_a: filter_a.resonance,
-            resonance_input_b: filter_b.resonance,
-            output,
-            input_endpoint,
-        })
-    }
-
-    fn update_params(&mut self, params: &TwinPeaksParams) {
-        // Using immediate updates since NIH-plug already handles parameter smoothing
-        self.graph
-            .set_value(self.cutoff_input_a, params.cutoff_a.smoothed.next());
-        self.graph
-            .set_value(self.cutoff_input_b, params.cutoff_b.smoothed.next());
-        self.graph
-            .set_value(self.resonance_input_a, params.resonance.smoothed.next());
-        self.graph
-            .set_value(self.resonance_input_b, params.resonance.smoothed.next());
-    }
-}
-
 impl Default for TwinPeaks {
     fn default() -> Self {
         Self {
             params: Arc::new(TwinPeaksParams::default()),
-            audio_context: RwLock::new(None),
+            synth: RwLock::new(None),
         }
     }
 }
@@ -244,14 +193,10 @@ impl Plugin for TwinPeaks {
         _context: &mut impl InitContext<Self>,
     ) -> bool {
         let sample_rate = buffer_config.sample_rate;
-
-        match AudioContext::new(sample_rate, &self.params) {
-            Ok(audio_context) => {
-                *self.audio_context.write() = Some(audio_context);
-                true
-            }
-            Err(_) => false,
-        }
+        let mut synth = TwinPeaksGraph::new();
+        synth.init(sample_rate);
+        *self.synth.write() = Some(synth);
+        true
     }
 
     fn process(
@@ -260,28 +205,27 @@ impl Plugin for TwinPeaks {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        let mut audio_context_guard = self.audio_context.write();
-        if let Some(audio_context) = audio_context_guard.as_mut() {
+        let mut synth_guard = self.synth.write();
+        if let Some(synth) = synth_guard.as_mut() {
             for mut channel_samples in buffer.iter_samples() {
-                // Update parameters
-                audio_context.update_params(&self.params);
+                // Update parameters from NIH-plug's smoothed values
+                synth.cutoff_a = self.params.cutoff_a.smoothed.next();
+                synth.cutoff_b = self.params.cutoff_b.smoothed.next();
+                synth.resonance = self.params.resonance.smoothed.next();
 
                 // Get input sample from first channel
                 let input_sample = channel_samples.iter_mut().next().map(|s| *s).unwrap_or(0.0);
 
                 // Feed input to the graph
-                audio_context
-                    .graph
-                    .set_value(audio_context.input_endpoint, input_sample);
+                synth.audio_in = input_sample;
 
                 // Process the graph
-                let _ = audio_context.graph.process();
+                synth.process();
 
-                // Write output to all channels
-                if let Some(output_value) = audio_context.graph.get_value(&audio_context.output) {
-                    for sample in channel_samples {
-                        *sample = output_value;
-                    }
+                // Apply tanh soft clipping and gain, then write to all channels
+                let output = synth.audio_out.tanh() * OUTPUT_GAIN;
+                for sample in channel_samples {
+                    *sample = output;
                 }
             }
         }

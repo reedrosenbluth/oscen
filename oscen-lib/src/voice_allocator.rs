@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_voice_allocation() {
-        let mut allocator = VoiceAllocator::<4>::new(44100.0);
+        let mut allocator = VoiceAllocator::<4>::new();
 
         // Allocate 4 notes
         let voice0 = allocator.allocate_voice(60);
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_voice_stealing() {
-        let mut allocator = VoiceAllocator::<4>::new(44100.0);
+        let mut allocator = VoiceAllocator::<4>::new();
 
         // Allocate 4 voices
         allocator.allocate_voice(60);
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_find_and_release_voice() {
-        let mut allocator = VoiceAllocator::<4>::new(44100.0);
+        let mut allocator = VoiceAllocator::<4>::new();
 
         allocator.allocate_voice(60);
         allocator.allocate_voice(64);
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_prefer_released_voices_for_stealing() {
-        let mut allocator = VoiceAllocator::<4>::new(44100.0);
+        let mut allocator = VoiceAllocator::<4>::new();
 
         // Allocate 4 voices
         allocator.allocate_voice(60);
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_releasing_voice_continues_to_sound() {
-        let mut allocator = VoiceAllocator::<2>::new(44100.0);
+        let mut allocator = VoiceAllocator::<2>::new();
 
         // Play first note
         let voice0 = allocator.allocate_voice(60);

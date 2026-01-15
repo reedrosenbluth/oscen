@@ -3,13 +3,12 @@ use oscen::prelude::*;
 // Test array event outputs
 graph! {
     name: ArrayEventGraph;
-    compile_time: true;
 
     input note_on: event;
     input note_off: event;
 
     nodes {
-        voice_allocator = VoiceAllocator::<4>::new(sample_rate);
+        voice_allocator = VoiceAllocator::<4>;
     }
 
     connections {
@@ -19,7 +18,8 @@ graph! {
 }
 
 fn main() {
-    let mut graph = ArrayEventGraph::new(48000.0);
+    let mut graph = ArrayEventGraph::new();
+    graph.init(48000.0);
     graph.process();
     println!("Success!");
 }

@@ -3,7 +3,6 @@ use oscen::prelude::*;
 // Minimal test case
 graph! {
     name: MinimalEventGraph;
-    compile_time: true;
 
     input midi_in: event;
     output note_on_out: event;
@@ -19,7 +18,8 @@ graph! {
 }
 
 fn main() {
-    let mut graph = MinimalEventGraph::new(48000.0);
+    let mut graph = MinimalEventGraph::new();
+    graph.init(48000.0);
     graph.process();
     println!("Success!");
 }

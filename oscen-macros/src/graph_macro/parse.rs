@@ -8,7 +8,6 @@ use syn::{
 impl Parse for GraphDef {
     fn parse(input: ParseStream) -> Result<Self> {
         let mut name = None;
-        let mut compile_time = false; // Default to runtime (false)
         let mut items = Vec::new();
 
         // Check for optional name declaration at the start
@@ -19,24 +18,11 @@ impl Parse for GraphDef {
             input.parse::<Token![;]>()?;
         }
 
-        // Check for optional compile_time flag
-        if input.peek(kw::compile_time) {
-            input.parse::<kw::compile_time>()?;
-            input.parse::<Token![:]>()?;
-            let lit: syn::LitBool = input.parse()?;
-            compile_time = lit.value;
-            input.parse::<Token![;]>()?;
-        }
-
         while !input.is_empty() {
             items.push(input.parse()?);
         }
 
-        Ok(GraphDef {
-            name,
-            compile_time,
-            items,
-        })
+        Ok(GraphDef { name, items })
     }
 }
 
@@ -749,7 +735,6 @@ impl Parse for ParamSpecItem {
 // Custom keywords
 mod kw {
     syn::custom_keyword!(name);
-    syn::custom_keyword!(compile_time);
     syn::custom_keyword!(sample_rate);
     syn::custom_keyword!(input);
     syn::custom_keyword!(output);

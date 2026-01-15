@@ -30,7 +30,8 @@ fn main() {
 
     // Test 2: Verify VoiceAllocator uses EventContext
     println!("Test 2: VoiceAllocator with EventContext");
-    let mut allocator = VoiceAllocator::<4>::new(44100.0);
+    let mut allocator = VoiceAllocator::<4>::new();
+    allocator.init(44100.0);
     println!("✓ VoiceAllocator created with new API\n");
 
     // Test 3: Verify event handlers compile with impl EventContext

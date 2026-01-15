@@ -366,7 +366,6 @@ use oscen::graph;
 
 graph! {
     name: ElectricPianoVoiceNode;
-    compile_time: true;
 
     input frequency: value = 440.0;
     input gate: event;

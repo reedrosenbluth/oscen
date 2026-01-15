@@ -1,7 +1,4 @@
-use oscen::{
-    filters::tpt::TptFilterEndpoints, graph, PolyBlepOscillator, PolyBlepOscillatorEndpoints,
-    TptFilter,
-};
+use oscen::{graph, PolyBlepOscillator, SignalProcessor, TptFilter};
 
 // Test that comma-separated parameter specs parse correctly
 // Before the fix, [log, ramp(100)] would fail with "unexpected token, expected `]`"
@@ -11,14 +8,15 @@ graph! {
 
     input value freq = 440.0 [log, ramp(100)];
 
-    node {
+    nodes {
         osc = PolyBlepOscillator::saw(440.0, 0.6);
         filter = TptFilter::new(1000.0, 0.707);
     }
 
-    connection {
-        freq -> osc.frequency();
-        osc.output() -> filter.input();
+    connections {
+        // Use frequency_mod (public stream input) instead of frequency (private value input)
+        freq -> osc.frequency_mod;
+        osc.output -> filter.input;
     }
 }
 
@@ -26,5 +24,6 @@ graph! {
 fn test_param_specs_with_commas() {
     // The main achievement: this test compiles!
     // Before the fix, the parser would choke on commas in param specs like [log, ramp(100)]
-    let _ctx = TestGraph::new(44100.0);
+    let mut graph = TestGraph::new();
+    graph.init(44100.0);
 }

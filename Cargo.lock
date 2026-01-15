@@ -4606,7 +4606,6 @@ dependencies = [
  "float-cmp 0.10.0",
  "hound",
  "oscen-macros",
- "slotmap",
 ]
 
 [[package]]
@@ -4630,7 +4629,6 @@ dependencies = [
  "oscen",
  "proc-macro2",
  "quote",
- "slotmap",
  "syn 2.0.98",
 ]
 
