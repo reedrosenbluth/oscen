@@ -463,67 +463,57 @@ impl From<&StreamInput> for InputEndpoint {
     }
 }
 
-#[derive(Debug)]
+/// Event input endpoint with built-in storage.
+/// Contains a StaticEventQueue for storing incoming events.
+#[derive(Debug, Clone)]
 pub struct EventInput<T = EventPayload> {
-    endpoint: InputEndpoint,
+    queue: StaticEventQueue,
     _marker: PhantomData<T>,
-}
-
-impl<T> Copy for EventInput<T> {}
-
-impl<T> Clone for EventInput<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
 }
 
 impl<T> Default for EventInput<T> {
     fn default() -> Self {
-        Self {
-            endpoint: InputEndpoint::default(),
-            _marker: PhantomData,
-        }
+        Self::new()
     }
 }
 
 impl<T> EventInput<T> {
-    pub fn new(endpoint: InputEndpoint) -> Self {
+    /// Create a new empty event input.
+    pub fn new() -> Self {
         Self {
-            endpoint,
+            queue: StaticEventQueue::new(),
             _marker: PhantomData,
         }
     }
 
-    pub fn endpoint(&self) -> InputEndpoint {
-        self.endpoint
+    /// Iterate over events in this input.
+    pub fn iter(&self) -> impl Iterator<Item = &EventInstance> {
+        self.queue.iter()
     }
 
-    pub fn key(&self) -> ValueKey {
-        self.endpoint.key()
+    /// Clear all events from this input.
+    pub fn clear(&mut self) {
+        self.queue.clear();
     }
-}
 
-impl<T> From<EventInput<T>> for ValueKey {
-    fn from(handle: EventInput<T>) -> Self {
-        handle.key()
+    /// Get the number of events in this input.
+    pub fn len(&self) -> usize {
+        self.queue.len()
     }
-}
 
-impl<T> From<&EventInput<T>> for ValueKey {
-    fn from(handle: &EventInput<T>) -> Self {
-        handle.key()
+    /// Check if this input has no events.
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
     }
-}
 
-impl<T> From<EventInput<T>> for InputEndpoint {
-    fn from(handle: EventInput<T>) -> Self {
-        handle.endpoint()
+    /// Try to push an event into this input.
+    pub fn try_push(&mut self, event: EventInstance) -> Result<(), arrayvec::CapacityError<EventInstance>> {
+        self.queue.try_push(event)
     }
-}
 
-impl<T> From<&EventInput<T>> for InputEndpoint {
-    fn from(handle: &EventInput<T>) -> Self {
-        handle.endpoint()
+    /// Get events as a slice (for passing to event handlers).
+    pub fn as_slice(&self) -> &[EventInstance] {
+        self.queue.as_slice()
     }
 }
 
@@ -578,45 +568,52 @@ impl Output for ValueOutput {
     }
 }
 
-#[derive(Debug)]
+/// Event output endpoint with built-in storage.
+/// Contains a StaticEventQueue for storing outgoing events.
+#[derive(Debug, Clone)]
 pub struct EventOutput<T = EventPayload> {
-    key: ValueKey,
+    queue: StaticEventQueue,
     _marker: PhantomData<T>,
-}
-
-impl<T> Copy for EventOutput<T> {}
-
-impl<T> Clone for EventOutput<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
 }
 
 impl<T> Default for EventOutput<T> {
     fn default() -> Self {
-        Self {
-            key: ValueKey::default(),
-            _marker: PhantomData,
-        }
+        Self::new()
     }
 }
 
 impl<T> EventOutput<T> {
-    pub fn new(key: ValueKey) -> Self {
+    /// Create a new empty event output.
+    pub fn new() -> Self {
         Self {
-            key,
+            queue: StaticEventQueue::new(),
             _marker: PhantomData,
         }
     }
 
-    pub fn key(&self) -> ValueKey {
-        self.key
+    /// Try to push an event into this output.
+    pub fn try_push(&mut self, event: EventInstance) -> Result<(), arrayvec::CapacityError<EventInstance>> {
+        self.queue.try_push(event)
     }
-}
 
-impl<T> Output for EventOutput<T> {
-    fn key(&self) -> ValueKey {
-        self.key
+    /// Iterate over events in this output.
+    pub fn iter(&self) -> impl Iterator<Item = &EventInstance> {
+        self.queue.iter()
+    }
+
+    /// Clear all events from this output.
+    pub fn clear(&mut self) {
+        self.queue.clear();
+    }
+
+    /// Get the number of events in this output.
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    /// Check if this output has no events.
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
     }
 }
 
@@ -657,46 +654,10 @@ impl From<&ValueParam> for ValueKey {
     }
 }
 
-/// An opaque handle to an event parameter that can be both queued and connected.
-/// Created by `Graph::event_param()`.
-#[derive(Debug)]
-pub struct EventParam<T = EventPayload> {
-    pub(crate) input: EventInput<T>,
-    pub(crate) output: EventOutput<T>,
-}
-
-impl<T> Copy for EventParam<T> {}
-
-impl<T> Clone for EventParam<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<T> EventParam<T> {
-    pub fn new(input: EventInput<T>, output: EventOutput<T>) -> Self {
-        Self { input, output }
-    }
-}
-
-impl<T> Output for EventParam<T> {
-    fn key(&self) -> ValueKey {
-        self.output.key()
-    }
-}
-
-// Allow EventParam to be used where InputEndpoint is expected (for queue_event)
-impl<T> From<EventParam<T>> for InputEndpoint {
-    fn from(param: EventParam<T>) -> Self {
-        param.input.into()
-    }
-}
-
-impl<T> From<&EventParam<T>> for InputEndpoint {
-    fn from(param: &EventParam<T>) -> Self {
-        param.input.into()
-    }
-}
+// NOTE: EventParam is deprecated for static graphs.
+// Static graphs use direct EventInput/EventOutput fields with built-in storage.
+// The runtime graph API (which uses EventParam) is not compatible with the new
+// storage-based event types.
 
 // ============================================================================
 // Connections
@@ -782,49 +743,6 @@ impl Shr<ValueInput> for ValueParam {
     }
 }
 
-// ============================================================================
-// Type-safe Event connections
-// ============================================================================
-
-impl<T> Shr<EventInput<T>> for EventOutput<T> {
-    type Output = ConnectionBuilder;
-
-    fn shr(self, to: EventInput<T>) -> ConnectionBuilder {
-        let mut builder = ConnectionBuilder {
-            from: self.key(),
-            connections: ArrayVec::new(),
-        };
-        builder.connections.push(Connection {
-            from: self.key(),
-            to: to.key(),
-        });
-        builder
-    }
-}
-
-// Allow routing event inputs to other event inputs
-// This enables graph-level event inputs to be forwarded to node event inputs
-impl<T> Shr<EventInput<T>> for EventInput<T> {
-    type Output = ConnectionBuilder;
-
-    fn shr(self, to: EventInput<T>) -> ConnectionBuilder {
-        let mut builder = ConnectionBuilder {
-            from: self.key(),
-            connections: ArrayVec::new(),
-        };
-        builder.connections.push(Connection {
-            from: self.key(),
-            to: to.key(),
-        });
-        builder
-    }
-}
-
-// Allow EventParam to connect to EventInput (uses the output of the passthrough node)
-impl<T> Shr<EventInput<T>> for EventParam<T> {
-    type Output = ConnectionBuilder;
-
-    fn shr(self, to: EventInput<T>) -> ConnectionBuilder {
-        self.output >> to
-    }
-}
+// NOTE: Event Shr impls are deprecated for static graphs.
+// Static graphs use trait-based dispatch (ConnectEndpoints) instead of the >> operator.
+// The runtime graph API event connections are not compatible with storage-based event types.
