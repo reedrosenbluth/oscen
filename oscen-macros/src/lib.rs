@@ -738,6 +738,40 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Generate process_event_inputs() method for static graphs
+    // This consolidates event processing: clear outputs + handle all event inputs
+    // Graph macros call this uniformly without needing to know which endpoints are events
+    let process_event_inputs_method = if !signal_processor_event_inputs.is_empty() {
+        let mut handler_calls = Vec::new();
+        for (field_name, _idx) in &signal_processor_event_inputs {
+            let handle_method = format_ident!("handle_{}_events", field_name);
+            let temp_var = format_ident!("temp_{}_events", field_name);
+            handler_calls.push(quote! {
+                let #temp_var: ::arrayvec::ArrayVec<_, 32> =
+                    self.#field_name.iter().cloned().collect();
+                self.#handle_method(&#temp_var);
+            });
+        }
+        quote! {
+            /// Process all event inputs: clear outputs, then dispatch events to handlers.
+            /// Called by static graphs before process() - enables uniform codegen without type inference.
+            #[inline]
+            pub fn process_event_inputs(&mut self) {
+                self.clear_event_outputs();
+                #(#handler_calls)*
+            }
+        }
+    } else {
+        quote! {
+            /// Process all event inputs (no-op for nodes without event inputs).
+            /// Called by static graphs before process() - enables uniform codegen without type inference.
+            #[inline]
+            pub fn process_event_inputs(&mut self) {
+                self.clear_event_outputs();
+            }
+        }
+    };
+
     // Generate Endpoints struct with conditional Copy derive
     // Event types have built-in storage (StaticEventQueue) which doesn't implement Copy
     let endpoints_struct = if has_event_fields_in_endpoints {
@@ -784,6 +818,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             #handle_events_method
 
             #clear_event_outputs_method
+
+            #process_event_inputs_method
 
             #[allow(dead_code)]
             fn __oscen_suppress_unused(&self) {

@@ -62,10 +62,6 @@ graph! {
 
     output audio_out: stream;
 
-    // Event outputs (needed for type inference)
-    output note_on_out: event;
-    output note_off_out: event;
-
     nodes {
         midi_parser = MidiParser::new();
         voice_allocator = VoiceAllocator::<8>::new();
@@ -76,10 +72,6 @@ graph! {
     connections {
         // MIDI parsing
         midi_in -> midi_parser.midi_in;
-
-        // Connect parser outputs to graph outputs (enables type inference)
-        midi_parser.note_on -> note_on_out;
-        midi_parser.note_off -> note_off_out;
 
         // Route MIDI events through voice allocator
         midi_parser.note_on -> voice_allocator.note_on;

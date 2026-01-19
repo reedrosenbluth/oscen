@@ -12,6 +12,9 @@ impl MockVoice {
     pub fn new() -> Self {
         Self::default()
     }
+
+    // Required for static graphs - called before process()
+    pub fn process_event_inputs(&mut self) {}
 }
 
 impl SignalProcessor for MockVoice {

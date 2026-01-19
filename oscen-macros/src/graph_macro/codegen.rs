@@ -79,75 +79,19 @@ impl CodegenContext {
             type_ctx.register_output(&output.name, output.kind);
         }
 
-        // Infer node endpoint types from connections
-        // This builds a registry so we don't need string matching heuristics
+        // Infer node endpoint types from connections for type compatibility checking
+        // Note: This inference is no longer needed for codegen (process_event_inputs() is called uniformly)
+        // but we keep it for type compatibility validation
         self.infer_node_endpoint_types(&mut type_ctx);
 
-        // Validate each connection
+        // Validate each connection for type compatibility
         for conn in &self.connections {
             // Validate source and destination independently
             type_ctx.validate_source(&conn.source)?;
             type_ctx.validate_destination(&conn.dest)?;
 
-            // Validate type compatibility
+            // Validate type compatibility (stream/value/event)
             type_ctx.validate_connection(&conn.source, &conn.dest)?;
-
-            // Validate that EVENT node endpoints have resolved types (CMajor-style requirement)
-            // This is CRITICAL for static graphs since event endpoints need storage generation
-            // Stream and Value endpoints can be inferred or left untyped - they don't need special storage
-            if let Some(node_name) = Self::extract_root_node(&conn.source) {
-                if let Some(endpoint_name) = Self::extract_endpoint_field(&conn.source) {
-                    if let Some(endpoint_type) = type_ctx.get_node_endpoint_type(&node_name.to_string(), &endpoint_name.to_string()) {
-                        // Only validate event endpoints
-                        if endpoint_type == EndpointKind::Event {
-                            // Event endpoint has a type, this is good!
-                        }
-                    } else {
-                        // No type could be inferred - check if it might be an event by checking the connection chain
-                        // If the destination is an event, then the source must also be an event
-                        if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
-                            if let Some(dest_endpoint) = Self::extract_endpoint_field(&conn.dest) {
-                                if let Some(EndpointKind::Event) = type_ctx.get_node_endpoint_type(&dest_node.to_string(), &dest_endpoint.to_string()) {
-                                    return Err(syn::Error::new(
-                                        proc_macro2::Span::call_site(),
-                                        format!(
-                                            "Cannot infer type for event endpoint {}.{}. Event endpoints must trace back to a graph input with explicit type (e.g., 'input midi_in: event'). Consider adding an event input to the graph.",
-                                            node_name, endpoint_name
-                                        )
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if let Some(node_name) = Self::extract_root_node(&conn.dest) {
-                if let Some(endpoint_name) = Self::extract_endpoint_field(&conn.dest) {
-                    if let Some(endpoint_type) = type_ctx.get_node_endpoint_type(&node_name.to_string(), &endpoint_name.to_string()) {
-                        // Only validate event endpoints
-                        if endpoint_type == EndpointKind::Event {
-                            // Event endpoint has a type, this is good!
-                        }
-                    } else {
-                        // No type could be inferred - check if it might be an event by checking the connection chain
-                        // If the source is an event, then the destination must also be an event
-                        if let Some(src_node) = Self::extract_root_node(&conn.source) {
-                            if let Some(src_endpoint) = Self::extract_endpoint_field(&conn.source) {
-                                if let Some(EndpointKind::Event) = type_ctx.get_node_endpoint_type(&src_node.to_string(), &src_endpoint.to_string()) {
-                                    return Err(syn::Error::new(
-                                        proc_macro2::Span::call_site(),
-                                        format!(
-                                            "Cannot infer type for event endpoint {}.{}. Event endpoints must trace back to a graph input/output with explicit type (e.g., 'input midi_in: event' or 'output events_out: event').",
-                                            node_name, endpoint_name
-                                        )
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         Ok(())
@@ -228,169 +172,6 @@ impl CodegenContext {
                 }
             }
         }
-    }
-
-    /// Generate event processing for array nodes - processes each element individually
-    /// Uses node's own EventInput/EventOutput fields instead of graph-level storage
-    fn generate_array_event_handlers(&self, node_name: &syn::Ident) -> Vec<TokenStream> {
-        let mut handlers = Vec::new();
-
-        let array_size = match self.get_node_array_size(node_name) {
-            Some(size) => size,
-            None => return handlers,
-        };
-
-        // Build type context
-        let mut type_ctx = TypeContext::new();
-        for input in &self.inputs {
-            type_ctx.register_input(&input.name, input.kind);
-        }
-        for output in &self.outputs {
-            type_ctx.register_output(&output.name, output.kind);
-        }
-        self.infer_node_endpoint_types(&mut type_ctx);
-
-        // Find event inputs for this node
-        let mut event_inputs = Vec::new();
-        for conn in &self.connections {
-            if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
-                if dest_node == node_name {
-                    if let Some(endpoint_name) = Self::extract_endpoint_field(&conn.dest) {
-                        if let Some(EndpointKind::Event) = type_ctx.get_node_endpoint_type(
-                            &dest_node.to_string(),
-                            &endpoint_name.to_string()
-                        ) {
-                            if !event_inputs.contains(&endpoint_name.to_string()) {
-                                event_inputs.push(endpoint_name.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Generate event handler calls for each input using node's own EventInput field
-        let mut handler_calls = Vec::new();
-        for input_name in &event_inputs {
-            let input_field = syn::Ident::new(input_name, node_name.span());
-            let handle_method = syn::Ident::new(
-                &format!("handle_{}_events", input_name),
-                node_name.span()
-            );
-            let temp_var = syn::Ident::new(
-                &format!("temp_{}_events", input_name),
-                node_name.span()
-            );
-            // Copy events to temp buffer to avoid borrow conflicts
-            handler_calls.push(quote! {
-                let #temp_var: ::arrayvec::ArrayVec<_, 32> =
-                    self.#node_name[array_idx].#input_field.iter().cloned().collect();
-                self.#node_name[array_idx].#handle_method(&#temp_var);
-            });
-        }
-
-        // Generate processing for each array element
-        // Events are already in the node's EventInput fields (copied by connection assignments)
-        // Handlers push to the node's EventOutput fields
-        handlers.push(quote! {
-            for array_idx in 0..#array_size {
-                // Clear event outputs before handlers run using the node's method
-                self.#node_name[array_idx].clear_event_outputs();
-
-                // Call event handlers for this array element
-                #(#handler_calls)*
-
-                // Process the node
-                self.#node_name[array_idx].process();
-            }
-        });
-
-        handlers
-    }
-
-    /// Generate event handler calls for a node
-    /// Uses the node's own EventInput fields instead of graph-level storage
-    /// Only generates calls for endpoints that are definitely events (traced from graph event inputs)
-    fn generate_node_event_handlers(&self, node_name: &syn::Ident) -> Vec<TokenStream> {
-        let mut handlers = Vec::new();
-
-        // Build type context to identify event endpoints
-        let mut type_ctx = TypeContext::new();
-        for input in &self.inputs {
-            type_ctx.register_input(&input.name, input.kind);
-        }
-        for output in &self.outputs {
-            type_ctx.register_output(&output.name, output.kind);
-        }
-        self.infer_node_endpoint_types(&mut type_ctx);
-
-        // Check if this is an array node
-        let array_size = self.get_node_array_size(node_name);
-
-        // Skip array nodes - they're handled by generate_array_event_handlers()
-        if array_size.is_some() {
-            return handlers;
-        }
-
-        // Check if this node has any event inputs connected
-        // Only nodes with event connections need clear_event_outputs() called
-        let has_event_connections = self.connections.iter().any(|conn| {
-            if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
-                if dest_node == node_name {
-                    if let Some(endpoint_name) = Self::extract_endpoint_field(&conn.dest) {
-                        return matches!(
-                            type_ctx.get_node_endpoint_type(&dest_node.to_string(), &endpoint_name.to_string()),
-                            Some(EndpointKind::Event)
-                        );
-                    }
-                }
-            }
-            false
-        });
-
-        // Only clear event outputs if node has event connections
-        if has_event_connections {
-            handlers.push(quote! {
-                self.#node_name.clear_event_outputs();
-            });
-        }
-
-        // Collect unique event input endpoints for this node
-        let mut seen_endpoints = std::collections::HashSet::new();
-        for conn in &self.connections {
-            if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
-                if dest_node == node_name {
-                    if let Some(endpoint_name) = Self::extract_endpoint_field(&conn.dest) {
-                        // Only generate handler for known event endpoints
-                        let is_event = matches!(
-                            type_ctx.get_node_endpoint_type(&dest_node.to_string(), &endpoint_name.to_string()),
-                            Some(EndpointKind::Event)
-                        );
-
-                        if is_event && seen_endpoints.insert(endpoint_name.to_string()) {
-                            let handle_method = syn::Ident::new(
-                                &format!("handle_{}_events", endpoint_name),
-                                node_name.span()
-                            );
-                            let temp_var = syn::Ident::new(
-                                &format!("temp_{}_events", endpoint_name),
-                                node_name.span()
-                            );
-
-                            // Single node: copy events to temp buffer then call handler
-                            // This avoids borrow conflict between node's field and handler
-                            handlers.push(quote! {
-                                let #temp_var: ::arrayvec::ArrayVec<_, 32> =
-                                    self.#node_name.#endpoint_name.iter().cloned().collect();
-                                self.#node_name.#handle_method(&#temp_var);
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        handlers
     }
 
     // ========== Static Graph Parameter Generation ==========
@@ -868,6 +649,8 @@ impl CodegenContext {
     /// Generate the static process() method for compile-time graphs
     /// Uses trait-based dispatch for ALL connection types, eliminating the need for
     /// type inference to distinguish events from streams.
+    /// Now calls process_event_inputs() uniformly on all nodes, removing the need
+    /// for type inference to identify event endpoints.
     fn generate_static_process(&self) -> Result<TokenStream> {
         let sorted_nodes = self.topological_sort_nodes()?;
 
@@ -880,75 +663,21 @@ impl CodegenContext {
             let assignments = self.generate_connection_assignments_for_node(node_name);
             process_body.extend(assignments);
 
-            // Generate event handlers for known event endpoints
-            let event_handlers = self.generate_node_event_handlers(node_name);
-
-            // Generate process call
-            let process_call = if let Some(array_size) = self.get_node_array_size(node_name) {
+            // Generate process call - now uniformly calls process_event_inputs() + process()
+            // This eliminates the need for type inference to identify event endpoints
+            if let Some(array_size) = self.get_node_array_size(node_name) {
                 // Array node: process each element
-                // Check if this array node has event inputs using type context
-                let mut type_ctx = TypeContext::new();
-                for input in &self.inputs {
-                    type_ctx.register_input(&input.name, input.kind);
-                }
-                for output in &self.outputs {
-                    type_ctx.register_output(&output.name, output.kind);
-                }
-                self.infer_node_endpoint_types(&mut type_ctx);
-
-                let has_event_inputs = self.connections.iter().any(|conn| {
-                    if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
-                        if dest_node == node_name {
-                            if let Some(endpoint_name) = Self::extract_endpoint_field(&conn.dest) {
-                                return matches!(
-                                    type_ctx.get_node_endpoint_type(
-                                        &dest_node.to_string(),
-                                        &endpoint_name.to_string()
-                                    ),
-                                    Some(EndpointKind::Event)
-                                );
-                            }
-                        }
+                process_body.push(quote! {
+                    for i in 0..#array_size {
+                        self.#node_name[i].process_event_inputs();
+                        self.#node_name[i].process();
                     }
-                    false
                 });
-
-                if has_event_inputs {
-                    // Array node with event inputs: use array event handlers
-                    let array_handlers = self.generate_array_event_handlers(node_name);
-                    quote! {
-                        {
-                            #(#array_handlers)*
-                        }
-                    }
-                } else {
-                    quote! {
-                        for i in 0..#array_size {
-                            self.#node_name[i].process();
-                        }
-                    }
-                }
             } else {
-                quote! {
+                // Scalar node: process_event_inputs() then process()
+                process_body.push(quote! {
+                    self.#node_name.process_event_inputs();
                     self.#node_name.process();
-                }
-            };
-
-            // Emit the processing block
-            if !event_handlers.is_empty() {
-                // Scalar node with event handlers
-                process_body.push(quote! {
-                    {
-                        #(#event_handlers)*
-                        #process_call
-                    }
-                });
-            } else {
-                // Node without event handlers or array node (which handles events in its own block)
-                process_body.push(quote! {
-                    {
-                        #process_call
-                    }
                 });
             }
         }
@@ -1141,6 +870,23 @@ impl CodegenContext {
         }
     }
 
+    /// Generate process_event_inputs() method for graph types.
+    /// This allows graphs to be nested as nodes in other graphs with uniform event processing.
+    fn generate_static_process_event_inputs(&self) -> TokenStream {
+        // For graphs, process_event_inputs() just needs to clear outputs
+        // The graph-level event inputs get routed to internal nodes during process()
+        // via the connection assignments
+        quote! {
+            /// Process all event inputs: clear outputs before handlers run.
+            /// Called by outer graphs when this graph is used as a nested node.
+            /// The graph-level event inputs get routed to internal nodes during process().
+            #[inline]
+            pub fn process_event_inputs(&mut self) {
+                self.clear_event_outputs();
+            }
+        }
+    }
+
     fn generate_static_struct(&self, name: &syn::Ident) -> Result<TokenStream> {
         let mut fields = vec![quote! { sample_rate: f32 }];
 
@@ -1193,6 +939,7 @@ impl CodegenContext {
         let process_method = self.generate_static_process()?;
         let get_stream_output_method = self.generate_static_get_stream_output();
         let clear_event_outputs_method = self.generate_static_clear_event_outputs();
+        let process_event_inputs_method = self.generate_static_process_event_inputs();
         let event_handler_methods = self.generate_static_event_handler_methods();
 
         // Generate init() calls for each node (handling arrays)
@@ -1244,6 +991,8 @@ impl CodegenContext {
                 #get_stream_output_method
 
                 #clear_event_outputs_method
+
+                #process_event_inputs_method
 
                 #(#event_handler_methods)*
             }
