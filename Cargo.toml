@@ -11,6 +11,7 @@ members = [
     "examples/modular",
     "examples/medium-graph",
     "examples/electric-piano",
+    "examples/pivot",
     "oscen-lib",
     "oscen-macros",
     "xtask"

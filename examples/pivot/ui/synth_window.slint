@@ -1,0 +1,469 @@
+global MathConstants {
+    out property <float> natural_log_base: 2.718281828459045;
+}
+
+global KnobPalette {
+    in-out property <brush> dial_bg: #A9A9A9;
+    in-out property <brush> border: #BABABA;
+    in-out property <brush> marker: #777777;
+    in-out property <brush> title: #BABABA;
+}
+
+global PanelPalette {
+    in-out property <brush> background: #777777;
+    in-out property <brush> border: #888888;
+    in-out property <brush> title: #BABABA;
+}
+
+enum KnobCurve {
+    linear,
+    logarithmic,
+}
+
+component RotaryKnob inherits Rectangle {
+    in property <float> minimum: 0.0;
+    in property <float> maximum: 1.0;
+    in property <float> step: 0.01;
+    in-out property <float> value: minimum;
+    in property <KnobCurve> curve: KnobCurve.linear;
+    in property <string> label: "";
+    in property <brush> bg_brush: KnobPalette.dial_bg;
+    in property <brush> border_brush: KnobPalette.border;
+    in property <brush> marker_brush: KnobPalette.marker;
+    in property <brush> title_brush: KnobPalette.title;
+
+    callback value_edited(float);
+
+    private property <length> dial_size: 50px;
+    private property <float> range: max(0.0001, root.maximum - root.minimum);
+    private property <float> normalized: root.value_to_normalized(root.value);
+    private property <angle> angle: 225deg - 270deg * root.normalized;
+    private property <float> marker_radius: (root.dial_size / 2 - 6px) / 1px;
+    private property <string> minimum_text: root.format_value(root.minimum);
+    private property <string> maximum_text: root.format_value(root.maximum);
+
+    VerticalLayout {
+        spacing: 12px;
+        padding: 0px;
+
+        HorizontalLayout {
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 0px;
+                opacity: 0.0;
+            }
+
+            knob_body := VerticalLayout {
+                spacing: 0px;
+
+                HorizontalLayout {
+                    spacing: 4px;
+
+                    left_margin := Rectangle {
+                        width: minimum_value_label.preferred-width;
+                        height: root.dial_size;
+
+                        minimum_value_label := Text {
+                            text: root.minimum_text;
+                            font-size: 9px;
+                            color: root.title_brush;
+                            x: parent.width - self.width;
+                            y: parent.height - self.height;
+                        }
+                    }
+
+                    dial := Rectangle {
+                        width: root.dial_size;
+                        height: root.dial_size;
+                        border-radius: root.dial_size / 2;
+                        border-width: 2px;
+                        border-color: root.border_brush;
+                        background: root.bg_brush;
+
+                        marker := Rectangle {
+                            width: 5px;
+                            height: 5px;
+                            border-radius: 3px;
+                            background: root.marker_brush;
+                            x: parent.width / 2 + Math.cos(root.angle) * (root.marker_radius * 1px) - self.width / 2;
+                            y: parent.height / 2 - Math.sin(root.angle) * (root.marker_radius * 1px) - self.height / 2;
+                        }
+
+                        TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            property <float> start-value: root.value;
+
+                            pointer-event(event) => {
+                                if (event.button != PointerEventButton.left) {
+                                    return;
+                                }
+                                if (event.kind == PointerEventKind.down) {
+                                    self.start-value = root.value;
+                                } else if (event.kind == PointerEventKind.up) {
+                                    root.value_edited(root.value);
+                                }
+                            }
+
+                            moved => {
+                                let delta_px = (self.pressed-y - self.mouse-y) / 1px;
+                                let delta = delta_px / 150.0;
+                                root.update_value_by_normalized_delta(self.start-value, delta);
+                            }
+                        }
+                    }
+
+                    right_margin := Rectangle {
+                        width: maximum_value_label.preferred-width;
+                        height: root.dial_size;
+
+                        maximum_value_label := Text {
+                            text: root.maximum_text;
+                            font-size: 9px;
+                            color: root.title_brush;
+                            x: 0px;
+                            y: parent.height - self.height;
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 0px;
+                opacity: 0.0;
+            }
+        }
+
+        Text {
+            text: root.label;
+            horizontal-alignment: center;
+            font-size: 11px;
+            font-weight: 500;
+            color: root.title_brush;
+        }
+    }
+
+    function update_value(new-value: float) {
+        let clamped = max(root.minimum, min(root.maximum, new-value));
+        let snapped = quantize(clamped);
+
+        if (snapped == root.value) {
+            return;
+        }
+        root.value = snapped;
+        root.value_edited(root.value);
+    }
+
+    function update_value_by_normalized_delta(start_value: float, delta: float) {
+        let start_normalized = root.value_to_normalized(start_value);
+        let normalized = max(0.0, min(1.0, start_normalized + delta));
+        let new_value = root.normalized_to_value(normalized);
+        root.update_value(new_value);
+    }
+
+    function quantize(value: float) -> float {
+        if (root.step <= 0) {
+            return value;
+        }
+        let steps = Math.round((value - root.minimum) / root.step);
+        return root.minimum + steps * root.step;
+    }
+
+    function value_to_normalized(value: float) -> float {
+        let clamped = max(root.minimum, min(root.maximum, value));
+        if (root.curve == KnobCurve.logarithmic && root.minimum > 0 && root.maximum > 0) {
+            let min_log = Math.log(root.minimum, MathConstants.natural_log_base);
+            let max_log = Math.log(root.maximum, MathConstants.natural_log_base);
+            if (min_log != max_log) {
+                return max(0.0, min(1.0, (Math.log(clamped, MathConstants.natural_log_base) - min_log) / (max_log - min_log)));
+            }
+        }
+        return max(0.0, min(1.0, (clamped - root.minimum) / root.range));
+    }
+
+    function normalized_to_value(normalized: float) -> float {
+        let clamped = max(0.0, min(1.0, normalized));
+        if (root.curve == KnobCurve.logarithmic && root.minimum > 0 && root.maximum > 0) {
+            let min_log = Math.log(root.minimum, MathConstants.natural_log_base);
+            let max_log = Math.log(root.maximum, MathConstants.natural_log_base);
+            if (min_log != max_log) {
+                return Math.exp(min_log + (max_log - min_log) * clamped);
+            }
+        }
+        return root.minimum + clamped * root.range;
+    }
+
+    function format_value(value: float) -> string {
+        if (Math.abs(value) >= 1000.0) {
+            let scaled = value / 1000.0;
+            let rounded = root.format_number(scaled);
+            return rounded + "k";
+        }
+        return root.format_number(value);
+    }
+
+    function format_number(value: float) -> string {
+        let rounded = Math.round(value * 100.0) / 100.0;
+        let as_int = Math.round(rounded);
+        if (Math.abs(rounded - as_int) < 0.0001) {
+            return @tr("{0}", as_int);
+        }
+        return @tr("{0}", rounded);
+    }
+}
+
+component Panel inherits Rectangle {
+    in property <string> title: "";
+    in property <length> content_padding: 10px;
+    in property <length> content_spacing: 8px;
+    in property <length> corner_radius: 6px;
+    in property <length> border_thickness: 2px;
+    in property <brush> bg_brush: PanelPalette.background;
+    in property <brush> border_brush: PanelPalette.border;
+    in property <brush> title_brush: PanelPalette.title;
+
+    border-radius: root.corner_radius;
+    border-width: root.border_thickness;
+    border-color: root.border_brush;
+    background: root.bg_brush;
+
+    layout := VerticalLayout {
+        padding: root.content_padding;
+        spacing: root.content_spacing;
+
+        if root.title != "": Text {
+            text: root.title;
+            font-weight: 600;
+            font-size: 13px;
+            color: root.title_brush;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+
+            @children
+        }
+    }
+}
+
+export component SynthWindow inherits Window {
+    title: "Pivot FM Synth - Oscen";
+    background: #444444;
+
+    // OP3 parameters
+    in-out property <float> op3_ratio: 3.0;
+    in-out property <float> op3_level: 0.5;
+    in-out property <float> op3_feedback: 0.0;
+
+    // OP2 parameters
+    in-out property <float> op2_ratio: 2.0;
+    in-out property <float> op2_level: 0.5;
+    in-out property <float> op2_feedback: 0.0;
+
+    // OP1 parameters
+    in-out property <float> op1_ratio: 1.0;
+    in-out property <float> op1_feedback: 0.0;
+
+    // Filter parameters
+    in-out property <float> cutoff: 2000.0;
+    in-out property <float> resonance: 0.707;
+
+    // Callbacks
+    callback op3_ratio_edited(float);
+    callback op3_level_edited(float);
+    callback op3_feedback_edited(float);
+    callback op2_ratio_edited(float);
+    callback op2_level_edited(float);
+    callback op2_feedback_edited(float);
+    callback op1_ratio_edited(float);
+    callback op1_feedback_edited(float);
+    callback cutoff_edited(float);
+    callback resonance_edited(float);
+
+    root_layout := VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+
+        // Title
+        Text {
+            text: "PIVOT FM";
+            font-size: 18px;
+            font-weight: 700;
+            color: #CCCCCC;
+            horizontal-alignment: center;
+        }
+
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+
+            // OP3 Panel (Top Modulator)
+            Panel {
+                vertical-stretch: 0;
+                title: "OP3 (Mod)";
+                bg_brush: #5A4A78;
+                border_brush: #7A6A98;
+                title_brush: #D8CCE8;
+
+                RotaryKnob {
+                    label: "Ratio";
+                    minimum: 0.5;
+                    maximum: 16.0;
+                    step: 0.5;
+                    value: root.op3_ratio;
+                    value_edited(value) => {
+                        root.op3_ratio = value;
+                        root.op3_ratio_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "Level";
+                    minimum: 0.0;
+                    maximum: 2.0;
+                    step: 0.01;
+                    value: root.op3_level;
+                    value_edited(value) => {
+                        root.op3_level = value;
+                        root.op3_level_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "FB";
+                    minimum: 0.0;
+                    maximum: 1.0;
+                    step: 0.01;
+                    value: root.op3_feedback;
+                    value_edited(value) => {
+                        root.op3_feedback = value;
+                        root.op3_feedback_edited(value);
+                    }
+                }
+            }
+
+            // OP2 Panel (Middle Modulator)
+            Panel {
+                vertical-stretch: 0;
+                title: "OP2 (Mod)";
+                bg_brush: #4A5A78;
+                border_brush: #6A7A98;
+                title_brush: #CCD8E8;
+
+                RotaryKnob {
+                    label: "Ratio";
+                    minimum: 0.5;
+                    maximum: 16.0;
+                    step: 0.5;
+                    value: root.op2_ratio;
+                    value_edited(value) => {
+                        root.op2_ratio = value;
+                        root.op2_ratio_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "Level";
+                    minimum: 0.0;
+                    maximum: 2.0;
+                    step: 0.01;
+                    value: root.op2_level;
+                    value_edited(value) => {
+                        root.op2_level = value;
+                        root.op2_level_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "FB";
+                    minimum: 0.0;
+                    maximum: 1.0;
+                    step: 0.01;
+                    value: root.op2_feedback;
+                    value_edited(value) => {
+                        root.op2_feedback = value;
+                        root.op2_feedback_edited(value);
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+
+            // OP1 Panel (Carrier)
+            Panel {
+                vertical-stretch: 0;
+                title: "OP1 (Carrier)";
+                bg_brush: #4A7860;
+                border_brush: #6A9880;
+                title_brush: #CCE8D8;
+
+                RotaryKnob {
+                    label: "Ratio";
+                    minimum: 0.5;
+                    maximum: 16.0;
+                    step: 0.5;
+                    value: root.op1_ratio;
+                    value_edited(value) => {
+                        root.op1_ratio = value;
+                        root.op1_ratio_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "FB";
+                    minimum: 0.0;
+                    maximum: 1.0;
+                    step: 0.01;
+                    value: root.op1_feedback;
+                    value_edited(value) => {
+                        root.op1_feedback = value;
+                        root.op1_feedback_edited(value);
+                    }
+                }
+            }
+
+            // Filter Panel
+            Panel {
+                vertical-stretch: 0;
+                title: "Filter";
+                bg_brush: #785A4A;
+                border_brush: #987A6A;
+                title_brush: #E8D8CC;
+
+                RotaryKnob {
+                    label: "Cutoff";
+                    minimum: 20.0;
+                    maximum: 20000.0;
+                    step: 1.0;
+                    curve: KnobCurve.logarithmic;
+                    value: root.cutoff;
+                    value_edited(value) => {
+                        root.cutoff = value;
+                        root.cutoff_edited(value);
+                    }
+                }
+
+                RotaryKnob {
+                    label: "Reso";
+                    minimum: 0.1;
+                    maximum: 10.0;
+                    step: 0.01;
+                    value: root.resonance;
+                    value_edited(value) => {
+                        root.resonance = value;
+                        root.resonance_edited(value);
+                    }
+                }
+            }
+        }
+    }
+
+    preferred-width: root_layout.preferred-width;
+    preferred-height: root_layout.preferred-height;
+    min-width: root_layout.preferred-width;
+    min-height: root_layout.preferred-height;
+}
