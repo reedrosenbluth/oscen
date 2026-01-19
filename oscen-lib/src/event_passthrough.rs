@@ -1,6 +1,5 @@
 use crate::graph::{
-    EventContext, EventInput, EventOutput, InputEndpoint, NodeKey, ProcessingNode, SignalProcessor,
-    ValueKey,
+    EventInput, EventOutput, NodeKey, ProcessingNode, SignalProcessor, ValueKey,
 };
 use crate::Node;
 
@@ -40,9 +39,9 @@ impl SignalProcessor for EventPassthrough {
 
 impl EventPassthrough {
     // Event handler called automatically by macro-generated NodeIO
-    fn on_input(&mut self, event: &crate::graph::EventInstance, ctx: &mut impl EventContext) {
-        // Forward event to output (output index 0)
-        ctx.emit_event(0, event.clone());
+    fn on_input(&mut self, event: &crate::graph::EventInstance) {
+        // Forward event directly to output EventOutput field
+        let _ = self.output.try_push(event.clone());
     }
 }
 

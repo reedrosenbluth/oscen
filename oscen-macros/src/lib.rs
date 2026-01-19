@@ -30,12 +30,16 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut _event_input_idx = 0usize;
     let mut _event_output_idx = 0usize;
     let mut has_array_event_output = false; // Track if this node has array event outputs
+    let mut has_event_fields_in_endpoints = false; // Track if Endpoints struct has event fields
 
     // Track IO struct fields for IOStructAccess implementation
     let mut stream_input_fields = Vec::new(); // (field_name, index, Option<array_size>)
     let mut stream_output_fields = Vec::new(); // (field_name, index, Option<array_size>)
     let mut event_output_fields = Vec::new(); // (field_name, index)
     let mut value_output_fields = Vec::new(); // (field_name, index, is_scalar)
+
+    // Track event output fields on the node struct for clear_event_outputs() generation
+    let mut node_event_output_fields: Vec<(syn::Ident, bool)> = Vec::new(); // (field_name, is_array)
 
     // Track all input fields by type for SignalProcessor generation
     let mut signal_processor_stream_inputs = Vec::new(); // (field_name, index, Option<array_size>)
@@ -102,9 +106,17 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     });
 
                     // Generate field assignment in create_endpoints
-                    create_endpoints_assignments.push(quote! {
-                        #field_name: #field_type::new(InputEndpoint::new(inputs[#input_idx]))
-                    });
+                    // Event inputs have built-in storage and take no arguments
+                    if accessor_kind == EndpointTypeAttr::Event {
+                        has_event_fields_in_endpoints = true;
+                        create_endpoints_assignments.push(quote! {
+                            #field_name: #field_type::new()
+                        });
+                    } else {
+                        create_endpoints_assignments.push(quote! {
+                            #field_name: #field_type::new(InputEndpoint::new(inputs[#input_idx]))
+                        });
+                    }
 
                     // Add to IO struct if stream (events accessed via ProcessingContext)
                     match accessor_kind {
@@ -210,9 +222,17 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         });
 
                         // Generate field assignment in create_endpoints
-                        create_endpoints_assignments.push(quote! {
-                            #field_name: #output_type_token::new(outputs[#output_idx])
-                        });
+                        // Event outputs have built-in storage and take no arguments
+                        if output_kind == EndpointTypeAttr::Event {
+                            has_event_fields_in_endpoints = true;
+                            create_endpoints_assignments.push(quote! {
+                                #field_name: #output_type_token::new()
+                            });
+                        } else {
+                            create_endpoints_assignments.push(quote! {
+                                #field_name: #output_type_token::new(outputs[#output_idx])
+                            });
+                        }
                     }
 
                     // Add to IO struct if stream or event
@@ -241,6 +261,10 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             event_output_fields
                                 .push((field_name.clone(), event_output_fields.len()));
                             _event_output_idx += 1;
+
+                            // Track for clear_event_outputs() generation on the node struct
+                            let is_array = matches!(&field_ty, syn::Type::Array(_));
+                            node_event_output_fields.push((field_name.clone(), is_array));
                         }
                         EndpointTypeAttr::Value => {
                             let is_scalar = is_f32_type(&field_ty);
@@ -634,7 +658,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     }
 
     // Auto-dispatch event inputs to handler methods (for runtime graphs)
-    // For each event input, call on_<field_name>(event, context)
+    // For each event input, call on_<field_name>(event)
     // We need to clone events to avoid borrow checker issues when calling handlers
     for (field_name, _idx) in &signal_processor_event_inputs {
         let event_getter = format_ident!("events_{}", field_name);
@@ -643,14 +667,14 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             // Clone events to avoid borrow conflict between reading and handler mutation
             let events: Vec<_> = self.#event_getter(context).iter().cloned().collect();
             for event in events {
-                self.#handler_method(&event, context);
+                self.#handler_method(&event);
             }
         });
     }
 
     // Generate handle_events method for static graphs
     // For static graphs, the graph struct holds event storage, not the node
-    // So this method takes the event slice and a StaticContext
+    // So this method takes the event slice
     let handle_events_method = if !signal_processor_event_inputs.is_empty() {
         let mut event_handler_calls = Vec::new();
 
@@ -663,13 +687,12 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 /// Handle events for this endpoint (called by static graphs)
                 #[inline]
                 #[allow(dead_code)]
-                pub fn #handle_method<Ctx: ::oscen::graph::EventContext>(
+                pub fn #handle_method(
                     &mut self,
                     events: &[::oscen::graph::EventInstance],
-                    ctx: &mut Ctx
                 ) {
                     for event in events {
-                        self.#handler_method(event, ctx);
+                        self.#handler_method(event);
                     }
                 }
             });
@@ -682,6 +705,61 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    // Generate clear_event_outputs() method for static graphs
+    // This clears all EventOutput fields before handlers run each frame
+    let clear_event_outputs_method = if !node_event_output_fields.is_empty() {
+        let mut clear_stmts = Vec::new();
+        for (field_name, is_array) in &node_event_output_fields {
+            if *is_array {
+                clear_stmts.push(quote! {
+                    for output in &mut self.#field_name {
+                        output.clear();
+                    }
+                });
+            } else {
+                clear_stmts.push(quote! {
+                    self.#field_name.clear();
+                });
+            }
+        }
+        quote! {
+            /// Clear all event outputs before handlers run.
+            /// Called by static graphs at the start of each processing frame.
+            #[inline]
+            pub fn clear_event_outputs(&mut self) {
+                #(#clear_stmts)*
+            }
+        }
+    } else {
+        quote! {
+            /// Clear all event outputs (no-op for nodes without event outputs).
+            #[inline]
+            pub fn clear_event_outputs(&mut self) {}
+        }
+    };
+
+    // Generate Endpoints struct with conditional Copy derive
+    // Event types have built-in storage (StaticEventQueue) which doesn't implement Copy
+    let endpoints_struct = if has_event_fields_in_endpoints {
+        quote! {
+            #[allow(dead_code)]
+            #[derive(Debug, Clone)]
+            pub struct #endpoints_name {
+                pub node_key: NodeKey,
+                #(#endpoint_fields),*
+            }
+        }
+    } else {
+        quote! {
+            #[allow(dead_code)]
+            #[derive(Debug, Copy, Clone)]
+            pub struct #endpoints_name {
+                pub node_key: NodeKey,
+                #(#endpoint_fields),*
+            }
+        }
+    };
+
     let expanded = quote! {
         // IO struct for stream and event endpoints
         #io_struct
@@ -690,12 +768,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         #io_struct_access_impl
 
         // Endpoints struct for typed endpoint handles
-        #[allow(dead_code)]
-        #[derive(Debug, Copy, Clone)]
-        pub struct #endpoints_name {
-            pub node_key: NodeKey,
-            #(#endpoint_fields),*
-        }
+        #endpoints_struct
 
         impl #endpoints_name {
             pub fn node_key(&self) -> NodeKey {
@@ -709,6 +782,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             #(#input_event_getters)*
 
             #handle_events_method
+
+            #clear_event_outputs_method
 
             #[allow(dead_code)]
             fn __oscen_suppress_unused(&self) {

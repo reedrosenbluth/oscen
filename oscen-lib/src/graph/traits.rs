@@ -2,7 +2,7 @@ use arrayvec::ArrayVec;
 
 use super::types::NodeKey;
 use super::types::{
-    EndpointDescriptor, EventInstance, EventPayload, ValueData, ValueKey, ValueObject,
+    EndpointDescriptor, EventInstance, ValueData, ValueKey, ValueObject,
     MAX_NODE_ENDPOINTS, MAX_STREAM_CHANNELS,
 };
 
@@ -29,18 +29,10 @@ impl<'a> ValueRef<'a> {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub struct PendingEvent {
-    pub output_index: usize,
-    pub event: EventInstance,
-}
-
 pub struct ProcessingContext<'a> {
     stream_inputs: &'a [ArrayVec<f32, MAX_STREAM_CHANNELS>],
     value_inputs: &'a [Option<&'a ValueData>],
     event_inputs: &'a [&'a [EventInstance]],
-    emitted_events: &'a mut Vec<PendingEvent>,
 }
 
 impl<'a> ProcessingContext<'a> {
@@ -48,13 +40,11 @@ impl<'a> ProcessingContext<'a> {
         stream_inputs: &'a [ArrayVec<f32, MAX_STREAM_CHANNELS>],
         value_inputs: &'a [Option<&'a ValueData>],
         event_inputs: &'a [&'a [EventInstance]],
-        emitted_events: &'a mut Vec<PendingEvent>,
     ) -> Self {
         Self {
             stream_inputs,
             value_inputs,
             event_inputs,
-            emitted_events,
         }
     }
 
@@ -92,106 +82,6 @@ impl<'a> ProcessingContext<'a> {
     #[inline]
     pub fn events(&self, index: usize) -> &[EventInstance] {
         self.event_inputs.get(index).copied().unwrap_or_default()
-    }
-
-    #[inline]
-    pub fn emit_event(&mut self, output_index: usize, event: EventInstance) {
-        self.emitted_events.push(PendingEvent {
-            output_index,
-            event,
-        });
-    }
-
-    pub fn emit_timed_event(
-        &mut self,
-        output_index: usize,
-        frame_offset: u32,
-        payload: EventPayload,
-    ) {
-        self.emit_event(
-            output_index,
-            EventInstance {
-                frame_offset,
-                payload,
-            },
-        );
-    }
-
-    pub fn emit_scalar_event(&mut self, output_index: usize, frame_offset: u32, payload: f32) {
-        self.emit_timed_event(output_index, frame_offset, EventPayload::scalar(payload));
-    }
-
-    pub fn emit_event_to_array(
-        &mut self,
-        output_index: usize,
-        _array_index: usize,
-        event: EventInstance,
-    ) {
-        // For ProcessingContext, we don't have direct array routing
-        // Just emit the event normally - routing happens in the graph
-        self.emit_event(output_index, event);
-    }
-}
-
-/// Trait for event emission that works in both runtime and static graphs.
-/// This provides a unified API for nodes to emit events regardless of graph type.
-pub trait EventContext {
-    /// Emit an event from an output endpoint
-    fn emit_event(&mut self, output_index: usize, event: EventInstance);
-
-    /// Emit a timed event with a frame offset and payload
-    fn emit_timed_event(
-        &mut self,
-        output_index: usize,
-        frame_offset: u32,
-        payload: EventPayload,
-    );
-
-    /// Emit a scalar event (convenience method for f32 payloads)
-    fn emit_scalar_event(&mut self, output_index: usize, frame_offset: u32, payload: f32);
-
-    /// Emit an event to a specific array index (for array event outputs)
-    /// This is used by nodes like VoiceAllocator that route to multiple destinations
-    fn emit_event_to_array(
-        &mut self,
-        output_index: usize,
-        array_index: usize,
-        event: EventInstance,
-    );
-}
-
-/// Implement EventContext for ProcessingContext (runtime graphs)
-impl<'a> EventContext for ProcessingContext<'a> {
-    #[inline]
-    fn emit_event(&mut self, output_index: usize, event: EventInstance) {
-        self.emit_event(output_index, event);
-    }
-
-    #[inline]
-    fn emit_timed_event(
-        &mut self,
-        output_index: usize,
-        frame_offset: u32,
-        payload: EventPayload,
-    ) {
-        self.emit_timed_event(output_index, frame_offset, payload);
-    }
-
-    #[inline]
-    fn emit_scalar_event(&mut self, output_index: usize, frame_offset: u32, payload: f32) {
-        self.emit_scalar_event(output_index, frame_offset, payload);
-    }
-
-    #[inline]
-    fn emit_event_to_array(
-        &mut self,
-        output_index: usize,
-        _array_index: usize,
-        event: EventInstance,
-    ) {
-        // For ProcessingContext, we don't have direct array routing
-        // Just emit the event normally - routing happens in the graph
-        self.emit_event(output_index, event);
     }
 }
 

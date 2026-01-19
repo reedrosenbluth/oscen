@@ -1,5 +1,4 @@
 use oscen::graph::types::{EventInstance, EventPayload};
-use oscen::graph::EventContext;
 use oscen::{EventInput, InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
 use std::f32::consts::PI;
 
@@ -114,7 +113,7 @@ impl OscillatorBank {
         }
     }
 
-    fn on_gate(&mut self, event: &EventInstance, _ctx: &mut impl EventContext) {
+    fn on_gate(&mut self, event: &EventInstance) {
         // Reset oscillators to zero phase on note-on (matches CMajor implementation)
         if let EventPayload::Scalar(velocity) = &event.payload {
             if *velocity > 0.0 {
@@ -310,7 +309,7 @@ impl AmplitudeSource {
 }
 
 impl AmplitudeSource {
-    fn on_gate(&mut self, event: &EventInstance, _ctx: &mut impl EventContext) {
+    fn on_gate(&mut self, event: &EventInstance) {
         match &event.payload {
             EventPayload::Scalar(velocity) if *velocity > 0.0 => {
                 self.trigger_note(*velocity);

@@ -1,21 +1,16 @@
-/// Verification test for the VoiceAllocator refactor
-/// This test ensures that the refactored VoiceAllocator works correctly
-/// with the new EventContext trait.
+/// Verification test for the VoiceAllocator
+/// This test ensures that VoiceAllocator works correctly with event routing.
 ///
 /// NOTE: This is a simplified test that verifies the API compiles correctly.
-/// Full integration with static graphs and array event outputs will be
-/// implemented in future work.
 
 use oscen::prelude::*;
-use oscen::midi::{NoteOffEvent, NoteOnEvent};
 use oscen::voice_allocator::VoiceAllocator;
-use std::sync::Arc;
 
 fn main() {
-    println!("Testing VoiceAllocator refactor...\n");
+    println!("Testing VoiceAllocator...\n");
 
     // Test 1: Verify VoiceAllocator compiles with new API
-    println!("Test 1: Creating VoiceAllocator with new API...");
+    println!("Test 1: Creating VoiceAllocator...");
     let mut allocator = VoiceAllocator::<2>::new();
     allocator.init(44100.0);
     println!("✓ VoiceAllocator created successfully");
@@ -25,13 +20,8 @@ fn main() {
     println!("Run: cargo test --package oscen voice_allocator");
     println!("✓ Unit tests verify voice allocation, stealing, and release logic");
 
-    // Test 3: Verify EventContext trait integration
-    println!("\nTest 3: Verifying EventContext integration...");
-    println!("✓ Event handlers use `impl EventContext` for both runtime and static graphs");
-    println!("✓ ProcessingContext and StaticContext both implement EventContext");
-
-    // Test 4: Verify const generics work
-    println!("\nTest 4: Verifying const generics support...");
+    // Test 3: Verify const generics work
+    println!("\nTest 3: Verifying const generics support...");
     let mut _allocator2 = VoiceAllocator::<4>::new();
     _allocator2.init(44100.0);
     let mut _allocator3 = VoiceAllocator::<8>::new();
@@ -39,13 +29,8 @@ fn main() {
     println!("✓ Const generics work correctly with derive(Node) macro");
 
     println!("\n✅ All verification checks passed!");
-    println!("\nRefactor Summary:");
-    println!("- VoiceAllocator now uses EventContext trait");
-    println!("- Compatible with both ProcessingContext (runtime) and StaticContext (static graphs)");
-    println!("- Removed StaticEventQueue storage - events managed by graph");
-    println!("- derive(Node) macro updated to handle const generics");
-    println!("- Event handlers generated with StaticContext support");
-    println!("\nNext Steps:");
-    println!("- Array event output routing in graph! macro");
-    println!("- Full static graph integration test with voice routing");
+    println!("\nVoiceAllocator Summary:");
+    println!("- Events pushed directly to EventOutput fields");
+    println!("- derive(Node) macro handles const generics");
+    println!("- Event handlers generated with correct signatures");
 }

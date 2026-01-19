@@ -1,6 +1,6 @@
 use crate::graph::{
-    EventInput, EventInstance, EventOutput, EventPayload, InputEndpoint, NodeKey, ProcessingNode,
-    SignalProcessor, ValueKey,
+    EventInput, EventInstance, EventOutput, EventPayload, NodeKey, ProcessingNode, SignalProcessor,
+    ValueKey,
 };
 use crate::Node;
 use std::sync::Arc;
@@ -92,25 +92,31 @@ impl SignalProcessor for MidiVoiceHandler {
 
 impl MidiVoiceHandler {
     // Event handlers called automatically by macro-generated NodeIO
-    fn on_note_on(&mut self, event: &EventInstance, ctx: &mut impl crate::graph::EventContext) {
+    fn on_note_on(&mut self, event: &EventInstance) {
         if let EventPayload::Object(obj) = &event.payload {
             if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
                 self.current_note = Some(note_on.note);
                 self.current_frequency = Self::midi_note_to_freq(note_on.note);
 
-                // Emit gate-on event with velocity (gate is output index 1)
-                ctx.emit_scalar_event(1, event.frame_offset, note_on.velocity);
+                // Emit gate-on event with velocity - push directly to EventOutput field
+                let _ = self.gate.try_push(EventInstance {
+                    frame_offset: event.frame_offset,
+                    payload: EventPayload::Scalar(note_on.velocity),
+                });
             }
         }
     }
 
-    fn on_note_off(&mut self, event: &EventInstance, ctx: &mut impl crate::graph::EventContext) {
+    fn on_note_off(&mut self, event: &EventInstance) {
         if let EventPayload::Object(obj) = &event.payload {
             if let Some(note_off) = obj.as_any().downcast_ref::<NoteOffEvent>() {
                 // Only turn off gate if this is the current note
                 if self.current_note == Some(note_off.note) {
-                    // Emit gate-off event (gate is output index 1)
-                    ctx.emit_scalar_event(1, event.frame_offset, 0.0);
+                    // Emit gate-off event - push directly to EventOutput field
+                    let _ = self.gate.try_push(EventInstance {
+                        frame_offset: event.frame_offset,
+                        payload: EventPayload::Scalar(0.0),
+                    });
                     self.current_note = None;
                 }
             }
@@ -190,7 +196,7 @@ impl SignalProcessor for MidiParser {
 
 impl MidiParser {
     // Event handler called automatically by macro-generated NodeIO
-    fn on_midi_in(&mut self, event: &EventInstance, ctx: &mut impl crate::graph::EventContext) {
+    fn on_midi_in(&mut self, event: &EventInstance) {
         if let EventPayload::Object(obj) = &event.payload {
             // Try to downcast to RawMidiMessage
             if let Some(raw_midi) = obj.as_any().downcast_ref::<RawMidiMessage>() {
@@ -198,16 +204,18 @@ impl MidiParser {
                 if let Some(parsed) = Self::parse_bytes(&raw_midi.bytes[..raw_midi.len]) {
                     match parsed {
                         ParsedMidi::NoteOn { note, velocity } => {
-                            // Emit note-on event (output index 0)
-                            let note_on_payload =
-                                EventPayload::Object(Arc::new(NoteOnEvent { note, velocity }));
-                            ctx.emit_timed_event(0, event.frame_offset, note_on_payload);
+                            // Push note-on event directly to EventOutput field
+                            let _ = self.note_on.try_push(EventInstance {
+                                frame_offset: event.frame_offset,
+                                payload: EventPayload::Object(Arc::new(NoteOnEvent { note, velocity })),
+                            });
                         }
                         ParsedMidi::NoteOff { note } => {
-                            // Emit note-off event (output index 1)
-                            let note_off_payload =
-                                EventPayload::Object(Arc::new(NoteOffEvent { note }));
-                            ctx.emit_timed_event(1, event.frame_offset, note_off_payload);
+                            // Push note-off event directly to EventOutput field
+                            let _ = self.note_off.try_push(EventInstance {
+                                frame_offset: event.frame_offset,
+                                payload: EventPayload::Object(Arc::new(NoteOffEvent { note })),
+                            });
                         }
                     }
                 }

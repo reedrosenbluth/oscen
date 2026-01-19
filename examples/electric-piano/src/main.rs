@@ -45,7 +45,6 @@ graph! {
 
     output note_on_out: event;
     output note_off_out: event;
-    output gate_witness: event;  // Type witness for gate events
 
     output left_out: stream;
     output right_out: stream;
@@ -62,12 +61,11 @@ graph! {
         // MIDI parsing
         midi_in -> midi_parser.midi_in;
 
-        // Connect parser outputs to graph outputs to establish event types
+        // Connect parser outputs to graph outputs
         midi_parser.note_on -> note_on_out;
         midi_parser.note_off -> note_off_out;
-        voice_handlers[0].gate -> gate_witness;  // Establish gate type
 
-        // Now types flow to voice allocator
+        // Route MIDI events through voice allocator
         midi_parser.note_on -> voice_allocator.note_on;
         midi_parser.note_off -> voice_allocator.note_off;
 
@@ -361,29 +359,6 @@ mod tests {
                 let handler_freq = synth.voice_handlers[0].frequency;
                 let voice_freq = synth.voices[0].frequency;
 
-                eprintln!("Final state:");
-                eprintln!("  max output: {}", max);
-                eprintln!("  voice[0] output: {}", voice0);
-                eprintln!("  handler[0] freq: {}", handler_freq);
-                eprintln!("  voice[0] freq: {}", voice_freq);
-                eprintln!("  midi_in events: {}", synth.midi_in.len());
-                eprintln!(
-                    "  midi_parser_midi_in_events: {}",
-                    synth.midi_parser_midi_in_events.len()
-                );
-                eprintln!(
-                    "  voice_handlers_note_on_events[0]: {}",
-                    synth.voice_handlers_note_on_events[0].len()
-                );
-                eprintln!(
-                    "  voices_gate_events[0]: {}",
-                    synth.voices_gate_events[0].len()
-                );
-                eprintln!("  voices[0].gate events: {}", synth.voices[0].gate.len());
-                eprintln!(
-                    "  voices[0].amplitude_source_gate_events: {}",
-                    synth.voices[0].amplitude_source_gate_events.len()
-                );
 
                 (max, voice0, handler_freq, voice_freq)
             })

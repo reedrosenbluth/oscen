@@ -18,7 +18,7 @@ enum Stage {
 #[derive(Debug, Node)]
 pub struct AdsrEnvelope {
     #[input(event)]
-    gate: EventInput,
+    pub gate: EventInput,
 
     #[input(value)]
     attack: f32,
@@ -279,7 +279,7 @@ impl SignalProcessor for AdsrEnvelope {
 
 impl AdsrEnvelope {
     // Event handler called automatically by the macro-generated NodeIO
-    fn on_gate(&mut self, event: &EventInstance, _ctx: &mut impl crate::graph::EventContext) {
+    fn on_gate(&mut self, event: &EventInstance) {
         self.handle_gate_event(event);
     }
 }

@@ -264,9 +264,8 @@ mod tests {
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
-            let mut pending = Vec::new();
             let mut context =
-                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
+                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs);
             filter.input = dc_input;
             filter.read_inputs(&mut context);
             filter.process();
@@ -310,9 +309,8 @@ mod tests {
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
-            let mut pending = Vec::new();
             let mut context =
-                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
+                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs);
             filter.input = input;
             filter.read_inputs(&mut context);
             filter.process();
@@ -365,9 +363,8 @@ mod tests {
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
-            let mut pending = Vec::new();
             let mut context =
-                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
+                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs);
             filter.input = input;
             filter.read_inputs(&mut context);
             filter.process();

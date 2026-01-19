@@ -149,7 +149,7 @@ mod tests {
     use super::*;
     use arrayvec::ArrayVec;
     use crate::graph::types::{EventInstance, ValueData};
-    use crate::graph::{NodeIO, PendingEvent, ProcessingContext, ProcessingNode};
+    use crate::graph::{NodeIO, ProcessingContext, ProcessingNode};
 
     const EPSILON: f32 = 1e-6;
 
@@ -212,9 +212,8 @@ mod tests {
             let value_refs: Vec<Option<&ValueData>> =
                 value_storage.iter().map(|opt| opt.as_ref()).collect();
             let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
-            let mut pending = Vec::<PendingEvent>::new();
             let mut context =
-                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs, &mut pending);
+                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs);
             filter.input = input;
             filter.f_mod = 0.0;
             filter.read_inputs(&mut context);
