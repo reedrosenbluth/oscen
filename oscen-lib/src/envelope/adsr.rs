@@ -21,16 +21,16 @@ pub struct AdsrEnvelope {
     pub gate: EventInput,
 
     #[input(value)]
-    attack: f32,
+    pub attack: f32,
 
     #[input(value)]
-    decay: f32,
+    pub decay: f32,
 
     #[input(value)]
-    sustain: f32,
+    pub sustain: f32,
 
     #[input(value)]
-    release: f32,
+    pub release: f32,
 
     #[output(stream)]
     pub output: f32,

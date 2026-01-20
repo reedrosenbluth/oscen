@@ -1,6 +1,8 @@
+mod add_value;
 mod crossfade;
 mod fm_operator;
 mod midi_input;
+mod mixer;
 mod pivot_voice;
 mod vca;
 
@@ -23,16 +25,33 @@ enum ParamChange {
     Op3Ratio(f32),
     Op3Level(f32),
     Op3Feedback(f32),
+    Op3Attack(f32),
+    Op3Decay(f32),
+    Op3Sustain(f32),
+    Op3Release(f32),
     // OP2 parameters
     Op2Ratio(f32),
     Op2Level(f32),
     Op2Feedback(f32),
-    // OP1 parameters
-    Op1Ratio(f32),
-    Op1Feedback(f32),
+    Op2Attack(f32),
+    Op2Decay(f32),
+    Op2Sustain(f32),
+    Op2Release(f32),
+    // OP1 envelope parameters
+    Op1Attack(f32),
+    Op1Decay(f32),
+    Op1Sustain(f32),
+    Op1Release(f32),
+    // Route: blends OP3 between OP2 (0.0) and OP1 (1.0)
+    Route(f32),
     // Filter parameters
     Cutoff(f32),
     Resonance(f32),
+    FilterAttack(f32),
+    FilterDecay(f32),
+    FilterSustain(f32),
+    FilterRelease(f32),
+    FilterEnvAmount(f32),
 }
 
 // Main polyphonic Pivot synth with 8 voices
@@ -46,19 +65,38 @@ graph! {
     input op3_ratio: value = 3.0;
     input op3_level: value = 0.5;
     input op3_feedback: value = 0.0;
+    input op3_attack: value = 0.01;
+    input op3_decay: value = 0.1;
+    input op3_sustain: value = 0.7;
+    input op3_release: value = 0.3;
 
     // OP2 parameters
     input op2_ratio: value = 2.0;
     input op2_level: value = 0.5;
     input op2_feedback: value = 0.0;
+    input op2_attack: value = 0.01;
+    input op2_decay: value = 0.1;
+    input op2_sustain: value = 0.7;
+    input op2_release: value = 0.3;
 
-    // OP1 parameters
+    // OP1 parameters (ratio always 1.0, no feedback)
     input op1_ratio: value = 1.0;
-    input op1_feedback: value = 0.0;
+    input op1_attack: value = 0.01;
+    input op1_decay: value = 0.2;
+    input op1_sustain: value = 0.8;
+    input op1_release: value = 0.5;
+
+    // Route: blends OP3 between OP2 (0.0) and OP1 (1.0)
+    input route: value = 0.0;
 
     // Filter parameters
     input cutoff: value = 2000.0;
     input resonance: value = 0.707;
+    input filter_attack: value = 0.01;
+    input filter_decay: value = 0.2;
+    input filter_sustain: value = 0.5;
+    input filter_release: value = 0.3;
+    input filter_env_amount: value = 0.0;
 
     output audio_out: stream;
 
@@ -89,19 +127,38 @@ graph! {
         op3_ratio -> voices.op3_ratio;
         op3_level -> voices.op3_level;
         op3_feedback -> voices.op3_feedback;
+        op3_attack -> voices.op3_attack;
+        op3_decay -> voices.op3_decay;
+        op3_sustain -> voices.op3_sustain;
+        op3_release -> voices.op3_release;
 
         // Broadcast OP2 parameters to all voices
         op2_ratio -> voices.op2_ratio;
         op2_level -> voices.op2_level;
         op2_feedback -> voices.op2_feedback;
+        op2_attack -> voices.op2_attack;
+        op2_decay -> voices.op2_decay;
+        op2_sustain -> voices.op2_sustain;
+        op2_release -> voices.op2_release;
 
         // Broadcast OP1 parameters to all voices
         op1_ratio -> voices.op1_ratio;
-        op1_feedback -> voices.op1_feedback;
+        op1_attack -> voices.op1_attack;
+        op1_decay -> voices.op1_decay;
+        op1_sustain -> voices.op1_sustain;
+        op1_release -> voices.op1_release;
+
+        // Broadcast route parameter to all voices
+        route -> voices.route;
 
         // Broadcast filter parameters to all voices
         cutoff -> voices.cutoff;
         resonance -> voices.resonance;
+        filter_attack -> voices.filter_attack;
+        filter_decay -> voices.filter_decay;
+        filter_sustain -> voices.filter_sustain;
+        filter_release -> voices.filter_release;
+        filter_env_amount -> voices.filter_env_amount;
 
         // Mix voices
         voices.audio_out -> audio_out;
@@ -145,13 +202,29 @@ fn audio_callback(
             ParamChange::Op3Ratio(value) => context.synth.op3_ratio = value,
             ParamChange::Op3Level(value) => context.synth.op3_level = value,
             ParamChange::Op3Feedback(value) => context.synth.op3_feedback = value,
+            ParamChange::Op3Attack(value) => context.synth.op3_attack = value,
+            ParamChange::Op3Decay(value) => context.synth.op3_decay = value,
+            ParamChange::Op3Sustain(value) => context.synth.op3_sustain = value,
+            ParamChange::Op3Release(value) => context.synth.op3_release = value,
             ParamChange::Op2Ratio(value) => context.synth.op2_ratio = value,
             ParamChange::Op2Level(value) => context.synth.op2_level = value,
             ParamChange::Op2Feedback(value) => context.synth.op2_feedback = value,
-            ParamChange::Op1Ratio(value) => context.synth.op1_ratio = value,
-            ParamChange::Op1Feedback(value) => context.synth.op1_feedback = value,
+            ParamChange::Op2Attack(value) => context.synth.op2_attack = value,
+            ParamChange::Op2Decay(value) => context.synth.op2_decay = value,
+            ParamChange::Op2Sustain(value) => context.synth.op2_sustain = value,
+            ParamChange::Op2Release(value) => context.synth.op2_release = value,
+            ParamChange::Op1Attack(value) => context.synth.op1_attack = value,
+            ParamChange::Op1Decay(value) => context.synth.op1_decay = value,
+            ParamChange::Op1Sustain(value) => context.synth.op1_sustain = value,
+            ParamChange::Op1Release(value) => context.synth.op1_release = value,
+            ParamChange::Route(value) => context.synth.route = value,
             ParamChange::Cutoff(value) => context.synth.cutoff = value,
             ParamChange::Resonance(value) => context.synth.resonance = value,
+            ParamChange::FilterAttack(value) => context.synth.filter_attack = value,
+            ParamChange::FilterDecay(value) => context.synth.filter_decay = value,
+            ParamChange::FilterSustain(value) => context.synth.filter_sustain = value,
+            ParamChange::FilterRelease(value) => context.synth.filter_release = value,
+            ParamChange::FilterEnvAmount(value) => context.synth.filter_env_amount = value,
         }
     }
 
@@ -257,6 +330,30 @@ fn run_ui(tx: Sender<ParamChange>) -> Result<()> {
             let _ = tx.send(ParamChange::Op3Feedback(value));
         });
     }
+    {
+        let tx = tx.clone();
+        ui.on_op3_attack_edited(move |value| {
+            let _ = tx.send(ParamChange::Op3Attack(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_op3_decay_edited(move |value| {
+            let _ = tx.send(ParamChange::Op3Decay(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_op3_sustain_edited(move |value| {
+            let _ = tx.send(ParamChange::Op3Sustain(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_op3_release_edited(move |value| {
+            let _ = tx.send(ParamChange::Op3Release(value));
+        });
+    }
 
     // OP2 knobs
     {
@@ -277,18 +374,62 @@ fn run_ui(tx: Sender<ParamChange>) -> Result<()> {
             let _ = tx.send(ParamChange::Op2Feedback(value));
         });
     }
-
-    // OP1 knobs
     {
         let tx = tx.clone();
-        ui.on_op1_ratio_edited(move |value| {
-            let _ = tx.send(ParamChange::Op1Ratio(value));
+        ui.on_op2_attack_edited(move |value| {
+            let _ = tx.send(ParamChange::Op2Attack(value));
         });
     }
     {
         let tx = tx.clone();
-        ui.on_op1_feedback_edited(move |value| {
-            let _ = tx.send(ParamChange::Op1Feedback(value));
+        ui.on_op2_decay_edited(move |value| {
+            let _ = tx.send(ParamChange::Op2Decay(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_op2_sustain_edited(move |value| {
+            let _ = tx.send(ParamChange::Op2Sustain(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_op2_release_edited(move |value| {
+            let _ = tx.send(ParamChange::Op2Release(value));
+        });
+    }
+
+    // OP1 envelope knobs
+    {
+        let tx = tx.clone();
+        ui.on_op1_attack_edited(move |value| {
+            let _ = tx.send(ParamChange::Op1Attack(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_op1_decay_edited(move |value| {
+            let _ = tx.send(ParamChange::Op1Decay(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_op1_sustain_edited(move |value| {
+            let _ = tx.send(ParamChange::Op1Sustain(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_op1_release_edited(move |value| {
+            let _ = tx.send(ParamChange::Op1Release(value));
+        });
+    }
+
+    // Route knob
+    {
+        let tx = tx.clone();
+        ui.on_route_edited(move |value| {
+            let _ = tx.send(ParamChange::Route(value));
         });
     }
 
@@ -305,18 +446,64 @@ fn run_ui(tx: Sender<ParamChange>) -> Result<()> {
             let _ = tx.send(ParamChange::Resonance(value));
         });
     }
+    {
+        let tx = tx.clone();
+        ui.on_filter_attack_edited(move |value| {
+            let _ = tx.send(ParamChange::FilterAttack(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_filter_decay_edited(move |value| {
+            let _ = tx.send(ParamChange::FilterDecay(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_filter_sustain_edited(move |value| {
+            let _ = tx.send(ParamChange::FilterSustain(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_filter_release_edited(move |value| {
+            let _ = tx.send(ParamChange::FilterRelease(value));
+        });
+    }
+    {
+        let tx = tx.clone();
+        ui.on_filter_env_amount_edited(move |value| {
+            let _ = tx.send(ParamChange::FilterEnvAmount(value));
+        });
+    }
 
     // Set default values
     ui.set_op3_ratio(3.0);
     ui.set_op3_level(0.5);
     ui.set_op3_feedback(0.0);
+    ui.set_op3_attack(0.01);
+    ui.set_op3_decay(0.1);
+    ui.set_op3_sustain(0.7);
+    ui.set_op3_release(0.3);
     ui.set_op2_ratio(2.0);
     ui.set_op2_level(0.5);
     ui.set_op2_feedback(0.0);
-    ui.set_op1_ratio(1.0);
-    ui.set_op1_feedback(0.0);
+    ui.set_op2_attack(0.01);
+    ui.set_op2_decay(0.1);
+    ui.set_op2_sustain(0.7);
+    ui.set_op2_release(0.3);
+    ui.set_op1_attack(0.01);
+    ui.set_op1_decay(0.2);
+    ui.set_op1_sustain(0.8);
+    ui.set_op1_release(0.5);
+    ui.set_route(0.0);
     ui.set_cutoff(2000.0);
     ui.set_resonance(0.707);
+    ui.set_filter_attack(0.01);
+    ui.set_filter_decay(0.2);
+    ui.set_filter_sustain(0.5);
+    ui.set_filter_release(0.3);
+    ui.set_filter_env_amount(0.0);
 
     ui.run().context("failed to run UI")
 }

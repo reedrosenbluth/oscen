@@ -9,12 +9,6 @@ global KnobPalette {
     in-out property <brush> title: #BABABA;
 }
 
-global PanelPalette {
-    in-out property <brush> background: #777777;
-    in-out property <brush> border: #888888;
-    in-out property <brush> title: #BABABA;
-}
-
 enum KnobCurve {
     linear,
     logarithmic,
@@ -27,6 +21,9 @@ component RotaryKnob inherits Rectangle {
     in-out property <float> value: minimum;
     in property <KnobCurve> curve: KnobCurve.linear;
     in property <string> label: "";
+    in property <string> min_label: "";  // Optional custom label for minimum
+    in property <string> max_label: "";  // Optional custom label for maximum
+    in property <bool> show_bounds: true;  // Whether to show min/max labels
     in property <brush> bg_brush: KnobPalette.dial_bg;
     in property <brush> border_brush: KnobPalette.border;
     in property <brush> marker_brush: KnobPalette.marker;
@@ -39,8 +36,9 @@ component RotaryKnob inherits Rectangle {
     private property <float> normalized: root.value_to_normalized(root.value);
     private property <angle> angle: 225deg - 270deg * root.normalized;
     private property <float> marker_radius: (root.dial_size / 2 - 6px) / 1px;
-    private property <string> minimum_text: root.format_value(root.minimum);
-    private property <string> maximum_text: root.format_value(root.maximum);
+    // Use custom labels if provided, otherwise format the value
+    private property <string> minimum_text: root.min_label != "" ? root.min_label : root.format_value(root.minimum);
+    private property <string> maximum_text: root.max_label != "" ? root.max_label : root.format_value(root.maximum);
 
     VerticalLayout {
         spacing: 12px;
@@ -60,7 +58,7 @@ component RotaryKnob inherits Rectangle {
                     spacing: 4px;
 
                     left_margin := Rectangle {
-                        width: minimum_value_label.preferred-width;
+                        width: root.show_bounds ? minimum_value_label.preferred-width : 0px;
                         height: root.dial_size;
 
                         minimum_value_label := Text {
@@ -69,6 +67,7 @@ component RotaryKnob inherits Rectangle {
                             color: root.title_brush;
                             x: parent.width - self.width;
                             y: parent.height - self.height;
+                            visible: root.show_bounds;
                         }
                     }
 
@@ -114,7 +113,7 @@ component RotaryKnob inherits Rectangle {
                     }
 
                     right_margin := Rectangle {
-                        width: maximum_value_label.preferred-width;
+                        width: root.show_bounds ? maximum_value_label.preferred-width : 0px;
                         height: root.dial_size;
 
                         maximum_value_label := Text {
@@ -123,6 +122,7 @@ component RotaryKnob inherits Rectangle {
                             color: root.title_brush;
                             x: 0px;
                             y: parent.height - self.height;
+                            visible: root.show_bounds;
                         }
                     }
                 }
@@ -213,257 +213,526 @@ component RotaryKnob inherits Rectangle {
     }
 }
 
-component Panel inherits Rectangle {
-    in property <string> title: "";
-    in property <length> content_padding: 10px;
-    in property <length> content_spacing: 8px;
-    in property <length> corner_radius: 6px;
-    in property <length> border_thickness: 2px;
-    in property <brush> bg_brush: PanelPalette.background;
-    in property <brush> border_brush: PanelPalette.border;
-    in property <brush> title_brush: PanelPalette.title;
+// Operator row component - horizontal strip like Pivot's layout
+component OperatorRow inherits Rectangle {
+    in property <string> op_label: "3";
+    in property <brush> accent_color: #666666;
 
-    border-radius: root.corner_radius;
-    border-width: root.border_thickness;
-    border-color: root.border_brush;
-    background: root.bg_brush;
+    in-out property <float> ratio_value: 1.0;
+    in-out property <float> level_value: 0.5;
+    in-out property <float> feedback_value: 0.0;
+    in-out property <float> route_value: 0.0;
+    in-out property <float> attack_value: 0.01;
+    in-out property <float> decay_value: 0.1;
+    in-out property <float> sustain_value: 0.7;
+    in-out property <float> release_value: 0.3;
+    in property <bool> show_ratio: true;
+    in property <bool> show_level: true;
+    in property <bool> show_feedback: true;
+    in property <bool> show_route: false;
 
-    layout := VerticalLayout {
-        padding: root.content_padding;
-        spacing: root.content_spacing;
+    callback ratio_edited(float);
+    callback level_edited(float);
+    callback feedback_edited(float);
+    callback route_edited(float);
+    callback attack_edited(float);
+    callback decay_edited(float);
+    callback sustain_edited(float);
+    callback release_edited(float);
 
-        if root.title != "": Text {
-            text: root.title;
-            font-weight: 600;
-            font-size: 13px;
-            color: root.title_brush;
+    // Format ratio to always show one decimal place (e.g., "3.0", "3.5")
+    pure function format_ratio(value: float) -> string {
+        // Round to one decimal place
+        let rounded = Math.round(value * 10) / 10;
+        let int_part = Math.floor(rounded);
+        let dec_part = Math.round((rounded - int_part) * 10);
+        return @tr("{0}.{1}", int_part, dec_part);
+    }
+
+    height: 90px;
+    background: #333333;
+    border-radius: 4px;
+
+    HorizontalLayout {
+        padding: 8px;
+        spacing: 16px;
+
+        // Sidebar with operator number (like Pivot's dice sidebar)
+        Rectangle {
+            width: 28px;
+            background: root.accent_color;
+            border-radius: 4px;
+
+            VerticalLayout {
+                alignment: center;
+
+                Text {
+                    text: root.op_label;
+                    font-size: 20px;
+                    font-weight: 700;
+                    color: #FFFFFF;
+                    horizontal-alignment: center;
+                }
+            }
         }
 
-        HorizontalLayout {
-            spacing: 8px;
+        // Route knob (only for carrier/OP1) - controls OP3 routing
+        // Labels show destination: "2" = OP3→OP2, "1" = OP3→OP1
+        if root.show_route: RotaryKnob {
+            label: "route";
+            minimum: 0.0;
+            maximum: 1.0;
+            step: 0.01;
+            min_label: "2";
+            max_label: "1";
+            value: root.route_value;
+            value_edited(value) => {
+                root.route_value = value;
+                root.route_edited(value);
+            }
+        }
 
-            @children
+        // Ratio control - fixed width to prevent shifting
+        if root.show_ratio: VerticalLayout {
+            alignment: center;
+            spacing: 4px;
+            width: 56px;
+
+            Text {
+                text: root.format_ratio(root.ratio_value);
+                font-size: 24px;
+                font-weight: 600;
+                color: #EEEEEE;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: "ratio";
+                font-size: 10px;
+                color: #999999;
+                horizontal-alignment: center;
+            }
+        }
+
+        // Ratio knob (for interaction)
+        if root.show_ratio: RotaryKnob {
+            label: "";
+            minimum: 0.5;
+            maximum: 16.0;
+            step: 0.5;
+            value: root.ratio_value;
+            value_edited(value) => {
+                root.ratio_value = value;
+                root.ratio_edited(value);
+            }
+        }
+
+        // Level knob
+        if root.show_level: RotaryKnob {
+            label: "level";
+            minimum: 0.0;
+            maximum: 2.0;
+            step: 0.01;
+            value: root.level_value;
+            value_edited(value) => {
+                root.level_value = value;
+                root.level_edited(value);
+            }
+        }
+
+        // Feedback knob
+        if root.show_feedback: RotaryKnob {
+            label: "fbk";
+            minimum: 0.0;
+            maximum: 1.0;
+            step: 0.01;
+            value: root.feedback_value;
+            value_edited(value) => {
+                root.feedback_value = value;
+                root.feedback_edited(value);
+            }
+        }
+
+        // Spacer pushes ADSR to the right
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        // Separator before ADSR
+        Rectangle {
+            width: 1px;
+            background: #555555;
+        }
+
+        // ADSR knobs
+        RotaryKnob {
+            label: "A";
+            minimum: 0.001;
+            maximum: 2.0;
+            step: 0.001;
+            curve: KnobCurve.logarithmic;
+            show_bounds: false;
+            value: root.attack_value;
+            value_edited(value) => {
+                root.attack_value = value;
+                root.attack_edited(value);
+            }
+        }
+
+        RotaryKnob {
+            label: "D";
+            minimum: 0.001;
+            maximum: 2.0;
+            step: 0.001;
+            curve: KnobCurve.logarithmic;
+            show_bounds: false;
+            value: root.decay_value;
+            value_edited(value) => {
+                root.decay_value = value;
+                root.decay_edited(value);
+            }
+        }
+
+        RotaryKnob {
+            label: "S";
+            minimum: 0.0;
+            maximum: 1.0;
+            step: 0.01;
+            show_bounds: false;
+            value: root.sustain_value;
+            value_edited(value) => {
+                root.sustain_value = value;
+                root.sustain_edited(value);
+            }
+        }
+
+        RotaryKnob {
+            label: "R";
+            minimum: 0.001;
+            maximum: 2.0;
+            step: 0.001;
+            curve: KnobCurve.logarithmic;
+            show_bounds: false;
+            value: root.release_value;
+            value_edited(value) => {
+                root.release_value = value;
+                root.release_edited(value);
+            }
+        }
+    }
+}
+
+// Filter row component
+component FilterRow inherits Rectangle {
+    in-out property <float> cutoff_value: 2000.0;
+    in-out property <float> resonance_value: 0.707;
+    in-out property <float> attack_value: 0.01;
+    in-out property <float> decay_value: 0.2;
+    in-out property <float> sustain_value: 0.5;
+    in-out property <float> release_value: 0.3;
+    in-out property <float> env_amount_value: 0.0;
+
+    callback cutoff_edited(float);
+    callback resonance_edited(float);
+    callback attack_edited(float);
+    callback decay_edited(float);
+    callback sustain_edited(float);
+    callback release_edited(float);
+    callback env_amount_edited(float);
+
+    height: 90px;
+    background: #333333;
+    border-radius: 4px;
+
+    HorizontalLayout {
+        padding: 8px;
+        spacing: 16px;
+
+        // Filter type indicator sidebar
+        Rectangle {
+            width: 28px;
+            background: #785A4A;
+            border-radius: 4px;
+
+            VerticalLayout {
+                alignment: center;
+
+                Text {
+                    text: "F";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: #FFFFFF;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        // Cutoff knob
+        RotaryKnob {
+            label: "cut";
+            minimum: 20.0;
+            maximum: 20000.0;
+            step: 1.0;
+            curve: KnobCurve.logarithmic;
+            value: root.cutoff_value;
+            value_edited(value) => {
+                root.cutoff_value = value;
+                root.cutoff_edited(value);
+            }
+        }
+
+        // Resonance knob
+        RotaryKnob {
+            label: "res";
+            minimum: 0.1;
+            maximum: 10.0;
+            step: 0.01;
+            value: root.resonance_value;
+            value_edited(value) => {
+                root.resonance_value = value;
+                root.resonance_edited(value);
+            }
+        }
+
+        // Envelope amount knob (before spacer so ADSR aligns with other rows)
+        RotaryKnob {
+            label: "env";
+            minimum: -10000.0;
+            maximum: 10000.0;
+            step: 10.0;
+            show_bounds: false;
+            value: root.env_amount_value;
+            value_edited(value) => {
+                root.env_amount_value = value;
+                root.env_amount_edited(value);
+            }
+        }
+
+        // Spacer pushes ADSR to the right
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        // Separator before ADSR
+        Rectangle {
+            width: 1px;
+            background: #555555;
+        }
+
+        // ADSR knobs for filter envelope
+        RotaryKnob {
+            label: "A";
+            minimum: 0.001;
+            maximum: 2.0;
+            step: 0.001;
+            curve: KnobCurve.logarithmic;
+            show_bounds: false;
+            value: root.attack_value;
+            value_edited(value) => {
+                root.attack_value = value;
+                root.attack_edited(value);
+            }
+        }
+
+        RotaryKnob {
+            label: "D";
+            minimum: 0.001;
+            maximum: 2.0;
+            step: 0.001;
+            curve: KnobCurve.logarithmic;
+            show_bounds: false;
+            value: root.decay_value;
+            value_edited(value) => {
+                root.decay_value = value;
+                root.decay_edited(value);
+            }
+        }
+
+        RotaryKnob {
+            label: "S";
+            minimum: 0.0;
+            maximum: 1.0;
+            step: 0.01;
+            show_bounds: false;
+            value: root.sustain_value;
+            value_edited(value) => {
+                root.sustain_value = value;
+                root.sustain_edited(value);
+            }
+        }
+
+        RotaryKnob {
+            label: "R";
+            minimum: 0.001;
+            maximum: 2.0;
+            step: 0.001;
+            curve: KnobCurve.logarithmic;
+            show_bounds: false;
+            value: root.release_value;
+            value_edited(value) => {
+                root.release_value = value;
+                root.release_edited(value);
+            }
         }
     }
 }
 
 export component SynthWindow inherits Window {
-    title: "Pivot FM Synth - Oscen";
-    background: #444444;
+    title: "Pivot";
+    background: #1A1A1A;
 
     // OP3 parameters
     in-out property <float> op3_ratio: 3.0;
     in-out property <float> op3_level: 0.5;
     in-out property <float> op3_feedback: 0.0;
+    in-out property <float> op3_attack: 0.01;
+    in-out property <float> op3_decay: 0.1;
+    in-out property <float> op3_sustain: 0.7;
+    in-out property <float> op3_release: 0.3;
 
     // OP2 parameters
     in-out property <float> op2_ratio: 2.0;
     in-out property <float> op2_level: 0.5;
     in-out property <float> op2_feedback: 0.0;
+    in-out property <float> op2_attack: 0.01;
+    in-out property <float> op2_decay: 0.1;
+    in-out property <float> op2_sustain: 0.7;
+    in-out property <float> op2_release: 0.3;
 
-    // OP1 parameters
-    in-out property <float> op1_ratio: 1.0;
-    in-out property <float> op1_feedback: 0.0;
+    // OP1 envelope parameters (ratio and feedback not exposed - carrier only)
+    in-out property <float> op1_attack: 0.01;
+    in-out property <float> op1_decay: 0.2;
+    in-out property <float> op1_sustain: 0.8;
+    in-out property <float> op1_release: 0.5;
+
+    // Route: blends OP3 between OP2 (0.0) and OP1 (1.0)
+    in-out property <float> route: 0.0;
 
     // Filter parameters
     in-out property <float> cutoff: 2000.0;
     in-out property <float> resonance: 0.707;
+    in-out property <float> filter_attack: 0.01;
+    in-out property <float> filter_decay: 0.2;
+    in-out property <float> filter_sustain: 0.5;
+    in-out property <float> filter_release: 0.3;
+    in-out property <float> filter_env_amount: 0.0;
 
     // Callbacks
     callback op3_ratio_edited(float);
     callback op3_level_edited(float);
     callback op3_feedback_edited(float);
+    callback op3_attack_edited(float);
+    callback op3_decay_edited(float);
+    callback op3_sustain_edited(float);
+    callback op3_release_edited(float);
     callback op2_ratio_edited(float);
     callback op2_level_edited(float);
     callback op2_feedback_edited(float);
-    callback op1_ratio_edited(float);
-    callback op1_feedback_edited(float);
+    callback op2_attack_edited(float);
+    callback op2_decay_edited(float);
+    callback op2_sustain_edited(float);
+    callback op2_release_edited(float);
+    callback op1_attack_edited(float);
+    callback op1_decay_edited(float);
+    callback op1_sustain_edited(float);
+    callback op1_release_edited(float);
+    callback route_edited(float);
     callback cutoff_edited(float);
     callback resonance_edited(float);
+    callback filter_attack_edited(float);
+    callback filter_decay_edited(float);
+    callback filter_sustain_edited(float);
+    callback filter_release_edited(float);
+    callback filter_env_amount_edited(float);
 
     root_layout := VerticalLayout {
-        padding: 16px;
-        spacing: 12px;
+        padding: 12px;
+        spacing: 8px;
 
-        // Title
-        Text {
-            text: "PIVOT FM";
-            font-size: 18px;
-            font-weight: 700;
-            color: #CCCCCC;
-            horizontal-alignment: center;
+        // OP3 Row (Top Modulator) - modulates OP2 or OP1
+        OperatorRow {
+            op_label: "3";
+            accent_color: #5A4A78;
+            ratio_value <=> root.op3_ratio;
+            level_value <=> root.op3_level;
+            feedback_value <=> root.op3_feedback;
+            attack_value <=> root.op3_attack;
+            decay_value <=> root.op3_decay;
+            sustain_value <=> root.op3_sustain;
+            release_value <=> root.op3_release;
+            show_level: true;
+            ratio_edited(value) => { root.op3_ratio_edited(value); }
+            level_edited(value) => { root.op3_level_edited(value); }
+            feedback_edited(value) => { root.op3_feedback_edited(value); }
+            attack_edited(value) => { root.op3_attack_edited(value); }
+            decay_edited(value) => { root.op3_decay_edited(value); }
+            sustain_edited(value) => { root.op3_sustain_edited(value); }
+            release_edited(value) => { root.op3_release_edited(value); }
         }
 
-        HorizontalLayout {
-            spacing: 10px;
-            alignment: start;
-
-            // OP3 Panel (Top Modulator)
-            Panel {
-                vertical-stretch: 0;
-                title: "OP3 (Mod)";
-                bg_brush: #5A4A78;
-                border_brush: #7A6A98;
-                title_brush: #D8CCE8;
-
-                RotaryKnob {
-                    label: "Ratio";
-                    minimum: 0.5;
-                    maximum: 16.0;
-                    step: 0.5;
-                    value: root.op3_ratio;
-                    value_edited(value) => {
-                        root.op3_ratio = value;
-                        root.op3_ratio_edited(value);
-                    }
-                }
-
-                RotaryKnob {
-                    label: "Level";
-                    minimum: 0.0;
-                    maximum: 2.0;
-                    step: 0.01;
-                    value: root.op3_level;
-                    value_edited(value) => {
-                        root.op3_level = value;
-                        root.op3_level_edited(value);
-                    }
-                }
-
-                RotaryKnob {
-                    label: "FB";
-                    minimum: 0.0;
-                    maximum: 1.0;
-                    step: 0.01;
-                    value: root.op3_feedback;
-                    value_edited(value) => {
-                        root.op3_feedback = value;
-                        root.op3_feedback_edited(value);
-                    }
-                }
-            }
-
-            // OP2 Panel (Middle Modulator)
-            Panel {
-                vertical-stretch: 0;
-                title: "OP2 (Mod)";
-                bg_brush: #4A5A78;
-                border_brush: #6A7A98;
-                title_brush: #CCD8E8;
-
-                RotaryKnob {
-                    label: "Ratio";
-                    minimum: 0.5;
-                    maximum: 16.0;
-                    step: 0.5;
-                    value: root.op2_ratio;
-                    value_edited(value) => {
-                        root.op2_ratio = value;
-                        root.op2_ratio_edited(value);
-                    }
-                }
-
-                RotaryKnob {
-                    label: "Level";
-                    minimum: 0.0;
-                    maximum: 2.0;
-                    step: 0.01;
-                    value: root.op2_level;
-                    value_edited(value) => {
-                        root.op2_level = value;
-                        root.op2_level_edited(value);
-                    }
-                }
-
-                RotaryKnob {
-                    label: "FB";
-                    minimum: 0.0;
-                    maximum: 1.0;
-                    step: 0.01;
-                    value: root.op2_feedback;
-                    value_edited(value) => {
-                        root.op2_feedback = value;
-                        root.op2_feedback_edited(value);
-                    }
-                }
-            }
+        // OP2 Row (Middle Modulator) - modulates OP1
+        OperatorRow {
+            op_label: "2";
+            accent_color: #4A5A78;
+            ratio_value <=> root.op2_ratio;
+            level_value <=> root.op2_level;
+            feedback_value <=> root.op2_feedback;
+            attack_value <=> root.op2_attack;
+            decay_value <=> root.op2_decay;
+            sustain_value <=> root.op2_sustain;
+            release_value <=> root.op2_release;
+            show_level: true;
+            ratio_edited(value) => { root.op2_ratio_edited(value); }
+            level_edited(value) => { root.op2_level_edited(value); }
+            feedback_edited(value) => { root.op2_feedback_edited(value); }
+            attack_edited(value) => { root.op2_attack_edited(value); }
+            decay_edited(value) => { root.op2_decay_edited(value); }
+            sustain_edited(value) => { root.op2_sustain_edited(value); }
+            release_edited(value) => { root.op2_release_edited(value); }
         }
 
-        HorizontalLayout {
-            spacing: 10px;
-            alignment: start;
+        // OP1 Row (Carrier) - outputs audio at root frequency
+        // Route control blends OP3 between OP2 (0) and OP1 (1)
+        OperatorRow {
+            op_label: "1";
+            accent_color: #4A7860;
+            route_value <=> root.route;
+            attack_value <=> root.op1_attack;
+            decay_value <=> root.op1_decay;
+            sustain_value <=> root.op1_sustain;
+            release_value <=> root.op1_release;
+            show_ratio: false;
+            show_level: false;
+            show_feedback: false;
+            show_route: true;
+            route_edited(value) => { root.route_edited(value); }
+            attack_edited(value) => { root.op1_attack_edited(value); }
+            decay_edited(value) => { root.op1_decay_edited(value); }
+            sustain_edited(value) => { root.op1_sustain_edited(value); }
+            release_edited(value) => { root.op1_release_edited(value); }
+        }
 
-            // OP1 Panel (Carrier)
-            Panel {
-                vertical-stretch: 0;
-                title: "OP1 (Carrier)";
-                bg_brush: #4A7860;
-                border_brush: #6A9880;
-                title_brush: #CCE8D8;
-
-                RotaryKnob {
-                    label: "Ratio";
-                    minimum: 0.5;
-                    maximum: 16.0;
-                    step: 0.5;
-                    value: root.op1_ratio;
-                    value_edited(value) => {
-                        root.op1_ratio = value;
-                        root.op1_ratio_edited(value);
-                    }
-                }
-
-                RotaryKnob {
-                    label: "FB";
-                    minimum: 0.0;
-                    maximum: 1.0;
-                    step: 0.01;
-                    value: root.op1_feedback;
-                    value_edited(value) => {
-                        root.op1_feedback = value;
-                        root.op1_feedback_edited(value);
-                    }
-                }
-            }
-
-            // Filter Panel
-            Panel {
-                vertical-stretch: 0;
-                title: "Filter";
-                bg_brush: #785A4A;
-                border_brush: #987A6A;
-                title_brush: #E8D8CC;
-
-                RotaryKnob {
-                    label: "Cutoff";
-                    minimum: 20.0;
-                    maximum: 20000.0;
-                    step: 1.0;
-                    curve: KnobCurve.logarithmic;
-                    value: root.cutoff;
-                    value_edited(value) => {
-                        root.cutoff = value;
-                        root.cutoff_edited(value);
-                    }
-                }
-
-                RotaryKnob {
-                    label: "Reso";
-                    minimum: 0.1;
-                    maximum: 10.0;
-                    step: 0.01;
-                    value: root.resonance;
-                    value_edited(value) => {
-                        root.resonance = value;
-                        root.resonance_edited(value);
-                    }
-                }
-            }
+        // Filter Row
+        FilterRow {
+            cutoff_value <=> root.cutoff;
+            resonance_value <=> root.resonance;
+            attack_value <=> root.filter_attack;
+            decay_value <=> root.filter_decay;
+            sustain_value <=> root.filter_sustain;
+            release_value <=> root.filter_release;
+            env_amount_value <=> root.filter_env_amount;
+            cutoff_edited(value) => { root.cutoff_edited(value); }
+            resonance_edited(value) => { root.resonance_edited(value); }
+            attack_edited(value) => { root.filter_attack_edited(value); }
+            decay_edited(value) => { root.filter_decay_edited(value); }
+            sustain_edited(value) => { root.filter_sustain_edited(value); }
+            release_edited(value) => { root.filter_release_edited(value); }
+            env_amount_edited(value) => { root.filter_env_amount_edited(value); }
         }
     }
 
-    preferred-width: root_layout.preferred-width;
+    preferred-width: 750px;
     preferred-height: root_layout.preferred-height;
-    min-width: root_layout.preferred-width;
+    min-width: 750px;
     min-height: root_layout.preferred-height;
 }
