@@ -1,0 +1,298 @@
+mod editor;
+mod nodes;
+mod params;
+mod pivot_voice;
+
+// DSP nodes used in the graph macro
+#[allow(unused_imports)]
+use nodes::{AddValue, Crossfade, FmOperator, Mixer};
+use nih_plug::prelude::*;
+use oscen::graph::{EventInstance, EventPayload};
+use oscen::midi::RawMidiMessage;
+use oscen::prelude::*;
+use params::PivotParams;
+use parking_lot::RwLock;
+use pivot_voice::PivotVoice;
+use std::sync::Arc;
+
+// Main polyphonic Pivot synth with 8 voices
+graph! {
+    name: PivotGraph;
+
+    // MIDI input (raw MIDI bytes)
+    input midi_in: event;
+
+    // OP3 parameters
+    input op3_ratio: value = 3.0;
+    input op3_level: value = 0.5;
+    input op3_feedback: value = 0.0;
+    input op3_attack: value = 0.01;
+    input op3_decay: value = 0.1;
+    input op3_sustain: value = 0.7;
+    input op3_release: value = 0.3;
+
+    // OP2 parameters
+    input op2_ratio: value = 2.0;
+    input op2_level: value = 0.5;
+    input op2_feedback: value = 0.0;
+    input op2_attack: value = 0.01;
+    input op2_decay: value = 0.1;
+    input op2_sustain: value = 0.7;
+    input op2_release: value = 0.3;
+
+    // OP1 parameters (ratio always 1.0, no feedback)
+    input op1_ratio: value = 1.0;
+    input op1_attack: value = 0.01;
+    input op1_decay: value = 0.2;
+    input op1_sustain: value = 0.8;
+    input op1_release: value = 0.5;
+
+    // Route: blends OP3 between OP2 (0.0) and OP1 (1.0)
+    input route: value = 0.0;
+
+    // Filter parameters
+    input cutoff: value = 2000.0;
+    input resonance: value = 0.707;
+    input filter_attack: value = 0.01;
+    input filter_decay: value = 0.2;
+    input filter_sustain: value = 0.5;
+    input filter_release: value = 0.3;
+    input filter_env_amount: value = 0.0;
+
+    output audio_out: stream;
+
+    nodes {
+        midi_parser = MidiParser::new();
+        voice_allocator = VoiceAllocator::<8>::new();
+        voice_handlers = [MidiVoiceHandler::new(); 8];
+        voices = [PivotVoice::new(); 8];
+    }
+
+    connections {
+        // MIDI parsing
+        midi_in -> midi_parser.midi_in;
+
+        // Route MIDI events through voice allocator
+        midi_parser.note_on -> voice_allocator.note_on;
+        midi_parser.note_off -> voice_allocator.note_off;
+
+        // Voice allocator routes events to voice handlers
+        voice_allocator.voices -> voice_handlers.note_on;
+        voice_allocator.voices -> voice_handlers.note_off;
+
+        // Voice handlers to voices
+        voice_handlers.frequency -> voices.frequency;
+        voice_handlers.gate -> voices.gate;
+
+        // Broadcast OP3 parameters to all voices
+        op3_ratio -> voices.op3_ratio;
+        op3_level -> voices.op3_level;
+        op3_feedback -> voices.op3_feedback;
+        op3_attack -> voices.op3_attack;
+        op3_decay -> voices.op3_decay;
+        op3_sustain -> voices.op3_sustain;
+        op3_release -> voices.op3_release;
+
+        // Broadcast OP2 parameters to all voices
+        op2_ratio -> voices.op2_ratio;
+        op2_level -> voices.op2_level;
+        op2_feedback -> voices.op2_feedback;
+        op2_attack -> voices.op2_attack;
+        op2_decay -> voices.op2_decay;
+        op2_sustain -> voices.op2_sustain;
+        op2_release -> voices.op2_release;
+
+        // Broadcast OP1 parameters to all voices
+        op1_ratio -> voices.op1_ratio;
+        op1_attack -> voices.op1_attack;
+        op1_decay -> voices.op1_decay;
+        op1_sustain -> voices.op1_sustain;
+        op1_release -> voices.op1_release;
+
+        // Broadcast route parameter to all voices
+        route -> voices.route;
+
+        // Broadcast filter parameters to all voices
+        cutoff -> voices.cutoff;
+        resonance -> voices.resonance;
+        filter_attack -> voices.filter_attack;
+        filter_decay -> voices.filter_decay;
+        filter_sustain -> voices.filter_sustain;
+        filter_release -> voices.filter_release;
+        filter_env_amount -> voices.filter_env_amount;
+
+        // Mix voices
+        voices.audio_out -> audio_out;
+    }
+}
+
+pub struct Pivot {
+    params: Arc<PivotParams>,
+    synth: RwLock<Option<PivotGraph>>,
+}
+
+impl Default for Pivot {
+    fn default() -> Self {
+        Self {
+            params: Arc::new(PivotParams::default()),
+            synth: RwLock::new(None),
+        }
+    }
+}
+
+impl Plugin for Pivot {
+    const NAME: &'static str = "Oscen FM";
+    const VENDOR: &'static str = "Oscen";
+    const URL: &'static str = "https://reed.nyc";
+    const EMAIL: &'static str = "your.email@example.com";
+    const VERSION: &'static str = "0.1.0";
+
+    // Synthesizer: no input, stereo output
+    const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout {
+        main_input_channels: None,
+        main_output_channels: NonZeroU32::new(2),
+        aux_input_ports: &[],
+        aux_output_ports: &[],
+        names: PortNames::const_default(),
+    }];
+
+    const MIDI_INPUT: MidiConfig = MidiConfig::Basic;
+    const MIDI_OUTPUT: MidiConfig = MidiConfig::None;
+    const SAMPLE_ACCURATE_AUTOMATION: bool = true;
+
+    type SysExMessage = ();
+    type BackgroundTask = ();
+
+    fn params(&self) -> Arc<dyn Params> {
+        self.params.clone()
+    }
+
+    fn editor(&mut self, async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        editor::create(self.params.clone(), async_executor)
+    }
+
+    fn initialize(
+        &mut self,
+        _audio_io_layout: &AudioIOLayout,
+        buffer_config: &BufferConfig,
+        _context: &mut impl InitContext<Self>,
+    ) -> bool {
+        let sample_rate = buffer_config.sample_rate;
+        let mut synth = PivotGraph::new();
+        synth.init(sample_rate);
+        *self.synth.write() = Some(synth);
+        true
+    }
+
+    fn process(
+        &mut self,
+        buffer: &mut Buffer,
+        _aux: &mut AuxiliaryBuffers,
+        context: &mut impl ProcessContext<Self>,
+    ) -> ProcessStatus {
+        let mut synth_guard = self.synth.write();
+        let synth = match synth_guard.as_mut() {
+            Some(s) => s,
+            None => return ProcessStatus::Normal,
+        };
+
+        // Process MIDI events
+        while let Some(event) = context.next_event() {
+            match event {
+                NoteEvent::NoteOn {
+                    note, velocity, timing, ..
+                } => {
+                    let vel_byte = (velocity * 127.0).clamp(0.0, 127.0) as u8;
+                    let midi_bytes = [0x90, note, vel_byte];
+                    let msg = RawMidiMessage::new(&midi_bytes);
+                    let event = EventInstance {
+                        frame_offset: timing,
+                        payload: EventPayload::Object(Arc::new(msg)),
+                    };
+                    let _ = synth.midi_in.try_push(event);
+                }
+                NoteEvent::NoteOff { note, timing, .. } => {
+                    let midi_bytes = [0x80, note, 0];
+                    let msg = RawMidiMessage::new(&midi_bytes);
+                    let event = EventInstance {
+                        frame_offset: timing,
+                        payload: EventPayload::Object(Arc::new(msg)),
+                    };
+                    let _ = synth.midi_in.try_push(event);
+                }
+                _ => {}
+            }
+        }
+
+        for mut channel_samples in buffer.iter_samples() {
+            // Update parameters from NIH-plug's smoothed values
+            // OP3
+            synth.op3_ratio = self.params.op3.ratio.smoothed.next();
+            synth.op3_level = self.params.op3.level.smoothed.next();
+            synth.op3_feedback = self.params.op3.feedback.smoothed.next();
+            synth.op3_attack = self.params.op3.attack.smoothed.next();
+            synth.op3_decay = self.params.op3.decay.smoothed.next();
+            synth.op3_sustain = self.params.op3.sustain.smoothed.next();
+            synth.op3_release = self.params.op3.release.smoothed.next();
+
+            // OP2
+            synth.op2_ratio = self.params.op2.ratio.smoothed.next();
+            synth.op2_level = self.params.op2.level.smoothed.next();
+            synth.op2_feedback = self.params.op2.feedback.smoothed.next();
+            synth.op2_attack = self.params.op2.attack.smoothed.next();
+            synth.op2_decay = self.params.op2.decay.smoothed.next();
+            synth.op2_sustain = self.params.op2.sustain.smoothed.next();
+            synth.op2_release = self.params.op2.release.smoothed.next();
+
+            // OP1
+            synth.op1_attack = self.params.op1.attack.smoothed.next();
+            synth.op1_decay = self.params.op1.decay.smoothed.next();
+            synth.op1_sustain = self.params.op1.sustain.smoothed.next();
+            synth.op1_release = self.params.op1.release.smoothed.next();
+
+            // Route
+            synth.route = self.params.route.smoothed.next();
+
+            // Filter
+            synth.cutoff = self.params.filter.cutoff.smoothed.next();
+            synth.resonance = self.params.filter.resonance.smoothed.next();
+            synth.filter_env_amount = self.params.filter.env_amount.smoothed.next();
+            synth.filter_attack = self.params.filter.attack.smoothed.next();
+            synth.filter_decay = self.params.filter.decay.smoothed.next();
+            synth.filter_sustain = self.params.filter.sustain.smoothed.next();
+            synth.filter_release = self.params.filter.release.smoothed.next();
+
+            // Process the graph
+            synth.process();
+
+            // Write mono output to stereo
+            let output = synth.audio_out;
+            for sample in channel_samples.iter_mut() {
+                *sample = output;
+            }
+        }
+
+        ProcessStatus::Normal
+    }
+}
+
+impl ClapPlugin for Pivot {
+    const CLAP_ID: &'static str = "com.oscen.fm";
+    const CLAP_DESCRIPTION: Option<&'static str> = Some("3-operator FM synthesizer");
+    const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
+    const CLAP_SUPPORT_URL: Option<&'static str> = None;
+    const CLAP_FEATURES: &'static [ClapFeature] = &[
+        ClapFeature::Instrument,
+        ClapFeature::Synthesizer,
+        ClapFeature::Stereo,
+    ];
+}
+
+impl Vst3Plugin for Pivot {
+    const VST3_CLASS_ID: [u8; 16] = *b"OscenFMSynthPlug";
+    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
+        &[Vst3SubCategory::Instrument, Vst3SubCategory::Synth];
+}
+
+nih_export_clap!(Pivot);
+nih_export_vst3!(Pivot);

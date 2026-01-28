@@ -1,5 +1,6 @@
 /target
 /notes
+/docs
 .vscode
 CLAUDE.local.md
 AGENTS.md

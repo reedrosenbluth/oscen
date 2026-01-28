@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "examples",
     "examples/nih-twin-peaks",
+    "examples/fm-synth",
     "examples/polysynth",
     "examples/simple-echo",
     "examples/supersaw",
@@ -12,6 +13,7 @@ members = [
     "examples/medium-graph",
     "examples/electric-piano",
     "examples/pivot",
+    "examples/pivot-vizia",
     "oscen-lib",
     "oscen-macros",
     "xtask"

@@ -1,0 +1,32 @@
+[package]
+name = "fm-synth"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oscen = { path = "../../oscen-lib" }
+oscen-macros = { path = "../../oscen-macros" }
+nih_plug = { path = "/Users/reedrosenbluth/Developer/nih-plug" }
+nih_plug_slint = { path = "/Users/reedrosenbluth/Developer/nih-plug/nih_plug_slint" }
+parking_lot = "0.12"
+arrayvec = "0.7"
+atomic_float = "1"
+
+# UI dependencies
+slint = { version = "1.14", default-features = false, features = ["compat-1-2", "renderer-software", "std"] }
+
+[build-dependencies]
+slint-build = "1.14"
+
+[package.metadata.bundle]
+name = "Oscen FM"
+identifier = "com.oscen.fm"
+icon = []
+version = "0.1.0"
+copyright = "Copyright (c) 2025"
+category = "Music"
+short_description = "Oscen FM Synthesizer"
+long_description = "3-operator FM synthesizer with routing crossfade and filter"
