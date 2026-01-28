@@ -81,21 +81,11 @@ mod tests {
     }
 
     #[test]
-    fn test_node_io_get_stream_output_channels() {
-        use crate::graph::NodeIO;
-
+    fn test_multi_channel_direct_field_access() {
         let mut source = MultiChannelSource::new(1.0);
         source.process();
 
-        // Test get_stream_output_channels via NodeIO trait
-        let channels = source.get_stream_output_channels(0);
-        assert_eq!(channels.len(), 4);
-        assert_eq!(channels[0], 1.0);
-        assert_eq!(channels[1], 2.0);
-        assert_eq!(channels[2], 3.0);
-        assert_eq!(channels[3], 4.0);
-
-        // Verify fields are directly accessible
+        // Verify fields are directly accessible (static graph pattern)
         assert_eq!(source.outputs[0], 1.0);
         assert_eq!(source.outputs[1], 2.0);
         assert_eq!(source.outputs[2], 3.0);
@@ -103,18 +93,11 @@ mod tests {
     }
 
     #[test]
-    fn test_node_io_set_stream_input_channels() {
-        use crate::graph::NodeIO;
-
+    fn test_multi_channel_receiver_direct_field_access() {
         let mut receiver = MultiChannelReceiver::new();
-        let test_channels = [7.0, 8.0, 9.0, 10.0];
-        receiver.set_stream_input_channels(0, &test_channels);
 
-        // Verify the array was copied via NodeIO
-        assert_eq!(receiver.inputs[0], 7.0);
-        assert_eq!(receiver.inputs[1], 8.0);
-        assert_eq!(receiver.inputs[2], 9.0);
-        assert_eq!(receiver.inputs[3], 10.0);
+        // Set inputs directly (static graph pattern)
+        receiver.inputs = [7.0, 8.0, 9.0, 10.0];
 
         // Process and verify sum
         receiver.process();

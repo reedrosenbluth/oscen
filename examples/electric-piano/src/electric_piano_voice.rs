@@ -360,7 +360,7 @@ impl SignalProcessor for AmplitudeSource {
 }
 
 // Voice graph using graph! macro
-// This is now a proper runtime graph that connects OscillatorBank and AmplitudeSource
+// This is a static graph that connects OscillatorBank and AmplitudeSource
 use oscen::graph;
 
 graph! {

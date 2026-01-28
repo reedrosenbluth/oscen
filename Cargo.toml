@@ -13,7 +13,6 @@ members = [
     "examples/medium-graph",
     "examples/electric-piano",
     "examples/pivot",
-    "examples/pivot-vizia",
     "oscen-lib",
     "oscen-macros",
     "xtask"

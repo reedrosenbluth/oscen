@@ -1,13 +1,11 @@
 use std::any::Any;
 use std::fmt;
 use std::marker::PhantomData;
-use std::ops::Shr;
 use std::sync::Arc;
 
 use arrayvec::ArrayVec;
 
 pub const MAX_EVENTS: usize = 256;
-pub const MAX_CONNECTIONS_PER_OUTPUT: usize = 1024;
 pub const MAX_NODE_ENDPOINTS: usize = 32;
 pub const MAX_STREAM_CHANNELS: usize = 128;
 
@@ -654,95 +652,3 @@ impl From<&ValueParam> for ValueKey {
     }
 }
 
-// NOTE: EventParam is deprecated for static graphs.
-// Static graphs use direct EventInput/EventOutput fields with built-in storage.
-// The runtime graph API (which uses EventParam) is not compatible with the new
-// storage-based event types.
-
-// ============================================================================
-// Connections
-// ============================================================================
-
-/// Internal representation of a connection (stores keys, not typed handles)
-#[allow(dead_code)]
-pub struct Connection {
-    pub(crate) from: ValueKey,
-    pub(crate) to: ValueKey,
-}
-
-pub struct ConnectionBuilder {
-    pub(crate) from: ValueKey,
-    pub(crate) connections: ArrayVec<Connection, MAX_CONNECTIONS_PER_OUTPUT>,
-}
-
-impl ConnectionBuilder {
-    pub fn and<I>(mut self, to: I) -> Self
-    where
-        I: Into<InputEndpoint>,
-    {
-        self.connections.push(Connection {
-            from: self.from,
-            to: to.into().key(),
-        });
-        self
-    }
-}
-
-impl From<ConnectionBuilder> for ArrayVec<Connection, MAX_CONNECTIONS_PER_OUTPUT> {
-    fn from(builder: ConnectionBuilder) -> Self {
-        builder.connections
-    }
-}
-
-// ============================================================================
-// Type-safe Stream connections (audio-rate)
-// ============================================================================
-
-impl Shr<StreamInput> for StreamOutput {
-    type Output = ConnectionBuilder;
-
-    fn shr(self, to: StreamInput) -> ConnectionBuilder {
-        let mut builder = ConnectionBuilder {
-            from: self.key(),
-            connections: ArrayVec::new(),
-        };
-        builder.connections.push(Connection {
-            from: self.key(),
-            to: to.key(),
-        });
-        builder
-    }
-}
-
-// ============================================================================
-// Type-safe Value connections (control-rate)
-// ============================================================================
-
-impl Shr<ValueInput> for ValueOutput {
-    type Output = ConnectionBuilder;
-
-    fn shr(self, to: ValueInput) -> ConnectionBuilder {
-        let mut builder = ConnectionBuilder {
-            from: self.key(),
-            connections: ArrayVec::new(),
-        };
-        builder.connections.push(Connection {
-            from: self.key(),
-            to: to.key(),
-        });
-        builder
-    }
-}
-
-// ValueParam can be connected as if it were a ValueOutput
-impl Shr<ValueInput> for ValueParam {
-    type Output = ConnectionBuilder;
-
-    fn shr(self, to: ValueInput) -> ConnectionBuilder {
-        self.output >> to
-    }
-}
-
-// NOTE: Event Shr impls are deprecated for static graphs.
-// Static graphs use trait-based dispatch (ConnectEndpoints) instead of the >> operator.
-// The runtime graph API event connections are not compatible with storage-based event types.

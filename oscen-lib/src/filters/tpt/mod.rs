@@ -130,7 +130,7 @@ impl TptFilter {
 }
 
 // SignalProcessor must be manually implemented
-// The Node macro only generates NodeIO and ProcessingNode traits
+// The Node macro generates ProcessingNode trait and event handler methods
 impl SignalProcessor for TptFilter {
     fn init(&mut self, sample_rate: f32) {
         self.sample_rate = sample_rate;
@@ -147,9 +147,6 @@ impl SignalProcessor for TptFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrayvec::ArrayVec;
-    use crate::graph::types::{EventInstance, ValueData};
-    use crate::graph::{NodeIO, ProcessingContext, ProcessingNode};
 
     const EPSILON: f32 = 1e-6;
 
@@ -189,34 +186,13 @@ mod tests {
         filter.frames_per_update = 1;
         filter.init(sample_rate);
 
-        let cutoff = 2_000.0;
-        let q = 0.707;
+        filter.cutoff = 2_000.0;
+        filter.q = 0.707;
+        filter.f_mod = 0.0;
         let mut outputs = Vec::new();
 
         for n in 0..8 {
-            let input = if n == 0 { 1.0 } else { 0.0 };
-            let stream_inputs: Vec<ArrayVec<f32, 128>> = vec![input, cutoff, q, 0.0]
-                .into_iter()
-                .map(|v| {
-                    let mut av = ArrayVec::new();
-                    av.push(v);
-                    av
-                })
-                .collect();
-            let value_storage = vec![
-                None,
-                Some(ValueData::scalar(cutoff)),
-                Some(ValueData::scalar(q)),
-                None,
-            ];
-            let value_refs: Vec<Option<&ValueData>> =
-                value_storage.iter().map(|opt| opt.as_ref()).collect();
-            let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
-            let mut context =
-                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs);
-            filter.input = input;
-            filter.f_mod = 0.0;
-            filter.read_inputs(&mut context);
+            filter.input = if n == 0 { 1.0 } else { 0.0 };
             filter.process();
             outputs.push(filter.output);
         }

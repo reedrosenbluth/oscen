@@ -69,7 +69,7 @@ graph! {
         midi_parser.note_on -> voice_allocator.note_on;
         midi_parser.note_off -> voice_allocator.note_off;
 
-        // Voice allocator routes events to voice handlers via ArrayEventOutput
+        // Voice allocator routes events to voice handlers via array event routing
         voice_allocator.voices -> voice_handlers.note_on;
         voice_allocator.voices -> voice_handlers.note_off;
 

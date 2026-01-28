@@ -91,7 +91,7 @@ impl SignalProcessor for MidiVoiceHandler {
 }
 
 impl MidiVoiceHandler {
-    // Event handlers called automatically by macro-generated NodeIO
+    // Event handlers called automatically by derive macro via process_event_inputs()
     fn on_note_on(&mut self, event: &EventInstance) {
         if let EventPayload::Object(obj) = &event.payload {
             if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
@@ -195,7 +195,7 @@ impl SignalProcessor for MidiParser {
 }
 
 impl MidiParser {
-    // Event handler called automatically by macro-generated NodeIO
+    // Event handler called automatically by derive macro via process_event_inputs()
     fn on_midi_in(&mut self, event: &EventInstance) {
         if let EventPayload::Object(obj) = &event.payload {
             // Try to downcast to RawMidiMessage

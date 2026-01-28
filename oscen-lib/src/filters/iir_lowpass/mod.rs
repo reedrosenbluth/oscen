@@ -172,9 +172,6 @@ impl SignalProcessor for IirLowpass {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrayvec::ArrayVec;
-    use crate::graph::types::{EventInstance, ValueData};
-    use crate::graph::{IOStructAccess, NodeIO, ProcessingContext, ProcessingNode};
 
     const EPSILON: f32 = 1e-6;
 
@@ -242,41 +239,19 @@ mod tests {
         filter.init(sample_rate);
 
         // Feed DC signal and check steady-state output
-        let dc_input = 1.0;
-        let cutoff = 1000.0;
-        let q = std::f32::consts::FRAC_1_SQRT_2;
+        filter.cutoff = 1000.0;
+        filter.q = std::f32::consts::FRAC_1_SQRT_2;
 
-        let mut output = 0.0;
         for _ in 0..1000 {
-            let stream_inputs: Vec<ArrayVec<f32, 128>> = vec![dc_input, cutoff, q]
-                .into_iter()
-                .map(|v| {
-                    let mut av = ArrayVec::new();
-                    av.push(v);
-                    av
-                })
-                .collect();
-            let value_storage = vec![
-                None,
-                Some(ValueData::scalar(cutoff)),
-                Some(ValueData::scalar(q)),
-            ];
-            let value_refs: Vec<Option<&ValueData>> =
-                value_storage.iter().map(|opt| opt.as_ref()).collect();
-            let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
-            let mut context =
-                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs);
-            filter.input = dc_input;
-            filter.read_inputs(&mut context);
+            filter.input = 1.0;
             filter.process();
-            output = filter.output;
         }
 
         // DC gain should be approximately 1.0 for a lowpass filter
         assert!(
-            approx_eq(output, 1.0, 0.01),
+            approx_eq(filter.output, 1.0, 0.01),
             "DC gain should be ~1.0, got {}",
-            output
+            filter.output
         );
     }
 
@@ -287,32 +262,12 @@ mod tests {
         filter.frames_per_update = 1;
         filter.init(sample_rate);
 
-        let cutoff = 2000.0;
-        let q = std::f32::consts::FRAC_1_SQRT_2;
+        filter.cutoff = 2000.0;
+        filter.q = std::f32::consts::FRAC_1_SQRT_2;
         let mut outputs = Vec::new();
 
         for n in 0..8 {
-            let input = if n == 0 { 1.0 } else { 0.0 };
-            let stream_inputs: Vec<ArrayVec<f32, 128>> = vec![input, cutoff, q]
-                .into_iter()
-                .map(|v| {
-                    let mut av = ArrayVec::new();
-                    av.push(v);
-                    av
-                })
-                .collect();
-            let value_storage = vec![
-                None,
-                Some(ValueData::scalar(cutoff)),
-                Some(ValueData::scalar(q)),
-            ];
-            let value_refs: Vec<Option<&ValueData>> =
-                value_storage.iter().map(|opt| opt.as_ref()).collect();
-            let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
-            let mut context =
-                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs);
-            filter.input = input;
-            filter.read_inputs(&mut context);
+            filter.input = if n == 0 { 1.0 } else { 0.0 };
             filter.process();
             outputs.push(filter.output);
         }
@@ -341,40 +296,19 @@ mod tests {
         filter.frames_per_update = 1;
         filter.init(sample_rate);
 
-        let cutoff = 1000.0;
-        let q = 10.0;
+        filter.cutoff = 1000.0;
+        filter.q = 10.0;
 
         // Process impulse and verify stability
         for n in 0..100 {
-            let input = if n == 0 { 1.0 } else { 0.0 };
-            let stream_inputs: Vec<ArrayVec<f32, 128>> = vec![input, cutoff, q]
-                .into_iter()
-                .map(|v| {
-                    let mut av = ArrayVec::new();
-                    av.push(v);
-                    av
-                })
-                .collect();
-            let value_storage = vec![
-                None,
-                Some(ValueData::scalar(cutoff)),
-                Some(ValueData::scalar(q)),
-            ];
-            let value_refs: Vec<Option<&ValueData>> =
-                value_storage.iter().map(|opt| opt.as_ref()).collect();
-            let event_inputs: Vec<&[EventInstance]> = vec![&[]; stream_inputs.len()];
-            let mut context =
-                ProcessingContext::new(&stream_inputs, &value_refs, &event_inputs);
-            filter.input = input;
-            filter.read_inputs(&mut context);
+            filter.input = if n == 0 { 1.0 } else { 0.0 };
             filter.process();
-            let output = filter.output;
 
             assert!(
-                output.abs() < 10.0,
+                filter.output.abs() < 10.0,
                 "Output unstable at sample {}: {}",
                 n,
-                output
+                filter.output
             );
         }
     }

@@ -38,7 +38,7 @@ impl SignalProcessor for EventPassthrough {
 }
 
 impl EventPassthrough {
-    // Event handler called automatically by macro-generated NodeIO
+    // Event handler called automatically by derive macro via process_event_inputs()
     fn on_input(&mut self, event: &crate::graph::EventInstance) {
         // Forward event directly to output EventOutput field
         let _ = self.output.try_push(event.clone());
@@ -46,4 +46,3 @@ impl EventPassthrough {
 }
 
 // Note: Tests for EventPassthrough are integration tests using static graphs
-// The runtime Graph tests have been removed

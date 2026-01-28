@@ -278,7 +278,7 @@ impl SignalProcessor for AdsrEnvelope {
 }
 
 impl AdsrEnvelope {
-    // Event handler called automatically by the macro-generated NodeIO
+    // Event handler called automatically by derive macro via process_event_inputs()
     fn on_gate(&mut self, event: &EventInstance) {
         self.handle_gate_event(event);
     }

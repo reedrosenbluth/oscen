@@ -112,12 +112,12 @@ impl CodegenContext {
             iteration += 1;
 
             for conn in &self.connections {
-                // Special handling for ArrayEventOutput markers (like .voices)
+                // Special handling for voice array markers (like .voices)
                 // These connections indicate event routing
                 if let Some(source_node) = Self::extract_root_node(&conn.source) {
                     if let Some(source_endpoint) = Self::extract_endpoint_field(&conn.source) {
                         if source_endpoint == "voices" {
-                            // This is an ArrayEventOutput marker
+                            // This is a voice array marker
                             // Mark both source and destination as event endpoints
                             let source_key = (source_node.to_string(), source_endpoint.to_string());
                             if type_ctx.get_node_endpoint_type(&source_key.0, &source_key.1).is_none() {
@@ -545,11 +545,11 @@ impl CodegenContext {
                             // Check if source is a graph input (not a node)
                             let source_is_graph_input = self.inputs.iter().any(|i| i.name == *source_ident);
 
-                            // Skip ArrayEventOutput marker connections (like .voices -> array.endpoint)
+                            // Skip voice array marker connections (like .voices -> array.endpoint)
                             // These have special routing handled by the array output node
                             if let Some(ref field) = source_field {
                                 if *field == "voices" {
-                                    // For ArrayEventOutput, the routing is done element-by-element
+                                    // For voice arrays, the routing is done element-by-element
                                     // from source[i] to dest[i]
                                     if let Some(dest_array_size) = self.get_node_array_size(dest_node) {
                                         assignments.push(quote! {
@@ -768,12 +768,11 @@ impl CodegenContext {
             }
         }
 
-        // Match dynamic graph API: process() with no return value
+        // Generate process() method with no return value
         Ok(quote! {
             #[inline(always)]
             pub fn process(&mut self) {
                 use ::oscen::SignalProcessor as _;
-                use ::oscen::graph::ArrayEventOutput as _;
 
                 #(#process_body)*
 

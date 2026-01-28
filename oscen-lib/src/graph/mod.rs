@@ -7,14 +7,10 @@ pub mod types;
 pub use audio_input::AudioInput;
 pub use static_context::ConnectEndpoints;
 pub use topology::TopologyError;
-pub use traits::{
-    ArrayEventOutput, DynNode, IOStructAccess, NodeIO,
-    ProcessingContext, ProcessingNode, SignalProcessor, ValueRef,
-};
+pub use traits::{ProcessingNode, SignalProcessor};
 pub use types::{
-    Connection, ConnectionBuilder, EndpointDescriptor, EndpointDirection, EndpointType, EventInput,
-    EventInstance, EventObject, EventOutput, EventPayload, InputEndpoint, NodeKey,
-    Output, StaticEventQueue, StreamInput, StreamOutput, ValueInput, ValueKey, ValueOutput,
-    ValueParam, MAX_CONNECTIONS_PER_OUTPUT, MAX_EVENTS, MAX_NODE_ENDPOINTS,
+    EndpointDescriptor, EndpointDirection, EndpointType, EventInput, EventInstance, EventObject,
+    EventOutput, EventPayload, InputEndpoint, NodeKey, Output, StaticEventQueue, StreamInput,
+    StreamOutput, ValueInput, ValueKey, ValueOutput, ValueParam, MAX_EVENTS, MAX_NODE_ENDPOINTS,
     MAX_STATIC_EVENTS_PER_ENDPOINT,
 };
