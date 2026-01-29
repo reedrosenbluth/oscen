@@ -1,18 +1,19 @@
 mod editor;
+mod fm_voice;
 mod nodes;
 mod params;
-mod fm_voice;
 
 // DSP nodes used in the graph macro
 #[allow(unused_imports)]
 use nodes::{AddValue, Crossfade, FmOperator, Mixer};
+
+use fm_voice::FMVoice;
 use nih_plug::prelude::*;
 use oscen::graph::{EventInstance, EventPayload};
 use oscen::midi::RawMidiMessage;
 use oscen::prelude::*;
 use params::FMParams;
 use parking_lot::RwLock;
-use fm_voice::FMVoice;
 use std::sync::Arc;
 
 // Main polyphonic FM synth with 8 voices
@@ -126,6 +127,17 @@ graph! {
     }
 }
 
+/// Sync multiple smoothed parameters from NIH-plug params to synth graph inputs.
+macro_rules! sync_params {
+    ($synth:expr, $params:expr, [
+        $($synth_field:ident <- $($param_path:ident).+),* $(,)?
+    ]) => {
+        $(
+            $synth.$synth_field = $params.$($param_path).+.smoothed.next();
+        )*
+    };
+}
+
 pub struct FMSynth {
     params: Arc<FMParams>,
     synth: RwLock<Option<FMGraph>>,
@@ -200,7 +212,10 @@ impl Plugin for FMSynth {
         while let Some(event) = context.next_event() {
             match event {
                 NoteEvent::NoteOn {
-                    note, velocity, timing, ..
+                    note,
+                    velocity,
+                    timing,
+                    ..
                 } => {
                     let vel_byte = (velocity * 127.0).clamp(0.0, 127.0) as u8;
                     let midi_bytes = [0x90, note, vel_byte];
@@ -226,41 +241,39 @@ impl Plugin for FMSynth {
 
         for mut channel_samples in buffer.iter_samples() {
             // Update parameters from NIH-plug's smoothed values
-            // OP3
-            synth.op3_ratio = self.params.op3.ratio.smoothed.next();
-            synth.op3_level = self.params.op3.level.smoothed.next();
-            synth.op3_feedback = self.params.op3.feedback.smoothed.next();
-            synth.op3_attack = self.params.op3.attack.smoothed.next();
-            synth.op3_decay = self.params.op3.decay.smoothed.next();
-            synth.op3_sustain = self.params.op3.sustain.smoothed.next();
-            synth.op3_release = self.params.op3.release.smoothed.next();
-
-            // OP2
-            synth.op2_ratio = self.params.op2.ratio.smoothed.next();
-            synth.op2_level = self.params.op2.level.smoothed.next();
-            synth.op2_feedback = self.params.op2.feedback.smoothed.next();
-            synth.op2_attack = self.params.op2.attack.smoothed.next();
-            synth.op2_decay = self.params.op2.decay.smoothed.next();
-            synth.op2_sustain = self.params.op2.sustain.smoothed.next();
-            synth.op2_release = self.params.op2.release.smoothed.next();
-
-            // OP1
-            synth.op1_attack = self.params.op1.attack.smoothed.next();
-            synth.op1_decay = self.params.op1.decay.smoothed.next();
-            synth.op1_sustain = self.params.op1.sustain.smoothed.next();
-            synth.op1_release = self.params.op1.release.smoothed.next();
-
-            // Route
-            synth.route = self.params.route.smoothed.next();
-
-            // Filter
-            synth.cutoff = self.params.filter.cutoff.smoothed.next();
-            synth.resonance = self.params.filter.resonance.smoothed.next();
-            synth.filter_env_amount = self.params.filter.env_amount.smoothed.next();
-            synth.filter_attack = self.params.filter.attack.smoothed.next();
-            synth.filter_decay = self.params.filter.decay.smoothed.next();
-            synth.filter_sustain = self.params.filter.sustain.smoothed.next();
-            synth.filter_release = self.params.filter.release.smoothed.next();
+            sync_params!(synth, self.params, [
+                // OP3
+                op3_ratio <- op3.ratio,
+                op3_level <- op3.level,
+                op3_feedback <- op3.feedback,
+                op3_attack <- op3.attack,
+                op3_decay <- op3.decay,
+                op3_sustain <- op3.sustain,
+                op3_release <- op3.release,
+                // OP2
+                op2_ratio <- op2.ratio,
+                op2_level <- op2.level,
+                op2_feedback <- op2.feedback,
+                op2_attack <- op2.attack,
+                op2_decay <- op2.decay,
+                op2_sustain <- op2.sustain,
+                op2_release <- op2.release,
+                // OP1
+                op1_attack <- op1.attack,
+                op1_decay <- op1.decay,
+                op1_sustain <- op1.sustain,
+                op1_release <- op1.release,
+                // Route
+                route <- route,
+                // Filter
+                cutoff <- filter.cutoff,
+                resonance <- filter.resonance,
+                filter_env_amount <- filter.env_amount,
+                filter_attack <- filter.attack,
+                filter_decay <- filter.decay,
+                filter_sustain <- filter.sustain,
+                filter_release <- filter.release,
+            ]);
 
             // Process the graph
             synth.process();

@@ -6,6 +6,37 @@ use std::sync::Arc;
 
 slint::include_modules!();
 
+/// Set initial UI values from parameter values.
+macro_rules! set_initial_values {
+    ($ui:expr, $params:expr, [
+        $($setter:ident <- $($param_path:ident).+),* $(,)?
+    ]) => {
+        $(
+            $ui.$setter($params.$($param_path).+.value());
+        )*
+    };
+}
+
+/// Bind UI callbacks to parameter setters.
+macro_rules! bind_param_callbacks {
+    ($ui:expr, $gui_ctx:expr, $params:expr, [
+        $($callback:ident => $($param_path:ident).+),* $(,)?
+    ]) => {
+        $(
+            $ui.$callback({
+                let gui_context = $gui_ctx.clone();
+                let params = $params.clone();
+                move |value| {
+                    let setter = ParamSetter::new(gui_context.as_ref());
+                    setter.begin_set_parameter(&params.$($param_path).+);
+                    setter.set_parameter(&params.$($param_path).+, value);
+                    setter.end_set_parameter(&params.$($param_path).+);
+                }
+            });
+        )*
+    };
+}
+
 /// Create an editor for the FM synth plugin.
 pub fn create(
     params: Arc<FMParams>,
@@ -15,333 +46,74 @@ pub fn create(
         let ui = SynthWindow::new().unwrap();
 
         // Set initial values from params
-        // OP3
-        ui.set_op3_ratio(params.op3.ratio.value());
-        ui.set_op3_level(params.op3.level.value());
-        ui.set_op3_feedback(params.op3.feedback.value());
-        ui.set_op3_attack(params.op3.attack.value());
-        ui.set_op3_decay(params.op3.decay.value());
-        ui.set_op3_sustain(params.op3.sustain.value());
-        ui.set_op3_release(params.op3.release.value());
-
-        // OP2
-        ui.set_op2_ratio(params.op2.ratio.value());
-        ui.set_op2_level(params.op2.level.value());
-        ui.set_op2_feedback(params.op2.feedback.value());
-        ui.set_op2_attack(params.op2.attack.value());
-        ui.set_op2_decay(params.op2.decay.value());
-        ui.set_op2_sustain(params.op2.sustain.value());
-        ui.set_op2_release(params.op2.release.value());
-
-        // OP1
-        ui.set_op1_attack(params.op1.attack.value());
-        ui.set_op1_decay(params.op1.decay.value());
-        ui.set_op1_sustain(params.op1.sustain.value());
-        ui.set_op1_release(params.op1.release.value());
-
-        // Route
-        ui.set_route(params.route.value());
-
-        // Filter
-        ui.set_filter_cutoff(params.filter.cutoff.value());
-        ui.set_filter_resonance(params.filter.resonance.value());
-        ui.set_filter_env_amount(params.filter.env_amount.value());
-        ui.set_filter_attack(params.filter.attack.value());
-        ui.set_filter_decay(params.filter.decay.value());
-        ui.set_filter_sustain(params.filter.sustain.value());
-        ui.set_filter_release(params.filter.release.value());
+        set_initial_values!(ui, params, [
+            // OP3
+            set_op3_ratio <- op3.ratio,
+            set_op3_level <- op3.level,
+            set_op3_feedback <- op3.feedback,
+            set_op3_attack <- op3.attack,
+            set_op3_decay <- op3.decay,
+            set_op3_sustain <- op3.sustain,
+            set_op3_release <- op3.release,
+            // OP2
+            set_op2_ratio <- op2.ratio,
+            set_op2_level <- op2.level,
+            set_op2_feedback <- op2.feedback,
+            set_op2_attack <- op2.attack,
+            set_op2_decay <- op2.decay,
+            set_op2_sustain <- op2.sustain,
+            set_op2_release <- op2.release,
+            // OP1
+            set_op1_attack <- op1.attack,
+            set_op1_decay <- op1.decay,
+            set_op1_sustain <- op1.sustain,
+            set_op1_release <- op1.release,
+            // Route
+            set_route <- route,
+            // Filter
+            set_filter_cutoff <- filter.cutoff,
+            set_filter_resonance <- filter.resonance,
+            set_filter_env_amount <- filter.env_amount,
+            set_filter_attack <- filter.attack,
+            set_filter_decay <- filter.decay,
+            set_filter_sustain <- filter.sustain,
+            set_filter_release <- filter.release,
+        ]);
 
         // Connect callbacks for parameter editing
-        // OP3 callbacks
-        ui.on_op3_ratio_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op3.ratio);
-                setter.set_parameter(&params.op3.ratio, value);
-                setter.end_set_parameter(&params.op3.ratio);
-            }
-        });
-
-        ui.on_op3_level_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op3.level);
-                setter.set_parameter(&params.op3.level, value);
-                setter.end_set_parameter(&params.op3.level);
-            }
-        });
-
-        ui.on_op3_feedback_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op3.feedback);
-                setter.set_parameter(&params.op3.feedback, value);
-                setter.end_set_parameter(&params.op3.feedback);
-            }
-        });
-
-        ui.on_op3_attack_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op3.attack);
-                setter.set_parameter(&params.op3.attack, value);
-                setter.end_set_parameter(&params.op3.attack);
-            }
-        });
-
-        ui.on_op3_decay_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op3.decay);
-                setter.set_parameter(&params.op3.decay, value);
-                setter.end_set_parameter(&params.op3.decay);
-            }
-        });
-
-        ui.on_op3_sustain_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op3.sustain);
-                setter.set_parameter(&params.op3.sustain, value);
-                setter.end_set_parameter(&params.op3.sustain);
-            }
-        });
-
-        ui.on_op3_release_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op3.release);
-                setter.set_parameter(&params.op3.release, value);
-                setter.end_set_parameter(&params.op3.release);
-            }
-        });
-
-        // OP2 callbacks
-        ui.on_op2_ratio_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op2.ratio);
-                setter.set_parameter(&params.op2.ratio, value);
-                setter.end_set_parameter(&params.op2.ratio);
-            }
-        });
-
-        ui.on_op2_level_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op2.level);
-                setter.set_parameter(&params.op2.level, value);
-                setter.end_set_parameter(&params.op2.level);
-            }
-        });
-
-        ui.on_op2_feedback_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op2.feedback);
-                setter.set_parameter(&params.op2.feedback, value);
-                setter.end_set_parameter(&params.op2.feedback);
-            }
-        });
-
-        ui.on_op2_attack_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op2.attack);
-                setter.set_parameter(&params.op2.attack, value);
-                setter.end_set_parameter(&params.op2.attack);
-            }
-        });
-
-        ui.on_op2_decay_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op2.decay);
-                setter.set_parameter(&params.op2.decay, value);
-                setter.end_set_parameter(&params.op2.decay);
-            }
-        });
-
-        ui.on_op2_sustain_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op2.sustain);
-                setter.set_parameter(&params.op2.sustain, value);
-                setter.end_set_parameter(&params.op2.sustain);
-            }
-        });
-
-        ui.on_op2_release_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op2.release);
-                setter.set_parameter(&params.op2.release, value);
-                setter.end_set_parameter(&params.op2.release);
-            }
-        });
-
-        // OP1 callbacks
-        ui.on_op1_attack_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op1.attack);
-                setter.set_parameter(&params.op1.attack, value);
-                setter.end_set_parameter(&params.op1.attack);
-            }
-        });
-
-        ui.on_op1_decay_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op1.decay);
-                setter.set_parameter(&params.op1.decay, value);
-                setter.end_set_parameter(&params.op1.decay);
-            }
-        });
-
-        ui.on_op1_sustain_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op1.sustain);
-                setter.set_parameter(&params.op1.sustain, value);
-                setter.end_set_parameter(&params.op1.sustain);
-            }
-        });
-
-        ui.on_op1_release_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.op1.release);
-                setter.set_parameter(&params.op1.release, value);
-                setter.end_set_parameter(&params.op1.release);
-            }
-        });
-
-        // Route callback
-        ui.on_route_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.route);
-                setter.set_parameter(&params.route, value);
-                setter.end_set_parameter(&params.route);
-            }
-        });
-
-        // Filter callbacks
-        ui.on_filter_cutoff_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.filter.cutoff);
-                setter.set_parameter(&params.filter.cutoff, value);
-                setter.end_set_parameter(&params.filter.cutoff);
-            }
-        });
-
-        ui.on_filter_resonance_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.filter.resonance);
-                setter.set_parameter(&params.filter.resonance, value);
-                setter.end_set_parameter(&params.filter.resonance);
-            }
-        });
-
-        ui.on_filter_env_amount_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.filter.env_amount);
-                setter.set_parameter(&params.filter.env_amount, value);
-                setter.end_set_parameter(&params.filter.env_amount);
-            }
-        });
-
-        ui.on_filter_attack_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.filter.attack);
-                setter.set_parameter(&params.filter.attack, value);
-                setter.end_set_parameter(&params.filter.attack);
-            }
-        });
-
-        ui.on_filter_decay_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.filter.decay);
-                setter.set_parameter(&params.filter.decay, value);
-                setter.end_set_parameter(&params.filter.decay);
-            }
-        });
-
-        ui.on_filter_sustain_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.filter.sustain);
-                setter.set_parameter(&params.filter.sustain, value);
-                setter.end_set_parameter(&params.filter.sustain);
-            }
-        });
-
-        ui.on_filter_release_edited({
-            let gui_context = gui_context.clone();
-            let params = params.clone();
-            move |value| {
-                let setter = ParamSetter::new(gui_context.as_ref());
-                setter.begin_set_parameter(&params.filter.release);
-                setter.set_parameter(&params.filter.release, value);
-                setter.end_set_parameter(&params.filter.release);
-            }
-        });
+        bind_param_callbacks!(ui, gui_context, params, [
+            // OP3
+            on_op3_ratio_edited => op3.ratio,
+            on_op3_level_edited => op3.level,
+            on_op3_feedback_edited => op3.feedback,
+            on_op3_attack_edited => op3.attack,
+            on_op3_decay_edited => op3.decay,
+            on_op3_sustain_edited => op3.sustain,
+            on_op3_release_edited => op3.release,
+            // OP2
+            on_op2_ratio_edited => op2.ratio,
+            on_op2_level_edited => op2.level,
+            on_op2_feedback_edited => op2.feedback,
+            on_op2_attack_edited => op2.attack,
+            on_op2_decay_edited => op2.decay,
+            on_op2_sustain_edited => op2.sustain,
+            on_op2_release_edited => op2.release,
+            // OP1
+            on_op1_attack_edited => op1.attack,
+            on_op1_decay_edited => op1.decay,
+            on_op1_sustain_edited => op1.sustain,
+            on_op1_release_edited => op1.release,
+            // Route
+            on_route_edited => route,
+            // Filter
+            on_filter_cutoff_edited => filter.cutoff,
+            on_filter_resonance_edited => filter.resonance,
+            on_filter_env_amount_edited => filter.env_amount,
+            on_filter_attack_edited => filter.attack,
+            on_filter_decay_edited => filter.decay,
+            on_filter_sustain_edited => filter.sustain,
+            on_filter_release_edited => filter.release,
+        ]);
 
         // Drag handlers for unbounded mouse movement
         ui.on_knob_drag_started({

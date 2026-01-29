@@ -1,4 +1,5 @@
 ### Small todos
+- remove stale `set_value_with_ramp` comment in types.rs:642 and investigate why it was removed
 - slotmap capacity
 - replace ArrayVecs with SlotMaps?
 - investigate oscillator amplitude modulation

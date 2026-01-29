@@ -2,6 +2,34 @@ use nih_plug::prelude::*;
 use nih_plug_slint::SlintState;
 use std::sync::Arc;
 
+/// Create a time parameter (attack, decay, release) with skewed range and seconds unit.
+fn time_param(name: &str, default: f32) -> FloatParam {
+    FloatParam::new(
+        name,
+        default,
+        FloatRange::Skewed {
+            min: 0.001,
+            max: 2.0,
+            factor: FloatRange::skew_factor(-2.0),
+        },
+    )
+    .with_smoother(SmoothingStyle::Linear(50.0))
+    .with_unit(" s")
+}
+
+/// Create a level parameter (0.0 to max) with linear range.
+fn level_param(name: &str, default: f32, max: f32) -> FloatParam {
+    FloatParam::new(name, default, FloatRange::Linear { min: 0.0, max })
+        .with_smoother(SmoothingStyle::Linear(50.0))
+}
+
+/// Create a ratio parameter (0.5 to 16.0) with 0.5 step size.
+fn ratio_param(name: &str, default: f32) -> FloatParam {
+    FloatParam::new(name, default, FloatRange::Linear { min: 0.5, max: 16.0 })
+        .with_step_size(0.5)
+        .with_smoother(SmoothingStyle::Linear(50.0))
+}
+
 /// Parameters for Operator 3 (top modulator)
 #[derive(Params)]
 pub struct Op3Params {
@@ -30,70 +58,13 @@ pub struct Op3Params {
 impl Default for Op3Params {
     fn default() -> Self {
         Self {
-            ratio: FloatParam::new(
-                "OP3 Ratio",
-                3.0,
-                FloatRange::Linear { min: 0.5, max: 16.0 },
-            )
-            .with_step_size(0.5)
-            .with_smoother(SmoothingStyle::Linear(50.0)),
-
-            level: FloatParam::new(
-                "OP3 Level",
-                0.5,
-                FloatRange::Linear { min: 0.0, max: 2.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0)),
-
-            feedback: FloatParam::new(
-                "OP3 Feedback",
-                0.0,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0)),
-
-            attack: FloatParam::new(
-                "OP3 Attack",
-                0.01,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
-
-            decay: FloatParam::new(
-                "OP3 Decay",
-                0.1,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
-
-            sustain: FloatParam::new(
-                "OP3 Sustain",
-                0.7,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0)),
-
-            release: FloatParam::new(
-                "OP3 Release",
-                0.3,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
+            ratio: ratio_param("OP3 Ratio", 3.0),
+            level: level_param("OP3 Level", 0.5, 2.0),
+            feedback: level_param("OP3 Feedback", 0.0, 1.0),
+            attack: time_param("OP3 Attack", 0.01),
+            decay: time_param("OP3 Decay", 0.1),
+            sustain: level_param("OP3 Sustain", 0.7, 1.0),
+            release: time_param("OP3 Release", 0.3),
         }
     }
 }
@@ -126,70 +97,13 @@ pub struct Op2Params {
 impl Default for Op2Params {
     fn default() -> Self {
         Self {
-            ratio: FloatParam::new(
-                "OP2 Ratio",
-                2.0,
-                FloatRange::Linear { min: 0.5, max: 16.0 },
-            )
-            .with_step_size(0.5)
-            .with_smoother(SmoothingStyle::Linear(50.0)),
-
-            level: FloatParam::new(
-                "OP2 Level",
-                0.5,
-                FloatRange::Linear { min: 0.0, max: 2.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0)),
-
-            feedback: FloatParam::new(
-                "OP2 Feedback",
-                0.0,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0)),
-
-            attack: FloatParam::new(
-                "OP2 Attack",
-                0.01,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
-
-            decay: FloatParam::new(
-                "OP2 Decay",
-                0.1,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
-
-            sustain: FloatParam::new(
-                "OP2 Sustain",
-                0.7,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0)),
-
-            release: FloatParam::new(
-                "OP2 Release",
-                0.3,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
+            ratio: ratio_param("OP2 Ratio", 2.0),
+            level: level_param("OP2 Level", 0.5, 2.0),
+            feedback: level_param("OP2 Feedback", 0.0, 1.0),
+            attack: time_param("OP2 Attack", 0.01),
+            decay: time_param("OP2 Decay", 0.1),
+            sustain: level_param("OP2 Sustain", 0.7, 1.0),
+            release: time_param("OP2 Release", 0.3),
         }
     }
 }
@@ -213,48 +127,10 @@ pub struct Op1Params {
 impl Default for Op1Params {
     fn default() -> Self {
         Self {
-            attack: FloatParam::new(
-                "OP1 Attack",
-                0.01,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
-
-            decay: FloatParam::new(
-                "OP1 Decay",
-                0.2,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
-
-            sustain: FloatParam::new(
-                "OP1 Sustain",
-                0.8,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0)),
-
-            release: FloatParam::new(
-                "OP1 Release",
-                0.5,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
+            attack: time_param("OP1 Attack", 0.01),
+            decay: time_param("OP1 Decay", 0.2),
+            sustain: level_param("OP1 Sustain", 0.8, 1.0),
+            release: time_param("OP1 Release", 0.5),
         }
     }
 }
@@ -299,14 +175,12 @@ impl Default for FilterParams {
             .with_smoother(SmoothingStyle::Linear(50.0))
             .with_unit(" Hz")
             .with_value_to_string(formatters::v2s_f32_rounded(0)),
-
             resonance: FloatParam::new(
                 "Filter Resonance",
                 0.707,
                 FloatRange::Linear { min: 0.1, max: 10.0 },
             )
             .with_smoother(SmoothingStyle::Linear(50.0)),
-
             env_amount: FloatParam::new(
                 "Filter Env Amount",
                 0.0,
@@ -317,49 +191,10 @@ impl Default for FilterParams {
             )
             .with_smoother(SmoothingStyle::Linear(50.0))
             .with_unit(" Hz"),
-
-            attack: FloatParam::new(
-                "Filter Attack",
-                0.01,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
-
-            decay: FloatParam::new(
-                "Filter Decay",
-                0.2,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
-
-            sustain: FloatParam::new(
-                "Filter Sustain",
-                0.5,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0)),
-
-            release: FloatParam::new(
-                "Filter Release",
-                0.3,
-                FloatRange::Skewed {
-                    min: 0.001,
-                    max: 2.0,
-                    factor: FloatRange::skew_factor(-2.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_unit(" s"),
+            attack: time_param("Filter Attack", 0.01),
+            decay: time_param("Filter Decay", 0.2),
+            sustain: level_param("Filter Sustain", 0.5, 1.0),
+            release: time_param("Filter Release", 0.3),
         }
     }
 }
