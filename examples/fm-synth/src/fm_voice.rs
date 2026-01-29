@@ -4,7 +4,7 @@ use oscen::prelude::*;
 // 3-operator FM voice with routing crossfade
 // Route parameter blends OP3's modulation between OP2 (route=0) and OP1 (route=1)
 graph! {
-    name: PivotVoice;
+    name: FMVoice;
 
     // Voice inputs
     input frequency: value = 440.0;

@@ -366,7 +366,7 @@ impl Default for FilterParams {
 
 /// Main plugin parameters with nested groups
 #[derive(Params)]
-pub struct PivotParams {
+pub struct FMParams {
     #[persist = "editor-state"]
     pub editor_state: Arc<SlintState>,
 
@@ -386,7 +386,7 @@ pub struct PivotParams {
     pub filter: FilterParams,
 }
 
-impl Default for PivotParams {
+impl Default for FMParams {
     fn default() -> Self {
         Self {
             editor_state: SlintState::from_size(750, 400),

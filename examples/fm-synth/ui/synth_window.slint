@@ -217,7 +217,7 @@ component RotaryKnob inherits Rectangle {
     }
 }
 
-// Operator row component - horizontal strip like Pivot's layout
+// Operator row component - horizontal strip layout
 component OperatorRow inherits Rectangle {
     in property <string> op_label: "3";
     in property <brush> accent_color: #666666;
@@ -263,7 +263,7 @@ component OperatorRow inherits Rectangle {
         padding: 8px;
         spacing: 16px;
 
-        // Sidebar with operator number (like Pivot's dice sidebar)
+        // Sidebar with operator number
         Rectangle {
             width: 28px;
             background: root.accent_color;
@@ -608,7 +608,7 @@ component FilterRow inherits Rectangle {
 }
 
 export component SynthWindow inherits Window {
-    title: "Pivot";
+    title: "FM Synth";
     background: #1A1A1A;
 
     // OP3 parameters

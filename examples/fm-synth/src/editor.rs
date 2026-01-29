@@ -1,15 +1,15 @@
-use crate::params::PivotParams;
-use crate::Pivot;
+use crate::params::FMParams;
+use crate::FMSynth;
 use nih_plug::prelude::*;
 use nih_plug_slint::create_slint_editor;
 use std::sync::Arc;
 
 slint::include_modules!();
 
-/// Create an editor for the Pivot plugin.
+/// Create an editor for the FM synth plugin.
 pub fn create(
-    params: Arc<PivotParams>,
-    _async_executor: AsyncExecutor<Pivot>,
+    params: Arc<FMParams>,
+    _async_executor: AsyncExecutor<FMSynth>,
 ) -> Option<Box<dyn Editor>> {
     create_slint_editor(params.editor_state.clone(), move |gui_context, mouse_control| {
         let ui = SynthWindow::new().unwrap();

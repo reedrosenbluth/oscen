@@ -1,7 +1,7 @@
 mod editor;
 mod nodes;
 mod params;
-mod pivot_voice;
+mod fm_voice;
 
 // DSP nodes used in the graph macro
 #[allow(unused_imports)]
@@ -10,14 +10,14 @@ use nih_plug::prelude::*;
 use oscen::graph::{EventInstance, EventPayload};
 use oscen::midi::RawMidiMessage;
 use oscen::prelude::*;
-use params::PivotParams;
+use params::FMParams;
 use parking_lot::RwLock;
-use pivot_voice::PivotVoice;
+use fm_voice::FMVoice;
 use std::sync::Arc;
 
-// Main polyphonic Pivot synth with 8 voices
+// Main polyphonic FM synth with 8 voices
 graph! {
-    name: PivotGraph;
+    name: FMGraph;
 
     // MIDI input (raw MIDI bytes)
     input midi_in: event;
@@ -65,7 +65,7 @@ graph! {
         midi_parser = MidiParser::new();
         voice_allocator = VoiceAllocator::<8>::new();
         voice_handlers = [MidiVoiceHandler::new(); 8];
-        voices = [PivotVoice::new(); 8];
+        voices = [FMVoice::new(); 8];
     }
 
     connections {
@@ -126,21 +126,21 @@ graph! {
     }
 }
 
-pub struct Pivot {
-    params: Arc<PivotParams>,
-    synth: RwLock<Option<PivotGraph>>,
+pub struct FMSynth {
+    params: Arc<FMParams>,
+    synth: RwLock<Option<FMGraph>>,
 }
 
-impl Default for Pivot {
+impl Default for FMSynth {
     fn default() -> Self {
         Self {
-            params: Arc::new(PivotParams::default()),
+            params: Arc::new(FMParams::default()),
             synth: RwLock::new(None),
         }
     }
 }
 
-impl Plugin for Pivot {
+impl Plugin for FMSynth {
     const NAME: &'static str = "Oscen FM";
     const VENDOR: &'static str = "Oscen";
     const URL: &'static str = "https://reed.nyc";
@@ -178,7 +178,7 @@ impl Plugin for Pivot {
         _context: &mut impl InitContext<Self>,
     ) -> bool {
         let sample_rate = buffer_config.sample_rate;
-        let mut synth = PivotGraph::new();
+        let mut synth = FMGraph::new();
         synth.init(sample_rate);
         *self.synth.write() = Some(synth);
         true
@@ -276,7 +276,7 @@ impl Plugin for Pivot {
     }
 }
 
-impl ClapPlugin for Pivot {
+impl ClapPlugin for FMSynth {
     const CLAP_ID: &'static str = "com.oscen.fm";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("3-operator FM synthesizer");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
@@ -288,11 +288,11 @@ impl ClapPlugin for Pivot {
     ];
 }
 
-impl Vst3Plugin for Pivot {
+impl Vst3Plugin for FMSynth {
     const VST3_CLASS_ID: [u8; 16] = *b"OscenFMSynthPlug";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
         &[Vst3SubCategory::Instrument, Vst3SubCategory::Synth];
 }
 
-nih_export_clap!(Pivot);
-nih_export_vst3!(Pivot);
+nih_export_clap!(FMSynth);
+nih_export_vst3!(FMSynth);
