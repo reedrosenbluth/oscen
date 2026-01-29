@@ -9,8 +9,8 @@ crate-type = ["cdylib"]
 [dependencies]
 oscen = { path = "../../oscen-lib" }
 oscen-macros = { path = "../../oscen-macros", features = ["nih-plug"] }
-nih_plug = { path = "/Users/reedrosenbluth/Developer/nih-plug" }
-nih_plug_slint = { path = "/Users/reedrosenbluth/Developer/nih-plug/nih_plug_slint" }
+nih_plug = { git = "https://github.com/reedrosenbluth/nih-plug" }
+nih_plug_slint = { git = "https://github.com/reedrosenbluth/nih-plug" }
 parking_lot = "0.12"
 arrayvec = "0.7"
 atomic_float = "1"
