@@ -14,6 +14,9 @@ pub enum GraphItem {
     NodeBlock(NodeBlock),
     Connection(ConnectionStmt),
     ConnectionBlock(ConnectionBlock),
+    /// `nih_params;` - enables NIH-plug parameter generation
+    /// Params struct name is derived from graph name: FMGraph -> FMGraphParams
+    NihParams,
 }
 
 /// Wrapper for node block to avoid orphan rule
@@ -85,18 +88,51 @@ pub enum EndpointKind {
     Event,
 }
 
-/// Parameter specification (range, curve, ramp)
+/// Parameter specification (range, curve, ramp, and NIH-plug specific fields)
 #[allow(dead_code)]
 pub struct ParamSpec {
+    // Existing fields
     pub range: Option<RangeSpec>,
     pub curve: Option<Curve>,
     pub ramp: Option<usize>,
+    // NIH-plug specific fields
+    pub skew: Option<Expr>,           // FloatRange skew factor
+    pub unit: Option<String>,          // Display unit (e.g., " Hz")
+    pub smoother: Option<Expr>,        // Smoothing time in ms
+    pub step: Option<Expr>,            // Step size
+    pub display_name: Option<String>,  // Human-readable name (defaults to field name)
+    pub group: Option<String>,         // Nested params group
+}
+
+impl Clone for ParamSpec {
+    fn clone(&self) -> Self {
+        Self {
+            range: self.range.clone(),
+            curve: self.curve,
+            ramp: self.ramp,
+            skew: self.skew.clone(),
+            unit: self.unit.clone(),
+            smoother: self.smoother.clone(),
+            step: self.step.clone(),
+            display_name: self.display_name.clone(),
+            group: self.group.clone(),
+        }
+    }
 }
 
 #[allow(dead_code)]
 pub struct RangeSpec {
     pub min: Expr,
     pub max: Expr,
+}
+
+impl Clone for RangeSpec {
+    fn clone(&self) -> Self {
+        Self {
+            min: self.min.clone(),
+            max: self.max.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -6,7 +6,7 @@ use oscen as _;
 fn test_just_range() {
     graph! {
         name: TestJustRangeGraph;
-        input value cutoff = 3000.0 [range(20.0, 20000.0)];
+        input value cutoff = 3000.0 [20.0..20000.0];
         output stream out;
     }
 }
@@ -24,7 +24,7 @@ fn test_just_log() {
 fn test_range_and_log() {
     graph! {
         name: TestRangeAndLogGraph;
-        input value cutoff = 3000.0 [range(20.0, 20000.0), log];
+        input value cutoff = 3000.0 [20.0..20000.0, log];
         output stream out;
     }
 }

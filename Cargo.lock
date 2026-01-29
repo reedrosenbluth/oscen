@@ -2279,6 +2279,7 @@ dependencies = [
  "oscen",
  "oscen-macros",
  "parking_lot",
+ "paste",
  "slint",
  "slint-build",
 ]
@@ -4770,6 +4771,7 @@ name = "oscen-macros"
 version = "0.2.0"
 dependencies = [
  "arrayvec",
+ "nih_plug 0.0.0",
  "oscen",
  "proc-macro2",
  "quote",

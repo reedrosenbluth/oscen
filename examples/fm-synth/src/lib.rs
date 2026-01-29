@@ -1,7 +1,6 @@
 mod editor;
 mod fm_voice;
 mod nodes;
-mod params;
 
 // DSP nodes used in the graph macro
 #[allow(unused_imports)]
@@ -9,56 +8,57 @@ use nodes::{AddValue, Crossfade, FmOperator, Mixer};
 
 use fm_voice::FMVoice;
 use nih_plug::prelude::*;
+use nih_plug_slint::SlintState;
 use oscen::graph::{EventInstance, EventPayload};
 use oscen::midi::RawMidiMessage;
 use oscen::prelude::*;
-use params::FMParams;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
 // Main polyphonic FM synth with 8 voices
 graph! {
     name: FMGraph;
+    nih_params;
 
     // MIDI input (raw MIDI bytes)
     input midi_in: event;
 
     // OP3 parameters
-    input op3_ratio: value = 3.0;
-    input op3_level: value = 0.5;
-    input op3_feedback: value = 0.0;
-    input op3_attack: value = 0.01;
-    input op3_decay: value = 0.1;
-    input op3_sustain: value = 0.7;
-    input op3_release: value = 0.3;
+    input op3_ratio: value = 3.0 [0.5..16.0, step = 0.5];
+    input op3_level: value = 0.5 [0.0..2.0];
+    input op3_feedback: value = 0.0 [0.0..1.0];
+    input op3_attack: value = 0.01 [0.001..2.0 @ -2.0, unit = "s"];
+    input op3_decay: value = 0.1 [0.001..2.0 @ -2.0, unit = "s"];
+    input op3_sustain: value = 0.7 [0.0..1.0];
+    input op3_release: value = 0.3 [0.001..2.0 @ -2.0, unit = "s"];
 
     // OP2 parameters
-    input op2_ratio: value = 2.0;
-    input op2_level: value = 0.5;
-    input op2_feedback: value = 0.0;
-    input op2_attack: value = 0.01;
-    input op2_decay: value = 0.1;
-    input op2_sustain: value = 0.7;
-    input op2_release: value = 0.3;
+    input op2_ratio: value = 2.0 [0.5..16.0, step = 0.5];
+    input op2_level: value = 0.5 [0.0..2.0];
+    input op2_feedback: value = 0.0 [0.0..1.0];
+    input op2_attack: value = 0.01 [0.001..2.0 @ -2.0, unit = "s"];
+    input op2_decay: value = 0.1 [0.001..2.0 @ -2.0, unit = "s"];
+    input op2_sustain: value = 0.7 [0.0..1.0];
+    input op2_release: value = 0.3 [0.001..2.0 @ -2.0, unit = "s"];
 
-    // OP1 parameters (ratio always 1.0, no feedback)
-    input op1_ratio: value = 1.0;
-    input op1_attack: value = 0.01;
-    input op1_decay: value = 0.2;
-    input op1_sustain: value = 0.8;
-    input op1_release: value = 0.5;
+    // OP1 parameters
+    input op1_ratio: value = 1.0 [0.5..16.0, step = 0.5];
+    input op1_attack: value = 0.01 [0.001..2.0 @ -2.0, unit = "s"];
+    input op1_decay: value = 0.2 [0.001..2.0 @ -2.0, unit = "s"];
+    input op1_sustain: value = 0.8 [0.0..1.0];
+    input op1_release: value = 0.5 [0.001..2.0 @ -2.0, unit = "s"];
 
     // Route: blends OP3 between OP2 (0.0) and OP1 (1.0)
-    input route: value = 0.0;
+    input route: value = 0.0 [0.0..1.0];
 
     // Filter parameters
-    input cutoff: value = 2000.0;
-    input resonance: value = 0.707;
-    input filter_attack: value = 0.01;
-    input filter_decay: value = 0.2;
-    input filter_sustain: value = 0.5;
-    input filter_release: value = 0.3;
-    input filter_env_amount: value = 0.0;
+    input filter_cutoff: value = 2000.0 [20.0..20000.0 @ -2.0, unit = "Hz"];
+    input filter_resonance: value = 0.707 [0.1..10.0];
+    input filter_attack: value = 0.01 [0.001..2.0 @ -2.0, unit = "s"];
+    input filter_decay: value = 0.2 [0.001..2.0 @ -2.0, unit = "s"];
+    input filter_sustain: value = 0.5 [0.0..1.0];
+    input filter_release: value = 0.3 [0.001..2.0 @ -2.0, unit = "s"];
+    input filter_env_amount: value = 0.0 [-10000.0..10000.0, unit = "Hz"];
 
     output audio_out: stream;
 
@@ -114,8 +114,8 @@ graph! {
         route -> voices.route;
 
         // Broadcast filter parameters to all voices
-        cutoff -> voices.cutoff;
-        resonance -> voices.resonance;
+        filter_cutoff -> voices.cutoff;
+        filter_resonance -> voices.resonance;
         filter_attack -> voices.filter_attack;
         filter_decay -> voices.filter_decay;
         filter_sustain -> voices.filter_sustain;
@@ -127,26 +127,41 @@ graph! {
     }
 }
 
-/// Sync multiple smoothed parameters from NIH-plug params to synth graph inputs.
-macro_rules! sync_params {
-    ($synth:expr, $params:expr, [
-        $($synth_field:ident <- $($param_path:ident).+),* $(,)?
-    ]) => {
-        $(
-            $synth.$synth_field = $params.$($param_path).+.smoothed.next();
-        )*
-    };
+/// Main plugin parameters - wraps generated params with editor state
+#[derive(Params)]
+pub struct FMSynthParams {
+    #[persist = "editor-state"]
+    pub editor_state: Arc<SlintState>,
+
+    #[nested(group = "Synth")]
+    pub synth: FMGraphParams,
+}
+
+impl Default for FMSynthParams {
+    fn default() -> Self {
+        Self {
+            editor_state: SlintState::from_size(750, 400),
+            synth: FMGraphParams::default(),
+        }
+    }
+}
+
+impl FMSynthParams {
+    #[inline(always)]
+    pub fn sync_to(&self, graph: &mut FMGraph) {
+        self.synth.sync_to(graph);
+    }
 }
 
 pub struct FMSynth {
-    params: Arc<FMParams>,
+    params: Arc<FMSynthParams>,
     synth: RwLock<Option<FMGraph>>,
 }
 
 impl Default for FMSynth {
     fn default() -> Self {
         Self {
-            params: Arc::new(FMParams::default()),
+            params: Arc::new(FMSynthParams::default()),
             synth: RwLock::new(None),
         }
     }
@@ -241,39 +256,7 @@ impl Plugin for FMSynth {
 
         for mut channel_samples in buffer.iter_samples() {
             // Update parameters from NIH-plug's smoothed values
-            sync_params!(synth, self.params, [
-                // OP3
-                op3_ratio <- op3.ratio,
-                op3_level <- op3.level,
-                op3_feedback <- op3.feedback,
-                op3_attack <- op3.attack,
-                op3_decay <- op3.decay,
-                op3_sustain <- op3.sustain,
-                op3_release <- op3.release,
-                // OP2
-                op2_ratio <- op2.ratio,
-                op2_level <- op2.level,
-                op2_feedback <- op2.feedback,
-                op2_attack <- op2.attack,
-                op2_decay <- op2.decay,
-                op2_sustain <- op2.sustain,
-                op2_release <- op2.release,
-                // OP1
-                op1_attack <- op1.attack,
-                op1_decay <- op1.decay,
-                op1_sustain <- op1.sustain,
-                op1_release <- op1.release,
-                // Route
-                route <- route,
-                // Filter
-                cutoff <- filter.cutoff,
-                resonance <- filter.resonance,
-                filter_env_amount <- filter.env_amount,
-                filter_attack <- filter.attack,
-                filter_decay <- filter.decay,
-                filter_sustain <- filter.sustain,
-                filter_release <- filter.release,
-            ]);
+            self.params.sync_to(synth);
 
             // Process the graph
             synth.process();

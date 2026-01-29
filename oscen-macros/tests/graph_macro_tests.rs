@@ -6,7 +6,7 @@ fn test_basic_graph_parsing() {
     graph! {
         name: TestBasicGraph;
 
-        input value cutoff = 3000.0 [range(20.0, 20000.0), log, ramp(1323)];
+        input value cutoff = 3000.0 [20.0..20000.0, log, ramp: 1323];
         input value volume = 0.8;
         input event gate;
 
@@ -73,9 +73,9 @@ fn test_mixed_syntax() {
     graph! {
         name: TestMixedSyntaxGraph;
 
-        // Parameters
-        input value cutoff = 3000.0 [range(20.0, 20000.0), log];
-        input value q_factor = 0.707 [range(0.1, 10.0)];
+        // Parameters with compact bracket syntax
+        input value cutoff = 3000.0 [20.0..20000.0, log];
+        input value q_factor = 0.707 [0.1..10.0];
         input value volume = 0.8;
         input event gate;
 

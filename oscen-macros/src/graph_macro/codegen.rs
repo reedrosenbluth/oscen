@@ -31,6 +31,7 @@ struct CodegenContext {
     outputs: Vec<OutputDecl>,
     nodes: Vec<NodeDecl>,
     connections: Vec<ConnectionStmt>,
+    nih_params: bool,
 }
 
 impl CodegenContext {
@@ -40,6 +41,7 @@ impl CodegenContext {
             outputs: Vec::new(),
             nodes: Vec::new(),
             connections: Vec::new(),
+            nih_params: false,
         }
     }
 
@@ -62,6 +64,9 @@ impl CodegenContext {
             }
             GraphItem::ConnectionBlock(block) => {
                 self.connections.extend_from_slice(&block.0);
+            }
+            GraphItem::NihParams => {
+                self.nih_params = true;
             }
         }
         Ok(())
@@ -886,6 +891,177 @@ impl CodegenContext {
         }
     }
 
+    // ========== NIH-plug Parameter Generation ==========
+
+    /// Generate the NIH-plug params struct and its implementations
+    /// Only called when `nih_params` flag is set and feature is enabled
+    fn generate_nih_params_struct(&self, graph_name: &syn::Ident) -> TokenStream {
+        let params_name = syn::Ident::new(
+            &format!("{}Params", graph_name),
+            graph_name.span(),
+        );
+
+        // Collect value inputs for parameter generation
+        let value_inputs: Vec<_> = self.inputs.iter()
+            .filter(|input| input.kind == EndpointKind::Value)
+            .collect();
+
+        // Generate field definitions
+        let param_fields: Vec<_> = value_inputs.iter().map(|input| {
+            let field_name = &input.name;
+            let id_string = field_name.to_string();
+            quote! {
+                #[id = #id_string]
+                pub #field_name: ::nih_plug::prelude::FloatParam
+            }
+        }).collect();
+
+        // Generate Default impl with FloatParam constructors
+        let param_defaults: Vec<_> = value_inputs.iter().map(|input| {
+            let field_name = &input.name;
+            let display_name = input.spec.as_ref()
+                .and_then(|s| s.display_name.clone())
+                .unwrap_or_else(|| {
+                    // Convert snake_case to Title Case
+                    field_name.to_string()
+                        .split('_')
+                        .map(|word| {
+                            let mut chars = word.chars();
+                            match chars.next() {
+                                None => String::new(),
+                                Some(first) => first.to_uppercase().chain(chars).collect(),
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                });
+
+            let default_val = input.default.as_ref()
+                .map(|expr| quote! { #expr })
+                .unwrap_or_else(|| quote! { 0.0 });
+
+            // Build the FloatRange
+            let range_expr = if let Some(spec) = &input.spec {
+                if let Some(range) = &spec.range {
+                    let min = &range.min;
+                    let max = &range.max;
+                    if let Some(skew) = &spec.skew {
+                        quote! {
+                            ::nih_plug::prelude::FloatRange::Skewed {
+                                min: #min,
+                                max: #max,
+                                factor: ::nih_plug::prelude::FloatRange::skew_factor(#skew),
+                            }
+                        }
+                    } else {
+                        quote! {
+                            ::nih_plug::prelude::FloatRange::Linear {
+                                min: #min,
+                                max: #max,
+                            }
+                        }
+                    }
+                } else {
+                    // No range specified, default to 0..1
+                    quote! {
+                        ::nih_plug::prelude::FloatRange::Linear {
+                            min: 0.0,
+                            max: 1.0,
+                        }
+                    }
+                }
+            } else {
+                // No spec at all, default to 0..1
+                quote! {
+                    ::nih_plug::prelude::FloatRange::Linear {
+                        min: 0.0,
+                        max: 1.0,
+                    }
+                }
+            };
+
+            // Build the FloatParam with optional modifiers
+            let mut param_builder = quote! {
+                ::nih_plug::prelude::FloatParam::new(
+                    #display_name,
+                    #default_val,
+                    #range_expr,
+                )
+            };
+
+            // Add smoother (default to 50ms if not specified)
+            let smoother_ms = input.spec.as_ref()
+                .and_then(|s| s.smoother.clone());
+            if let Some(smoother_val) = smoother_ms {
+                param_builder = quote! {
+                    #param_builder
+                        .with_smoother(::nih_plug::prelude::SmoothingStyle::Linear(#smoother_val))
+                };
+            } else {
+                // Default 50ms smoothing for all NIH params
+                param_builder = quote! {
+                    #param_builder
+                        .with_smoother(::nih_plug::prelude::SmoothingStyle::Linear(50.0))
+                };
+            }
+
+            // Add optional unit
+            if let Some(spec) = &input.spec {
+                if let Some(unit) = &spec.unit {
+                    // Prepend space to unit for proper display (e.g., "Hz" -> " Hz")
+                    let unit_with_space = format!(" {}", unit);
+                    param_builder = quote! {
+                        #param_builder
+                            .with_unit(#unit_with_space)
+                    };
+                }
+
+                // Add optional step size
+                if let Some(step) = &spec.step {
+                    param_builder = quote! {
+                        #param_builder
+                            .with_step_size(#step)
+                    };
+                }
+            }
+
+            quote! {
+                #field_name: #param_builder
+            }
+        }).collect();
+
+        // Generate sync_to method
+        let sync_assignments: Vec<_> = value_inputs.iter().map(|input| {
+            let field_name = &input.name;
+            quote! {
+                graph.#field_name = self.#field_name.smoothed.next();
+            }
+        }).collect();
+
+        quote! {
+            #[derive(::nih_plug::prelude::Params)]
+            pub struct #params_name {
+                #(#param_fields),*
+            }
+
+            impl Default for #params_name {
+                fn default() -> Self {
+                    Self {
+                        #(#param_defaults),*
+                    }
+                }
+            }
+
+            impl #params_name {
+                /// Sync all smoothed parameter values to the graph (call per sample)
+                #[inline(always)]
+                pub fn sync_to(&self, graph: &mut #graph_name) {
+                    #(#sync_assignments)*
+                }
+            }
+        }
+    }
+
     fn generate_static_struct(&self, name: &syn::Ident) -> Result<TokenStream> {
         let mut fields = vec![quote! { sample_rate: f32 }];
 
@@ -959,6 +1135,13 @@ impl CodegenContext {
             }
         }).collect();
 
+        // Generate NIH-plug params struct if nih_params flag is set
+        let nih_params_output = if self.nih_params {
+            self.generate_nih_params_struct(name)
+        } else {
+            quote! {}
+        };
+
         Ok(quote! {
             #[allow(dead_code)]
             #[derive(Debug)]
@@ -1008,6 +1191,8 @@ impl CodegenContext {
                     // This is already implemented in the impl block above
                 }
             }
+
+            #nih_params_output
         })
     }
 }
@@ -1020,7 +1205,7 @@ impl Clone for InputDecl {
             name: self.name.clone(),
             ty: self.ty.clone(),
             default: self.default.clone(),
-            spec: None, // Skip spec for now
+            spec: self.spec.clone(),
         }
     }
 }

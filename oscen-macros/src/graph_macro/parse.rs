@@ -30,7 +30,12 @@ impl Parse for GraphItem {
     fn parse(input: ParseStream) -> Result<Self> {
         let lookahead = input.lookahead1();
 
-        if lookahead.peek(kw::input) {
+        if lookahead.peek(kw::nih_params) {
+            // Parse `nih_params;` statement
+            input.parse::<kw::nih_params>()?;
+            input.parse::<Token![;]>()?;
+            Ok(GraphItem::NihParams)
+        } else if lookahead.peek(kw::input) {
             Ok(GraphItem::Input(input.parse()?))
         } else if lookahead.peek(kw::output) {
             Ok(GraphItem::Output(input.parse()?))
@@ -62,6 +67,96 @@ impl Parse for GraphItem {
             Err(lookahead.error())
         }
     }
+}
+
+/// Parse brace-style ParamSpec for NIH-plug parameters
+/// Syntax: { range: 20.0..20000.0, skew: -2.0, unit: " Hz", smoother: 50.0, step: 0.5, display_name: "Cutoff", group: "Filter" }
+fn parse_brace_param_spec(input: ParseStream) -> Result<ParamSpec> {
+    let content;
+    braced!(content in input);
+
+    let mut range = None;
+    let mut curve = None;
+    let mut ramp = None;
+    let mut skew = None;
+    let mut unit = None;
+    let mut smoother = None;
+    let mut step = None;
+    let mut display_name = None;
+    let mut group = None;
+
+    // Parse comma-separated key: value pairs
+    while !content.is_empty() {
+        let lookahead = content.lookahead1();
+
+        if lookahead.peek(kw::range) {
+            content.parse::<kw::range>()?;
+            content.parse::<Token![:]>()?;
+            // Parse range expression: min..max
+            // Use parse_simple_expr to avoid consuming the `..` as part of a range expression
+            let min = parse_simple_expr(&content)?;
+            content.parse::<Token![..]>()?;
+            let max = parse_simple_expr(&content)?;
+            range = Some(RangeSpec { min, max });
+        } else if lookahead.peek(kw::skew) {
+            content.parse::<kw::skew>()?;
+            content.parse::<Token![:]>()?;
+            skew = Some(content.parse()?);
+        } else if lookahead.peek(kw::unit) {
+            content.parse::<kw::unit>()?;
+            content.parse::<Token![:]>()?;
+            let lit: syn::LitStr = content.parse()?;
+            unit = Some(lit.value());
+        } else if lookahead.peek(kw::smoother) {
+            content.parse::<kw::smoother>()?;
+            content.parse::<Token![:]>()?;
+            smoother = Some(content.parse()?);
+        } else if lookahead.peek(kw::step) {
+            content.parse::<kw::step>()?;
+            content.parse::<Token![:]>()?;
+            step = Some(content.parse()?);
+        } else if lookahead.peek(kw::name) {
+            content.parse::<kw::name>()?;
+            content.parse::<Token![:]>()?;
+            let lit: syn::LitStr = content.parse()?;
+            display_name = Some(lit.value());
+        } else if lookahead.peek(kw::group) {
+            content.parse::<kw::group>()?;
+            content.parse::<Token![:]>()?;
+            let lit: syn::LitStr = content.parse()?;
+            group = Some(lit.value());
+        } else if lookahead.peek(kw::linear) {
+            content.parse::<kw::linear>()?;
+            curve = Some(Curve::Linear);
+        } else if lookahead.peek(kw::log) {
+            content.parse::<kw::log>()?;
+            curve = Some(Curve::Logarithmic);
+        } else if lookahead.peek(kw::ramp) {
+            content.parse::<kw::ramp>()?;
+            content.parse::<Token![:]>()?;
+            let lit: syn::LitInt = content.parse()?;
+            ramp = Some(lit.base10_parse()?);
+        } else {
+            return Err(lookahead.error());
+        }
+
+        // Optional trailing comma
+        if content.peek(Token![,]) {
+            content.parse::<Token![,]>()?;
+        }
+    }
+
+    Ok(ParamSpec {
+        range,
+        curve,
+        ramp,
+        skew,
+        unit,
+        smoother,
+        step,
+        display_name,
+        group,
+    })
 }
 
 impl Parse for InputDecl {
@@ -100,13 +195,15 @@ impl Parse for InputDecl {
         // Parse optional default value
         if input.peek(Token![=]) {
             input.parse::<Token![=]>()?;
-            // Parse a literal or simple expression, but stop at `[` or `;`
+            // Parse a literal or simple expression, but stop at `[`, `{`, or `;`
             // We can't use parse::<Expr>() because it will consume the `[...]` as array indexing
             default = Some(parse_simple_expr(input)?);
 
-            // Parse optional parameter spec in brackets
+            // Parse optional parameter spec in brackets or braces
             if input.peek(token::Bracket) {
                 spec = Some(input.parse()?);
+            } else if input.peek(token::Brace) {
+                spec = Some(parse_brace_param_spec(input)?);
             }
         }
 
@@ -669,66 +766,110 @@ impl Parse for ParamSpec {
         let mut range = None;
         let mut curve = None;
         let mut ramp = None;
+        let mut skew = None;
+        let mut step = None;
+        let mut unit = None;
+        let mut display_name = None;
+        let mut smoother = None;
 
-        // Parse comma-separated list using Punctuated
-        let items = content.parse_terminated(ParamSpecItem::parse, Token![,])?;
+        // New compact syntax: [min..max @ skew, step = X, unit = " Hz"]
+        // First, check if we start with a range (number or negative number)
+        if !content.is_empty() {
+            let fork = content.fork();
+            // Check if first token could be start of a range (not a keyword like `step`)
+            let is_range_start = fork.peek(syn::LitFloat)
+                || fork.peek(syn::LitInt)
+                || fork.peek(Token![-])
+                || (fork.peek(Ident) && {
+                    let ident: Ident = fork.parse().unwrap();
+                    // Not a known keyword
+                    !matches!(ident.to_string().as_str(),
+                        "step" | "unit" | "name" | "smooth" | "range" | "linear" | "log" | "ramp")
+                });
 
-        for item in items {
-            match item {
-                ParamSpecItem::Range(min, max) => {
-                    range = Some(RangeSpec { min, max });
+            if is_range_start {
+                // Parse: min..max [@ skew]
+                let min = parse_simple_expr(&content)?;
+                content.parse::<Token![..]>()?;
+                let max = parse_simple_expr(&content)?;
+                range = Some(RangeSpec { min, max });
+
+                // Check for @ skew
+                if content.peek(Token![@]) {
+                    content.parse::<Token![@]>()?;
+                    skew = Some(parse_simple_expr(&content)?);
                 }
-                ParamSpecItem::Linear => {
-                    curve = Some(Curve::Linear);
-                }
-                ParamSpecItem::Log => {
-                    curve = Some(Curve::Logarithmic);
-                }
-                ParamSpecItem::Ramp(samples) => {
-                    ramp = Some(samples);
+
+                // Consume comma if present before named options
+                if content.peek(Token![,]) {
+                    content.parse::<Token![,]>()?;
                 }
             }
         }
 
-        Ok(ParamSpec { range, curve, ramp })
-    }
-}
+        // Parse remaining named options (step = X, unit = " Hz", etc.)
+        while !content.is_empty() {
+            let lookahead = content.lookahead1();
 
-// Individual parameter spec items
-enum ParamSpecItem {
-    Range(syn::Expr, syn::Expr),
-    Linear,
-    Log,
-    Ramp(usize),
-}
+            if lookahead.peek(kw::step) {
+                content.parse::<kw::step>()?;
+                content.parse::<Token![=]>()?;
+                step = Some(content.parse()?);
+            } else if lookahead.peek(kw::unit) {
+                content.parse::<kw::unit>()?;
+                content.parse::<Token![=]>()?;
+                let lit: syn::LitStr = content.parse()?;
+                unit = Some(lit.value());
+            } else if lookahead.peek(kw::name) {
+                content.parse::<kw::name>()?;
+                content.parse::<Token![=]>()?;
+                let lit: syn::LitStr = content.parse()?;
+                display_name = Some(lit.value());
+            } else if lookahead.peek(kw::smoother) {
+                content.parse::<kw::smoother>()?;
+                content.parse::<Token![=]>()?;
+                smoother = Some(content.parse()?);
+            } else if lookahead.peek(kw::linear) {
+                content.parse::<kw::linear>()?;
+                curve = Some(Curve::Linear);
+            } else if lookahead.peek(kw::log) {
+                content.parse::<kw::log>()?;
+                curve = Some(Curve::Logarithmic);
+            } else if lookahead.peek(kw::ramp) {
+                content.parse::<kw::ramp>()?;
+                content.parse::<Token![:]>()?;
+                let lit: syn::LitInt = content.parse()?;
+                ramp = Some(lit.base10_parse()?);
+            } else if lookahead.peek(kw::range) {
+                // Legacy range(min, max) syntax
+                content.parse::<kw::range>()?;
+                let range_content;
+                parenthesized!(range_content in content);
+                let min = range_content.parse()?;
+                range_content.parse::<Token![,]>()?;
+                let max = range_content.parse()?;
+                range = Some(RangeSpec { min, max });
+            } else {
+                return Err(lookahead.error());
+            }
 
-impl Parse for ParamSpecItem {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let lookahead = input.lookahead1();
-
-        if lookahead.peek(kw::range) {
-            input.parse::<kw::range>()?;
-            let content;
-            parenthesized!(content in input);
-            let min = content.parse()?;
-            content.parse::<Token![,]>()?;
-            let max = content.parse()?;
-            Ok(ParamSpecItem::Range(min, max))
-        } else if lookahead.peek(kw::linear) {
-            input.parse::<kw::linear>()?;
-            Ok(ParamSpecItem::Linear)
-        } else if lookahead.peek(kw::log) {
-            input.parse::<kw::log>()?;
-            Ok(ParamSpecItem::Log)
-        } else if lookahead.peek(kw::ramp) {
-            input.parse::<kw::ramp>()?;
-            let content;
-            parenthesized!(content in input);
-            let lit: syn::LitInt = content.parse()?;
-            Ok(ParamSpecItem::Ramp(lit.base10_parse()?))
-        } else {
-            Err(lookahead.error())
+            // Optional trailing comma
+            if content.peek(Token![,]) {
+                content.parse::<Token![,]>()?;
+            }
         }
+
+        Ok(ParamSpec {
+            range,
+            curve,
+            ramp,
+            skew,
+            unit,
+            smoother,
+            step,
+            display_name,
+            group: None,
+        })
     }
 }
 
@@ -749,4 +890,11 @@ mod kw {
     syn::custom_keyword!(log);
     syn::custom_keyword!(ramp);
     syn::custom_keyword!(range);
+    // NIH-plug related keywords
+    syn::custom_keyword!(nih_params);
+    syn::custom_keyword!(skew);
+    syn::custom_keyword!(unit);
+    syn::custom_keyword!(smoother);
+    syn::custom_keyword!(step);
+    syn::custom_keyword!(group);
 }
