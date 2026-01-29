@@ -96,7 +96,7 @@ pub struct ParamSpec {
     pub curve: Option<Curve>,
     pub ramp: Option<usize>,
     // NIH-plug specific fields
-    pub skew: Option<Expr>,           // FloatRange skew factor
+    pub center: Option<Expr>,          // Value at slider midpoint (for skewed ranges)
     pub unit: Option<String>,          // Display unit (e.g., " Hz")
     pub smoother: Option<Expr>,        // Smoothing time in ms
     pub step: Option<Expr>,            // Step size
@@ -110,7 +110,7 @@ impl Clone for ParamSpec {
             range: self.range.clone(),
             curve: self.curve,
             ramp: self.ramp,
-            skew: self.skew.clone(),
+            center: self.center.clone(),
             unit: self.unit.clone(),
             smoother: self.smoother.clone(),
             step: self.step.clone(),

@@ -70,7 +70,7 @@ impl Parse for GraphItem {
 }
 
 /// Parse brace-style ParamSpec for NIH-plug parameters
-/// Syntax: { range: 20.0..20000.0, skew: -2.0, unit: " Hz", smoother: 50.0, step: 0.5, display_name: "Cutoff", group: "Filter" }
+/// Syntax: { range: 20.0..20000.0, center: 1000.0, unit: " Hz", smoother: 50.0, step: 0.5, display_name: "Cutoff", group: "Filter" }
 fn parse_brace_param_spec(input: ParseStream) -> Result<ParamSpec> {
     let content;
     braced!(content in input);
@@ -78,7 +78,7 @@ fn parse_brace_param_spec(input: ParseStream) -> Result<ParamSpec> {
     let mut range = None;
     let mut curve = None;
     let mut ramp = None;
-    let mut skew = None;
+    let mut center = None;
     let mut unit = None;
     let mut smoother = None;
     let mut step = None;
@@ -98,10 +98,10 @@ fn parse_brace_param_spec(input: ParseStream) -> Result<ParamSpec> {
             content.parse::<Token![..]>()?;
             let max = parse_simple_expr(&content)?;
             range = Some(RangeSpec { min, max });
-        } else if lookahead.peek(kw::skew) {
-            content.parse::<kw::skew>()?;
+        } else if lookahead.peek(kw::center) {
+            content.parse::<kw::center>()?;
             content.parse::<Token![:]>()?;
-            skew = Some(content.parse()?);
+            center = Some(content.parse()?);
         } else if lookahead.peek(kw::unit) {
             content.parse::<kw::unit>()?;
             content.parse::<Token![:]>()?;
@@ -150,7 +150,7 @@ fn parse_brace_param_spec(input: ParseStream) -> Result<ParamSpec> {
         range,
         curve,
         ramp,
-        skew,
+        center,
         unit,
         smoother,
         step,
@@ -766,13 +766,13 @@ impl Parse for ParamSpec {
         let mut range = None;
         let mut curve = None;
         let mut ramp = None;
-        let mut skew = None;
+        let mut center = None;
         let mut step = None;
         let mut unit = None;
         let mut display_name = None;
         let mut smoother = None;
 
-        // New compact syntax: [min..max @ skew, step = X, unit = " Hz"]
+        // Compact syntax: [min..max, center = X, step = Y, unit = " Hz"]
         // First, check if we start with a range (number or negative number)
         if !content.is_empty() {
             let fork = content.fork();
@@ -788,20 +788,14 @@ impl Parse for ParamSpec {
                 });
 
             if is_range_start {
-                // Parse: min..max [@ skew]
+                // Parse: min..max
                 let min = parse_simple_expr(&content)?;
                 content.parse::<Token![..]>()?;
                 let max = parse_simple_expr(&content)?;
                 range = Some(RangeSpec { min, max });
 
-                // Check for @ skew
-                if content.peek(Token![@]) {
-                    content.parse::<Token![@]>()?;
-                    skew = Some(parse_simple_expr(&content)?);
-                }
-
-                // Consume comma if present before named options
-                if content.peek(Token![,]) {
+                // Require comma before named options (if any follow)
+                if !content.is_empty() {
                     content.parse::<Token![,]>()?;
                 }
             }
@@ -811,7 +805,11 @@ impl Parse for ParamSpec {
         while !content.is_empty() {
             let lookahead = content.lookahead1();
 
-            if lookahead.peek(kw::step) {
+            if lookahead.peek(kw::center) {
+                content.parse::<kw::center>()?;
+                content.parse::<Token![=]>()?;
+                center = Some(parse_simple_expr(&content)?);
+            } else if lookahead.peek(kw::step) {
                 content.parse::<kw::step>()?;
                 content.parse::<Token![=]>()?;
                 step = Some(content.parse()?);
@@ -863,7 +861,7 @@ impl Parse for ParamSpec {
             range,
             curve,
             ramp,
-            skew,
+            center,
             unit,
             smoother,
             step,
@@ -892,7 +890,7 @@ mod kw {
     syn::custom_keyword!(range);
     // NIH-plug related keywords
     syn::custom_keyword!(nih_params);
-    syn::custom_keyword!(skew);
+    syn::custom_keyword!(center);
     syn::custom_keyword!(unit);
     syn::custom_keyword!(smoother);
     syn::custom_keyword!(step);

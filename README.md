@@ -18,29 +18,30 @@ sample-by-sample processing.
 ## Example
 
 ```rust
-use oscen::{graph, PolyBlepOscillator, TptFilter};
+use oscen::prelude::*;
+use oscen_macros::graph;
 
 graph! {
     name: Synth;
 
     // Control inputs with defaults
-    input value mod_freq = 5.0;
-    input value mod_depth = 0.2;
-    input value carrier_freq = 440.0;
-    input value cutoff = 1200.0;
+    input mod_freq: value = 5.0;
+    input mod_depth: value = 0.2;
+    input carrier_freq: value = 440.0;
+    input cutoff: value = 1200.0;
 
     // Audio output
-    output stream audio_out;
+    output audio_out: stream;
 
     // Define nodes
-    node {
+    nodes {
         modulator = PolyBlepOscillator::sine(5.0, 0.2);
         carrier = PolyBlepOscillator::saw(440.0, 0.5);
         filter = TptFilter::new(1200.0, 0.707);
     }
 
     // Connect nodes
-    connection {
+    connections {
         mod_freq -> modulator.frequency;
         mod_depth -> modulator.amplitude;
         carrier_freq -> carrier.frequency;

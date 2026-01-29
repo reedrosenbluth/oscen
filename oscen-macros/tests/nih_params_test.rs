@@ -12,7 +12,7 @@ mod with_feature {
         nih_params;
 
         // Compact bracket syntax with range, skew, and options
-        input cutoff: value = 2000.0 [20.0..20000.0 @ -2.0, unit = "Hz", name = "Filter Cutoff"];
+        input cutoff: value = 2000.0 [20.0..20000.0 center = 1000.0, unit = "Hz", name = "Filter Cutoff"];
 
         // Bracket syntax with step size
         input ratio: value = 1.0 [0.5..16.0, step = 0.5];

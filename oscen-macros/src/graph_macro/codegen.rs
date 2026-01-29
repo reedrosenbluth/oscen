@@ -945,12 +945,12 @@ impl CodegenContext {
                 if let Some(range) = &spec.range {
                     let min = &range.min;
                     let max = &range.max;
-                    if let Some(skew) = &spec.skew {
+                    if let Some(center) = &spec.center {
                         quote! {
                             ::nih_plug::prelude::FloatRange::Skewed {
                                 min: #min,
                                 max: #max,
-                                factor: ::nih_plug::prelude::FloatRange::skew_factor(#skew),
+                                factor: ::nih_plug::prelude::FloatRange::skew_factor(#center),
                             }
                         }
                     } else {

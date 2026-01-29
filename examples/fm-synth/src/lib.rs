@@ -27,37 +27,37 @@ graph! {
     input op3_ratio: value = 3.0 [0.5..16.0, step = 0.5];
     input op3_level: value = 0.5 [0.0..2.0];
     input op3_feedback: value = 0.0 [0.0..1.0];
-    input op3_attack: value = 0.01 [0.001..2.0 @ -2.0, unit = "s"];
-    input op3_decay: value = 0.1 [0.001..2.0 @ -2.0, unit = "s"];
+    input op3_attack: value = 0.01 [0.001..2.0, center = 0.1, unit = "s"];
+    input op3_decay: value = 0.1 [0.001..2.0, center = 0.1, unit = "s"];
     input op3_sustain: value = 0.7 [0.0..1.0];
-    input op3_release: value = 0.3 [0.001..2.0 @ -2.0, unit = "s"];
+    input op3_release: value = 0.3 [0.001..2.0, center = 0.1, unit = "s"];
 
     // OP2 parameters
     input op2_ratio: value = 2.0 [0.5..16.0, step = 0.5];
     input op2_level: value = 0.5 [0.0..2.0];
     input op2_feedback: value = 0.0 [0.0..1.0];
-    input op2_attack: value = 0.01 [0.001..2.0 @ -2.0, unit = "s"];
-    input op2_decay: value = 0.1 [0.001..2.0 @ -2.0, unit = "s"];
+    input op2_attack: value = 0.01 [0.001..2.0, center = 0.1, unit = "s"];
+    input op2_decay: value = 0.1 [0.001..2.0, center = 0.1, unit = "s"];
     input op2_sustain: value = 0.7 [0.0..1.0];
-    input op2_release: value = 0.3 [0.001..2.0 @ -2.0, unit = "s"];
+    input op2_release: value = 0.3 [0.001..2.0, center = 0.1, unit = "s"];
 
     // OP1 parameters
     input op1_ratio: value = 1.0 [0.5..16.0, step = 0.5];
-    input op1_attack: value = 0.01 [0.001..2.0 @ -2.0, unit = "s"];
-    input op1_decay: value = 0.2 [0.001..2.0 @ -2.0, unit = "s"];
+    input op1_attack: value = 0.01 [0.001..2.0, center = 0.1, unit = "s"];
+    input op1_decay: value = 0.2 [0.001..2.0, center = 0.1, unit = "s"];
     input op1_sustain: value = 0.8 [0.0..1.0];
-    input op1_release: value = 0.5 [0.001..2.0 @ -2.0, unit = "s"];
+    input op1_release: value = 0.5 [0.001..2.0, center = 0.1, unit = "s"];
 
     // Route: blends OP3 between OP2 (0.0) and OP1 (1.0)
     input route: value = 0.0 [0.0..1.0];
 
     // Filter parameters
-    input filter_cutoff: value = 2000.0 [20.0..20000.0 @ -2.0, unit = "Hz"];
+    input filter_cutoff: value = 2000.0 [20.0..20000.0, center = 1000.0, unit = "Hz"];
     input filter_resonance: value = 0.707 [0.1..10.0];
-    input filter_attack: value = 0.01 [0.001..2.0 @ -2.0, unit = "s"];
-    input filter_decay: value = 0.2 [0.001..2.0 @ -2.0, unit = "s"];
+    input filter_attack: value = 0.01 [0.001..2.0, center = 0.1, unit = "s"];
+    input filter_decay: value = 0.2 [0.001..2.0, center = 0.1, unit = "s"];
     input filter_sustain: value = 0.5 [0.0..1.0];
-    input filter_release: value = 0.3 [0.001..2.0 @ -2.0, unit = "s"];
+    input filter_release: value = 0.3 [0.001..2.0, center = 0.1, unit = "s"];
     input filter_env_amount: value = 0.0 [-10000.0..10000.0, unit = "Hz"];
 
     output audio_out: stream;
