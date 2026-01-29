@@ -143,14 +143,6 @@ impl TypeContext {
         Ok(())
     }
 
-    /// Validate that a source expression can be used as an output
-    /// This is now mostly delegated to Rust's type system since we don't use string matching
-    pub fn validate_source(&self, _expr: &ConnectionExpr) -> Result<()> {
-        // We rely on type inference and Rust's type system
-        // If a node.method() doesn't return an output endpoint, compilation will fail
-        Ok(())
-    }
-
     /// Validate that a destination expression can receive input
     /// This is now mostly delegated to Rust's type system since we don't use string matching
     pub fn validate_destination(&self, expr: &ConnectionExpr) -> Result<()> {

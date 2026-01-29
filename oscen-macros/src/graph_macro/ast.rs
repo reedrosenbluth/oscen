@@ -26,7 +26,7 @@ pub struct NodeBlock(pub Vec<NodeDecl>);
 pub struct ConnectionBlock(pub Vec<ConnectionStmt>);
 
 /// Input endpoint declaration
-#[allow(dead_code)]
+#[derive(Clone)]
 pub struct InputDecl {
     pub kind: EndpointKind,
     pub name: Ident,
@@ -36,6 +36,7 @@ pub struct InputDecl {
 }
 
 /// Output endpoint declaration
+#[derive(Clone)]
 pub struct OutputDecl {
     pub kind: EndpointKind,
     pub name: Ident,
@@ -43,6 +44,7 @@ pub struct OutputDecl {
 }
 
 /// Node declaration
+#[derive(Clone)]
 pub struct NodeDecl {
     pub name: Ident,
     pub constructor: Expr,
@@ -51,12 +53,14 @@ pub struct NodeDecl {
 }
 
 /// Connection statement
+#[derive(Clone)]
 pub struct ConnectionStmt {
     pub source: ConnectionExpr,
     pub dest: ConnectionExpr,
 }
 
 /// Connection expression (can be endpoint, arithmetic, etc.)
+#[derive(Clone)]
 pub enum ConnectionExpr {
     /// Simple identifier (parameter or node name)
     Ident(Ident),
@@ -89,7 +93,7 @@ pub enum EndpointKind {
 }
 
 /// Parameter specification (range, curve, ramp, and NIH-plug specific fields)
-#[allow(dead_code)]
+#[derive(Clone)]
 pub struct ParamSpec {
     // Existing fields
     pub range: Option<RangeSpec>,
@@ -104,35 +108,10 @@ pub struct ParamSpec {
     pub group: Option<String>,         // Nested params group
 }
 
-impl Clone for ParamSpec {
-    fn clone(&self) -> Self {
-        Self {
-            range: self.range.clone(),
-            curve: self.curve,
-            ramp: self.ramp,
-            center: self.center.clone(),
-            unit: self.unit.clone(),
-            smoother: self.smoother.clone(),
-            step: self.step.clone(),
-            display_name: self.display_name.clone(),
-            group: self.group.clone(),
-        }
-    }
-}
-
-#[allow(dead_code)]
+#[derive(Clone)]
 pub struct RangeSpec {
     pub min: Expr,
     pub max: Expr,
-}
-
-impl Clone for RangeSpec {
-    fn clone(&self) -> Self {
-        Self {
-            min: self.min.clone(),
-            max: self.max.clone(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

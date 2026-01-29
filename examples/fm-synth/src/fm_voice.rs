@@ -39,8 +39,8 @@ graph! {
     input route: value = 0.0;
 
     // Filter
-    input cutoff: value = 2000.0;
-    input resonance: value = 0.707;
+    input filter_cutoff: value = 2000.0;
+    input filter_resonance: value = 0.707;
     input filter_attack: value = 0.01;
     input filter_decay: value = 0.2;
     input filter_sustain: value = 0.5;
@@ -113,7 +113,7 @@ graph! {
         env_filter.output -> filter_env_gain.input;
         filter_env_amount -> filter_env_gain.gain;
         filter_env_gain.output -> cutoff_mod.input;
-        cutoff -> cutoff_mod.value;
+        filter_cutoff -> cutoff_mod.value;
         cutoff_mod.output -> filter.cutoff;
 
         // OP3: envelope and level integrated into operator
@@ -147,7 +147,7 @@ graph! {
         op1_osc.output -> filter.input;
 
         // Filter resonance
-        resonance -> filter.q;
+        filter_resonance -> filter.q;
 
         // Final output
         filter.output -> output_gain.input;

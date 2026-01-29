@@ -114,8 +114,8 @@ graph! {
         route -> voices.route;
 
         // Broadcast filter parameters to all voices
-        filter_cutoff -> voices.cutoff;
-        filter_resonance -> voices.resonance;
+        filter_cutoff -> voices.filter_cutoff;
+        filter_resonance -> voices.filter_resonance;
         filter_attack -> voices.filter_attack;
         filter_decay -> voices.filter_decay;
         filter_sustain -> voices.filter_sustain;

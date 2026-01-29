@@ -740,6 +740,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 [[package]]
 name = "baseview"
 version = "0.1.0"
+source = "git+https://github.com/RustAudio/baseview.git?rev=9a0b42c09d712777b2edb4c5e0cb6baf21e988f0#9a0b42c09d712777b2edb4c5e0cb6baf21e988f0"
 dependencies = [
  "cocoa",
  "core-foundation 0.9.4",
@@ -756,7 +757,7 @@ dependencies = [
 [[package]]
 name = "baseview"
 version = "0.1.0"
-source = "git+https://github.com/RustAudio/baseview.git?rev=9a0b42c09d712777b2edb4c5e0cb6baf21e988f0#9a0b42c09d712777b2edb4c5e0cb6baf21e988f0"
+source = "git+https://github.com/reedrosenbluth/baseview#cd6717d7d4cb529505d3804346c1032e24142ef3"
 dependencies = [
  "cocoa",
  "core-foundation 0.9.4",
@@ -2274,7 +2275,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "atomic_float 1.1.0",
- "nih_plug 0.0.0",
+ "nih_plug 0.0.0 (git+https://github.com/reedrosenbluth/nih-plug)",
  "nih_plug_slint",
  "oscen",
  "oscen-macros",
@@ -4019,6 +4020,7 @@ dependencies = [
 [[package]]
 name = "nih_plug"
 version = "0.0.0"
+source = "git+https://github.com/reedrosenbluth/nih-plug#138be00c59a68d8ef17cc7ff8686661e044bac49"
 dependencies = [
  "anyhow",
  "anymap3",
@@ -4034,7 +4036,7 @@ dependencies = [
  "log",
  "midi-consts",
  "nih_log",
- "nih_plug_derive 0.1.0",
+ "nih_plug_derive 0.1.0 (git+https://github.com/reedrosenbluth/nih-plug)",
  "objc",
  "parking_lot",
  "raw-window-handle 0.5.2",
@@ -4078,6 +4080,7 @@ dependencies = [
 [[package]]
 name = "nih_plug_derive"
 version = "0.1.0"
+source = "git+https://github.com/reedrosenbluth/nih-plug#138be00c59a68d8ef17cc7ff8686661e044bac49"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4111,11 +4114,12 @@ dependencies = [
 [[package]]
 name = "nih_plug_slint"
 version = "0.0.0"
+source = "git+https://github.com/reedrosenbluth/nih-plug#138be00c59a68d8ef17cc7ff8686661e044bac49"
 dependencies = [
- "baseview 0.1.0",
+ "baseview 0.1.0 (git+https://github.com/reedrosenbluth/baseview)",
  "crossbeam",
  "keyboard-types 0.6.2",
- "nih_plug 0.0.0",
+ "nih_plug 0.0.0 (git+https://github.com/reedrosenbluth/nih-plug)",
  "parking_lot",
  "raw-window-handle 0.5.2",
  "raw-window-handle 0.6.2",
@@ -4771,7 +4775,7 @@ name = "oscen-macros"
 version = "0.2.0"
 dependencies = [
  "arrayvec",
- "nih_plug 0.0.0",
+ "nih_plug 0.0.0 (git+https://github.com/reedrosenbluth/nih-plug)",
  "oscen",
  "proc-macro2",
  "quote",

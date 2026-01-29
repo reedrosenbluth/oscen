@@ -91,8 +91,7 @@ impl CodegenContext {
 
         // Validate each connection for type compatibility
         for conn in &self.connections {
-            // Validate source and destination independently
-            type_ctx.validate_source(&conn.source)?;
+            // Validate destination
             type_ctx.validate_destination(&conn.dest)?;
 
             // Validate type compatibility (stream/value/event)
@@ -395,7 +394,7 @@ impl CodegenContext {
             for dep in dependencies {
                 adjacency
                     .entry(dep.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(node.clone());
             }
         }
@@ -552,7 +551,7 @@ impl CodegenContext {
 
                             // Skip voice array marker connections (like .voices -> array.endpoint)
                             // These have special routing handled by the array output node
-                            if let Some(ref field) = source_field {
+                            if let Some(field) = source_field {
                                 if *field == "voices" {
                                     // For voice arrays, the routing is done element-by-element
                                     // from source[i] to dest[i]
@@ -946,11 +945,13 @@ impl CodegenContext {
                     let min = &range.min;
                     let max = &range.max;
                     if let Some(center) = &spec.center {
+                        // Calculate skew factor so that `center` is at normalized 0.5
+                        // Formula: factor = 0.5.log((center - min) / (max - min))
                         quote! {
                             ::nih_plug::prelude::FloatRange::Skewed {
                                 min: #min,
                                 max: #max,
-                                factor: ::nih_plug::prelude::FloatRange::skew_factor(#center),
+                                factor: 0.5f32.log((#center - #min) / (#max - #min)),
                             }
                         }
                     } else {
@@ -1194,63 +1195,5 @@ impl CodegenContext {
 
             #nih_params_output
         })
-    }
-}
-
-// Add Clone impls for AST types
-impl Clone for InputDecl {
-    fn clone(&self) -> Self {
-        Self {
-            kind: self.kind,
-            name: self.name.clone(),
-            ty: self.ty.clone(),
-            default: self.default.clone(),
-            spec: self.spec.clone(),
-        }
-    }
-}
-
-impl Clone for OutputDecl {
-    fn clone(&self) -> Self {
-        Self {
-            kind: self.kind,
-            name: self.name.clone(),
-            ty: self.ty.clone(),
-        }
-    }
-}
-
-impl Clone for NodeDecl {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            constructor: self.constructor.clone(),
-            node_type: self.node_type.clone(),
-            array_size: self.array_size,
-        }
-    }
-}
-
-impl Clone for ConnectionStmt {
-    fn clone(&self) -> Self {
-        Self {
-            source: self.source.clone(),
-            dest: self.dest.clone(),
-        }
-    }
-}
-
-impl Clone for ConnectionExpr {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Ident(i) => Self::Ident(i.clone()),
-            Self::ArrayIndex(expr, idx) => Self::ArrayIndex(expr.clone(), *idx),
-            Self::Method(obj, method, args) => {
-                Self::Method(obj.clone(), method.clone(), args.clone())
-            }
-            Self::Binary(left, op, right) => Self::Binary(left.clone(), *op, right.clone()),
-            Self::Literal(lit) => Self::Literal(lit.clone()),
-            Self::Call(func, args) => Self::Call(func.clone(), args.clone()),
-        }
     }
 }
