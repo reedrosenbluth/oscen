@@ -1,13 +1,13 @@
-use crate::FMSynthParams;
 use crate::FMSynth;
+use crate::FMSynthParams;
 use nih_plug::prelude::*;
-use nih_plug_slint::create_slint_editor;
+use nih_plug_slint::create_slint_editor_with_param_callback;
 use std::sync::Arc;
 
 slint::include_modules!();
 
 /// Unified UI bindings for NIH-plug parameters.
-/// Generates both set_ui_values() and bind_ui_callbacks() from a single mapping.
+/// Generates set_ui_values() and bind_ui_callbacks() from a single mapping.
 macro_rules! ui_param_bindings {
     (
         ui: $ui_ty:ty;
@@ -90,24 +90,33 @@ pub fn create(
     params: Arc<FMSynthParams>,
     _async_executor: AsyncExecutor<FMSynth>,
 ) -> Option<Box<dyn Editor>> {
-    create_slint_editor(params.editor_state.clone(), move |gui_context, mouse_control| {
-        let ui = SynthWindow::new().unwrap();
+    let params_for_callback = params.clone();
 
-        // Set initial values from params and bind callbacks
-        set_ui_values(&ui, &params);
-        bind_ui_callbacks(&ui, gui_context.clone(), params.clone());
+    create_slint_editor_with_param_callback(
+        params.editor_state.clone(),
+        move |gui_context, mouse_control| {
+            let ui = SynthWindow::new().unwrap();
 
-        // Drag handlers for unbounded mouse movement
-        ui.on_knob_drag_started({
-            let mc = mouse_control.clone();
-            move || mc.enable_unbounded_movement(true)
-        });
+            // Set initial values from params and bind callbacks
+            set_ui_values(&ui, &params);
+            bind_ui_callbacks(&ui, gui_context.clone(), params.clone());
 
-        ui.on_knob_drag_ended({
-            let mc = mouse_control.clone();
-            move || mc.disable_unbounded_movement()
-        });
+            // Drag handlers for unbounded mouse movement
+            ui.on_knob_drag_started({
+                let mc = mouse_control.clone();
+                move || mc.enable_unbounded_movement(true)
+            });
 
-        ui
-    })
+            ui.on_knob_drag_ended({
+                let mc = mouse_control;
+                move || mc.disable_unbounded_movement()
+            });
+
+            ui
+        },
+        // Callback invoked when host changes parameters (automation, presets, etc.)
+        Some(Arc::new(move |ui: &SynthWindow| {
+            set_ui_values(ui, &params_for_callback);
+        })),
+    )
 }

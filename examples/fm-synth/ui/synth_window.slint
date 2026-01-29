@@ -155,8 +155,9 @@ component RotaryKnob inherits Rectangle {
         if (snapped == root.value) {
             return;
         }
-        root.value = snapped;
-        root.value_edited(root.value);
+        // Don't assign directly to root.value - that breaks reactive bindings!
+        // Instead, emit the callback and let the parent update the binding source.
+        root.value_edited(snapped);
     }
 
     function update_value_by_normalized_delta(start_value: float, delta: float) {
@@ -375,7 +376,7 @@ component OperatorRow inherits Rectangle {
             label: "A";
             minimum: 0.001;
             maximum: 2.0;
-            step: 0.001;
+            step: 0;
             curve: KnobCurve.logarithmic;
             show_bounds: false;
             value: root.attack_value;
@@ -391,7 +392,7 @@ component OperatorRow inherits Rectangle {
             label: "D";
             minimum: 0.001;
             maximum: 2.0;
-            step: 0.001;
+            step: 0;
             curve: KnobCurve.logarithmic;
             show_bounds: false;
             value: root.decay_value;
@@ -422,7 +423,7 @@ component OperatorRow inherits Rectangle {
             label: "R";
             minimum: 0.001;
             maximum: 2.0;
-            step: 0.001;
+            step: 0;
             curve: KnobCurve.logarithmic;
             show_bounds: false;
             value: root.release_value;
@@ -488,7 +489,7 @@ component FilterRow inherits Rectangle {
             label: "cut";
             minimum: 20.0;
             maximum: 20000.0;
-            step: 1.0;
+            step: 0;
             curve: KnobCurve.logarithmic;
             value: root.cutoff_value;
             value_edited(value) => {
@@ -546,7 +547,7 @@ component FilterRow inherits Rectangle {
             label: "A";
             minimum: 0.001;
             maximum: 2.0;
-            step: 0.001;
+            step: 0;
             curve: KnobCurve.logarithmic;
             show_bounds: false;
             value: root.attack_value;
@@ -562,7 +563,7 @@ component FilterRow inherits Rectangle {
             label: "D";
             minimum: 0.001;
             maximum: 2.0;
-            step: 0.001;
+            step: 0;
             curve: KnobCurve.logarithmic;
             show_bounds: false;
             value: root.decay_value;
@@ -593,7 +594,7 @@ component FilterRow inherits Rectangle {
             label: "R";
             minimum: 0.001;
             maximum: 2.0;
-            step: 0.001;
+            step: 0;
             curve: KnobCurve.logarithmic;
             show_bounds: false;
             value: root.release_value;
