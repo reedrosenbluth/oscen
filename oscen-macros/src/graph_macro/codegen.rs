@@ -976,21 +976,29 @@ impl CodegenContext {
                         syn::Ident::new(&format!("set_{}_immediate", name), name.span());
                     quote! {
                         /// Set the value with the default ramp duration.
+                        /// No-op if target is already the same (safe to call every frame).
                         #[inline]
                         pub fn #set_name(&mut self, value: f32) {
-                            if !self.#name.is_ramping() {
-                                self.active_ramps += 1;
+                            // Only start a new ramp if target actually changed
+                            if (value - self.#name.target).abs() > f32::EPSILON {
+                                if !self.#name.is_ramping() {
+                                    self.active_ramps += 1;
+                                }
+                                self.#name.set_with_ramp(value, #default_frames as u32);
                             }
-                            self.#name.set_with_ramp(value, #default_frames as u32);
                         }
 
                         /// Set the value with a custom ramp duration in frames.
+                        /// No-op if target is already the same (safe to call every frame).
                         #[inline]
                         pub fn #set_ramp_name(&mut self, value: f32, frames: u32) {
-                            if frames > 0 && !self.#name.is_ramping() {
-                                self.active_ramps += 1;
+                            // Only start a new ramp if target actually changed
+                            if (value - self.#name.target).abs() > f32::EPSILON {
+                                if frames > 0 && !self.#name.is_ramping() {
+                                    self.active_ramps += 1;
+                                }
+                                self.#name.set_with_ramp(value, frames);
                             }
-                            self.#name.set_with_ramp(value, frames);
                         }
 
                         /// Set the value immediately without ramping.
@@ -1115,21 +1123,25 @@ impl CodegenContext {
                 )
             };
 
-            // Add smoother (default to 50ms if not specified)
-            let smoother_ms = input.spec.as_ref()
-                .and_then(|s| s.smoother.clone());
-            if let Some(smoother_val) = smoother_ms {
-                param_builder = quote! {
-                    #param_builder
-                        .with_smoother(::nih_plug::prelude::SmoothingStyle::Linear(#smoother_val))
-                };
-            } else {
-                // Default 50ms smoothing for all NIH params
-                param_builder = quote! {
-                    #param_builder
-                        .with_smoother(::nih_plug::prelude::SmoothingStyle::Linear(50.0))
-                };
+            // Add smoother - but NOT for ramped inputs (oscen handles smoothing)
+            let is_ramped = self.is_ramped_input(field_name).is_some();
+            if !is_ramped {
+                let smoother_ms = input.spec.as_ref()
+                    .and_then(|s| s.smoother.clone());
+                if let Some(smoother_val) = smoother_ms {
+                    param_builder = quote! {
+                        #param_builder
+                            .with_smoother(::nih_plug::prelude::SmoothingStyle::Linear(#smoother_val))
+                    };
+                } else {
+                    // Default 50ms smoothing for non-ramped NIH params
+                    param_builder = quote! {
+                        #param_builder
+                            .with_smoother(::nih_plug::prelude::SmoothingStyle::Linear(50.0))
+                    };
+                }
             }
+            // Ramped inputs: no NIH-plug smoother, oscen's ValueRampState handles it
 
             // Add optional unit
             if let Some(spec) = &input.spec {
@@ -1159,8 +1171,18 @@ impl CodegenContext {
         // Generate sync_to method
         let sync_assignments: Vec<_> = value_inputs.iter().map(|input| {
             let field_name = &input.name;
-            quote! {
-                graph.#field_name = self.#field_name.smoothed.next();
+            let set_name = syn::Ident::new(&format!("set_{}", field_name), field_name.span());
+            if self.is_ramped_input(field_name).is_some() {
+                // Ramped inputs: use setter with raw value (oscen handles smoothing)
+                // The setter is smart and won't restart ramp if target unchanged
+                quote! {
+                    graph.#set_name(self.#field_name.value());
+                }
+            } else {
+                // Non-ramped inputs: use NIH-plug's smoothed value
+                quote! {
+                    graph.#field_name = self.#field_name.smoothed.next();
+                }
             }
         }).collect();
 

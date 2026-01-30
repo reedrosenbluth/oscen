@@ -254,3 +254,52 @@ fn test_set_with_ramp_zero_frames_does_not_increment() {
     assert!(!graph.cutoff.is_ramping());
     assert_eq!(graph.cutoff.current, 5000.0);
 }
+
+#[test]
+fn test_setter_is_noop_if_target_unchanged() {
+    let mut graph = RampedFilterGraph::new();
+    graph.init(44100.0);
+
+    // Start a ramp
+    graph.set_cutoff(5000.0);
+    assert_eq!(graph.active_ramps, 1);
+    assert!(graph.cutoff.is_ramping());
+
+    // Process a bit
+    for _ in 0..10 {
+        graph.process();
+    }
+    let current_after_10 = graph.cutoff.current;
+    assert!(graph.cutoff.is_ramping()); // Still ramping
+
+    // Call setter with same target - should be no-op
+    graph.set_cutoff(5000.0);
+    assert_eq!(graph.active_ramps, 1); // Still 1, not incremented
+    assert_eq!(graph.cutoff.current, current_after_10); // Current unchanged
+
+    // Process more - ramp should continue normally
+    for _ in 0..10 {
+        graph.process();
+    }
+    assert!(graph.cutoff.current > current_after_10); // Still progressing
+}
+
+#[test]
+fn test_setter_safe_to_call_every_frame() {
+    let mut graph = RampedFilterGraph::new();
+    graph.init(44100.0);
+
+    // Use a short custom ramp (50 frames) for testing
+    graph.set_cutoff_with_ramp(5000.0, 50);
+
+    // Simulate calling setter every frame (like sync_to does)
+    for _ in 0..100 {
+        graph.set_cutoff_with_ramp(5000.0, 50); // Same value every frame - should be no-op
+        graph.process();
+    }
+
+    // Should have completed the ramp normally (after 50 frames)
+    assert_eq!(graph.cutoff.current, 5000.0);
+    assert_eq!(graph.active_ramps, 0);
+    assert!(!graph.cutoff.is_ramping());
+}
