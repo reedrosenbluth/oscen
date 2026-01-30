@@ -980,7 +980,7 @@ impl CodegenContext {
                         #[inline]
                         pub fn #set_name(&mut self, value: f32) {
                             // Only start a new ramp if target actually changed
-                            if (value - self.#name.target).abs() > f32::EPSILON {
+                            if value != self.#name.target {
                                 if !self.#name.is_ramping() {
                                     self.active_ramps += 1;
                                 }
@@ -993,7 +993,7 @@ impl CodegenContext {
                         #[inline]
                         pub fn #set_ramp_name(&mut self, value: f32, frames: u32) {
                             // Only start a new ramp if target actually changed
-                            if (value - self.#name.target).abs() > f32::EPSILON {
+                            if value != self.#name.target {
                                 if frames > 0 && !self.#name.is_ramping() {
                                     self.active_ramps += 1;
                                 }
