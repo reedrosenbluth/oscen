@@ -117,10 +117,9 @@ impl TypeContext {
                     (EndpointKind::Stream, EndpointKind::Stream) => true,
                     (EndpointKind::Value, EndpointKind::Value) => true,
                     (EndpointKind::Event, EndpointKind::Event) => true,
-                    // Stream sources can connect to Value destinations (auto-conversion)
-                    (EndpointKind::Stream, EndpointKind::Value) => true,
                     // Value sources can connect to Stream destinations (constant signal)
                     (EndpointKind::Value, EndpointKind::Stream) => true,
+                    // Stream→Value is NOT allowed (use value inputs for control parameters)
                     // Everything else is incompatible
                     _ => false,
                 };

@@ -72,6 +72,15 @@ impl CodegenContext {
         Ok(())
     }
 
+    /// Check if an input has a ramp annotation and return the default ramp frames.
+    fn is_ramped_input(&self, name: &syn::Ident) -> Option<usize> {
+        self.inputs
+            .iter()
+            .find(|i| i.name == *name && i.kind == EndpointKind::Value)
+            .and_then(|i| i.spec.as_ref())
+            .and_then(|s| s.ramp)
+    }
+
     fn validate_connections(&self) -> Result<()> {
         let mut type_ctx = TypeContext::new();
 
@@ -187,13 +196,14 @@ impl CodegenContext {
 
             match input.kind {
                 EndpointKind::Value => {
-                    if let Some(default) = default_val {
+                    let default = default_val.map(|d| quote! { #d }).unwrap_or(quote! { 0.0 });
+                    if self.is_ramped_input(name).is_some() {
                         quote! {
-                            let #name = #default;
+                            let #name = ::oscen::graph::ValueRampState::new(#default);
                         }
                     } else {
                         quote! {
-                            let #name = 0.0;
+                            let #name = #default;
                         }
                     }
                 }
@@ -281,29 +291,41 @@ impl CodegenContext {
 
     /// Generate static struct initialization (includes sample_rate, nodes - no IO fields)
     fn generate_static_struct_init(&self) -> TokenStream {
-        let mut fields = vec![quote! { sample_rate }];
+        let has_ramped = self.has_ramped_inputs();
+
+        let active_ramps_init = if has_ramped {
+            quote! { active_ramps: 0, }
+        } else {
+            quote! {}
+        };
 
         // Add input/output fields
-        for input in &self.inputs {
+        let input_fields: Vec<_> = self.inputs.iter().map(|input| {
             let name = &input.name;
-            fields.push(quote! { #name });
-        }
+            quote! { #name }
+        }).collect();
 
-        for output in &self.outputs {
+        let output_fields: Vec<_> = self.outputs.iter().map(|output| {
             let name = &output.name;
-            fields.push(quote! { #name });
-        }
+            quote! { #name }
+        }).collect();
 
         // Add node fields (no IO fields)
-        for node in &self.nodes {
+        let node_fields: Vec<_> = self.nodes.iter().map(|node| {
             let name = &node.name;
-            fields.push(quote! { #name });
-        }
+            quote! { #name }
+        }).collect();
 
         // Note: Graph-level event storage is no longer generated
         // Nodes own their own EventInput/EventOutput storage
 
-        quote! { #(#fields),* }
+        quote! {
+            sample_rate,
+            #active_ramps_init
+            #(#input_fields,)*
+            #(#output_fields,)*
+            #(#node_fields),*
+        }
     }
 
     // ========== Static Graph Generation ==========
@@ -577,7 +599,11 @@ impl CodegenContext {
                             };
 
                             // Construct source expression part (field access or just node/input name)
-                            let source_access = if let Some(field) = source_field {
+                            // For ramped graph inputs, we need to access .current to get the f32 value
+                            let source_access = if source_is_graph_input && source_field.is_none() && self.is_ramped_input(source_ident).is_some() {
+                                // Ramped graph input: read .current
+                                quote! { .current }
+                            } else if let Some(field) = source_field {
                                 quote! { .#field }
                             } else {
                                 quote! {}
@@ -778,6 +804,9 @@ impl CodegenContext {
             pub fn process(&mut self) {
                 use ::oscen::SignalProcessor as _;
 
+                // Advance ramped value inputs
+                self.tick_ramps();
+
                 #(#process_body)*
 
                 // Clear event queues after processing
@@ -888,6 +917,102 @@ impl CodegenContext {
                 self.clear_event_outputs();
             }
         }
+    }
+
+    // ========== Value Ramp Methods ==========
+
+    /// Generate tick_ramps() method that advances all ramped value inputs.
+    /// Optimized to check active_ramps counter first for O(1) steady-state overhead.
+    fn generate_tick_ramps_method(&self) -> TokenStream {
+        let ramped: Vec<_> = self
+            .inputs
+            .iter()
+            .filter(|i| i.kind == EndpointKind::Value && self.is_ramped_input(&i.name).is_some())
+            .map(|i| &i.name)
+            .collect();
+
+        if ramped.is_empty() {
+            return quote! {
+                #[inline(always)]
+                fn tick_ramps(&mut self) {}
+            };
+        }
+
+        let tick_stmts: Vec<_> = ramped
+            .iter()
+            .map(|name| quote! {
+                if self.#name.tick() {
+                    self.active_ramps -= 1;
+                }
+            })
+            .collect();
+
+        quote! {
+            #[inline(always)]
+            fn tick_ramps(&mut self) {
+                if self.active_ramps > 0 {
+                    #(#tick_stmts)*
+                }
+            }
+        }
+    }
+
+    /// Generate setter methods for value inputs.
+    /// For ramped inputs: set_X(value) uses default ramp, set_X_with_ramp(value, frames) uses custom ramp.
+    /// For non-ramped inputs: set_X(value) sets immediately.
+    /// Ramped setters update the active_ramps counter for O(1) steady-state tick_ramps() overhead.
+    fn generate_value_setter_methods(&self) -> Vec<TokenStream> {
+        self.inputs
+            .iter()
+            .filter(|i| i.kind == EndpointKind::Value)
+            .map(|input| {
+                let name = &input.name;
+                let set_name = syn::Ident::new(&format!("set_{}", name), name.span());
+
+                if let Some(default_frames) = self.is_ramped_input(name) {
+                    let set_ramp_name =
+                        syn::Ident::new(&format!("set_{}_with_ramp", name), name.span());
+                    let set_immediate_name =
+                        syn::Ident::new(&format!("set_{}_immediate", name), name.span());
+                    quote! {
+                        /// Set the value with the default ramp duration.
+                        #[inline]
+                        pub fn #set_name(&mut self, value: f32) {
+                            if !self.#name.is_ramping() {
+                                self.active_ramps += 1;
+                            }
+                            self.#name.set_with_ramp(value, #default_frames as u32);
+                        }
+
+                        /// Set the value with a custom ramp duration in frames.
+                        #[inline]
+                        pub fn #set_ramp_name(&mut self, value: f32, frames: u32) {
+                            if frames > 0 && !self.#name.is_ramping() {
+                                self.active_ramps += 1;
+                            }
+                            self.#name.set_with_ramp(value, frames);
+                        }
+
+                        /// Set the value immediately without ramping.
+                        #[inline]
+                        pub fn #set_immediate_name(&mut self, value: f32) {
+                            if self.#name.is_ramping() {
+                                self.active_ramps -= 1;
+                            }
+                            self.#name.set_immediate(value);
+                        }
+                    }
+                } else {
+                    quote! {
+                        /// Set the value immediately.
+                        #[inline]
+                        pub fn #set_name(&mut self, value: f32) {
+                            self.#name = value;
+                        }
+                    }
+                }
+            })
+            .collect()
     }
 
     // ========== NIH-plug Parameter Generation ==========
@@ -1063,14 +1188,32 @@ impl CodegenContext {
         }
     }
 
+    /// Check if this graph has any ramped inputs
+    fn has_ramped_inputs(&self) -> bool {
+        self.inputs.iter().any(|i| {
+            i.kind == EndpointKind::Value && self.is_ramped_input(&i.name).is_some()
+        })
+    }
+
     fn generate_static_struct(&self, name: &syn::Ident) -> Result<TokenStream> {
         let mut fields = vec![quote! { sample_rate: f32 }];
+
+        // Add active_ramps counter if there are ramped inputs
+        if self.has_ramped_inputs() {
+            fields.push(quote! { active_ramps: u32 });
+        }
 
         // Add input fields
         for input in &self.inputs {
             let field_name = &input.name;
             let ty = match input.kind {
-                EndpointKind::Value => quote! { f32 },
+                EndpointKind::Value => {
+                    if self.is_ramped_input(field_name).is_some() {
+                        quote! { ::oscen::graph::ValueRampState }
+                    } else {
+                        quote! { f32 }
+                    }
+                }
                 EndpointKind::Event => quote! { ::oscen::graph::StaticEventQueue },
                 EndpointKind::Stream => quote! { f32 },  // Static graphs use plain f32 for stream inputs
             };
@@ -1117,6 +1260,8 @@ impl CodegenContext {
         let clear_event_outputs_method = self.generate_static_clear_event_outputs();
         let process_event_inputs_method = self.generate_static_process_event_inputs();
         let event_handler_methods = self.generate_static_event_handler_methods();
+        let tick_ramps_method = self.generate_tick_ramps_method();
+        let value_setter_methods = self.generate_value_setter_methods();
 
         // Generate init() calls for each node (handling arrays)
         let node_init_calls: Vec<_> = self.nodes.iter().map(|node| {
@@ -1178,6 +1323,10 @@ impl CodegenContext {
                 #process_event_inputs_method
 
                 #(#event_handler_methods)*
+
+                #tick_ramps_method
+
+                #(#value_setter_methods)*
             }
 
             // Generate SignalProcessor implementation for compile-time graphs

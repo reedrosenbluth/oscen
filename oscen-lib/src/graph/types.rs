@@ -652,3 +652,216 @@ impl From<&ValueParam> for ValueKey {
     }
 }
 
+// ============================================================================
+// ValueRampState - Linear interpolation for value inputs
+// ============================================================================
+
+/// State for linear value interpolation.
+/// Used for smooth parameter transitions to avoid audio artifacts.
+#[derive(Debug, Clone, Copy)]
+pub struct ValueRampState {
+    pub current: f32,
+    pub target: f32,
+    increment: f32,
+    frames_remaining: u32,
+}
+
+impl Default for ValueRampState {
+    fn default() -> Self {
+        Self {
+            current: 0.0,
+            target: 0.0,
+            increment: 0.0,
+            frames_remaining: 0,
+        }
+    }
+}
+
+impl ValueRampState {
+    /// Create a new ValueRampState with an initial value.
+    pub fn new(initial: f32) -> Self {
+        Self {
+            current: initial,
+            target: initial,
+            increment: 0.0,
+            frames_remaining: 0,
+        }
+    }
+
+    /// Set the value immediately without ramping.
+    #[inline]
+    pub fn set_immediate(&mut self, value: f32) {
+        self.current = value;
+        self.target = value;
+        self.increment = 0.0;
+        self.frames_remaining = 0;
+    }
+
+    /// Set the target value with a ramp over the specified number of frames.
+    #[inline]
+    pub fn set_with_ramp(&mut self, target: f32, frames: u32) {
+        if frames == 0 {
+            self.set_immediate(target);
+        } else {
+            self.target = target;
+            self.increment = (target - self.current) / frames as f32;
+            self.frames_remaining = frames;
+        }
+    }
+
+    /// Advance the interpolation by one frame.
+    /// Call this once per sample before using the `current` value.
+    /// Returns `true` if the ramp just completed (for decrementing active_ramps counter).
+    #[inline]
+    pub fn tick(&mut self) -> bool {
+        if self.frames_remaining > 0 {
+            self.frames_remaining -= 1;
+            if self.frames_remaining == 0 {
+                self.current = self.target;
+                self.increment = 0.0;
+                return true; // Ramp completed
+            } else {
+                self.current += self.increment;
+            }
+        }
+        false
+    }
+
+    /// Returns true if the ramp is currently active.
+    #[inline]
+    pub fn is_ramping(&self) -> bool {
+        self.frames_remaining > 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn value_ramp_state_new() {
+        let ramp = ValueRampState::new(100.0);
+        assert_eq!(ramp.current, 100.0);
+        assert_eq!(ramp.target, 100.0);
+        assert!(!ramp.is_ramping());
+    }
+
+    #[test]
+    fn value_ramp_state_set_immediate() {
+        let mut ramp = ValueRampState::new(0.0);
+        ramp.set_immediate(50.0);
+        assert_eq!(ramp.current, 50.0);
+        assert_eq!(ramp.target, 50.0);
+        assert!(!ramp.is_ramping());
+    }
+
+    #[test]
+    fn value_ramp_state_set_with_ramp_zero_frames() {
+        let mut ramp = ValueRampState::new(0.0);
+        ramp.set_with_ramp(100.0, 0);
+        assert_eq!(ramp.current, 100.0);
+        assert_eq!(ramp.target, 100.0);
+        assert!(!ramp.is_ramping());
+    }
+
+    #[test]
+    fn value_ramp_state_set_with_ramp() {
+        let mut ramp = ValueRampState::new(0.0);
+        ramp.set_with_ramp(100.0, 10);
+        assert_eq!(ramp.current, 0.0);
+        assert_eq!(ramp.target, 100.0);
+        assert!(ramp.is_ramping());
+    }
+
+    #[test]
+    fn value_ramp_state_tick_advances_correctly() {
+        let mut ramp = ValueRampState::new(0.0);
+        ramp.set_with_ramp(100.0, 4);
+
+        // Tick 4 times
+        assert!(!ramp.tick()); // Not completed yet
+        assert!((ramp.current - 25.0).abs() < 0.001);
+        assert!(ramp.is_ramping());
+
+        assert!(!ramp.tick()); // Not completed yet
+        assert!((ramp.current - 50.0).abs() < 0.001);
+        assert!(ramp.is_ramping());
+
+        assert!(!ramp.tick()); // Not completed yet
+        assert!((ramp.current - 75.0).abs() < 0.001);
+        assert!(ramp.is_ramping());
+
+        assert!(ramp.tick()); // Completed!
+        // Should land exactly on target
+        assert_eq!(ramp.current, 100.0);
+        assert!(!ramp.is_ramping());
+    }
+
+    #[test]
+    fn value_ramp_state_tick_does_nothing_when_not_ramping() {
+        let mut ramp = ValueRampState::new(42.0);
+        assert!(!ramp.tick()); // Returns false when not ramping
+        assert_eq!(ramp.current, 42.0);
+        assert!(!ramp.is_ramping());
+    }
+
+    #[test]
+    fn value_ramp_state_lands_on_target() {
+        let mut ramp = ValueRampState::new(0.0);
+        ramp.set_with_ramp(1.0, 100);
+
+        for i in 0..100 {
+            let completed = ramp.tick();
+            // Only the last tick should return true
+            assert_eq!(completed, i == 99);
+        }
+
+        // Should be exactly on target, not accumulated floating point error
+        assert_eq!(ramp.current, 1.0);
+        assert!(!ramp.is_ramping());
+    }
+
+    #[test]
+    fn value_ramp_state_downward_ramp() {
+        let mut ramp = ValueRampState::new(100.0);
+        ramp.set_with_ramp(0.0, 4);
+
+        assert!(!ramp.tick());
+        assert!((ramp.current - 75.0).abs() < 0.001);
+
+        assert!(!ramp.tick());
+        assert!((ramp.current - 50.0).abs() < 0.001);
+
+        assert!(!ramp.tick());
+        assert!((ramp.current - 25.0).abs() < 0.001);
+
+        assert!(ramp.tick()); // Completed!
+        assert_eq!(ramp.current, 0.0);
+    }
+
+    #[test]
+    fn value_ramp_state_interrupt_ramp() {
+        let mut ramp = ValueRampState::new(0.0);
+        ramp.set_with_ramp(100.0, 10);
+
+        // Tick a few times
+        assert!(!ramp.tick());
+        assert!(!ramp.tick());
+        assert!(ramp.is_ramping());
+
+        // Interrupt with new ramp from current position
+        let current = ramp.current;
+        ramp.set_with_ramp(0.0, 4);
+
+        // Should ramp from the interrupted position
+        assert!(ramp.is_ramping());
+        assert_eq!(ramp.current, current);
+
+        for i in 0..4 {
+            let completed = ramp.tick();
+            assert_eq!(completed, i == 3);
+        }
+        assert_eq!(ramp.current, 0.0);
+    }
+}
+

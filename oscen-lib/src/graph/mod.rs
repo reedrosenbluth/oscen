@@ -11,6 +11,6 @@ pub use traits::{ProcessingNode, SignalProcessor};
 pub use types::{
     EndpointDescriptor, EndpointDirection, EndpointType, EventInput, EventInstance, EventObject,
     EventOutput, EventPayload, InputEndpoint, NodeKey, Output, StaticEventQueue, StreamInput,
-    StreamOutput, ValueInput, ValueKey, ValueOutput, ValueParam, MAX_EVENTS, MAX_NODE_ENDPOINTS,
-    MAX_STATIC_EVENTS_PER_ENDPOINT,
+    StreamOutput, ValueInput, ValueKey, ValueOutput, ValueParam, ValueRampState, MAX_EVENTS,
+    MAX_NODE_ENDPOINTS, MAX_STATIC_EVENTS_PER_ENDPOINT,
 };
