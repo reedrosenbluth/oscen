@@ -1,4 +1,4 @@
-use oscen::{InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
+use oscen::{Node, SignalProcessor};
 use std::f32::consts::TAU;
 
 /// FM Operator - a sine oscillator with phase modulation and self-feedback.

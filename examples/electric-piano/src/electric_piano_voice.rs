@@ -1,5 +1,5 @@
 use oscen::graph::types::{EventInstance, EventPayload};
-use oscen::{EventInput, InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
+use oscen::{EventInput, Node, SignalProcessor};
 use std::f32::consts::PI;
 
 const NUM_HARMONICS: usize = 32;

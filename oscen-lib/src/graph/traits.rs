@@ -1,8 +1,3 @@
-use arrayvec::ArrayVec;
-
-use super::types::NodeKey;
-use super::types::{EndpointDescriptor, ValueKey, MAX_NODE_ENDPOINTS};
-
 /// Users implement this trait to define their DSP logic. Inputs are already
 /// populated in the struct fields by the time process() is called.
 pub trait SignalProcessor: Send + std::fmt::Debug {
@@ -28,23 +23,5 @@ pub trait SignalProcessor: Send + std::fmt::Debug {
     #[inline]
     fn is_active(&self) -> bool {
         true
-    }
-}
-
-pub trait ProcessingNode: SignalProcessor {
-    type Endpoints;
-
-    const ENDPOINT_DESCRIPTORS: &'static [EndpointDescriptor] = &[];
-
-    fn create_endpoints(
-        node_key: NodeKey,
-        inputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
-        outputs: ArrayVec<ValueKey, MAX_NODE_ENDPOINTS>,
-    ) -> Self::Endpoints;
-
-    /// Returns initial values for value inputs as (input_index, value) pairs.
-    /// Called during node addition to initialize graph endpoints from constructor arguments.
-    fn default_values(&self) -> Vec<(usize, f32)> {
-        vec![]
     }
 }

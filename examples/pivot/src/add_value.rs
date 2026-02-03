@@ -1,4 +1,4 @@
-use oscen::{InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
+use oscen::{Node, SignalProcessor};
 
 /// AddValue - adds a value parameter to a stream signal.
 /// Useful for adding envelope modulation to a base parameter value.

@@ -1,4 +1,4 @@
-use crate::{InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
+use crate::{Node, SignalProcessor};
 use std::f32::consts::{PI, TAU};
 
 #[allow(dead_code)]
@@ -93,11 +93,11 @@ pub struct PolyBlepOscillator {
     #[input(stream)]
     pub phase_mod: f32,
     #[input(value)]
-    frequency: f32,
+    pub frequency: f32,
     #[input(stream)]
     pub frequency_mod: f32,
     #[input(value)]
-    amplitude: f32,
+    pub amplitude: f32,
     #[input(value)]
     pulse_width: f32,
 

@@ -2189,19 +2189,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "feedback-synth"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrayvec",
- "cpal",
- "midir",
- "oscen",
- "slint",
- "slint-build",
-]
-
-[[package]]
 name = "femtovg"
 version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2852,7 +2839,6 @@ dependencies = [
  "i-slint-common",
  "i-slint-core",
  "i-slint-renderer-femtovg",
- "i-slint-renderer-skia",
  "input",
  "memmap2",
  "nix 0.30.1",
@@ -3795,16 +3781,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "medium-graph"
-version = "0.1.0"
-dependencies = [
- "cpal",
- "oscen",
- "slint",
- "slint-build",
-]
-
-[[package]]
 name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3889,18 +3865,6 @@ checksum = "b3b1c9bd4fe1f0f8b387f6eb9eb3b4a1aa26185e5750efb9140301703f62cd1b"
 dependencies = [
  "adler2",
  "simd-adler32",
-]
-
-[[package]]
-name = "modular"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrayvec",
- "cpal",
- "oscen",
- "slint",
- "slint-build",
 ]
 
 [[package]]
@@ -4998,19 +4962,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "polysynth"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrayvec",
- "cpal",
- "midir",
- "oscen",
- "slint",
- "slint-build",
-]
-
-[[package]]
 name = "portable-atomic"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5999,17 +5950,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "supersaw"
-version = "0.1.0"
-dependencies = [
- "arrayvec",
- "cpal",
- "oscen",
- "slint",
- "slint-build",
-]
-
-[[package]]
 name = "svgtypes"
 version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6061,19 +6001,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.98",
-]
-
-[[package]]
-name = "synth-slint"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrayvec",
- "cpal",
- "midir",
- "oscen",
- "slint",
- "slint-build",
 ]
 
 [[package]]

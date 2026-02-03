@@ -1,4 +1,4 @@
-use oscen::{InputEndpoint, Node, NodeKey, ProcessingNode, SignalProcessor, ValueKey};
+use oscen::{Node, SignalProcessor};
 
 /// Mixer - adds two stream inputs together.
 #[derive(Debug, Node)]
