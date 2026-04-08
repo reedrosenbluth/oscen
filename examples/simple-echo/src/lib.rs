@@ -30,24 +30,24 @@ impl EchoChannel {
 
     fn process(&mut self, input: f32, delay_time: f32, filter_cutoff: f32, feedback: f32, mix: f32) -> f32 {
         // Update delay time (convert seconds to samples)
-        let delay_samples = delay_time * self.sample_rate;
+        let _delay_samples = delay_time * self.sample_rate;
 
         // Get feedback from previous filter output
         let feedback_signal = self.filter.output * feedback;
 
         // Feed input + feedback into delay (with soft clipping to prevent runaway)
-        self.delay.input = (input + feedback_signal).tanh();
+        self.delay.input = oscen::StreamInput((input + feedback_signal).tanh());
 
         // Update filter cutoff
-        self.filter.cutoff = filter_cutoff;
+        self.filter.cutoff = oscen::StreamInput(filter_cutoff);
 
         // Process delay -> filter chain
         self.delay.process();
-        self.filter.input = self.delay.output;
+        self.filter.input = oscen::StreamInput(*self.delay.output);
         self.filter.process();
 
         // Mix dry and wet
-        let wet = self.filter.output;
+        let wet = *self.filter.output;
         input * (1.0 - mix) + wet * mix
     }
 }

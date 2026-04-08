@@ -1,4 +1,4 @@
-use oscen::{Node, SignalProcessor};
+use oscen::{Node, SignalProcessor, StreamInput, StreamOutput, ValueInput};
 
 /// Crossfade - splits an input signal between two outputs based on a mix parameter.
 ///
@@ -7,24 +7,20 @@ use oscen::{Node, SignalProcessor};
 /// Values in between blend linearly.
 #[derive(Debug, Node)]
 pub struct Crossfade {
-    #[input(stream)]
-    pub input: f32,
-    #[input(value)]
-    pub mix: f32,
+    pub input: StreamInput,
+    pub mix: ValueInput,
 
-    #[output(stream)]
-    pub output_a: f32,
-    #[output(stream)]
-    pub output_b: f32,
+    pub output_a: StreamOutput,
+    pub output_b: StreamOutput,
 }
 
 impl Crossfade {
     pub fn new() -> Self {
         Self {
-            input: 0.0,
-            mix: 0.0,
-            output_a: 0.0,
-            output_b: 0.0,
+            input: StreamInput::default(),
+            mix: ValueInput::default(),
+            output_a: StreamOutput::default(),
+            output_b: StreamOutput::default(),
         }
     }
 }
@@ -39,7 +35,8 @@ impl SignalProcessor for Crossfade {
     #[inline(always)]
     fn process(&mut self) {
         let mix = self.mix.clamp(0.0, 1.0);
-        self.output_a = self.input * (1.0 - mix);
-        self.output_b = self.input * mix;
+        let input = self.input;
+        *self.output_a = input * (1.0 - mix);
+        *self.output_b = input * mix;
     }
 }

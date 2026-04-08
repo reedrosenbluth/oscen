@@ -1,25 +1,22 @@
-use oscen::{Node, SignalProcessor};
+use oscen::{Node, SignalProcessor, StreamInput, StreamOutput};
 
 /// VCA (Voltage Controlled Amplifier) - multiplies two stream signals together.
 /// Used to apply envelope modulation to audio signals.
 #[derive(Debug, Node)]
 pub struct Vca {
-    #[input(stream)]
-    pub input: f32,
+    pub input: StreamInput,
 
-    #[input(stream)]
-    pub control: f32,
+    pub control: StreamInput,
 
-    #[output(stream)]
-    pub output: f32,
+    pub output: StreamOutput,
 }
 
 impl Vca {
     pub fn new() -> Self {
         Self {
-            input: 0.0,
-            control: 1.0,
-            output: 0.0,
+            input: StreamInput::default(),
+            control: StreamInput(1.0),
+            output: StreamOutput::default(),
         }
     }
 }
@@ -33,6 +30,6 @@ impl Default for Vca {
 impl SignalProcessor for Vca {
     #[inline(always)]
     fn process(&mut self) {
-        self.output = self.input * self.control;
+        *self.output = self.input * self.control;
     }
 }
