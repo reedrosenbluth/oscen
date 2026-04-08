@@ -729,14 +729,17 @@ impl CodegenContext {
                                 let source_node = source_node.unwrap();
                                 let source_field = source_field.unwrap();
                                 if let Some(_src_array_size) = self.get_node_array_size(source_node) {
-                                    // Array-to-Output: Summing
+                                    // Array-to-Output: Summing (Sum trait handles both StreamOutput and f32)
                                     process_body.push(quote! {
                                         self.#dest_ident = self.#source_node.iter().map(|n| n.#source_field).sum();
                                     });
                                 } else {
-                                    // Scalar-to-Output (simple case)
+                                    // Scalar-to-Output using trait dispatch
                                     process_body.push(quote! {
-                                        self.#dest_ident = self.#source_node.#source_field;
+                                        <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                            &self.#source_node.#source_field,
+                                            &mut self.#dest_ident
+                                        );
                                     });
                                 }
                             } else {

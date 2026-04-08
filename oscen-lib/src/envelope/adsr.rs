@@ -1,5 +1,5 @@
 use crate::graph::types::EventPayload;
-use crate::graph::{EventInput, EventInstance, SignalProcessor};
+use crate::graph::{EventInput, EventInstance, SignalProcessor, StreamOutput, ValueInput};
 use crate::Node;
 
 const MIN_TIME_SECONDS: f32 = 1.0e-5;
@@ -15,23 +15,17 @@ enum Stage {
 
 #[derive(Debug, Node)]
 pub struct AdsrEnvelope {
-    #[input(event)]
     pub gate: EventInput,
 
-    #[input(value)]
-    pub attack: f32,
+    pub attack: ValueInput,
 
-    #[input(value)]
-    pub decay: f32,
+    pub decay: ValueInput,
 
-    #[input(value)]
-    pub sustain: f32,
+    pub sustain: ValueInput,
 
-    #[input(value)]
-    pub release: f32,
+    pub release: ValueInput,
 
-    #[output(stream)]
-    pub output: f32,
+    pub output: StreamOutput,
 
     stage: Stage,
     attack_samples: u32,
@@ -50,11 +44,11 @@ impl AdsrEnvelope {
     pub fn new(attack: f32, decay: f32, sustain: f32, release: f32) -> Self {
         let mut envelope = Self {
             gate: EventInput::default(),
-            attack,
-            decay,
-            sustain,
-            release,
-            output: 0.0,
+            attack: ValueInput(attack),
+            decay: ValueInput(decay),
+            sustain: ValueInput(sustain),
+            release: ValueInput(release),
+            output: StreamOutput::default(),
             stage: Stage::Idle,
             attack_samples: 0,
             decay_samples: 0,
@@ -71,16 +65,16 @@ impl AdsrEnvelope {
         envelope
     }
 
-    fn apply_parameters(&mut self, attack: f32, decay: f32, sustain: f32, release: f32) {
-        self.attack = attack.max(0.0);
-        self.decay = decay.max(0.0);
-        self.sustain = sustain.clamp(0.0, 1.0);
-        self.release = release.max(0.0);
+    fn apply_parameters(&mut self) {
+        self.attack.set(self.attack.max(0.0));
+        self.decay.set(self.decay.max(0.0));
+        self.sustain.set(self.sustain.clamp(0.0, 1.0));
+        self.release.set(self.release.max(0.0));
         self.update_sustain_level();
     }
 
     fn update_sustain_level(&mut self) {
-        self.sustain_level = (self.sustain * self.velocity).clamp(0.0, 1.0);
+        self.sustain_level = (*self.sustain * self.velocity).clamp(0.0, 1.0);
         self.recalculate_cached_steps();
         match self.stage {
             Stage::Attack if self.samples_remaining > 0 => {
@@ -117,7 +111,7 @@ impl AdsrEnvelope {
         self.release_samples = self.release_samples.max(1);
     }
 
-    fn set_stage(&mut self, stage: Stage, _duration_secs: f32, target_level: f32) {
+    fn set_stage(&mut self, stage: Stage, target_level: f32) {
         self.stage = stage;
         self.target_level = target_level.clamp(0.0, 1.0);
 
@@ -173,7 +167,7 @@ impl AdsrEnvelope {
         match self.stage {
             Stage::Attack => {
                 self.level = 1.0;
-                self.set_stage(Stage::Decay, self.decay, self.sustain_level);
+                self.set_stage(Stage::Decay, self.sustain_level);
             }
             Stage::Decay => {
                 self.level = self.sustain_level;
@@ -232,19 +226,19 @@ impl AdsrEnvelope {
         if velocity > 0.0 {
             self.velocity = velocity.clamp(0.0, 1.0);
             self.update_sustain_level();
-            if self.attack <= MIN_TIME_SECONDS {
+            if *self.attack <= MIN_TIME_SECONDS {
                 self.level = 1.0;
-                self.set_stage(Stage::Decay, self.decay, self.sustain_level);
+                self.set_stage(Stage::Decay, self.sustain_level);
             } else {
-                self.set_stage(Stage::Attack, self.attack.max(MIN_TIME_SECONDS), 1.0);
+                self.set_stage(Stage::Attack, 1.0);
             }
-        } else if self.release <= MIN_TIME_SECONDS {
+        } else if *self.release <= MIN_TIME_SECONDS {
             self.stage = Stage::Idle;
             self.level = 0.0;
             self.samples_remaining = 0;
             self.increment = 0.0;
         } else {
-            self.set_stage(Stage::Release, self.release.max(MIN_TIME_SECONDS), 0.0);
+            self.set_stage(Stage::Release, 0.0);
         }
     }
 }
@@ -258,13 +252,13 @@ impl SignalProcessor for AdsrEnvelope {
     #[inline(always)]
     fn process(&mut self) {
         // Apply parameters from struct fields
-        self.apply_parameters(self.attack, self.decay, self.sustain, self.release);
+        self.apply_parameters();
 
         // Process envelope stage
         self.process_stage();
 
         // Update output level
-        self.output = self.level;
+        *self.output = self.level;
     }
 
     fn is_active(&self) -> bool {
@@ -303,9 +297,9 @@ mod tests {
         } // 100 ms
 
         assert!(
-            env.output >= 0.5 && env.output <= 0.65,
+            *env.output >= 0.5 && *env.output <= 0.65,
             "value {} not near sustain",
-            env.output
+            *env.output
         );
     }
 
@@ -334,7 +328,7 @@ mod tests {
             env.process();
         }
 
-        assert!(env.output <= 0.01, "value {} not near zero", env.output);
+        assert!(*env.output <= 0.01, "value {} not near zero", *env.output);
     }
 
     #[test]
@@ -353,9 +347,9 @@ mod tests {
         }
 
         assert!(
-            env.output >= 0.45 && env.output <= 0.55,
+            *env.output >= 0.45 && *env.output <= 0.55,
             "value {} not scaled by velocity",
-            env.output
+            *env.output
         );
     }
 }

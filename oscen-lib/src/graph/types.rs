@@ -227,6 +227,193 @@ impl<T> EventOutput<T> {
 }
 
 // ============================================================================
+// Stream/Value Endpoint Types
+// ============================================================================
+
+/// A stream input endpoint. Streams carry per-sample audio signals.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct StreamInput<T = f32>(pub T);
+
+impl<T: Copy> StreamInput<T> {
+    #[inline]
+    pub fn set(&mut self, value: T) {
+        self.0 = value;
+    }
+}
+
+impl<T> std::ops::Deref for StreamInput<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+/// A stream output endpoint. Streams carry per-sample audio signals.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct StreamOutput<T = f32>(pub T);
+
+impl<T> std::ops::Deref for StreamOutput<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for StreamOutput<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+/// A value input endpoint. Values are control-rate parameters.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ValueInput<T = f32>(pub T);
+
+impl<T: Copy> ValueInput<T> {
+    #[inline]
+    pub fn set(&mut self, value: T) {
+        self.0 = value;
+    }
+}
+
+impl<T> std::ops::Deref for ValueInput<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+/// A value output endpoint. Values are control-rate parameters.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ValueOutput<T = f32>(pub T);
+
+impl<T> std::ops::Deref for ValueOutput<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for ValueOutput<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+// ============================================================================
+// Operator impls (Rust doesn't auto-deref for operators)
+// ============================================================================
+
+macro_rules! impl_binops_for {
+    ($type:ident) => {
+        impl std::ops::Add<f32> for $type<f32> {
+            type Output = f32;
+            fn add(self, rhs: f32) -> f32 { self.0 + rhs }
+        }
+        impl std::ops::Add<$type<f32>> for f32 {
+            type Output = f32;
+            fn add(self, rhs: $type<f32>) -> f32 { self + rhs.0 }
+        }
+        impl std::ops::Sub<f32> for $type<f32> {
+            type Output = f32;
+            fn sub(self, rhs: f32) -> f32 { self.0 - rhs }
+        }
+        impl std::ops::Sub<$type<f32>> for f32 {
+            type Output = f32;
+            fn sub(self, rhs: $type<f32>) -> f32 { self - rhs.0 }
+        }
+        impl std::ops::Mul<f32> for $type<f32> {
+            type Output = f32;
+            fn mul(self, rhs: f32) -> f32 { self.0 * rhs }
+        }
+        impl std::ops::Mul<$type<f32>> for f32 {
+            type Output = f32;
+            fn mul(self, rhs: $type<f32>) -> f32 { self * rhs.0 }
+        }
+        impl std::ops::Div<f32> for $type<f32> {
+            type Output = f32;
+            fn div(self, rhs: f32) -> f32 { self.0 / rhs }
+        }
+        impl std::ops::Div<$type<f32>> for f32 {
+            type Output = f32;
+            fn div(self, rhs: $type<f32>) -> f32 { self / rhs.0 }
+        }
+        impl std::ops::Neg for $type<f32> {
+            type Output = f32;
+            fn neg(self) -> f32 { -self.0 }
+        }
+        impl PartialEq<f32> for $type<f32> {
+            fn eq(&self, other: &f32) -> bool { self.0 == *other }
+        }
+        impl PartialOrd<f32> for $type<f32> {
+            fn partial_cmp(&self, other: &f32) -> Option<std::cmp::Ordering> {
+                self.0.partial_cmp(other)
+            }
+        }
+    };
+}
+
+macro_rules! impl_cross_binops {
+    ($lhs:ident, $rhs:ident) => {
+        impl std::ops::Add<$rhs<f32>> for $lhs<f32> {
+            type Output = f32;
+            fn add(self, rhs: $rhs<f32>) -> f32 { self.0 + rhs.0 }
+        }
+        impl std::ops::Sub<$rhs<f32>> for $lhs<f32> {
+            type Output = f32;
+            fn sub(self, rhs: $rhs<f32>) -> f32 { self.0 - rhs.0 }
+        }
+        impl std::ops::Mul<$rhs<f32>> for $lhs<f32> {
+            type Output = f32;
+            fn mul(self, rhs: $rhs<f32>) -> f32 { self.0 * rhs.0 }
+        }
+        impl std::ops::Div<$rhs<f32>> for $lhs<f32> {
+            type Output = f32;
+            fn div(self, rhs: $rhs<f32>) -> f32 { self.0 / rhs.0 }
+        }
+    };
+}
+
+impl_binops_for!(StreamInput);
+impl_binops_for!(StreamOutput);
+impl_binops_for!(ValueInput);
+impl_binops_for!(ValueOutput);
+
+// Self-type ops (Type op Type)
+impl_cross_binops!(StreamInput, StreamInput);
+impl_cross_binops!(StreamOutput, StreamOutput);
+impl_cross_binops!(ValueInput, ValueInput);
+impl_cross_binops!(ValueOutput, ValueOutput);
+
+// Cross-type ops (Stream op Value and vice versa)
+impl_cross_binops!(StreamInput, ValueInput);
+impl_cross_binops!(ValueInput, StreamInput);
+impl_cross_binops!(StreamOutput, ValueInput);
+impl_cross_binops!(ValueInput, StreamOutput);
+impl_cross_binops!(StreamInput, ValueOutput);
+impl_cross_binops!(StreamInput, StreamOutput);
+impl_cross_binops!(StreamOutput, StreamInput);
+
+// Sum trait for iterators (needed for array-to-output summing in graph macro)
+impl std::iter::Sum for StreamOutput<f32> {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        StreamOutput(iter.map(|x| x.0).sum())
+    }
+}
+
+impl std::iter::Sum<StreamOutput<f32>> for f32 {
+    fn sum<I: Iterator<Item = StreamOutput<f32>>>(iter: I) -> f32 {
+        iter.map(|x| x.0).sum()
+    }
+}
+
+// ============================================================================
 // ValueRampState - Linear interpolation for value inputs
 // ============================================================================
 

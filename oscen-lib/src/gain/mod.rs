@@ -1,24 +1,19 @@
-use crate::graph::SignalProcessor;
+use crate::graph::{SignalProcessor, StreamInput, StreamOutput};
 use crate::Node;
 
 #[derive(Debug, Node)]
 pub struct Gain {
-    #[input(stream)]
-    pub input: f32,
-
-    #[input(value)]
-    pub gain: f32,
-
-    #[output(stream)]
-    pub output: f32,
+    pub input: StreamInput,
+    pub gain: StreamInput,
+    pub output: StreamOutput,
 }
 
 impl Gain {
     pub fn new(initial_gain: f32) -> Self {
         Self {
-            input: 0.0,
-            gain: initial_gain,
-            output: 0.0,
+            input: StreamInput::default(),
+            gain: StreamInput(initial_gain),
+            output: StreamOutput::default(),
         }
     }
 }
@@ -32,7 +27,6 @@ impl Default for Gain {
 impl SignalProcessor for Gain {
     #[inline(always)]
     fn process(&mut self) {
-        // Inputs already populated in self.input and self.gain
-        self.output = self.input * self.gain;
+        *self.output = *self.input * *self.gain;
     }
 }

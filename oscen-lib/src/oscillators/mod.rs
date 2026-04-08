@@ -1,3 +1,4 @@
+use crate::graph::{StreamInput, StreamOutput, ValueInput};
 use crate::{Node, SignalProcessor};
 use std::f32::consts::{PI, TAU};
 
@@ -5,15 +6,11 @@ use std::f32::consts::{PI, TAU};
 #[derive(Debug, Node)]
 pub struct Oscillator {
     phase: f32,
-    #[input(value)]
-    frequency: f32,
-    #[input(stream)]
-    pub frequency_mod: f32,
-    #[input(value)]
-    amplitude: f32,
+    frequency: ValueInput,
+    pub frequency_mod: StreamInput,
+    amplitude: ValueInput,
 
-    #[output(stream)]
-    pub output: f32,
+    pub output: StreamOutput,
 
     waveform: fn(f32) -> f32,
     sample_rate: f32,
@@ -23,11 +20,11 @@ impl Oscillator {
     pub fn new(frequency: f32, amplitude: f32, waveform: fn(f32) -> f32) -> Self {
         Self {
             phase: 0.0,
-            frequency,
-            frequency_mod: 0.0,
-            amplitude,
+            frequency: ValueInput(frequency),
+            frequency_mod: StreamInput::default(),
+            amplitude: ValueInput(amplitude),
             waveform,
-            output: 0.0,
+            output: StreamOutput::default(),
             sample_rate: 44100.0, // Default, will be set in init()
         }
     }
@@ -71,7 +68,7 @@ impl SignalProcessor for Oscillator {
         let amplitude = self.amplitude;
 
         let modulated_phase = self.phase % 1.0;
-        self.output = (self.waveform)(modulated_phase) * amplitude;
+        *self.output = (self.waveform)(modulated_phase) * amplitude;
 
         self.phase += frequency / self.sample_rate;
         self.phase %= 1.0;
@@ -90,19 +87,13 @@ pub enum PolyBlepWaveform {
 #[derive(Debug, Node)]
 pub struct PolyBlepOscillator {
     phase: f32,
-    #[input(stream)]
-    pub phase_mod: f32,
-    #[input(value)]
-    pub frequency: f32,
-    #[input(stream)]
-    pub frequency_mod: f32,
-    #[input(value)]
-    pub amplitude: f32,
-    #[input(value)]
-    pulse_width: f32,
+    pub phase_mod: StreamInput,
+    pub frequency: ValueInput,
+    pub frequency_mod: StreamInput,
+    pub amplitude: ValueInput,
+    pulse_width: ValueInput,
 
-    #[output(stream)]
-    pub output: f32,
+    pub output: StreamOutput,
 
     waveform: PolyBlepWaveform,
     sample_rate: f32,
@@ -112,12 +103,12 @@ impl PolyBlepOscillator {
     pub fn new(frequency: f32, amplitude: f32, waveform: PolyBlepWaveform) -> Self {
         Self {
             phase: 0.0,
-            phase_mod: 0.0,
-            frequency,
-            frequency_mod: 0.0,
-            amplitude,
-            pulse_width: 0.5,
-            output: 0.0,
+            phase_mod: StreamInput::default(),
+            frequency: ValueInput(frequency),
+            frequency_mod: StreamInput::default(),
+            amplitude: ValueInput(amplitude),
+            pulse_width: ValueInput(0.5),
+            output: StreamOutput::default(),
             waveform,
             sample_rate: 44100.0,
         }
@@ -231,8 +222,8 @@ impl SignalProcessor for PolyBlepOscillator {
         };
 
         // Apply amplitude and update phase
-        value *= amplitude;
-        self.output = value;
+        value = value * amplitude;
+        *self.output = value;
 
         phase = Self::wrap_phase(self.phase + freq_per_sample);
         self.phase = phase;
@@ -241,7 +232,7 @@ impl SignalProcessor for PolyBlepOscillator {
 
 #[cfg(test)]
 mod tests {
-    use super::{PolyBlepOscillator, PolyBlepWaveform, SignalProcessor};
+    use super::{PolyBlepOscillator, PolyBlepWaveform, SignalProcessor, StreamInput};
 
     #[test]
     fn test_poly_blep_saw_stays_bounded() {
@@ -249,15 +240,15 @@ mod tests {
         let mut osc = PolyBlepOscillator::saw(440.0, 1.0);
         osc.init(sample_rate);
         // Initialize modulation inputs
-        osc.phase_mod = 0.0;
-        osc.frequency_mod = 0.0;
+        osc.phase_mod = StreamInput(0.0);
+        osc.frequency_mod = StreamInput(0.0);
 
         let mut min = f32::MAX;
         let mut max = f32::MIN;
 
         for _ in 0..(sample_rate as usize / 10) {
             osc.process();
-            let value = osc.output;
+            let value = *osc.output;
             min = min.min(value);
             max = max.max(value);
         }
@@ -274,15 +265,15 @@ mod tests {
         let mut osc = PolyBlepOscillator::square(880.0, 0.8);
         osc.init(sample_rate);
         // Initialize modulation inputs
-        osc.phase_mod = 0.0;
-        osc.frequency_mod = 0.0;
+        osc.phase_mod = StreamInput(0.0);
+        osc.frequency_mod = StreamInput(0.0);
 
         osc.process();
-        let mut previous = osc.output;
+        let mut previous = *osc.output;
 
         for _ in 0..1024 {
             osc.process();
-            let current = osc.output;
+            let current = *osc.output;
             let delta = (current - previous).abs();
             assert!(delta <= 1.6, "square produced discontinuity of {delta}");
             previous = current;
@@ -295,13 +286,13 @@ mod tests {
         let mut osc = PolyBlepOscillator::new(220.0, 1.0, PolyBlepWaveform::Triangle);
         osc.init(sample_rate);
         // Initialize stream input fields before calling process()
-        osc.phase_mod = 0.0;
-        osc.frequency_mod = 0.0;
+        osc.phase_mod = StreamInput(0.0);
+        osc.frequency_mod = StreamInput(0.0);
 
         let mut samples = [0.0; 4];
         for i in 0..samples.len() {
             osc.process();
-            samples[i] = osc.output;
+            samples[i] = *osc.output;
         }
 
         assert!(samples[0].abs() < 0.25);

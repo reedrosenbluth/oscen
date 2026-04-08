@@ -20,6 +20,16 @@
 /// // - If both are StaticEventQueue, use event→event impl
 /// // - If both are f32, use value→value impl
 /// ```
+///
+/// Stream outputs cannot connect to value inputs (enforced at compile time):
+/// ```compile_fail
+/// use oscen::graph::static_context::ConnectEndpoints;
+/// use oscen::graph::types::{StreamOutput, ValueInput};
+///
+/// let src = StreamOutput(1.0f32);
+/// let mut dst = ValueInput(0.0f32);
+/// <() as ConnectEndpoints<StreamOutput<f32>, ValueInput<f32>>>::connect(&src, &mut dst);
+/// ```
 pub trait ConnectEndpoints<Src, Dst> {
     fn connect(src: &Src, dst: &mut Dst);
 }
@@ -138,6 +148,151 @@ impl<T> ConnectEndpoints<super::types::EventOutput<T>, super::types::StaticEvent
         dst.clear();
         for event in src.iter() {
             let _ = dst.try_push(event.clone());
+        }
+    }
+}
+
+// ============================================================================
+// Stream/Value Endpoint Connections
+// ============================================================================
+
+// Stream → Stream
+impl<T: Copy> ConnectEndpoints<super::types::StreamOutput<T>, super::types::StreamInput<T>> for () {
+    #[inline]
+    fn connect(src: &super::types::StreamOutput<T>, dst: &mut super::types::StreamInput<T>) {
+        dst.0 = src.0;
+    }
+}
+
+// Value → Value
+impl<T: Copy> ConnectEndpoints<super::types::ValueOutput<T>, super::types::ValueInput<T>> for () {
+    #[inline]
+    fn connect(src: &super::types::ValueOutput<T>, dst: &mut super::types::ValueInput<T>) {
+        dst.0 = src.0;
+    }
+}
+
+// Value → Stream (constant signal, allowed)
+impl<T: Copy> ConnectEndpoints<super::types::ValueOutput<T>, super::types::StreamInput<T>> for () {
+    #[inline]
+    fn connect(src: &super::types::ValueOutput<T>, dst: &mut super::types::StreamInput<T>) {
+        dst.0 = src.0;
+    }
+}
+
+// Graph f32 → StreamInput
+impl ConnectEndpoints<f32, super::types::StreamInput<f32>> for () {
+    #[inline]
+    fn connect(src: &f32, dst: &mut super::types::StreamInput<f32>) {
+        dst.0 = *src;
+    }
+}
+
+// Graph f32 → ValueInput
+impl ConnectEndpoints<f32, super::types::ValueInput<f32>> for () {
+    #[inline]
+    fn connect(src: &f32, dst: &mut super::types::ValueInput<f32>) {
+        dst.0 = *src;
+    }
+}
+
+// StreamOutput → Graph f32
+impl ConnectEndpoints<super::types::StreamOutput<f32>, f32> for () {
+    #[inline]
+    fn connect(src: &super::types::StreamOutput<f32>, dst: &mut f32) {
+        *dst = src.0;
+    }
+}
+
+// ValueOutput → Graph f32
+impl ConnectEndpoints<super::types::ValueOutput<f32>, f32> for () {
+    #[inline]
+    fn connect(src: &super::types::ValueOutput<f32>, dst: &mut f32) {
+        *dst = src.0;
+    }
+}
+
+// Stream array → Stream array (polyphonic)
+impl<T: Copy, const N: usize>
+    ConnectEndpoints<[super::types::StreamOutput<T>; N], [super::types::StreamInput<T>; N]> for ()
+{
+    #[inline]
+    fn connect(
+        src: &[super::types::StreamOutput<T>; N],
+        dst: &mut [super::types::StreamInput<T>; N],
+    ) {
+        for (s, d) in src.iter().zip(dst.iter_mut()) {
+            d.0 = s.0;
+        }
+    }
+}
+
+// Value array → Value array (polyphonic)
+impl<T: Copy, const N: usize>
+    ConnectEndpoints<[super::types::ValueOutput<T>; N], [super::types::ValueInput<T>; N]> for ()
+{
+    #[inline]
+    fn connect(
+        src: &[super::types::ValueOutput<T>; N],
+        dst: &mut [super::types::ValueInput<T>; N],
+    ) {
+        for (s, d) in src.iter().zip(dst.iter_mut()) {
+            d.0 = s.0;
+        }
+    }
+}
+
+// Value array → Stream array (polyphonic constant signal)
+impl<T: Copy, const N: usize>
+    ConnectEndpoints<[super::types::ValueOutput<T>; N], [super::types::StreamInput<T>; N]> for ()
+{
+    #[inline]
+    fn connect(
+        src: &[super::types::ValueOutput<T>; N],
+        dst: &mut [super::types::StreamInput<T>; N],
+    ) {
+        for (s, d) in src.iter().zip(dst.iter_mut()) {
+            d.0 = s.0;
+        }
+    }
+}
+
+// f32 array → StreamInput array (graph input)
+impl<const N: usize> ConnectEndpoints<[f32; N], [super::types::StreamInput<f32>; N]> for () {
+    #[inline]
+    fn connect(src: &[f32; N], dst: &mut [super::types::StreamInput<f32>; N]) {
+        for (s, d) in src.iter().zip(dst.iter_mut()) {
+            d.0 = *s;
+        }
+    }
+}
+
+// f32 array → ValueInput array (graph input)
+impl<const N: usize> ConnectEndpoints<[f32; N], [super::types::ValueInput<f32>; N]> for () {
+    #[inline]
+    fn connect(src: &[f32; N], dst: &mut [super::types::ValueInput<f32>; N]) {
+        for (s, d) in src.iter().zip(dst.iter_mut()) {
+            d.0 = *s;
+        }
+    }
+}
+
+// StreamOutput array → f32 array (graph output)
+impl<const N: usize> ConnectEndpoints<[super::types::StreamOutput<f32>; N], [f32; N]> for () {
+    #[inline]
+    fn connect(src: &[super::types::StreamOutput<f32>; N], dst: &mut [f32; N]) {
+        for (s, d) in src.iter().zip(dst.iter_mut()) {
+            *d = s.0;
+        }
+    }
+}
+
+// ValueOutput array → f32 array (graph output)
+impl<const N: usize> ConnectEndpoints<[super::types::ValueOutput<f32>; N], [f32; N]> for () {
+    #[inline]
+    fn connect(src: &[super::types::ValueOutput<f32>; N], dst: &mut [f32; N]) {
+        for (s, d) in src.iter().zip(dst.iter_mut()) {
+            *d = s.0;
         }
     }
 }

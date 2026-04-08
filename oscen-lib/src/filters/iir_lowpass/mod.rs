@@ -1,3 +1,4 @@
+use crate::graph::{StreamInput, StreamOutput, ValueInput};
 use crate::{Node, SignalProcessor};
 use std::f32::consts::PI;
 
@@ -12,15 +13,11 @@ use std::f32::consts::PI;
 /// H(z) = (b0 + b1*z^-1 + b2*z^-2) / (1 + a1*z^-1 + a2*z^-2)
 #[derive(Debug, Node)]
 pub struct IirLowpass {
-    #[input(stream)]
-    pub input: f32,
-    #[input]
-    cutoff: f32,
-    #[input]
-    q: f32,
+    pub input: StreamInput,
+    cutoff: ValueInput,
+    q: ValueInput,
 
-    #[output(stream)]
-    pub output: f32,
+    pub output: StreamOutput,
 
     // Biquad coefficients
     b0: f32,
@@ -42,10 +39,10 @@ pub struct IirLowpass {
 impl Default for IirLowpass {
     fn default() -> Self {
         Self {
-            input: 0.0,
-            cutoff: 1000.0,
-            q: std::f32::consts::FRAC_1_SQRT_2, // 0.707 for Butterworth response
-            output: 0.0,
+            input: StreamInput::default(),
+            cutoff: ValueInput(1000.0),
+            q: ValueInput(std::f32::consts::FRAC_1_SQRT_2), // 0.707 for Butterworth response
+            output: StreamOutput::default(),
             b0: 1.0,
             b1: 0.0,
             b2: 0.0,
@@ -55,7 +52,8 @@ impl Default for IirLowpass {
             v2: 0.0,
             frame_counter: 0,
             frames_per_update: 32,
-            sample_rate: 44100.0,        }
+            sample_rate: 44100.0,
+        }
     }
 }
 
@@ -67,8 +65,8 @@ impl IirLowpass {
     /// * `q` - Quality factor (default 0.707 for Butterworth response)
     pub fn new(cutoff: f32, q: f32) -> Self {
         Self {
-            cutoff,
-            q,
+            cutoff: ValueInput(cutoff),
+            q: ValueInput(q),
             ..Default::default()
         }
     }
@@ -130,17 +128,9 @@ impl IirLowpass {
     }
 
     /// Apply parameter updates at a reduced rate to minimize computational cost.
-    fn apply_parameter_updates(&mut self, sample_rate: f32, cutoff_in: f32, q_in: f32) {
+    fn apply_parameter_updates(&mut self, sample_rate: f32) {
         if self.frame_counter == 0 {
-            let nyquist = sample_rate * 0.5 - f32::EPSILON;
-            let cutoff = cutoff_in.clamp(20.0, nyquist);
-            let q = q_in.clamp(0.01, 100.0);
-
-            if (cutoff - self.cutoff).abs() > f32::EPSILON || (q - self.q).abs() > f32::EPSILON {
-                self.cutoff = cutoff;
-                self.q = q;
-                self.update_coefficients(self.sample_rate);
-            }
+            self.update_coefficients(sample_rate);
         }
 
         self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
@@ -162,10 +152,12 @@ impl SignalProcessor for IirLowpass {
     #[inline(always)]
     fn process(&mut self) {
         // Update filter parameters if needed
-        self.apply_parameter_updates(self.sample_rate, self.cutoff, self.q);
+        self.apply_parameter_updates(self.sample_rate);
 
         // Process sample
-        self.output = self.process_sample(self.input);
+        let input = *self.input;
+        let output = self.process_sample(input);
+        *self.output = output;
     }
 }
 
@@ -239,19 +231,19 @@ mod tests {
         filter.init(sample_rate);
 
         // Feed DC signal and check steady-state output
-        filter.cutoff = 1000.0;
-        filter.q = std::f32::consts::FRAC_1_SQRT_2;
+        filter.cutoff = ValueInput(1000.0);
+        filter.q = ValueInput(std::f32::consts::FRAC_1_SQRT_2);
 
         for _ in 0..1000 {
-            filter.input = 1.0;
+            filter.input = StreamInput(1.0);
             filter.process();
         }
 
         // DC gain should be approximately 1.0 for a lowpass filter
         assert!(
-            approx_eq(filter.output, 1.0, 0.01),
+            approx_eq(*filter.output, 1.0, 0.01),
             "DC gain should be ~1.0, got {}",
-            filter.output
+            *filter.output
         );
     }
 
@@ -262,14 +254,14 @@ mod tests {
         filter.frames_per_update = 1;
         filter.init(sample_rate);
 
-        filter.cutoff = 2000.0;
-        filter.q = std::f32::consts::FRAC_1_SQRT_2;
+        filter.cutoff = ValueInput(2000.0);
+        filter.q = ValueInput(std::f32::consts::FRAC_1_SQRT_2);
         let mut outputs = Vec::new();
 
         for n in 0..8 {
-            filter.input = if n == 0 { 1.0 } else { 0.0 };
+            filter.input = StreamInput(if n == 0 { 1.0 } else { 0.0 });
             filter.process();
-            outputs.push(filter.output);
+            outputs.push(*filter.output);
         }
 
         // First output should be positive (impulse response of lowpass)
@@ -296,19 +288,19 @@ mod tests {
         filter.frames_per_update = 1;
         filter.init(sample_rate);
 
-        filter.cutoff = 1000.0;
-        filter.q = 10.0;
+        filter.cutoff = ValueInput(1000.0);
+        filter.q = ValueInput(10.0);
 
         // Process impulse and verify stability
         for n in 0..100 {
-            filter.input = if n == 0 { 1.0 } else { 0.0 };
+            filter.input = StreamInput(if n == 0 { 1.0 } else { 0.0 });
             filter.process();
 
             assert!(
                 filter.output.abs() < 10.0,
                 "Output unstable at sample {}: {}",
                 n,
-                filter.output
+                *filter.output
             );
         }
     }

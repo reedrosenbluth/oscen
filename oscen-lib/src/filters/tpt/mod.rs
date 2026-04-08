@@ -1,19 +1,15 @@
+use crate::graph::{StreamInput, StreamOutput, ValueInput};
 use crate::{Node, SignalProcessor};
 use std::f32::consts::PI;
 
 #[derive(Debug, Node)]
 pub struct TptFilter {
-    #[input(stream)]
-    pub input: f32,
-    #[input]
-    pub cutoff: f32,
-    #[input]
-    pub q: f32,
-    #[input(stream)]
-    pub f_mod: f32,
+    pub input: StreamInput,
+    pub cutoff: StreamInput,
+    pub q: ValueInput,
+    pub f_mod: StreamInput,
 
-    #[output(stream)]
-    pub output: f32,
+    pub output: StreamOutput,
 
     // last applied, sanitized parameters
     current_cutoff: f32,
@@ -46,11 +42,11 @@ pub struct TptFilter {
 impl TptFilter {
     pub fn new(cutoff: f32, q: f32) -> Self {
         let mut filter = Self {
-            input: 0.0,
-            cutoff,
-            q,
-            f_mod: 0.0,
-            output: 0.0,
+            input: StreamInput::default(),
+            cutoff: StreamInput(cutoff),
+            q: ValueInput(q),
+            f_mod: StreamInput::default(),
+            output: StreamOutput::default(),
             current_cutoff: cutoff,
             current_q: q,
             z: [0.0; 2],
@@ -83,16 +79,15 @@ impl TptFilter {
         self.current_q = q;
     }
 
-    //TODO: why do we need this function?
     #[inline(always)]
-    fn apply_parameter_updates(&mut self, sample_rate: f32, cutoff_in: f32, q_in: f32, f_mod: f32) {
+    fn apply_parameter_updates(&mut self, sample_rate: f32) {
         if self.frame_counter == 0 {
             let nyquist = sample_rate * 0.5 - f32::EPSILON;
             let max_cutoff = nyquist.min(20_000.0);
-            let cutoff_base = cutoff_in.clamp(20.0, max_cutoff);
-            let q = q_in.clamp(0.1, 10.0);
+            let cutoff_base = self.cutoff.clamp(20.0, max_cutoff);
+            let q = self.q.clamp(0.1, 10.0);
 
-            let modulation = f_mod.clamp(-1.0, 1.0);
+            let modulation = self.f_mod.clamp(-1.0, 1.0);
             let min_factor = 20.0 / cutoff_base;
             let max_factor = max_cutoff / cutoff_base;
             let factor = (1.0 + modulation).clamp(min_factor, max_factor);
@@ -114,7 +109,7 @@ impl TptFilter {
     #[inline(always)]
     pub fn process_internal(&mut self) {
         // Update parameters
-        self.apply_parameter_updates(self.sample_rate, self.cutoff, self.q, self.f_mod);
+        self.apply_parameter_updates(self.sample_rate);
 
         // Process (state-variable filter)
         let high = (self.input - self.k * self.z[0] - self.z[1]) * self.h;
@@ -125,7 +120,7 @@ impl TptFilter {
         self.z[1] = self.g * band + low;
 
         // Write output
-        self.output = low;
+        *self.output = low;
     }
 }
 
@@ -134,7 +129,7 @@ impl TptFilter {
 impl SignalProcessor for TptFilter {
     fn init(&mut self, sample_rate: f32) {
         self.sample_rate = sample_rate;
-        self.update_coefficients(sample_rate, self.cutoff, self.q);
+        self.update_coefficients(sample_rate, *self.cutoff, *self.q);
     }
 
     #[inline(always)]
@@ -186,15 +181,15 @@ mod tests {
         filter.frames_per_update = 1;
         filter.init(sample_rate);
 
-        filter.cutoff = 2_000.0;
-        filter.q = 0.707;
-        filter.f_mod = 0.0;
+        filter.cutoff = StreamInput(2_000.0);
+        filter.q = ValueInput(0.707);
+        filter.f_mod = StreamInput(0.0);
         let mut outputs = Vec::new();
 
         for n in 0..8 {
-            filter.input = if n == 0 { 1.0 } else { 0.0 };
+            filter.input = StreamInput(if n == 0 { 1.0 } else { 0.0 });
             filter.process();
-            outputs.push(filter.output);
+            outputs.push(*filter.output);
         }
 
         let expected = [

@@ -10,6 +10,6 @@ pub use topology::TopologyError;
 pub use traits::SignalProcessor;
 pub use types::{
     EndpointDescriptor, EndpointDirection, EndpointType, EventInput, EventInstance, EventObject,
-    EventOutput, EventPayload, StaticEventQueue, ValueRampState, MAX_EVENTS,
-    MAX_NODE_ENDPOINTS, MAX_STATIC_EVENTS_PER_ENDPOINT,
+    EventOutput, EventPayload, StaticEventQueue, StreamInput, StreamOutput, ValueInput,
+    ValueOutput, ValueRampState, MAX_EVENTS, MAX_NODE_ENDPOINTS, MAX_STATIC_EVENTS_PER_ENDPOINT,
 };

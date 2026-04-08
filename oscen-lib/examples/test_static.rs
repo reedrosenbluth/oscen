@@ -24,9 +24,9 @@ fn main() {
 
     for i in 0..10 {
         graph.process();
-        println!("  Sample {}: {:.6}", i, graph.filter.output);
+        println!("  Sample {}: {:.6}", i, *graph.filter.output);
     }
 
     println!("\nFilter output after processing:");
-    println!("  filter.output: {:.6}", graph.filter.output);
+    println!("  filter.output: {:.6}", *graph.filter.output);
 }
