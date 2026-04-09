@@ -4,7 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "fm-synth-standalone"
+path = "src/main.rs"
+required-features = ["standalone"]
+
+[features]
+standalone = ["slint/backend-winit", "slint/renderer-femtovg"]
 
 [dependencies]
 oscen = { path = "../../oscen-lib" }
@@ -15,6 +23,9 @@ parking_lot = "0.12"
 arrayvec = "0.7"
 atomic_float = "1"
 paste = "1"
+cpal = "0.15"
+midir = "0.10"
+anyhow = "1.0"
 
 # UI dependencies
 slint = { version = "1.14", default-features = false, features = ["compat-1-2", "renderer-software", "std"] }

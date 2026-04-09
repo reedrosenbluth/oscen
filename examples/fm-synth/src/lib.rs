@@ -1,6 +1,7 @@
 mod editor;
-mod fm_voice;
-mod nodes;
+pub mod fm_voice;
+pub mod nodes;
+pub mod waveform;
 
 // DSP nodes used in the graph macro
 #[allow(unused_imports)]
@@ -140,7 +141,7 @@ pub struct FMSynthParams {
 impl Default for FMSynthParams {
     fn default() -> Self {
         Self {
-            editor_state: SlintState::from_size(750, 400),
+            editor_state: SlintState::from_size(750, 490),
             synth: FMGraphParams::default(),
         }
     }

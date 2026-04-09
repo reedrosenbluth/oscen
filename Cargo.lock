@@ -790,7 +790,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "regex",
@@ -808,7 +808,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -2260,8 +2260,11 @@ dependencies = [
 name = "fm-synth"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arrayvec",
  "atomic_float 1.1.0",
+ "cpal",
+ "midir",
  "nih_plug 0.0.0 (git+https://github.com/reedrosenbluth/nih-plug)",
  "nih_plug_slint",
  "oscen",
@@ -3090,7 +3093,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.56.0",
 ]
 
 [[package]]
@@ -3412,15 +3415,6 @@ name = "itertools"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
 dependencies = [
  "either",
 ]
@@ -3984,7 +3978,7 @@ dependencies = [
 [[package]]
 name = "nih_plug"
 version = "0.0.0"
-source = "git+https://github.com/reedrosenbluth/nih-plug#138be00c59a68d8ef17cc7ff8686661e044bac49"
+source = "git+https://github.com/reedrosenbluth/nih-plug#840ac9148d64d503ae6c9807f2e76aafc145c6ab"
 dependencies = [
  "anyhow",
  "anymap3",
@@ -4044,7 +4038,7 @@ dependencies = [
 [[package]]
 name = "nih_plug_derive"
 version = "0.1.0"
-source = "git+https://github.com/reedrosenbluth/nih-plug#138be00c59a68d8ef17cc7ff8686661e044bac49"
+source = "git+https://github.com/reedrosenbluth/nih-plug#840ac9148d64d503ae6c9807f2e76aafc145c6ab"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4078,7 +4072,7 @@ dependencies = [
 [[package]]
 name = "nih_plug_slint"
 version = "0.0.0"
-source = "git+https://github.com/reedrosenbluth/nih-plug#138be00c59a68d8ef17cc7ff8686661e044bac49"
+source = "git+https://github.com/reedrosenbluth/nih-plug#840ac9148d64d503ae6c9807f2e76aafc145c6ab"
 dependencies = [
  "baseview 0.1.0 (git+https://github.com/reedrosenbluth/baseview)",
  "crossbeam",

@@ -608,6 +608,22 @@ component FilterRow inherits Rectangle {
     }
 }
 
+component WaveformDisplay inherits Rectangle {
+    in property <image> waveform_image;
+
+    height: 80px;
+    background: #262626;
+    border-radius: 4px;
+    clip: true;
+
+    Image {
+        source: root.waveform_image;
+        width: 100%;
+        height: 100%;
+        image-rendering: smooth;
+    }
+}
+
 export component SynthWindow inherits Window {
     title: "FM Synth";
     background: #1A1A1A;
@@ -647,6 +663,9 @@ export component SynthWindow inherits Window {
     in-out property <float> filter_sustain: 0.5;
     in-out property <float> filter_release: 0.3;
     in-out property <float> filter_env_amount: 0.0;
+
+    // Waveform display
+    in-out property <image> waveform_image;
 
     // Callbacks
     callback op3_ratio_edited(float);
@@ -749,6 +768,10 @@ export component SynthWindow inherits Window {
             release_edited(value) => { root.op1_release_edited(value); }
             drag_started => { root.knob_drag_started(); }
             drag_ended => { root.knob_drag_ended(); }
+        }
+
+        WaveformDisplay {
+            waveform_image: root.waveform_image;
         }
 
         // Filter Row

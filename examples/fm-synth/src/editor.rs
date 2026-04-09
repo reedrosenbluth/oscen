@@ -28,16 +28,19 @@ macro_rules! ui_param_bindings {
                 ui: &$ui_ty,
                 gui_ctx: Arc<dyn GuiContext>,
                 params: Arc<$params_ty>,
+                on_change: impl Fn() + Clone + 'static,
             ) {
                 $(
                     ui.[<on_ $ui_name _edited>]({
                         let gui_context = gui_ctx.clone();
                         let params = params.clone();
+                        let on_change = on_change.clone();
                         move |value| {
                             let setter = ParamSetter::new(gui_context.as_ref());
                             setter.begin_set_parameter(&params.$($param_path).+);
                             setter.set_parameter(&params.$($param_path).+, value);
                             setter.end_set_parameter(&params.$($param_path).+);
+                            on_change();
                         }
                     });
                 )*
@@ -85,6 +88,20 @@ ui_param_bindings! {
     }
 }
 
+fn render_waveform(ui: &SynthWindow) {
+    let params = crate::waveform::FmWaveformParams {
+        op3_ratio: ui.get_op3_ratio(),
+        op3_level: ui.get_op3_level(),
+        op3_feedback: ui.get_op3_feedback(),
+        op2_ratio: ui.get_op2_ratio(),
+        op2_level: ui.get_op2_level(),
+        op2_feedback: ui.get_op2_feedback(),
+        route: ui.get_route(),
+    };
+    let image = crate::waveform::render_image(&params);
+    ui.set_waveform_image(image);
+}
+
 /// Create an editor for the FM synth plugin.
 pub fn create(
     params: Arc<FMSynthParams>,
@@ -99,7 +116,16 @@ pub fn create(
 
             // Set initial values from params and bind callbacks
             set_ui_values(&ui, &params);
-            bind_ui_callbacks(&ui, gui_context.clone(), params.clone());
+
+            let ui_weak = ui.as_weak();
+            bind_ui_callbacks(&ui, gui_context.clone(), params.clone(), move || {
+                if let Some(ui) = ui_weak.upgrade() {
+                    render_waveform(&ui);
+                }
+            });
+
+            // Initial waveform render
+            render_waveform(&ui);
 
             // Drag handlers for unbounded mouse movement
             ui.on_knob_drag_started({
@@ -117,6 +143,7 @@ pub fn create(
         // Callback invoked when host changes parameters (automation, presets, etc.)
         Some(Arc::new(move |ui: &SynthWindow| {
             set_ui_values(ui, &params_for_callback);
+            render_waveform(ui);
         })),
     )
 }
