@@ -6,6 +6,10 @@ use std::sync::Arc;
 use arrayvec::ArrayVec;
 
 pub const MAX_EVENTS: usize = 256;
+
+/// Default maximum block size for block-based processing.
+/// Block buffers on the graph struct are sized to this value.
+pub const DEFAULT_MAX_BLOCK_SIZE: usize = 512;
 pub const MAX_NODE_ENDPOINTS: usize = 32;
 pub const MAX_STREAM_CHANNELS: usize = 128;
 

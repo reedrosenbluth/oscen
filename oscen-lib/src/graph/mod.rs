@@ -11,5 +11,6 @@ pub use traits::SignalProcessor;
 pub use types::{
     EndpointDescriptor, EndpointDirection, EndpointType, EventInput, EventInstance, EventObject,
     EventOutput, EventPayload, StaticEventQueue, StreamInput, StreamOutput, ValueInput,
-    ValueOutput, ValueRampState, MAX_EVENTS, MAX_NODE_ENDPOINTS, MAX_STATIC_EVENTS_PER_ENDPOINT,
+    ValueOutput, ValueRampState, DEFAULT_MAX_BLOCK_SIZE, MAX_EVENTS, MAX_NODE_ENDPOINTS,
+    MAX_STATIC_EVENTS_PER_ENDPOINT,
 };

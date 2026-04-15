@@ -190,61 +190,74 @@ impl CodegenContext {
     // ========== Static Graph Parameter Generation ==========
 
     fn generate_static_input_params(&self) -> Vec<TokenStream> {
-        self.inputs.iter().map(|input| {
+        self.inputs.iter().flat_map(|input| {
             let name = &input.name;
             let default_val = input.default.as_ref();
 
+            let mut stmts = Vec::new();
             match input.kind {
                 EndpointKind::Value => {
                     let default = default_val.map(|d| quote! { #d }).unwrap_or(quote! { 0.0 });
                     if self.is_ramped_input(name).is_some() {
-                        quote! {
+                        stmts.push(quote! {
                             let #name = ::oscen::graph::ValueRampState::new(#default);
-                        }
+                        });
                     } else {
-                        quote! {
+                        stmts.push(quote! {
                             let #name = #default;
-                        }
+                        });
                     }
                 }
                 EndpointKind::Event => {
-                    quote! {
+                    stmts.push(quote! {
                         let #name = ::oscen::graph::StaticEventQueue::new();
-                    }
+                    });
                 }
                 EndpointKind::Stream => {
-                    // Static graphs: stream inputs are plain f32, initialized to 0.0
-                    quote! {
+                    stmts.push(quote! {
                         let #name = 0.0f32;
-                    }
+                    });
+                    // Block buffer for stream inputs
+                    let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                    stmts.push(quote! {
+                        let #block_name = [0.0f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE];
+                    });
                 }
             }
+            stmts
         }).collect()
     }
 
     /// Generate static initialization for output parameters
     /// For static graphs, outputs store actual values (f32) not endpoint wrappers
     fn generate_static_output_params(&self) -> Vec<TokenStream> {
-        self.outputs.iter().map(|output| {
+        self.outputs.iter().flat_map(|output| {
             let name = &output.name;
+            let mut stmts = Vec::new();
 
             match output.kind {
                 EndpointKind::Stream => {
-                    quote! {
+                    stmts.push(quote! {
                         let #name = 0.0f32;
-                    }
+                    });
+                    // Block buffer for stream outputs
+                    let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                    stmts.push(quote! {
+                        let #block_name = [0.0f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE];
+                    });
                 }
                 EndpointKind::Value => {
-                    quote! {
+                    stmts.push(quote! {
                         let #name = 0.0f32;
-                    }
+                    });
                 }
                 EndpointKind::Event => {
-                    quote! {
+                    stmts.push(quote! {
                         let #name = ::oscen::graph::StaticEventQueue::new();
-                    }
+                    });
                 }
             }
+            stmts
         }).collect()
     }
 
@@ -299,15 +312,25 @@ impl CodegenContext {
             quote! {}
         };
 
-        // Add input/output fields
-        let input_fields: Vec<_> = self.inputs.iter().map(|input| {
+        // Add input/output fields (including block buffer fields for streams)
+        let input_fields: Vec<_> = self.inputs.iter().flat_map(|input| {
             let name = &input.name;
-            quote! { #name }
+            let mut fields = vec![quote! { #name }];
+            if input.kind == EndpointKind::Stream {
+                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                fields.push(quote! { #block_name });
+            }
+            fields
         }).collect();
 
-        let output_fields: Vec<_> = self.outputs.iter().map(|output| {
+        let output_fields: Vec<_> = self.outputs.iter().flat_map(|output| {
             let name = &output.name;
-            quote! { #name }
+            let mut fields = vec![quote! { #name }];
+            if output.kind == EndpointKind::Stream {
+                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                fields.push(quote! { #block_name });
+            }
+            fields
         }).collect();
 
         // Add node fields (no IO fields)
@@ -753,27 +776,20 @@ impl CodegenContext {
         assignments
     }
 
-    /// Generate the static process() method for compile-time graphs
-    /// Uses trait-based dispatch for ALL connection types, eliminating the need for
-    /// type inference to distinguish events from streams.
-    /// Now calls process_event_inputs() uniformly on all nodes, removing the need
-    /// for type inference to identify event endpoints.
-    fn generate_static_process(&self) -> Result<TokenStream> {
+    /// Generate the shared process body: connection assignments, node processing,
+    /// and output routing. Used by both `process()` and `__advance_one_frame()`.
+    fn generate_process_body(&self) -> Result<Vec<TokenStream>> {
         let sorted_nodes = self.topological_sort_nodes()?;
 
-        // Generate process calls for each node in topological order
         let mut process_body = Vec::new();
 
         for node_name in &sorted_nodes {
-            // First, generate connection assignments that feed into this node
-            // Uses trait dispatch for all types (events, streams, values)
+            // Connection assignments that feed into this node
             let assignments = self.generate_connection_assignments_for_node(node_name);
             process_body.extend(assignments);
 
-            // Generate process call - now uniformly calls process_event_inputs() + process()
-            // This eliminates the need for type inference to identify event endpoints
+            // process_event_inputs() + process() for each node
             if let Some(array_size) = self.get_node_array_size(node_name) {
-                // Array node: process each element
                 process_body.push(quote! {
                     for i in 0..#array_size {
                         self.#node_name[i].process_event_inputs();
@@ -781,7 +797,6 @@ impl CodegenContext {
                     }
                 });
             } else {
-                // Scalar node: process_event_inputs() then process()
                 process_body.push(quote! {
                     self.#node_name.process_event_inputs();
                     self.#node_name.process();
@@ -789,13 +804,10 @@ impl CodegenContext {
             }
         }
 
-        // Generate assignments for connections to outputs
+        // Assignments for connections to graph outputs
         for conn in &self.connections {
             if let Some(dest_ident) = Self::extract_root_node(&conn.dest) {
-                // Check if destination is a graph output
                 if let Some(output_decl) = self.outputs.iter().find(|o| o.name == *dest_ident) {
-                    // This connection targets an output
-                    // Check if source is a simple node.field pattern (for special array handling)
                     let source_node = Self::extract_root_node(&conn.source);
                     let source_field = Self::extract_endpoint_field(&conn.source);
                     let is_simple_source = source_node.is_some() && source_field.is_some();
@@ -806,12 +818,10 @@ impl CodegenContext {
                                 let source_node = source_node.unwrap();
                                 let source_field = source_field.unwrap();
                                 if let Some(_src_array_size) = self.get_node_array_size(source_node) {
-                                    // Array-to-Output: Summing (Sum trait handles both StreamOutput and f32)
                                     process_body.push(quote! {
                                         self.#dest_ident = self.#source_node.iter().map(|n| n.#source_field).sum();
                                     });
                                 } else {
-                                    // Scalar-to-Output using trait dispatch
                                     process_body.push(quote! {
                                         <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
                                             &self.#source_node.#source_field,
@@ -820,7 +830,6 @@ impl CodegenContext {
                                     });
                                 }
                             } else {
-                                // Complex expression (binary ops, etc.) - evaluate and assign
                                 let source_tokens = self.connection_expr_to_tokens(&conn.source);
                                 process_body.push(quote! {
                                     self.#dest_ident = #source_tokens;
@@ -828,12 +837,10 @@ impl CodegenContext {
                             }
                         }
                         EndpointKind::Event => {
-                            // Events only support simple node.field sources
                             if is_simple_source {
                                 let source_node = source_node.unwrap();
                                 let source_field = source_field.unwrap();
                                 if let Some(array_size) = self.get_node_array_size(source_node) {
-                                    // Array event source: copy all events from each element
                                     process_body.push(quote! {
                                         self.#dest_ident.clear();
                                         for i in 0..#array_size {
@@ -843,7 +850,6 @@ impl CodegenContext {
                                         }
                                     });
                                 } else {
-                                    // Scalar event source: use trait dispatch
                                     process_body.push(quote! {
                                         <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
                                             &self.#source_node.#source_field,
@@ -852,19 +858,22 @@ impl CodegenContext {
                                     });
                                 }
                             }
-                            // Note: Binary expressions for events don't make sense, so we skip them
                         }
                     }
                 }
             }
         }
 
-        // Generate event queue clearing for graph inputs/outputs
-        let mut event_clearing = Vec::new();
+        Ok(process_body)
+    }
+
+    /// Generate event queue clearing statements for graph-level event inputs/outputs.
+    fn generate_event_clearing(&self) -> Vec<TokenStream> {
+        let mut clearing = Vec::new();
         for input in &self.inputs {
             if input.kind == EndpointKind::Event {
                 let field_name = &input.name;
-                event_clearing.push(quote! {
+                clearing.push(quote! {
                     self.#field_name.clear();
                 });
             }
@@ -872,13 +881,20 @@ impl CodegenContext {
         for output in &self.outputs {
             if output.kind == EndpointKind::Event {
                 let field_name = &output.name;
-                event_clearing.push(quote! {
+                clearing.push(quote! {
                     self.#field_name.clear();
                 });
             }
         }
+        clearing
+    }
 
-        // Generate process() method with no return value
+    /// Generate the static process() method for compile-time graphs.
+    /// Wraps the shared process body with tick_ramps() and event clearing.
+    fn generate_static_process(&self) -> Result<TokenStream> {
+        let process_body = self.generate_process_body()?;
+        let event_clearing = self.generate_event_clearing();
+
         Ok(quote! {
             #[inline(always)]
             pub fn process(&mut self) {
@@ -997,6 +1013,166 @@ impl CodegenContext {
                 self.clear_event_outputs();
             }
         }
+    }
+
+    // ========== Block Processing Methods ==========
+
+    /// Generate the `__advance_one_frame()` private method.
+    /// Contains stream block buffer I/O, tick_ramps(), and the shared process body.
+    /// Marked `#[inline(always)]` so LLVM inlines it into the tight inner loop.
+    fn generate_advance_one_frame(&self) -> Result<TokenStream> {
+        let process_body = self.generate_process_body()?;
+
+        // Read stream inputs from block buffers
+        let stream_input_reads: Vec<_> = self.inputs.iter()
+            .filter(|i| i.kind == EndpointKind::Stream)
+            .map(|i| {
+                let name = &i.name;
+                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                quote! { self.#name = self.#block_name[__frame]; }
+            })
+            .collect();
+
+        // Write stream outputs to block buffers
+        let stream_output_writes: Vec<_> = self.outputs.iter()
+            .filter(|o| o.kind == EndpointKind::Stream)
+            .map(|o| {
+                let name = &o.name;
+                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                quote! { self.#block_name[__frame] = self.#name; }
+            })
+            .collect();
+
+        Ok(quote! {
+            #[inline(always)]
+            #[allow(unused_variables)]
+            fn __advance_one_frame(&mut self, __frame: usize) {
+                use ::oscen::SignalProcessor as _;
+
+                #(#stream_input_reads)*
+
+                self.tick_ramps();
+
+                #(#process_body)*
+
+                #(#stream_output_writes)*
+            }
+        })
+    }
+
+    /// Generate the `process_block()` public method.
+    /// If the graph has event inputs, generates sub-block splitting at event boundaries.
+    /// Otherwise, generates a simple tight loop.
+    fn generate_static_process_block(&self) -> Result<TokenStream> {
+        let has_event_inputs = self.inputs.iter().any(|i| i.kind == EndpointKind::Event);
+
+        if !has_event_inputs {
+            // No events: simple tight loop
+            return Ok(quote! {
+                /// Process a block of `frames` samples.
+                /// Stream inputs should be written to `*_block` arrays before calling.
+                /// Stream outputs will be available in `*_block` arrays after calling.
+                pub fn process_block(&mut self, frames: usize) {
+                    debug_assert!(frames <= Self::MAX_BLOCK_SIZE);
+                    for __frame in 0..frames {
+                        self.__advance_one_frame(__frame);
+                    }
+                }
+            });
+        }
+
+        // Event inputs exist: generate sub-block splitting
+
+        // Stage: copy events to local sorted storage, drain originals
+        let event_inputs: Vec<_> = self.inputs.iter()
+            .filter(|i| i.kind == EndpointKind::Event)
+            .collect();
+
+        let staging: Vec<_> = event_inputs.iter().map(|input| {
+            let name = &input.name;
+            let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
+            let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+            quote! {
+                let mut #staged_name: ::oscen::graph::StaticEventQueue =
+                    ::oscen::graph::StaticEventQueue::new();
+                for __e in self.#name.iter() {
+                    let _ = #staged_name.try_push(__e.clone());
+                }
+                self.#name.clear();
+                #staged_name.sort_unstable_by_key(|__e| __e.frame_offset);
+                let mut #cursor_name: usize = 0;
+            }
+        }).collect();
+
+        // Find next event boundary across all event inputs
+        let boundary_checks: Vec<_> = event_inputs.iter().map(|input| {
+            let name = &input.name;
+            let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
+            let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+            quote! {
+                if #cursor_name < #staged_name.len() {
+                    __next_event = __next_event.min(
+                        (#staged_name[#cursor_name].frame_offset as usize).max(__frame)
+                    );
+                }
+            }
+        }).collect();
+
+        // Push events at boundary
+        let event_pushes: Vec<_> = event_inputs.iter().map(|input| {
+            let name = &input.name;
+            let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
+            let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+            quote! {
+                while #cursor_name < #staged_name.len()
+                    && #staged_name[#cursor_name].frame_offset == __frame as u32
+                {
+                    let _ = self.#name.try_push(#staged_name[#cursor_name].clone());
+                    #cursor_name += 1;
+                }
+            }
+        }).collect();
+
+        // Clear event queues after event frame
+        let event_clearing = self.generate_event_clearing();
+
+        Ok(quote! {
+            /// Process a block of `frames` samples with sub-block splitting at event boundaries.
+            /// Stream inputs should be written to `*_block` arrays before calling.
+            /// Stream outputs will be available in `*_block` arrays after calling.
+            /// Events should be pushed to event input queues with appropriate `frame_offset` values.
+            pub fn process_block(&mut self, frames: usize) {
+                debug_assert!(frames <= Self::MAX_BLOCK_SIZE);
+
+                // Stage: copy events to local sorted storage, drain originals
+                #(#staging)*
+
+                let mut __frame: usize = 0;
+                while __frame < frames {
+                    // Find next event boundary across all event inputs
+                    let mut __next_event: usize = frames;
+                    #(#boundary_checks)*
+
+                    // Tight loop up to next event boundary (no events, no branches)
+                    while __frame < __next_event {
+                        self.__advance_one_frame(__frame);
+                        __frame += 1;
+                    }
+
+                    if __frame >= frames { break; }
+
+                    // Push events at this boundary into graph-level queues
+                    #(#event_pushes)*
+
+                    // Process the event frame
+                    self.__advance_one_frame(__frame);
+                    __frame += 1;
+
+                    // Clear event queues so next sub-block starts clean
+                    #(#event_clearing)*
+                }
+            }
+        })
     }
 
     // ========== Value Ramp Methods ==========
@@ -1317,20 +1493,32 @@ impl CodegenContext {
                     }
                 }
                 EndpointKind::Event => quote! { ::oscen::graph::StaticEventQueue },
-                EndpointKind::Stream => quote! { f32 },  // Static graphs use plain f32 for stream inputs
+                EndpointKind::Stream => quote! { f32 },
             };
             fields.push(quote! { pub #field_name: #ty });
+
+            // Block buffer for stream inputs
+            if input.kind == EndpointKind::Stream {
+                let block_name = syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+                fields.push(quote! { pub #block_name: [f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] });
+            }
         }
 
         // Add output fields (store actual values for static graphs)
         for output in &self.outputs {
             let field_name = &output.name;
             let ty = match output.kind {
-                EndpointKind::Stream => quote! { f32 },  // Store actual f32 value
-                EndpointKind::Value => quote! { f32 },   // Simplified: only scalar values for now
+                EndpointKind::Stream => quote! { f32 },
+                EndpointKind::Value => quote! { f32 },
                 EndpointKind::Event => quote! { ::oscen::graph::StaticEventQueue },
             };
             fields.push(quote! { pub #field_name: #ty });
+
+            // Block buffer for stream outputs
+            if output.kind == EndpointKind::Stream {
+                let block_name = syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+                fields.push(quote! { pub #block_name: [f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] });
+            }
         }
 
         // Add concrete node fields (no IO structs)
@@ -1358,6 +1546,8 @@ impl CodegenContext {
 
         // For compile-time graphs, generate a static process() method
         let process_method = self.generate_static_process()?;
+        let advance_one_frame_method = self.generate_advance_one_frame()?;
+        let process_block_method = self.generate_static_process_block()?;
         let get_stream_output_method = self.generate_static_get_stream_output();
         let clear_event_outputs_method = self.generate_static_clear_event_outputs();
         let process_event_inputs_method = self.generate_static_process_event_inputs();
@@ -1398,6 +1588,9 @@ impl CodegenContext {
             }
 
             impl #name {
+                /// Maximum block size for `process_block()`.
+                pub const MAX_BLOCK_SIZE: usize = ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE;
+
                 #[allow(unused_variables, unused_mut)]
                 pub fn new() -> Self {
                     let sample_rate = 44100.0; // Default sample rate, will be set via init()
@@ -1417,6 +1610,10 @@ impl CodegenContext {
                 }
 
                 #process_method
+
+                #advance_one_frame_method
+
+                #process_block_method
 
                 #get_stream_output_method
 
