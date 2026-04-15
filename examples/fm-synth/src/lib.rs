@@ -224,7 +224,7 @@ impl Plugin for FMSynth {
             None => return ProcessStatus::Normal,
         };
 
-        // Process MIDI events
+        // Process MIDI events — NIH-plug provides sample-accurate timing
         while let Some(event) = context.next_event() {
             match event {
                 NoteEvent::NoteOn {
@@ -255,15 +255,17 @@ impl Plugin for FMSynth {
             }
         }
 
-        for mut channel_samples in buffer.iter_samples() {
-            // Update parameters from NIH-plug's smoothed values
-            self.params.sync_to(synth);
+        // Sync parameters once per block
+        self.params.sync_to(synth);
 
-            // Process the graph
-            synth.process();
+        // Block processing — events are dispatched at their sample-accurate positions
+        let frames = buffer.samples();
+        let frames = frames.min(FMGraph::MAX_BLOCK_SIZE);
+        synth.process_block(frames);
 
-            // Write mono output to stereo
-            let output = synth.audio_out;
+        // Copy from output block buffer to all channels
+        for (i, mut channel_samples) in buffer.iter_samples().enumerate() {
+            let output = synth.audio_out_block[i];
             for sample in channel_samples.iter_mut() {
                 *sample = output;
             }
