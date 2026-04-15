@@ -192,9 +192,14 @@ fn audio_callback(
         }
     }
 
-    for frame in data.chunks_mut(context.channels) {
-        context.synth.process();
-        let mono = context.synth.audio_out;
+    // Block-based processing: process all frames at once
+    let frames = data.len() / context.channels;
+    let frames = frames.min(FMStandaloneGraph::MAX_BLOCK_SIZE);
+    context.synth.process_block(frames);
+
+    // Copy from output block buffer to interleaved audio output
+    for (i, frame) in data.chunks_mut(context.channels).enumerate() {
+        let mono = context.synth.audio_out_block[i];
         if context.channels >= 2 {
             frame[0] = mono;
             frame[1] = mono;
