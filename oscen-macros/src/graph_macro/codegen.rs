@@ -334,10 +334,48 @@ impl CodegenContext {
     fn extract_root_node(expr: &ConnectionExpr) -> Option<&syn::Ident> {
         match expr {
             ConnectionExpr::Ident(ident) => Some(ident),
-            ConnectionExpr::Method(base, _, _) => Self::extract_root_node(base),
+            ConnectionExpr::Field(base, _) => Self::extract_root_node(base),
+            ConnectionExpr::MethodCall(base, _, _) => Self::extract_root_node(base),
             ConnectionExpr::ArrayIndex(base, _) => Self::extract_root_node(base),
             ConnectionExpr::Binary(left, _, _) => Self::extract_root_node(left),
             ConnectionExpr::Literal(_) | ConnectionExpr::Call(_, _) => None,
+        }
+    }
+
+    /// True iff the expression is a pure endpoint reference (no arithmetic,
+    /// no function or method calls). Such sources use the fast ConnectEndpoints
+    /// path; complex sources are assigned via an evaluated f32.
+    fn is_simple_endpoint_source(expr: &ConnectionExpr) -> bool {
+        match expr {
+            ConnectionExpr::Ident(_) => true,
+            ConnectionExpr::Field(base, _) => Self::is_simple_endpoint_source(base),
+            ConnectionExpr::ArrayIndex(base, _) => Self::is_simple_endpoint_source(base),
+            _ => false,
+        }
+    }
+
+    /// Walk the expression and push every identifier it mentions (node names,
+    /// graph input/output names, function args) into `out`. Used by dependency
+    /// tracking to order node processing when sources are compound expressions.
+    fn collect_referenced_idents<'a>(
+        expr: &'a ConnectionExpr,
+        out: &mut Vec<&'a syn::Ident>,
+    ) {
+        match expr {
+            ConnectionExpr::Ident(ident) => out.push(ident),
+            ConnectionExpr::Field(base, _) => Self::collect_referenced_idents(base, out),
+            ConnectionExpr::ArrayIndex(base, _) => Self::collect_referenced_idents(base, out),
+            ConnectionExpr::MethodCall(base, _, _) => Self::collect_referenced_idents(base, out),
+            ConnectionExpr::Binary(l, _, r) => {
+                Self::collect_referenced_idents(l, out);
+                Self::collect_referenced_idents(r, out);
+            }
+            ConnectionExpr::Call(_, args) => {
+                for arg in args {
+                    Self::collect_referenced_idents(arg, out);
+                }
+            }
+            ConnectionExpr::Literal(_) => {}
         }
     }
 
@@ -352,13 +390,17 @@ impl CodegenContext {
             deps.insert(node.name.clone(), Vec::new());
         }
 
-        // Build dependencies from connections: dest depends on source
+        // Build dependencies from connections: dest depends on every node
+        // referenced by the source expression (handles arithmetic and calls).
         for conn in &self.connections {
-            if let Some(source_node) = Self::extract_root_node(&conn.source) {
-                if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
-                    // Skip if source or dest is not a node (could be input/output)
-                    if deps.contains_key(source_node) && deps.contains_key(dest_node) {
-                        // dest depends on source
+            if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
+                if !deps.contains_key(dest_node) {
+                    continue;
+                }
+                let mut refs = Vec::new();
+                Self::collect_referenced_idents(&conn.source, &mut refs);
+                for source_node in refs {
+                    if deps.contains_key(source_node) && source_node != dest_node {
                         deps.get_mut(dest_node).unwrap().push(source_node.clone());
                     }
                 }
@@ -498,11 +540,12 @@ impl CodegenContext {
         Ok(sorted)
     }
 
-    /// Extract the method name from a connection expression
-    /// For example: osc.output -> Some("output"), filter.cutoff -> Some("cutoff")
+    /// Extract the endpoint field name from a simple field-access expression.
+    /// For example: osc.output -> Some("output"), filter.cutoff -> Some("cutoff").
+    /// Returns None for anything that isn't a bare field access (method calls, etc.).
     fn extract_endpoint_field(expr: &ConnectionExpr) -> Option<&syn::Ident> {
         match expr {
-            ConnectionExpr::Method(_, method, _) => Some(method),
+            ConnectionExpr::Field(_, field) => Some(field),
             _ => None,
         }
     }
@@ -514,9 +557,13 @@ impl CodegenContext {
             ConnectionExpr::Ident(ident) => {
                 quote! { self.#ident }
             }
-            ConnectionExpr::Method(base, method, _args) => {
+            ConnectionExpr::Field(base, field) => {
                 let base_tokens = self.connection_expr_to_tokens(base);
-                quote! { #base_tokens.#method }
+                quote! { #base_tokens.#field }
+            }
+            ConnectionExpr::MethodCall(base, method, args) => {
+                let base_tokens = self.connection_expr_to_tokens(base);
+                quote! { #base_tokens.#method(#(#args),*) }
             }
             ConnectionExpr::ArrayIndex(base, idx) => {
                 let base_tokens = self.connection_expr_to_tokens(base);
@@ -563,6 +610,36 @@ impl CodegenContext {
         for conn in &self.connections {
             if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
                 if dest_node == node_name {
+                    // Compound sources (arithmetic, function/method calls) don't have
+                    // a single root endpoint. Evaluate them as f32 and route via
+                    // ConnectEndpoints<f32, _>.
+                    if !Self::is_simple_endpoint_source(&conn.source) {
+                        if let Some(dest_field) = Self::extract_endpoint_field(&conn.dest) {
+                            let src_tokens = self.connection_expr_to_tokens(&conn.source);
+                            if let Some(dest_size) = self.get_node_array_size(dest_node) {
+                                assignments.push(quote! {
+                                    {
+                                        let __src: f32 = #src_tokens;
+                                        for i in 0..#dest_size {
+                                            <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                                &__src,
+                                                &mut self.#dest_node[i].#dest_field,
+                                            );
+                                        }
+                                    }
+                                });
+                            } else {
+                                assignments.push(quote! {
+                                    <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                        &(#src_tokens),
+                                        &mut self.#dest_node.#dest_field,
+                                    );
+                                });
+                            }
+                        }
+                        continue;
+                    }
+
                     // This connection feeds into the current node
                     if let Some(source_ident) = Self::extract_root_node(&conn.source) {
                         let source_field = Self::extract_endpoint_field(&conn.source);

@@ -66,13 +66,15 @@ pub enum ConnectionExpr {
     Ident(Ident),
     /// Array index (e.g., voices[0])
     ArrayIndex(Box<ConnectionExpr>, usize),
-    /// Method call (e.g., filter.cutoff())
-    Method(Box<ConnectionExpr>, Ident, Vec<Expr>),
+    /// Field access (e.g., osc.output)
+    Field(Box<ConnectionExpr>, Ident),
+    /// Method call with parens (e.g., x.tanh(), x.clamp(0.0, 1.0))
+    MethodCall(Box<ConnectionExpr>, Ident, Vec<Expr>),
     /// Binary operation (e.g., a * b)
     Binary(Box<ConnectionExpr>, BinaryOp, Box<ConnectionExpr>),
     /// Literal value
     Literal(Expr),
-    /// Function call
+    /// Free function call (e.g., tanh(x))
     Call(Ident, Vec<ConnectionExpr>),
 }
 

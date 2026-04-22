@@ -675,15 +675,14 @@ fn parse_primary_expr(input: ParseStream) -> Result<ConnectionExpr> {
             input.parse::<Token![.]>()?;
             let method_name: Ident = input.parse()?;
 
-            // Check if it's a method call
+            // Check if it's a method call (has parens) vs field access
             if input.peek(token::Paren) {
                 let content;
                 parenthesized!(content in input);
                 let args = parse_method_args(&content)?;
-                expr = ConnectionExpr::Method(Box::new(expr), method_name, args);
+                expr = ConnectionExpr::MethodCall(Box::new(expr), method_name, args);
             } else {
-                // Field access (treat as method with no parens)
-                expr = ConnectionExpr::Method(Box::new(expr), method_name, vec![]);
+                expr = ConnectionExpr::Field(Box::new(expr), method_name);
             }
         } else if input.peek(token::Paren) && matches!(expr, ConnectionExpr::Ident(_)) {
             // Function call

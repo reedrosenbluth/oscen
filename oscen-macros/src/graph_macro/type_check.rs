@@ -56,18 +56,20 @@ impl TypeContext {
                 // Array indexing preserves the type of the base expression
                 self.infer_type(array_expr)
             }
-            ConnectionExpr::Method(obj, method, _args) => {
-                let method_name = method.to_string();
+            ConnectionExpr::Field(obj, field) => {
+                let field_name = field.to_string();
 
                 // Try to look up the node endpoint type from our registry
                 if let ConnectionExpr::Ident(node_name) = &**obj {
-                    if let Some(kind) = self.get_node_endpoint_type(&node_name.to_string(), &method_name) {
+                    if let Some(kind) = self.get_node_endpoint_type(&node_name.to_string(), &field_name) {
                         return Some(kind);
                     }
                 }
 
-                // Fallback: check if it's a graph input/output being accessed
-                // (shouldn't normally happen, but handle gracefully)
+                None
+            }
+            ConnectionExpr::MethodCall(_, _, _) => {
+                // Method return types aren't known — Rust will type-check at use site
                 None
             }
             ConnectionExpr::Binary(left, _op, right) => {
