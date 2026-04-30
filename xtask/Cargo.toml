@@ -6,4 +6,4 @@ license = "ISC"
 description = "A helper for compiling and bundling plugins, can be invoked in this repo using `cargo xtask`"
 
 [dependencies]
-nih_plug_xtask = { git = "https://github.com/robbert-vdh/nih-plug" }
+nih_plug_xtask = { git = "https://github.com/reedrosenbluth/nih-plug" }

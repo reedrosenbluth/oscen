@@ -4089,7 +4089,7 @@ dependencies = [
 [[package]]
 name = "nih_plug_xtask"
 version = "0.1.0"
-source = "git+https://github.com/robbert-vdh/nih-plug#ecfd6322c776d9f0373d31758976c2353c162737"
+source = "git+https://github.com/reedrosenbluth/nih-plug#ae43a3dacc8e964596c4eac2a765573acdff797d"
 dependencies = [
  "anyhow",
  "cargo_metadata",
