@@ -53,16 +53,16 @@ graph! {
     input midi_in: event;
 
     input op3_ratio: value = 3.0;
-    input op3_level: value = 0.5;
-    input op3_feedback: value = 0.0;
+    input op3_level: value = 0.5 [ramp: 2205];
+    input op3_feedback: value = 0.0 [ramp: 2205];
     input op3_attack: value = 0.01;
     input op3_decay: value = 0.1;
     input op3_sustain: value = 0.7;
     input op3_release: value = 0.3;
 
     input op2_ratio: value = 2.0;
-    input op2_level: value = 0.5;
-    input op2_feedback: value = 0.0;
+    input op2_level: value = 0.5 [ramp: 2205];
+    input op2_feedback: value = 0.0 [ramp: 2205];
     input op2_attack: value = 0.01;
     input op2_decay: value = 0.1;
     input op2_sustain: value = 0.7;
@@ -74,15 +74,15 @@ graph! {
     input op1_sustain: value = 0.8;
     input op1_release: value = 0.5;
 
-    input route: value = 0.0;
+    input route: value = 0.0 [ramp: 2205];
 
-    input filter_cutoff: value = 2000.0;
-    input filter_resonance: value = 0.707;
+    input filter_cutoff: value = 2000.0 [ramp: 2205];
+    input filter_resonance: value = 0.707 [ramp: 2205];
     input filter_attack: value = 0.01;
     input filter_decay: value = 0.2;
     input filter_sustain: value = 0.5;
     input filter_release: value = 0.3;
-    input filter_env_amount: value = 0.0;
+    input filter_env_amount: value = 0.0 [ramp: 2205];
 
     output audio_out: stream;
 
@@ -164,15 +164,15 @@ fn audio_callback(
     while let Ok(change) = param_rx.try_recv() {
         match change {
             ParamChange::Op3Ratio(v) => context.synth.op3_ratio = v,
-            ParamChange::Op3Level(v) => context.synth.op3_level = v,
-            ParamChange::Op3Feedback(v) => context.synth.op3_feedback = v,
+            ParamChange::Op3Level(v) => context.synth.set_op3_level(v),
+            ParamChange::Op3Feedback(v) => context.synth.set_op3_feedback(v),
             ParamChange::Op3Attack(v) => context.synth.op3_attack = v,
             ParamChange::Op3Decay(v) => context.synth.op3_decay = v,
             ParamChange::Op3Sustain(v) => context.synth.op3_sustain = v,
             ParamChange::Op3Release(v) => context.synth.op3_release = v,
             ParamChange::Op2Ratio(v) => context.synth.op2_ratio = v,
-            ParamChange::Op2Level(v) => context.synth.op2_level = v,
-            ParamChange::Op2Feedback(v) => context.synth.op2_feedback = v,
+            ParamChange::Op2Level(v) => context.synth.set_op2_level(v),
+            ParamChange::Op2Feedback(v) => context.synth.set_op2_feedback(v),
             ParamChange::Op2Attack(v) => context.synth.op2_attack = v,
             ParamChange::Op2Decay(v) => context.synth.op2_decay = v,
             ParamChange::Op2Sustain(v) => context.synth.op2_sustain = v,
@@ -181,14 +181,14 @@ fn audio_callback(
             ParamChange::Op1Decay(v) => context.synth.op1_decay = v,
             ParamChange::Op1Sustain(v) => context.synth.op1_sustain = v,
             ParamChange::Op1Release(v) => context.synth.op1_release = v,
-            ParamChange::Route(v) => context.synth.route = v,
-            ParamChange::FilterCutoff(v) => context.synth.filter_cutoff = v,
-            ParamChange::FilterResonance(v) => context.synth.filter_resonance = v,
+            ParamChange::Route(v) => context.synth.set_route(v),
+            ParamChange::FilterCutoff(v) => context.synth.set_filter_cutoff(v),
+            ParamChange::FilterResonance(v) => context.synth.set_filter_resonance(v),
             ParamChange::FilterAttack(v) => context.synth.filter_attack = v,
             ParamChange::FilterDecay(v) => context.synth.filter_decay = v,
             ParamChange::FilterSustain(v) => context.synth.filter_sustain = v,
             ParamChange::FilterRelease(v) => context.synth.filter_release = v,
-            ParamChange::FilterEnvAmount(v) => context.synth.filter_env_amount = v,
+            ParamChange::FilterEnvAmount(v) => context.synth.set_filter_env_amount(v),
         }
     }
 

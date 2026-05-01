@@ -1379,7 +1379,11 @@ impl CodegenContext {
                 )
             };
 
-            // Add smoother - but NOT for ramped inputs (oscen handles smoothing)
+            // Add smoother only if explicitly requested via `smoother:` attribute.
+            // Ramped inputs use oscen's ValueRampState instead.
+            // Non-ramped inputs without explicit smoother use raw values — with
+            // block processing, per-sample NIH-plug smoothers called once per block
+            // produce staircase artifacts.
             let is_ramped = self.is_ramped_input(field_name).is_some();
             if !is_ramped {
                 let smoother_ms = input.spec.as_ref()
@@ -1389,15 +1393,8 @@ impl CodegenContext {
                         #param_builder
                             .with_smoother(::nih_plug::prelude::SmoothingStyle::Linear(#smoother_val))
                     };
-                } else {
-                    // Default 50ms smoothing for non-ramped NIH params
-                    param_builder = quote! {
-                        #param_builder
-                            .with_smoother(::nih_plug::prelude::SmoothingStyle::Linear(50.0))
-                    };
                 }
             }
-            // Ramped inputs: no NIH-plug smoother, oscen's ValueRampState handles it
 
             // Add optional unit
             if let Some(spec) = &input.spec {
@@ -1435,9 +1432,9 @@ impl CodegenContext {
                     graph.#set_name(self.#field_name.value());
                 }
             } else {
-                // Non-ramped inputs: use NIH-plug's smoothed value
+                // Non-ramped inputs: use raw value (safe for block-rate sync)
                 quote! {
-                    graph.#field_name = self.#field_name.smoothed.next();
+                    graph.#field_name = self.#field_name.value();
                 }
             }
         }).collect();
@@ -1457,7 +1454,7 @@ impl CodegenContext {
             }
 
             impl #params_name {
-                /// Sync all smoothed parameter values to the graph (call per sample)
+                /// Sync parameter values to the graph (call once per block)
                 #[inline(always)]
                 pub fn sync_to(&self, graph: &mut #graph_name) {
                     #(#sync_assignments)*

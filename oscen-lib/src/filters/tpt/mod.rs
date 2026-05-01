@@ -24,21 +24,14 @@ pub struct TptFilter {
     r: f32,
     k: f32,
 
-    // frame counting
-    frame_counter: usize,
-    frames_per_update: usize,
-
     sample_rate: f32,
 }
 
 /// These filters are based on the designs outlined in The Art of VA Filter Design
 /// by Vadim Zavalishin, with help from Will Pirkle in Virtual Analog Filter Implementation.
 /// The topology-preserving transform approach leads to designs where parameter
-/// modulation can be applied with minimal instability.
-///
-/// Parameter changes are applied at a lower rate than processor.frequency to reduce
-/// computational cost, and the frames between updates can be altered using the
-/// `framesPerParameterUpdate`, smaller numbers causing more frequent updates.
+/// modulation can be applied with minimal instability. Coefficients are recomputed
+/// every sample when inputs change.
 impl TptFilter {
     pub fn new(cutoff: f32, q: f32) -> Self {
         let mut filter = Self {
@@ -54,8 +47,6 @@ impl TptFilter {
             g: 0.0,
             r: 0.0,
             k: 0.0,
-            frame_counter: 0,
-            frames_per_update: 32,
             sample_rate: 44100.0,
         };
         // Initialize coefficients with default sample rate
@@ -81,26 +72,22 @@ impl TptFilter {
 
     #[inline(always)]
     fn apply_parameter_updates(&mut self, sample_rate: f32) {
-        if self.frame_counter == 0 {
-            let nyquist = sample_rate * 0.5 - f32::EPSILON;
-            let max_cutoff = nyquist.min(20_000.0);
-            let cutoff_base = self.cutoff.clamp(20.0, max_cutoff);
-            let q = self.q.clamp(0.1, 10.0);
+        let nyquist = sample_rate * 0.5 - f32::EPSILON;
+        let max_cutoff = nyquist.min(20_000.0);
+        let cutoff_base = self.cutoff.clamp(20.0, max_cutoff);
+        let q = self.q.clamp(0.1, 10.0);
 
-            let modulation = self.f_mod.clamp(-1.0, 1.0);
-            let min_factor = 20.0 / cutoff_base;
-            let max_factor = max_cutoff / cutoff_base;
-            let factor = (1.0 + modulation).clamp(min_factor, max_factor);
-            let cutoff = (cutoff_base * factor).clamp(20.0, max_cutoff);
+        let modulation = self.f_mod.clamp(-1.0, 1.0);
+        let min_factor = 20.0 / cutoff_base;
+        let max_factor = max_cutoff / cutoff_base;
+        let factor = (1.0 + modulation).clamp(min_factor, max_factor);
+        let cutoff = (cutoff_base * factor).clamp(20.0, max_cutoff);
 
-            if (cutoff - self.current_cutoff).abs() > f32::EPSILON
-                || (q - self.current_q).abs() > f32::EPSILON
-            {
-                self.update_coefficients(sample_rate, cutoff, q);
-            }
+        if (cutoff - self.current_cutoff).abs() > f32::EPSILON
+            || (q - self.current_q).abs() > f32::EPSILON
+        {
+            self.update_coefficients(sample_rate, cutoff, q);
         }
-
-        self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
     }
 }
 
@@ -178,7 +165,6 @@ mod tests {
     fn test_impulse_response_matches_reference() {
         let mut filter = TptFilter::new(2_000.0, 0.707);
         let sample_rate = 48_000.0;
-        filter.frames_per_update = 1;
         filter.init(sample_rate);
 
         filter.cutoff = StreamInput(2_000.0);
