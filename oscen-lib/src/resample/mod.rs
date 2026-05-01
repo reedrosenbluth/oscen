@@ -12,7 +12,7 @@ pub mod coeffs;
 
 // Re-exported in Tasks 1.2-1.6
 pub use latch::{LatchDown, LatchUp};
-// pub use linear::{LinearDown, LinearUp};
+pub use linear::{LinearDown, LinearUp};
 // pub use sinc_fir::{SincDownFir, SincUpFir};
 // pub use halfband_iir::{IirHalfbandDown, IirHalfbandUp};
 
