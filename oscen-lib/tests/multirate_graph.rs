@@ -35,11 +35,17 @@ impl SignalProcessor for HardClip {
     }
 }
 
+// Sine carrier deliberately chosen to avoid PolyBLEP's rate-dependent
+// discontinuity-correction shape. With a saw, the BLEP correction at 192k
+// inner-rate has different per-sample shape than at 48k host-rate, so the
+// host-rate reference and the resampled internal-rate signal disagree to
+// ~5% MSE for reasons unrelated to the resampler. A sine has no
+// discontinuity, so any divergence is the resampler.
 graph! {
     name: MultiPass;
     output stream audio_out;
     nodes {
-        osc = PolyBlepOscillator::saw(220.0, 0.6) * 4;
+        osc = PolyBlepOscillator::sine(220.0, 0.6) * 4;
     }
     connections {
         [sinc] osc.output -> audio_out;
@@ -50,7 +56,7 @@ graph! {
     name: PassRef;
     output stream audio_out;
     nodes {
-        osc = PolyBlepOscillator::saw(220.0, 0.6);
+        osc = PolyBlepOscillator::sine(220.0, 0.6);
     }
     connections {
         osc.output -> audio_out;
@@ -117,8 +123,12 @@ fn multirate_matches_reference_low_freq() {
             best_mse = mse;
         }
     }
+    // Sine reference yields MSE ~0.010 (residual is dominated by integer-lag
+    // search alignment of the sinc filter's fractional group delay). 0.02 is
+    // 2× headroom — tight enough to catch real resampler regressions without
+    // flapping on micro-changes.
     assert!(
-        best_mse < 0.05,
+        best_mse < 0.02,
         "MSE between 4×-resampled and reference = {best_mse}"
     );
 }
