@@ -33,16 +33,22 @@ pub const HALFBAND_23_HALF_LEN: usize = HALFBAND_23_HALF.len();
 /// Equal to (filter order) / 2 = 22 / 2 = 11.
 pub const HALFBAND_23_GROUP_DELAY: usize = 11;
 
-/// IIR halfband: two-branch all-pass cascade.
+/// IIR halfband: two-branch all-pass cascade in polyphase form.
 ///
-/// Branch A: a0(z) = (b + z^-2) / (1 + b * z^-2), with b = BRANCH_A_BETAS[k]
-/// Branch B: same form, with b = BRANCH_B_BETAS[k]
-/// Output = 0.5 * (A(z) + z^-1 * B(z))
+/// Each branch is a cascade of 1st-order all-pass sections of the form
+/// `(a + z^-1) / (1 + a * z^-1)` operating at the LOW (post-decimation) rate.
+/// The high-rate transfer function is
+/// `H(z) = 0.5 * (A(z^2) + z^-1 * B(z^2))`
+/// where `A(z) = prod_k (BRANCH_A_BETAS[k] + z^-1) / (1 + BRANCH_A_BETAS[k]*z^-1)`
+/// and similarly for `B`.
 ///
-/// Coefficients chosen for ~80 dB stopband above 0.6 π. From Regalia/Mitra
-/// "Tunable digital frequency response equalization filters" reference design.
-pub const BRANCH_A_BETAS: [f32; 2] = [0.061_273_4, 0.484_801_0];
-pub const BRANCH_B_BETAS: [f32; 2] = [0.234_087_5, 0.795_217_5];
+/// Coefficients found by min-max optimisation of the stopband for f > 0.27
+/// (high-rate cycles/sample): passband flat to within ~0.001 dB below 0.20
+/// and stopband below −49 dB above 0.27.
+pub const BRANCH_A_BETAS: [f32; 2] = [0.135_574_1, 0.697_584_9];
+pub const BRANCH_B_BETAS: [f32; 2] = [0.425_380_4, 0.905_560_1];
 
-/// Approximate group delay of the IIR halfband at center band, in source samples.
-pub const IIR_HALFBAND_GROUP_DELAY: usize = 4;
+/// Approximate group delay of one 2× IIR halfband stage, measured at the
+/// HIGH rate, in samples. The optimised 4-coefficient design has a group
+/// delay near 2 high-rate samples around DC.
+pub const IIR_HALFBAND_GROUP_DELAY: usize = 2;

@@ -14,7 +14,7 @@ pub mod coeffs;
 pub use latch::{LatchDown, LatchUp};
 pub use linear::{LinearDown, LinearUp};
 pub use sinc_fir::{SincDownFir, SincUpFir};
-// pub use halfband_iir::{IirHalfbandDown, IirHalfbandUp};
+pub use halfband_iir::{IirHalfbandDown, IirHalfbandUp};
 
 /// Upsampler: one source sample in, N destination samples out.
 pub trait StreamUpsampler: Send + std::fmt::Debug {
