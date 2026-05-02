@@ -1,5 +1,7 @@
-use super::ast::{ConnectionPolicy, ConnectionStmt, GraphDef, GraphItem, NodeDecl, NodeRate};
-use std::collections::HashMap;
+use super::ast::{
+    ConnectionPolicy, ConnectionStmt, EndpointKind, GraphDef, GraphItem, NodeDecl, NodeRate,
+};
+use std::collections::{HashMap, HashSet};
 use syn::Result;
 
 /// Resampling kernel selection for a single cross-rate edge.
@@ -89,6 +91,22 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
         }
     }
 
+    // Collect graph-level event input/output names. Used to detect cross-rate
+    // event edges, which are routed through the same-rate event-copy path
+    // (see `classify_edge` and the TODO(multirate-events) note in codegen.rs).
+    let mut event_endpoint_names: HashSet<String> = HashSet::new();
+    for item in &def.items {
+        match item {
+            GraphItem::Input(i) if i.kind == EndpointKind::Event => {
+                event_endpoint_names.insert(i.name.to_string());
+            }
+            GraphItem::Output(o) if o.kind == EndpointKind::Event => {
+                event_endpoint_names.insert(o.name.to_string());
+            }
+            _ => {}
+        }
+    }
+
     // 3. Classify each edge.
     let mut edges = Vec::with_capacity(conns.len());
     for (idx, c) in conns.iter().enumerate() {
@@ -109,7 +127,29 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
             _ => proc_macro2::Span::call_site(),
         };
 
-        let kernel = classify_edge(source_rate, dest_rate, c.policy, span)?;
+        // If either endpoint root names a graph-level event input/output, this
+        // is an event edge. The cross-rate codegen path emits `StreamUpsampler`
+        // / `StreamDownsampler` calls that don't type-check against
+        // `StaticEventQueue`, so treat event edges as same-rate (`None`) — they
+        // route through the existing `ConnectEndpoints` event impls. Note: this
+        // does NOT rescale `EventInstance::frame_offset` across the rate
+        // boundary. See TODO(multirate-events) in codegen.rs and the "Known
+        // Limitations" section of the multi-rate design spec.
+        let src_is_event = src_node
+            .as_ref()
+            .map(|n| event_endpoint_names.contains(n))
+            .unwrap_or(false);
+        let dst_is_event = dst_node
+            .as_ref()
+            .map(|n| event_endpoint_names.contains(n))
+            .unwrap_or(false);
+        let is_event_edge = src_is_event || dst_is_event;
+
+        let kernel = if is_event_edge {
+            EdgeKernel::None
+        } else {
+            classify_edge(source_rate, dest_rate, c.policy, span)?
+        };
         edges.push(EdgeRate { edge_index: idx, source_rate, dest_rate, kernel });
     }
 

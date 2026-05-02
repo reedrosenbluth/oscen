@@ -1,4 +1,4 @@
-use oscen::{graph, PolyBlepOscillator, SignalProcessor};
+use oscen::{graph, AdsrEnvelope, PolyBlepOscillator, SignalProcessor};
 
 graph! {
     name: MultiPass;
@@ -86,4 +86,56 @@ fn multirate_reports_nonzero_latency() {
 fn samerate_reports_zero_latency() {
     let g = PassRef::new();
     assert_eq!(g.latency_samples(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Event routing across rate boundaries (Phase 5 Task 5.1)
+//
+// v1 limitation: `EventInstance::frame_offset` is not rescaled across cross-rate
+// edges (see Known Limitations in
+// docs/superpowers/specs/2026-05-01-multirate-graph-design.md). However events
+// scheduled at frame_offset == 0 — the dominant case after `process_block`'s
+// sub-block split aligns events to outer-tick boundaries — must still be
+// delivered to inner-rate (`* N`) nodes. This smoke test guards basic event
+// delivery across the rate boundary; it does NOT assert exact frame-accurate
+// inner-tick semantics.
+
+graph! {
+    name: EventOversampledGraph;
+    input event gate;
+    output stream audio_out;
+    nodes {
+        env = AdsrEnvelope::new(0.005, 0.05, 0.7, 0.05) * 4;
+    }
+    connections {
+        gate -> env.gate;
+        env.output -> audio_out;
+    }
+}
+
+#[test]
+fn event_routed_to_oversampled_node_at_offset_zero() {
+    use oscen::graph::{EventInstance, EventPayload};
+
+    let mut g = EventOversampledGraph::new();
+    g.init(48_000.0);
+
+    // Push a gate-on event at frame_offset = 0. After process_block runs the
+    // sub-block split, this should drive the (* 4) ADSR's gate handler on the
+    // first outer-tick boundary, opening the envelope.
+    let _ = g.gate.try_push(EventInstance {
+        frame_offset: 0,
+        payload: EventPayload::Scalar(1.0),
+    });
+
+    // Long enough for the 5 ms attack at 48 kHz to clearly rise above zero.
+    g.process_block(256);
+
+    let written = &g.audio_out_block[..256];
+    let max = written.iter().cloned().fold(0.0_f32, f32::max);
+    assert!(
+        max > 0.1,
+        "expected ADSR to open after gate-on event reaches the *4 node \
+         (max envelope output = {max})"
+    );
 }
