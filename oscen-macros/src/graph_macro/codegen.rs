@@ -1953,9 +1953,12 @@ impl CodegenContext {
         Ok(tainted)
     }
 
-    /// Build an `f32`-valued expression for a connection's source. Handles the
-    /// common simple cases (graph input, `node.field`) by reading from the
-    /// graph state, and falls back to evaluating a compound expression.
+    /// Build an `f32`-valued expression for a connection's source. Handles:
+    ///   * compound sources (arithmetic, calls): evaluate as f32
+    ///   * scalar `<node>.<field>` or graph input: read via ConnectEndpoints
+    ///   * array `<node>.<field>` (no explicit index): SUM all N elements'
+    ///     fields. This is the FanIn collapse — used by cross-rate Down
+    ///     edges so the downsampler kernel sees a single scalar stream.
     fn connection_source_value_expr(&self, source: &ConnectionExpr) -> TokenStream {
         // Compound or non-trivial sources: let the existing token converter
         // produce an f32 expression.
@@ -1964,8 +1967,36 @@ impl CodegenContext {
             return quote! { (#toks) as f32 };
         }
 
-        // Simple endpoint source. Read via ConnectEndpoints into a local f32
-        // so we don't have to know the source's exact wrapper type.
+        // FanIn sum: source is `<array_node>.<field>` with no explicit index.
+        let src_array_size = match Self::extract_root_node(source) {
+            Some(ident) => self.get_node_array_size(ident),
+            None => None,
+        };
+        let source_is_field_access = matches!(source, ConnectionExpr::Field(base, _)
+            if matches!(**base, ConnectionExpr::Ident(_)));
+
+        if let (Some(n), true) = (src_array_size, source_is_field_access) {
+            let source_ident = Self::extract_root_node(source).expect("checked above");
+            let source_field =
+                Self::extract_endpoint_field(source).expect("Field variant has a field");
+            return quote! {
+                {
+                    let mut __sum: f32 = 0.0;
+                    for i in 0..#n {
+                        let mut __elt: f32 = 0.0;
+                        <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                            &self.#source_ident[i].#source_field,
+                            &mut __elt,
+                        );
+                        __sum += __elt;
+                    }
+                    __sum
+                }
+            };
+        }
+
+        // Simple scalar endpoint source. Read via ConnectEndpoints into a
+        // local f32 so we don't have to know the source's exact wrapper type.
         let toks = self.connection_expr_to_tokens(source);
         quote! {
             {
