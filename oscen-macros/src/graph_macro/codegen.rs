@@ -1,4 +1,5 @@
 use super::ast::*;
+use super::rate_analysis::analyze;
 use super::type_check::TypeContext;
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -14,6 +15,10 @@ pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
 
     // Validate connections
     ctx.validate_connections()?;
+
+    // Validate rate annotations and edge rate combinations.
+    // Result is unused for now; codegen consumption lands in Task 4.1.
+    let _rate_analysis = analyze(graph_def)?;
 
     // Static graphs require a name
     if let Some(name) = &graph_def.name {

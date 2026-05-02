@@ -93,31 +93,47 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
             .and_then(|n| node_rates.get(n).copied())
             .unwrap_or(NodeRate::Same);
 
-        let kernel = classify_edge(source_rate, dest_rate, c.policy);
+        // Span for error reporting: prefer source ident, fall back to call_site.
+        let span = match &c.source {
+            super::ast::ConnectionExpr::Ident(i) => i.span(),
+            _ => proc_macro2::Span::call_site(),
+        };
+
+        let kernel = classify_edge(source_rate, dest_rate, c.policy, span)?;
         edges.push(EdgeRate { edge_index: idx, source_rate, dest_rate, kernel });
     }
 
     Ok(RateAnalysis { node_rates, max_factor, min_divisor, edges })
 }
 
-fn classify_edge(src: NodeRate, dst: NodeRate, policy: ConnectionPolicy) -> EdgeKernel {
+fn classify_edge(
+    src: NodeRate,
+    dst: NodeRate,
+    policy: ConnectionPolicy,
+    span: proc_macro2::Span,
+) -> Result<EdgeKernel> {
     use NodeRate::*;
     let (factor, direction) = match (src, dst) {
-        (Same, Same) => return EdgeKernel::None,
+        (Same, Same) => return Ok(EdgeKernel::None),
         (Up(n), Same) => (n, Direction::Down),
         (Same, Up(n)) => (n, Direction::Up),
         (Same, Down(n)) => (n, Direction::Down),
         (Down(n), Same) => (n, Direction::Up),
-        (Up(a), Up(b)) if a == b => return EdgeKernel::None,
-        (Down(a), Down(b)) if a == b => return EdgeKernel::None,
-        // Mixed up/down or differing factors: not supported in v1; flagged in Task 3.2.
-        _ => return EdgeKernel::None,
+        (Up(a), Up(b)) if a == b => return Ok(EdgeKernel::None),
+        (Down(a), Down(b)) if a == b => return Ok(EdgeKernel::None),
+        _ => {
+            return Err(syn::Error::new(
+                span,
+                "v1 does not support connections between two differently-rated non-default-rate nodes; \
+                 route through an outer-rate node instead",
+            ));
+        }
     };
 
-    match direction {
+    Ok(match direction {
         Direction::Up => EdgeKernel::Up { factor, kind: policy },
         Direction::Down => EdgeKernel::Down { factor, kind: policy },
-    }
+    })
 }
 
 /// Extract the root node name from a connection expression (the leftmost identifier).
