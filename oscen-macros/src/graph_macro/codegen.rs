@@ -1,8 +1,9 @@
 use super::ast::*;
-use super::rate_analysis::{analyze, EdgeKernel, RateAnalysis};
+use super::rate_analysis::{analyze, root_node_name, EdgeKernel, RateAnalysis};
 use super::type_check::TypeContext;
 use proc_macro2::TokenStream;
 use quote::quote;
+use std::collections::HashSet;
 use syn::{Expr, Result};
 
 /// Field name for the resampler kernel state stored on the graph struct for
@@ -1429,6 +1430,26 @@ impl CodegenContext {
             .cloned()
             .collect();
 
+        // Split outer (Same-rate) nodes into pre-inner and post-inner buckets.
+        // A Same node that consumes a Down edge — directly or transitively
+        // through other Same edges — must run AFTER the inner loop and the
+        // downsample finalize step, otherwise it sees previous-outer-tick data
+        // in this frame's slot. The closure also rejects the unsupported
+        // "diamond" case where a tainted Same node feeds an Up edge: that
+        // would require a second cross-rate setup pass and isn't supported in
+        // v1.
+        let tainted = self.compute_post_inner_same_nodes()?;
+        let pre_inner_outer_names: Vec<syn::Ident> = outer_node_names
+            .iter()
+            .filter(|n| !tainted.contains(&n.to_string()))
+            .cloned()
+            .collect();
+        let post_inner_outer_names: Vec<syn::Ident> = outer_node_names
+            .iter()
+            .filter(|n| tainted.contains(&n.to_string()))
+            .cloned()
+            .collect();
+
         // Read stream inputs from block buffers (per outer tick).
         let stream_input_reads: Vec<_> = self
             .inputs
@@ -1453,17 +1474,34 @@ impl CodegenContext {
             })
             .collect();
 
-        // Step 3: Outer-rate node processing. Each outer-rate node sees only
-        // its same-rate (`EdgeKernel::None`) incoming assignments — cross-rate
-        // edges are routed via resamplers below.
+        // Step 3: Outer-rate node processing — pre-inner bucket only. Each
+        // pre-inner node sees only its same-rate (`EdgeKernel::None`)
+        // incoming assignments; cross-rate edges are routed via resamplers
+        // below. Post-inner outer nodes are deferred to step 7.5 because
+        // they consume downsampled values that are not finalized until
+        // step 7.
         let mut outer_process: Vec<TokenStream> = Vec::new();
-        for node_name in &outer_node_names {
+        for node_name in &pre_inner_outer_names {
             let assignments = self
                 .generate_connection_assignments_for_node_filtered(node_name, |k| {
                     matches!(k, EdgeKernel::None)
                 });
             outer_process.extend(assignments);
             outer_process.push(self.emit_node_process_call(node_name));
+        }
+
+        // Step 7.5: Post-inner outer-rate node processing. Same structure as
+        // step 3, but runs after `down_finalizes` so that any cross-rate Down
+        // edges feeding these nodes have written fresh values into their
+        // input fields.
+        let mut post_inner_outer_process: Vec<TokenStream> = Vec::new();
+        for node_name in &post_inner_outer_names {
+            let assignments = self
+                .generate_connection_assignments_for_node_filtered(node_name, |k| {
+                    matches!(k, EdgeKernel::None)
+                });
+            post_inner_outer_process.extend(assignments);
+            post_inner_outer_process.push(self.emit_node_process_call(node_name));
         }
 
         // Step 4: Per-edge upsample warmup for `EdgeKernel::Up` connections.
@@ -1628,6 +1666,12 @@ impl CodegenContext {
                 // 7. Downsample once per outer tick into dest fields.
                 #(#down_finalizes)*
 
+                // 7.5. Post-inner outer-rate nodes (any Same node downstream
+                // of a Down edge, transitively). They run after step 7 so they
+                // observe the freshly-downsampled values for this outer tick
+                // instead of the previous tick's stale slot contents.
+                #(#post_inner_outer_process)*
+
                 // 8. Same-rate trailer assignments (e.g., to graph outputs).
                 #(#same_rate_output_trailer)*
 
@@ -1646,6 +1690,83 @@ impl CodegenContext {
             .get(&name.to_string())
             .copied()
             .unwrap_or(NodeRate::Same)
+    }
+
+    /// Compute the closure of `Same` nodes that must run AFTER the multi-rate
+    /// inner loop because they consume a `Down` edge — directly or via a chain
+    /// of intermediate `Same`-rate edges from another tainted node. Also
+    /// detects the unsupported "diamond" pattern (a tainted node feeding an
+    /// `Up` edge), returning a compile error.
+    fn compute_post_inner_same_nodes(&self) -> Result<HashSet<String>> {
+        let mut tainted: HashSet<String> = HashSet::new();
+        let same_rate = |name: &str| {
+            self.rate_analysis
+                .node_rates
+                .get(name)
+                .copied()
+                .map(|r| matches!(r, NodeRate::Same))
+                .unwrap_or(true) // graph endpoints behave as same-rate
+        };
+
+        for edge in &self.rate_analysis.edges {
+            if let EdgeKernel::Down { .. } = edge.kernel {
+                let conn = &self.connections[edge.edge_index];
+                if let Some(dst) = root_node_name(&conn.dest) {
+                    if same_rate(&dst) {
+                        tainted.insert(dst);
+                    }
+                }
+            }
+        }
+
+        // Propagate through Same-rate edges until fixpoint.
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for edge in &self.rate_analysis.edges {
+                if !matches!(edge.kernel, EdgeKernel::None) {
+                    continue;
+                }
+                let conn = &self.connections[edge.edge_index];
+                let (Some(src), Some(dst)) =
+                    (root_node_name(&conn.source), root_node_name(&conn.dest))
+                else {
+                    continue;
+                };
+                if !same_rate(&dst) {
+                    continue;
+                }
+                if tainted.contains(&src) && !tainted.contains(&dst) {
+                    tainted.insert(dst);
+                    changed = true;
+                }
+            }
+        }
+
+        // Diamond detection: a tainted Same node feeding an Up edge would
+        // require a second cross-rate setup pass after step 7.5, which the
+        // single-pass pipeline can't accommodate.
+        for edge in &self.rate_analysis.edges {
+            if let EdgeKernel::Up { .. } = edge.kernel {
+                let conn = &self.connections[edge.edge_index];
+                if let Some(src) = root_node_name(&conn.source) {
+                    if tainted.contains(&src) {
+                        let span = match &conn.source {
+                            ConnectionExpr::Ident(i) => i.span(),
+                            _ => proc_macro2::Span::call_site(),
+                        };
+                        return Err(syn::Error::new(
+                            span,
+                            "v1 limitation: a same-rate node downstream of a downsampled (cross-rate) edge cannot itself feed an oversampled (`* N`) node — \
+                             the single-pass multi-rate pipeline can't service two cross-rate boundaries chained through a same-rate intermediate. \
+                             Route the oversampled side directly from the original source instead.",
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(tainted)
     }
 
     /// Build an `f32`-valued expression for a connection's source. Handles the

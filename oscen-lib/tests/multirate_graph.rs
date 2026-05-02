@@ -409,6 +409,76 @@ fn two_oversampled_branches_sum_to_outer() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Topological correctness: a Same node downstream of a Down edge must run
+// AFTER the inner loop's downsample finalize step. Before this fix it ran in
+// the pre-inner outer-process bucket, so it observed previous-outer-tick data
+// in its input field and its output was delayed by one outer tick. Comparing
+// `osc * 4 → DOWN → out` against `osc * 4 → DOWN → clip → out` (where clip
+// is identity for a ±0.6 sine) should yield equal output sample-for-sample.
+// With the bug, the clip-version lags by exactly one outer tick.
+//
+// Uses sine to avoid PolyBLEP rate-shape divergence (see MSE test above).
+
+graph! {
+    name: PostInnerNoClip;
+    output stream audio_out;
+    nodes {
+        osc = PolyBlepOscillator::sine(220.0, 0.6) * 4;
+    }
+    connections {
+        [sinc] osc.output -> audio_out;
+    }
+}
+
+graph! {
+    name: PostInnerWithClip;
+    output stream audio_out;
+    nodes {
+        osc = PolyBlepOscillator::sine(220.0, 0.6) * 4;
+        clip = HardClip::new();
+    }
+    connections {
+        [sinc] osc.output -> clip.input;
+        clip.output -> audio_out;
+    }
+}
+
+#[test]
+fn same_node_downstream_of_down_edge_is_in_phase() {
+    let mut a = PostInnerNoClip::new();
+    let mut b = PostInnerWithClip::new();
+    a.init(48_000.0);
+    b.init(48_000.0);
+
+    const CHUNK: usize = 256;
+    const TOTAL: usize = 1024;
+    let mut xs = Vec::with_capacity(TOTAL);
+    let mut ys = Vec::with_capacity(TOTAL);
+    for _ in 0..(TOTAL / CHUNK) {
+        a.process_block(CHUNK);
+        b.process_block(CHUNK);
+        xs.extend_from_slice(&a.audio_out_block[..CHUNK]);
+        ys.extend_from_slice(&b.audio_out_block[..CHUNK]);
+    }
+
+    // After the warmup the two graphs differ only by a Same-rate identity
+    // pass-through; they must be equal sample-for-sample. With the topo bug
+    // ys would lag xs by exactly one outer tick.
+    let warmup = 64;
+    let mut max_abs_diff = 0.0_f32;
+    for i in warmup..TOTAL {
+        let d = (xs[i] - ys[i]).abs();
+        if d > max_abs_diff {
+            max_abs_diff = d;
+        }
+    }
+    assert!(
+        max_abs_diff < 1.0e-6,
+        "post-inner Same node should be in-phase with no-clip reference (max abs diff = {max_abs_diff})"
+    );
+}
+
 /// Single-bin DFT magnitude at `freq` (cycles/sample), normalized by N.
 fn bin_magnitude(samples: &[f32], freq: f32, n: usize) -> f32 {
     let mut re = 0.0_f32;

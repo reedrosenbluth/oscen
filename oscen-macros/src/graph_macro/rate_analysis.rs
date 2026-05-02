@@ -203,7 +203,7 @@ fn classify_edge(
 }
 
 /// Extract the root node name from a connection expression (the leftmost identifier).
-fn root_node_name(expr: &super::ast::ConnectionExpr) -> Option<String> {
+pub(super) fn root_node_name(expr: &super::ast::ConnectionExpr) -> Option<String> {
     use super::ast::ConnectionExpr::*;
     match expr {
         Ident(i) => Some(i.to_string()),
