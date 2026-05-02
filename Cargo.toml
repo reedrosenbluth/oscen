@@ -6,6 +6,7 @@ members = [
     "examples/fm-synth",
     "examples/simple-echo",
     "examples/electric-piano",
+    "examples/oversampled-saturator",
     "examples/pivot",
     "oscen-lib",
     "oscen-macros",

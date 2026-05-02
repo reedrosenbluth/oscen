@@ -1,0 +1,9 @@
+[package]
+name = "oversampled-saturator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oscen = { path = "../../oscen-lib" }
+oscen-macros = { path = "../../oscen-macros" }
+cpal = "0.15"

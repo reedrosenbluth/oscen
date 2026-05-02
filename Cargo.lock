@@ -4742,6 +4742,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "oversampled-saturator"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "oscen",
+ "oscen-macros",
+]
+
+[[package]]
 name = "owned_ttf_parser"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
