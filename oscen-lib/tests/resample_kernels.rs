@@ -121,3 +121,88 @@ fn linear_reset_clears_history() {
     assert!(approx_eq!(f32, out[0], 0.0, epsilon = 1e-6));
     assert!(approx_eq!(f32, out[1], 0.5, epsilon = 1e-6));
 }
+
+use oscen::resample::{SincDownFir, SincUpFir};
+
+fn db(x: f32) -> f32 { 20.0 * x.abs().max(1e-12).log10() }
+
+#[test]
+fn sinc_fir_up_dc_unity_gain() {
+    let mut up = SincUpFir::<2>::new();
+    let mut out = [0.0_f32; 2];
+    let mut last = [0.0_f32; 2];
+    for _ in 0..200 {
+        up.upsample(0.7, &mut out);
+        last = out;
+    }
+    assert!(approx_eq!(f32, last[0], 0.7, epsilon = 1e-3));
+    assert!(approx_eq!(f32, last[1], 0.7, epsilon = 1e-3));
+}
+
+#[test]
+fn sinc_fir_down_dc_unity_gain() {
+    let mut down = SincDownFir::<2>::new();
+    let mut y = 0.0;
+    for _ in 0..200 {
+        y = down.downsample(&[0.7, 0.7]);
+    }
+    assert!(approx_eq!(f32, y, 0.7, epsilon = 1e-3));
+}
+
+#[test]
+fn sinc_fir_passband_flat() {
+    let mut up = SincUpFir::<2>::new();
+    let mut down = SincDownFir::<2>::new();
+    let mut buf = [0.0_f32; 2];
+    let f = 0.1;
+    let mut max_err = 0.0_f32;
+    let total = 1024;
+    let warmup = 64;
+    // Latencies are reported at the high (2×) rate; sum at high rate then
+    // convert to low-rate samples. Per-side floor division would lose a sample
+    // (5 + 5 = 10) versus the true round-trip 22-high-rate / 2 = 11 low-rate.
+    let up_lat = SincUpFir::<2>::new().latency_samples();
+    let down_lat = SincDownFir::<2>::new().latency_samples();
+    let lag = (up_lat + down_lat) / 2;
+    for n in 0..total {
+        let x = (2.0 * std::f32::consts::PI * f * n as f32).sin();
+        up.upsample(x, &mut buf);
+        let y = down.downsample(&buf);
+        if n > warmup && n >= lag {
+            let expected = (2.0 * std::f32::consts::PI * f * (n - lag) as f32).sin();
+            max_err = max_err.max((y - expected).abs());
+        }
+    }
+    assert!(max_err < 0.1, "max passband error = {max_err}");
+}
+
+#[test]
+fn sinc_fir_stopband_attenuated() {
+    // Drive the downsampler directly with a high-rate signal whose frequency lies
+    // in the halfband stopband (above 0.5 normalized to high-rate Nyquist, i.e.
+    // f > 0.25 in high-rate cycles/sample). This actually exercises the halfband
+    // attenuation. An up→down cascade can't be used to test the stopband because
+    // any low-rate input above low-rate Nyquist (which is what feeding f > 0.5 to
+    // the upsampler implies) is already aliased before reaching the filter.
+    let mut down = SincDownFir::<2>::new();
+    let mut peak = 0.0_f32;
+    let f = 0.4; // high-rate cycles/sample, above halfband cutoff (0.25)
+    let warmup = 128;
+    for m in 0..2048 {
+        let x0 = (2.0 * std::f32::consts::PI * f * (2 * m) as f32).sin();
+        let x1 = (2.0 * std::f32::consts::PI * f * (2 * m + 1) as f32).sin();
+        let y = down.downsample(&[x0, x1]);
+        if m > warmup {
+            peak = peak.max(y.abs());
+        }
+    }
+    let attenuation_db = -db(peak);
+    assert!(attenuation_db > 50.0, "stopband attenuation = {attenuation_db} dB");
+}
+
+#[test]
+fn sinc_fir_latency_matches_const() {
+    assert!(SincUpFir::<2>::new().latency_samples() > 0);
+    assert!(SincUpFir::<4>::new().latency_samples() >= SincUpFir::<2>::new().latency_samples());
+    assert!(SincUpFir::<8>::new().latency_samples() >= SincUpFir::<4>::new().latency_samples());
+}
