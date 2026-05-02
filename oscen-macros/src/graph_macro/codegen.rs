@@ -1952,9 +1952,6 @@ impl CodegenContext {
         dest: &ConnectionExpr,
         rescale: EventRescale,
     ) -> TokenStream {
-        let source_tokens = self.connection_expr_to_tokens(source);
-        let dest_tokens = self.connection_expr_to_tokens(dest);
-
         let transform = match rescale {
             EventRescale::Multiply(n) => {
                 quote! { __ev.frame_offset = __ev.frame_offset.saturating_mul(#n); }
@@ -1965,6 +1962,94 @@ impl CodegenContext {
             EventRescale::None => quote! {},
         };
 
+        // Classify the drain by source/dest array arity. Shape mirrors the
+        // stream/value emitter's FanoutShape semantics.
+        let src_size = match Self::extract_root_node(source) {
+            Some(ident) => self.get_node_array_size(ident),
+            None => None,
+        };
+        let dst_size = match Self::extract_root_node(dest) {
+            Some(ident) => self.get_node_array_size(ident),
+            None => None,
+        };
+        let src_field_access = matches!(source, ConnectionExpr::Field(base, _)
+            if matches!(**base, ConnectionExpr::Ident(_)));
+        let dst_field_access = matches!(dest, ConnectionExpr::Field(base, _)
+            if matches!(**base, ConnectionExpr::Ident(_)));
+
+        // Broadcast: scalar source → array dest field. Clear all N dest
+        // queues, then for each source event push (N copies of) the rescaled
+        // event into each dest queue.
+        if let (None, Some(n), true) = (src_size, dst_size, dst_field_access) {
+            let dest_node = Self::extract_root_node(dest).expect("checked");
+            let dest_field = Self::extract_endpoint_field(dest).expect("Field has field");
+            let source_tokens = self.connection_expr_to_tokens(source);
+            return quote! {
+                {
+                    for __k in 0..#n {
+                        self.#dest_node[__k].#dest_field.clear();
+                    }
+                    for __ev_ref in #source_tokens.iter() {
+                        let mut __ev = __ev_ref.clone();
+                        #transform
+                        for __k in 0..#n {
+                            let _ = self.#dest_node[__k].#dest_field.try_push(__ev.clone());
+                        }
+                    }
+                }
+            };
+        }
+
+        // FanIn: array source field → scalar dest. Clear the single dest
+        // queue, then iterate all N source queues, pushing each rescaled
+        // event into the dest. Order across source queues is whatever the
+        // iteration produces; if an authoritative order is needed later,
+        // a sort-by-frame-offset pass can be added at the end.
+        if let (Some(n), None, true) = (src_size, dst_size, src_field_access) {
+            let source_ident = Self::extract_root_node(source).expect("checked");
+            let source_field = Self::extract_endpoint_field(source).expect("Field has field");
+            let dest_tokens = self.connection_expr_to_tokens(dest);
+            return quote! {
+                {
+                    #dest_tokens.clear();
+                    for __k in 0..#n {
+                        for __ev_ref in self.#source_ident[__k].#source_field.iter() {
+                            let mut __ev = __ev_ref.clone();
+                            #transform
+                            let _ = #dest_tokens.try_push(__ev);
+                        }
+                    }
+                }
+            };
+        }
+
+        // Parallel: array source field → array dest field, paired by index.
+        // Each element i drains src[i] into dst[i] independently.
+        if let (Some(ns), Some(nd), true, true) =
+            (src_size, dst_size, src_field_access, dst_field_access)
+        {
+            let n = ns.min(nd);
+            let source_ident = Self::extract_root_node(source).expect("checked");
+            let source_field = Self::extract_endpoint_field(source).expect("Field has field");
+            let dest_node = Self::extract_root_node(dest).expect("checked");
+            let dest_field = Self::extract_endpoint_field(dest).expect("Field has field");
+            return quote! {
+                {
+                    for __k in 0..#n {
+                        self.#dest_node[__k].#dest_field.clear();
+                        for __ev_ref in self.#source_ident[__k].#source_field.iter() {
+                            let mut __ev = __ev_ref.clone();
+                            #transform
+                            let _ = self.#dest_node[__k].#dest_field.try_push(__ev);
+                        }
+                    }
+                }
+            };
+        }
+
+        // Scalar (or indexed access on either side): single drain.
+        let source_tokens = self.connection_expr_to_tokens(source);
+        let dest_tokens = self.connection_expr_to_tokens(dest);
         quote! {
             {
                 #dest_tokens.clear();

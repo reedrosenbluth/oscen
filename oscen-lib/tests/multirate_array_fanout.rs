@@ -2,7 +2,7 @@
 //! Exercises the four shapes (Scalar / Broadcast / FanIn / Parallel) across
 //! stream / value / event endpoints over a rate boundary.
 
-use oscen::graph::{StreamOutput, ValueInput, ValueOutput};
+use oscen::graph::{EventInput, EventInstance, EventPayload, StreamOutput, ValueInput, ValueOutput};
 use oscen::{graph, Node, SignalProcessor};
 
 /// Trivial value-passthrough node: copies its value input into its value
@@ -194,6 +194,70 @@ fn parallel_value_array_to_oversampled_array_independent_states() {
         assert!(
             (got - want).abs() < 1e-6,
             "latches[{i}].output = {got}, expected {want}"
+        );
+    }
+}
+
+/// Captures the inner-rate `frame_offset` of the most recent gate event.
+/// Used to assert event broadcast into an oversampled array preserves
+/// the existing Multiply(N) frame-offset rescale.
+#[derive(Debug, Node)]
+pub struct EventOffsetCapture {
+    pub gate: EventInput,
+    pub captured_offset: ValueOutput<f32>,
+}
+
+impl EventOffsetCapture {
+    pub fn new() -> Self {
+        Self {
+            gate: EventInput::default(),
+            captured_offset: ValueOutput(-1.0),
+        }
+    }
+
+    pub fn on_gate(&mut self, ev: &EventInstance) {
+        *self.captured_offset = ev.frame_offset as f32;
+    }
+}
+
+impl Default for EventOffsetCapture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SignalProcessor for EventOffsetCapture {
+    #[inline(always)]
+    fn process(&mut self) {}
+}
+
+graph! {
+    name: BroadcastEventOversampled;
+    input event gate;
+    nodes {
+        captures = [EventOffsetCapture::new(); 4] * 2;
+    }
+    connections {
+        gate -> captures.gate;
+    }
+}
+
+#[test]
+fn broadcast_event_outer_to_oversampled_array_with_rescale() {
+    let mut g = BroadcastEventOversampled::new();
+    g.init(48_000.0);
+    let _ = g.gate.try_push(EventInstance {
+        frame_offset: 1,
+        payload: EventPayload::Scalar(1.0),
+    });
+    g.process_block(64);
+    // With * 2 oversampling, frame_offset=1 should be rescaled to 1*2=2 on
+    // the inner-rate side, captured by every element's gate handler.
+    for i in 0..4 {
+        let got = *g.captures[i].captured_offset;
+        assert!(
+            (got - 2.0).abs() < 1e-6,
+            "captures[{i}].captured_offset = {got}, expected 2.0 (rescaled from outer offset 1)"
         );
     }
 }
