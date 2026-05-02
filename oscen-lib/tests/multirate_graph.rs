@@ -863,3 +863,75 @@ fn event_frame_offset_rescaled_into_oversampled_node() {
         "expected rescaled inner-tick near {expected_inner}, got {captured}"
     );
 }
+
+// === Array-embedded rate test ===
+//
+// Verifies that `[Inner::new(); N] * 2` in a parent graph causes each of
+// the N inner-graph instances to run its inner loop twice per outer tick
+// (i.e. the embedded `* 2` is recognised, parsed into NodeRate::Up(2),
+// and produces an oversampled inner loop in codegen).
+
+#[derive(Debug, Node)]
+pub struct TickCounter {
+    pub count: oscen::graph::ValueOutput<f32>,
+}
+
+impl TickCounter {
+    pub fn new() -> Self {
+        Self { count: oscen::graph::ValueOutput(0.0) }
+    }
+}
+
+impl Default for TickCounter {
+    fn default() -> Self { Self::new() }
+}
+
+impl SignalProcessor for TickCounter {
+    #[inline(always)]
+    fn process(&mut self) {
+        *self.count += 1.0;
+    }
+}
+
+graph! {
+    name: TickCounterInner;
+    output count: value;
+    nodes {
+        counter = TickCounter::new();
+    }
+    connections {
+        counter.count -> count;
+    }
+}
+
+graph! {
+    name: TickArrayParent;
+    output total_a: value;
+    output total_b: value;
+    output total_c: value;
+    output total_d: value;
+    nodes {
+        counters = [TickCounterInner::new(); 4] * 2;
+    }
+    connections {
+        counters[0].count -> total_a;
+        counters[1].count -> total_b;
+        counters[2].count -> total_c;
+        counters[3].count -> total_d;
+    }
+}
+
+#[test]
+fn array_node_with_embedded_rate_oversamples_each_instance() {
+    let mut g = TickArrayParent::new();
+    g.init(48_000.0);
+    let k: u32 = 8;
+    for _ in 0..k {
+        g.process();
+    }
+    let expected = (2 * k) as f32;
+    assert_eq!(*g.total_a, expected, "voice 0 ran wrong number of inner ticks");
+    assert_eq!(*g.total_b, expected, "voice 1 ran wrong number of inner ticks");
+    assert_eq!(*g.total_c, expected, "voice 2 ran wrong number of inner ticks");
+    assert_eq!(*g.total_d, expected, "voice 3 ran wrong number of inner ticks");
+}
