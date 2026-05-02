@@ -27,7 +27,7 @@ pub use filters::tpt::*;
 pub use gain::*;
 pub use graph::*;
 pub use midi::*;
-pub use oscen_macros::{graph, Node};
+pub use oscen_macros::{graph, oversample_variants, Node};
 pub use oscillators::*;
 pub use oscilloscope::*;
 pub use value::*;
