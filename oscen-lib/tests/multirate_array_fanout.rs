@@ -127,3 +127,74 @@ fn fanin_stream_oversampled_array_to_outer_scalar() {
         "expected fan-in sum ≈ 4.0 after sinc settles, got avg = {avg} over tail = {tail:?}"
     );
 }
+
+/// Holds a configurable f32 in `value`, and emits it on its `output` value
+/// endpoint every tick. Used as the source of per-element distinct values.
+#[derive(Debug, Node)]
+pub struct ValueHolder {
+    pub output: ValueOutput<f32>,
+    pub value: f32,
+}
+
+impl ValueHolder {
+    pub fn new() -> Self {
+        Self {
+            output: ValueOutput(0.0),
+            value: 0.0,
+        }
+    }
+}
+
+impl Default for ValueHolder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SignalProcessor for ValueHolder {
+    #[inline(always)]
+    fn process(&mut self) {
+        *self.output = self.value;
+    }
+}
+
+graph! {
+    name: ParallelValueArrayToOversampledArray;
+    nodes {
+        sources = [ValueHolder::new(); 4];     // outer-rate
+        latches = [ValueLatch::new(); 4] * 2;  // inner-rate, oversampled
+    }
+    connections {
+        // Explicit `[latch]` forces the cross-rate Parallel resampler path:
+        // without an explicit policy, the codegen's "both endpoint kinds
+        // unknown" heuristic (rate_analysis::refine_with_types) collapses
+        // node-to-node cross-rate edges to a same-rate ConnectEndpoints copy,
+        // which would coincidentally pass this test for the wrong reason.
+        [latch] sources.output -> latches.input;
+    }
+}
+
+#[test]
+fn parallel_value_array_to_oversampled_array_independent_states() {
+    let mut g = ParallelValueArrayToOversampledArray::new();
+    g.init(48_000.0);
+    // Distinct values per element. If codegen accidentally classified this as
+    // Broadcast (single shared resampler), every dest element would latch the
+    // same value. Parallel must keep them independent.
+    g.sources[0].value = 0.1;
+    g.sources[1].value = 0.3;
+    g.sources[2].value = 0.5;
+    g.sources[3].value = 0.7;
+    for _ in 0..8 {
+        g.process();
+    }
+    let expected = [0.1_f32, 0.3, 0.5, 0.7];
+    for i in 0..4 {
+        let got = *g.latches[i].output;
+        assert!(
+            (got - expected[i]).abs() < 1e-6,
+            "latches[{i}].output = {got}, expected {}",
+            expected[i]
+        );
+    }
+}

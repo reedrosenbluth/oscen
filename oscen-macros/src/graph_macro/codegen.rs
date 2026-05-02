@@ -468,6 +468,8 @@ impl CodegenContext {
     /// Generate one struct field per cross-rate stream/value connection. Each
     /// field holds a resampler kernel instance whose type is chosen by edge
     /// direction and policy. Same-rate and event edges produce no fields.
+    /// `Parallel{n}` edges allocate `[Kernel; n]` so each element pair has
+    /// independent kernel state.
     fn generate_resampler_fields(&self) -> Vec<TokenStream> {
         let mut fields = Vec::new();
         for edge in &self.rate_analysis.edges {
@@ -477,13 +479,18 @@ impl CodegenContext {
                 EdgeKernel::Down { factor, kind } => kernel_down_type(factor, kind),
             };
             let field_name = resampler_field_name(edge.edge_index);
-            fields.push(quote! { pub #field_name: #ty });
+            let field_ty = if let FanoutShape::Parallel { n } = edge.shape {
+                quote! { [#ty; #n] }
+            } else {
+                ty
+            };
+            fields.push(quote! { pub #field_name: #field_ty });
         }
         fields
     }
 
-    /// Generate one initializer per cross-rate stream/value connection, calling
-    /// the kernel type's `new()` constructor. Order matches `generate_resampler_fields`.
+    /// Generate one initializer per cross-rate stream/value connection.
+    /// Parallel edges init each element via `core::array::from_fn`.
     fn generate_resampler_inits(&self) -> Vec<TokenStream> {
         let mut inits = Vec::new();
         for edge in &self.rate_analysis.edges {
@@ -493,7 +500,12 @@ impl CodegenContext {
                 EdgeKernel::Down { factor, kind } => kernel_down_type(factor, kind),
             };
             let field_name = resampler_field_name(edge.edge_index);
-            inits.push(quote! { #field_name: <#ty>::new() });
+            let init_expr = if let FanoutShape::Parallel { n } = edge.shape {
+                quote! { ::core::array::from_fn(|_| <#ty>::new()) }
+            } else {
+                quote! { <#ty>::new() }
+            };
+            inits.push(quote! { #field_name: #init_expr });
         }
         inits
     }
@@ -532,20 +544,28 @@ impl CodegenContext {
     }
 
     /// Generate `reset()` calls for every cross-rate resampler kernel.
-    /// Same-rate edges (`EdgeKernel::None`) and event edges produce no field,
-    /// so they are skipped.
+    /// Parallel edges reset each element of the kernel array.
     fn generate_resampler_resets(&self) -> Vec<TokenStream> {
         let mut resets = Vec::new();
         for edge in &self.rate_analysis.edges {
             let f = resampler_field_name(edge.edge_index);
-            let stmt = match edge.kernel {
+            let reset_one = match edge.kernel {
                 EdgeKernel::None | EdgeKernel::Event { .. } => continue,
                 EdgeKernel::Up { .. } => quote! {
-                    ::oscen::resample::StreamUpsampler::reset(&mut self.#f);
+                    ::oscen::resample::StreamUpsampler::reset
                 },
                 EdgeKernel::Down { .. } => quote! {
-                    ::oscen::resample::StreamDownsampler::reset(&mut self.#f);
+                    ::oscen::resample::StreamDownsampler::reset
                 },
+            };
+            let stmt = if let FanoutShape::Parallel { n } = edge.shape {
+                quote! {
+                    for __k in 0..#n {
+                        #reset_one(&mut self.#f[__k]);
+                    }
+                }
+            } else {
+                quote! { #reset_one(&mut self.#f); }
             };
             resets.push(stmt);
         }
@@ -569,9 +589,19 @@ impl CodegenContext {
                 EdgeKernel::Down { factor, .. } => {
                     let f = resampler_field_name(e.edge_index);
                     let factor_lit = factor as usize;
-                    Some(quote! {
-                        total += ::oscen::resample::StreamDownsampler::latency_samples(&self.#f) / #factor_lit;
-                    })
+                    let one = if let FanoutShape::Parallel { .. } = e.shape {
+                        // All N elements share the same kernel type and thus
+                        // identical latency. Read element 0; cheaper than
+                        // summing identical values.
+                        quote! {
+                            total += ::oscen::resample::StreamDownsampler::latency_samples(&self.#f[0]) / #factor_lit;
+                        }
+                    } else {
+                        quote! {
+                            total += ::oscen::resample::StreamDownsampler::latency_samples(&self.#f) / #factor_lit;
+                        }
+                    };
+                    Some(one)
                 }
                 _ => None,
             })
@@ -1613,18 +1643,45 @@ impl CodegenContext {
                 let buf = up_buf_name(edge.edge_index);
                 let field = resampler_field_name(edge.edge_index);
                 let conn = &self.connections[edge.edge_index];
-                let src_value = self.connection_source_value_expr(&conn.source);
-                up_decls.push(quote! {
-                    let mut #buf: [f32; #factor_us] = [0.0; #factor_us];
-                    {
-                        let __src_val: f32 = #src_value;
-                        ::oscen::resample::StreamUpsampler::upsample(
-                            &mut self.#field,
-                            __src_val,
-                            &mut #buf,
-                        );
-                    }
-                });
+
+                if let FanoutShape::Parallel { n } = edge.shape {
+                    // Per-element upsample. Source is `<array_node>.<field>`;
+                    // emit one upsample call per element index, into a
+                    // `[[f32; factor]; n]` buffer of buffers.
+                    let source_ident = Self::extract_root_node(&conn.source)
+                        .expect("Parallel edge has array root");
+                    let source_field = Self::extract_endpoint_field(&conn.source)
+                        .expect("Parallel edge has field access");
+                    up_decls.push(quote! {
+                        let mut #buf: [[f32; #factor_us]; #n] = [[0.0; #factor_us]; #n];
+                        for __k in 0..#n {
+                            let mut __src_val: f32 = 0.0;
+                            <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                &self.#source_ident[__k].#source_field,
+                                &mut __src_val,
+                            );
+                            ::oscen::resample::StreamUpsampler::upsample(
+                                &mut self.#field[__k],
+                                __src_val,
+                                &mut #buf[__k],
+                            );
+                        }
+                    });
+                } else {
+                    // Scalar / Broadcast / FanIn: shared kernel state, single buffer.
+                    let src_value = self.connection_source_value_expr(&conn.source);
+                    up_decls.push(quote! {
+                        let mut #buf: [f32; #factor_us] = [0.0; #factor_us];
+                        {
+                            let __src_val: f32 = #src_value;
+                            ::oscen::resample::StreamUpsampler::upsample(
+                                &mut self.#field,
+                                __src_val,
+                                &mut #buf,
+                            );
+                        }
+                    });
+                }
             }
         }
 
@@ -1635,9 +1692,15 @@ impl CodegenContext {
             if let EdgeKernel::Down { factor, .. } = edge.kernel {
                 let factor_us = factor as usize;
                 let buf = down_buf_name(edge.edge_index);
-                down_decls.push(quote! {
-                    let mut #buf: [f32; #factor_us] = [0.0; #factor_us];
-                });
+                if let FanoutShape::Parallel { n } = edge.shape {
+                    down_decls.push(quote! {
+                        let mut #buf: [[f32; #factor_us]; #n] = [[0.0; #factor_us]; #n];
+                    });
+                } else {
+                    down_decls.push(quote! {
+                        let mut #buf: [f32; #factor_us] = [0.0; #factor_us];
+                    });
+                }
             }
         }
 
@@ -1711,9 +1774,28 @@ impl CodegenContext {
             if let EdgeKernel::Up { .. } = edge.kernel {
                 let buf = up_buf_name(edge.edge_index);
                 let conn = &self.connections[edge.edge_index];
-                let dest_assign =
-                    self.connection_dest_field_assign(&conn.dest, &quote! { #buf[__inner] });
-                inner_writes.push(dest_assign);
+
+                if let FanoutShape::Parallel { n } = edge.shape {
+                    let dest_node = Self::extract_root_node(&conn.dest)
+                        .expect("Parallel edge has array root");
+                    let dest_field = Self::extract_endpoint_field(&conn.dest)
+                        .expect("Parallel edge has field access");
+                    inner_writes.push(quote! {
+                        for __k in 0..#n {
+                            let __dst_val: f32 = #buf[__k][__inner];
+                            <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                &__dst_val,
+                                &mut self.#dest_node[__k].#dest_field,
+                            );
+                        }
+                    });
+                } else {
+                    let dest_assign = self.connection_dest_field_assign(
+                        &conn.dest,
+                        &quote! { #buf[__inner] },
+                    );
+                    inner_writes.push(dest_assign);
+                }
             }
         }
 
@@ -1730,10 +1812,28 @@ impl CodegenContext {
             if let EdgeKernel::Down { .. } = edge.kernel {
                 let buf = down_buf_name(edge.edge_index);
                 let conn = &self.connections[edge.edge_index];
-                let src_value = self.connection_source_value_expr(&conn.source);
-                down_captures.push(quote! {
-                    #buf[__inner] = #src_value;
-                });
+
+                if let FanoutShape::Parallel { n } = edge.shape {
+                    let source_ident = Self::extract_root_node(&conn.source)
+                        .expect("Parallel edge has array root");
+                    let source_field = Self::extract_endpoint_field(&conn.source)
+                        .expect("Parallel edge has field access");
+                    down_captures.push(quote! {
+                        for __k in 0..#n {
+                            let mut __elt: f32 = 0.0;
+                            <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                &self.#source_ident[__k].#source_field,
+                                &mut __elt,
+                            );
+                            #buf[__k][__inner] = __elt;
+                        }
+                    });
+                } else {
+                    let src_value = self.connection_source_value_expr(&conn.source);
+                    down_captures.push(quote! {
+                        #buf[__inner] = #src_value;
+                    });
+                }
             }
         }
 
@@ -1746,16 +1846,36 @@ impl CodegenContext {
                 let buf = down_buf_name(edge.edge_index);
                 let field = resampler_field_name(edge.edge_index);
                 let conn = &self.connections[edge.edge_index];
-                let dest_assign = self.connection_dest_field_assign(
-                    &conn.dest,
-                    &quote! {
-                        ::oscen::resample::StreamDownsampler::downsample(
-                            &mut self.#field,
-                            &#buf,
-                        )
-                    },
-                );
-                down_finalizes.push(dest_assign);
+
+                if let FanoutShape::Parallel { n } = edge.shape {
+                    let dest_node = Self::extract_root_node(&conn.dest)
+                        .expect("Parallel edge has array root");
+                    let dest_field = Self::extract_endpoint_field(&conn.dest)
+                        .expect("Parallel edge has field access");
+                    down_finalizes.push(quote! {
+                        for __k in 0..#n {
+                            let __dst_val: f32 = ::oscen::resample::StreamDownsampler::downsample(
+                                &mut self.#field[__k],
+                                &#buf[__k],
+                            );
+                            <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                &__dst_val,
+                                &mut self.#dest_node[__k].#dest_field,
+                            );
+                        }
+                    });
+                } else {
+                    let dest_assign = self.connection_dest_field_assign(
+                        &conn.dest,
+                        &quote! {
+                            ::oscen::resample::StreamDownsampler::downsample(
+                                &mut self.#field,
+                                &#buf,
+                            )
+                        },
+                    );
+                    down_finalizes.push(dest_assign);
+                }
             }
         }
 
