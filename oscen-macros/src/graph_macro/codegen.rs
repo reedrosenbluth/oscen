@@ -1980,9 +1980,9 @@ impl CodegenContext {
     }
 
     /// Build an assignment `dest <- value` for a connection's dest. The dest
-    /// may be a node-input field (typed wrapper around f32) or a graph output
-    /// (plain f32 / event queue). Uses `ConnectEndpoints` for node inputs to
-    /// be wrapper-type-agnostic; uses direct assignment for graph outputs.
+    /// may be a scalar node-input field, an oversampled-array node-input field
+    /// (broadcast: write `value` into all N elements), or a graph output.
+    /// Uses `ConnectEndpoints` for node inputs to be wrapper-type-agnostic.
     fn connection_dest_field_assign(
         &self,
         dest: &ConnectionExpr,
@@ -1997,7 +1997,35 @@ impl CodegenContext {
             }
         }
 
-        // Node input: bridge via ConnectEndpoints to handle typed wrappers.
+        // Node input. If the dest node is an array AND the access is a bare
+        // `<node>.<field>` (no explicit index), broadcast the value into all
+        // N elements. Otherwise emit a single ConnectEndpoints write.
+        let dest_array_size = match Self::extract_root_node(dest) {
+            Some(ident) => self.get_node_array_size(ident),
+            None => None,
+        };
+        let dest_is_field_access = matches!(dest, ConnectionExpr::Field(base, _)
+            if matches!(**base, ConnectionExpr::Ident(_)));
+
+        if let (Some(n), true) = (dest_array_size, dest_is_field_access) {
+            // Broadcast write: dest is `<array_node>.<field>`.
+            let dest_node = Self::extract_root_node(dest).expect("checked above");
+            let dest_field =
+                Self::extract_endpoint_field(dest).expect("Field variant has a field");
+            return quote! {
+                {
+                    let __dst_val: f32 = #value;
+                    for i in 0..#n {
+                        <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                            &__dst_val,
+                            &mut self.#dest_node[i].#dest_field,
+                        );
+                    }
+                }
+            };
+        }
+
+        // Scalar dest (or indexed array element): single ConnectEndpoints write.
         let dest_toks = self.connection_expr_to_tokens(dest);
         quote! {
             {
