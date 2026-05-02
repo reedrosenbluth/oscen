@@ -1,4 +1,39 @@
-use oscen::{graph, AdsrEnvelope, PolyBlepOscillator, SignalProcessor};
+use oscen::graph::{StreamInput, StreamOutput};
+use oscen::{graph, AdsrEnvelope, Node, PolyBlepOscillator, SignalProcessor};
+
+/// Simple symmetric hard-clipper used by the aliasing-reduction test below.
+/// Clipping is a memoryless nonlinearity that generates infinite harmonics; at
+/// high input frequencies those harmonics fold back as aliasing when sampled at
+/// the host rate. Running the same clipper at 4× internal rate moves the fold
+/// point above the outer Nyquist for the first several harmonics, so the
+/// downsampler's anti-alias filter can reject them.
+#[derive(Debug, Node)]
+pub struct HardClip {
+    pub input: StreamInput,
+    pub output: StreamOutput,
+}
+
+impl HardClip {
+    pub fn new() -> Self {
+        Self {
+            input: StreamInput::default(),
+            output: StreamOutput::default(),
+        }
+    }
+}
+
+impl Default for HardClip {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SignalProcessor for HardClip {
+    #[inline(always)]
+    fn process(&mut self) {
+        *self.output = (*self.input).clamp(-0.7, 0.7);
+    }
+}
 
 graph! {
     name: MultiPass;
@@ -202,4 +237,111 @@ fn value_latched_into_oversampled_node() {
         peak < 0.5,
         "amplitude=0.25 should keep peak well below 1.0 (peak = {peak})"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Aliasing reduction across rate boundary (Phase 6 Task 6.1)
+//
+// Hard-clipping a sine generates an infinite harmonic series. At 1× sample
+// rate any harmonic above outer Nyquist folds back into audible range and
+// shows up as inharmonic aliasing energy. Running the same clipper at 4×
+// internal rate raises the alias-fold threshold to 4× outer Nyquist, so the
+// downsampler's anti-alias filter can reject the first several harmonics
+// before they fold. The 4× graph should therefore exhibit measurably less
+// aliasing energy in the band below outer Nyquist.
+
+graph! {
+    name: ClipRef;
+    input stream input;
+    output stream out;
+    nodes {
+        clip = HardClip::new();
+    }
+    connections {
+        input -> clip.input;
+        clip.output -> out;
+    }
+}
+
+graph! {
+    name: ClipOversampled;
+    input stream input;
+    output stream out;
+    nodes {
+        clip = HardClip::new() * 4;
+    }
+    connections {
+        [sinc] input -> clip.input;
+        [sinc] clip.output -> out;
+    }
+}
+
+#[test]
+fn hardclip_4x_has_less_aliasing_than_1x() {
+    let mut a = ClipRef::new();
+    let mut b = ClipOversampled::new();
+    a.init(48_000.0);
+    b.init(48_000.0);
+
+    // Drive both with a high-frequency sine that will alias when clipped at 1×.
+    // f = 9_600 Hz at sr=48k → normalized to 0.2 cycles/sample at outer rate.
+    // The 3rd harmonic (3*f) lands at 0.6 cycles/sample, which folds back to
+    // 0.4. The 5th (1.0) folds to 0.0. We measure aliasing energy at 0.4
+    // (the 3rd-harmonic alias) relative to the fundamental at 0.2.
+    let f = 9_600.0_f32 / 48_000.0;
+    let block = 256;
+    let total = 4096;
+    let warmup = 512;
+
+    let mut a_out = Vec::with_capacity(total);
+    let mut b_out = Vec::with_capacity(total);
+
+    let mut sample_n: usize = 0;
+    while sample_n < total {
+        let chunk = block.min(total - sample_n);
+        for i in 0..chunk {
+            let n = sample_n + i;
+            let amp = 0.9_f32; // exceed clipping threshold (±0.7)
+            let x = amp * (2.0 * std::f32::consts::PI * f * n as f32).sin();
+            a.input_block[i] = x;
+            b.input_block[i] = x;
+        }
+        a.process_block(chunk);
+        b.process_block(chunk);
+        a_out.extend_from_slice(&a.out_block[..chunk]);
+        b_out.extend_from_slice(&b.out_block[..chunk]);
+        sample_n += chunk;
+    }
+
+    let f_fundamental = 0.2_f32;
+    let f_alias = 0.4_f32;
+    let span = total - warmup;
+    let one_x_alias = bin_magnitude(&a_out[warmup..], f_alias, span);
+    let four_x_alias = bin_magnitude(&b_out[warmup..], f_alias, span);
+    let one_x_fund = bin_magnitude(&a_out[warmup..], f_fundamental, span);
+    let four_x_fund = bin_magnitude(&b_out[warmup..], f_fundamental, span);
+
+    let one_x_ratio = one_x_alias / one_x_fund.max(1e-9);
+    let four_x_ratio = four_x_alias / four_x_fund.max(1e-9);
+
+    println!("1x aliasing/fundamental: {one_x_ratio}");
+    println!("4x aliasing/fundamental: {four_x_ratio}");
+
+    assert!(
+        four_x_ratio < one_x_ratio * 0.5,
+        "4× should have <50% the aliasing ratio of 1×: 4x={four_x_ratio}, 1x={one_x_ratio}"
+    );
+}
+
+/// Single-bin DFT magnitude at `freq` (cycles/sample), normalized by N.
+fn bin_magnitude(samples: &[f32], freq: f32, n: usize) -> f32 {
+    let mut re = 0.0_f32;
+    let mut im = 0.0_f32;
+    let omega = 2.0 * std::f32::consts::PI * freq;
+    for (i, &x) in samples.iter().take(n).enumerate() {
+        let phase = omega * i as f32;
+        re += x * phase.cos();
+        im += x * phase.sin();
+    }
+    (re * re + im * im).sqrt() / n as f32
 }
