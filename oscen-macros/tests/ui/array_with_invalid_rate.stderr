@@ -1,0 +1,13 @@
+error: rate factor must be 1, 2, 4, or 8
+ --> tests/ui/array_with_invalid_rate.rs:7:59
+  |
+7 |         oscs = [PolyBlepOscillator::saw(440.0, 0.6); 4] * 3;  // 3 not in {1,2,4,8}
+  |                                                           ^
+
+warning: unused import: `PolyBlepOscillator`
+ --> tests/ui/array_with_invalid_rate.rs:1:20
+  |
+1 | use oscen::{graph, PolyBlepOscillator};
+  |                    ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
