@@ -425,6 +425,59 @@ impl CodegenContext {
         inits
     }
 
+    /// Generate per-node `init()` calls that scale `sample_rate` by the node's
+    /// rate annotation. `* N` nodes get `sample_rate * N`, `/ N` nodes get
+    /// `sample_rate / N`, and same-rate nodes get `sample_rate` unchanged.
+    fn generate_node_init_calls_rate_aware(&self) -> Vec<TokenStream> {
+        let mut calls = Vec::new();
+        for node in &self.nodes {
+            let name = &node.name;
+            let scaled = match node.rate {
+                NodeRate::Same => quote! { sample_rate },
+                NodeRate::Up(f) => {
+                    let f = f as f32;
+                    quote! { sample_rate * #f }
+                }
+                NodeRate::Down(d) => {
+                    let d = d as f32;
+                    quote! { sample_rate / #d }
+                }
+            };
+            if node.array_size.is_some() {
+                calls.push(quote! {
+                    for __child in self.#name.iter_mut() {
+                        ::oscen::SignalProcessor::init(__child, #scaled);
+                    }
+                });
+            } else {
+                calls.push(quote! {
+                    ::oscen::SignalProcessor::init(&mut self.#name, #scaled);
+                });
+            }
+        }
+        calls
+    }
+
+    /// Generate `reset()` calls for every cross-rate resampler kernel.
+    /// Same-rate edges (`EdgeKernel::None`) produce no field, so they are skipped.
+    fn generate_resampler_resets(&self) -> Vec<TokenStream> {
+        let mut resets = Vec::new();
+        for edge in &self.rate_analysis.edges {
+            let f = resampler_field_name(edge.edge_index);
+            let stmt = match edge.kernel {
+                EdgeKernel::None => continue,
+                EdgeKernel::Up { .. } => quote! {
+                    ::oscen::resample::StreamUpsampler::reset(&mut self.#f);
+                },
+                EdgeKernel::Down { .. } => quote! {
+                    ::oscen::resample::StreamDownsampler::reset(&mut self.#f);
+                },
+            };
+            resets.push(stmt);
+        }
+        resets
+    }
+
     // ========== Static Graph Generation ==========
     /// Extract the root node identifier from a connection expression
     /// For example: osc.output -> "osc", filter.cutoff -> "filter"
@@ -1632,23 +1685,12 @@ impl CodegenContext {
         let tick_ramps_method = self.generate_tick_ramps_method();
         let value_setter_methods = self.generate_value_setter_methods();
 
-        // Generate init() calls for each node (handling arrays)
-        let node_init_calls: Vec<_> = self.nodes.iter().map(|node| {
-            let name = &node.name;
-            if node.array_size.is_some() {
-                // Array: iterate and init each element
-                quote! {
-                    for node in self.#name.iter_mut() {
-                        node.init(sample_rate);
-                    }
-                }
-            } else {
-                // Single node: init directly
-                quote! {
-                    self.#name.init(sample_rate);
-                }
-            }
-        }).collect();
+        // Generate init() calls for each node, scaling `sample_rate` by the
+        // node's rate annotation (`* N` -> ×N, `/ N` -> ÷N, default -> unchanged).
+        let node_init_calls = self.generate_node_init_calls_rate_aware();
+        // Reset every cross-rate resampler kernel so re-initialization clears
+        // any per-edge filter state (delay lines, IIR taps, latched samples).
+        let resampler_resets = self.generate_resampler_resets();
 
         // Generate NIH-plug params struct if nih_params flag is set
         let nih_params_output = if self.nih_params {
@@ -1720,8 +1762,11 @@ impl CodegenContext {
             impl ::oscen::SignalProcessor for #name {
                 fn init(&mut self, sample_rate: f32) {
                     self.sample_rate = sample_rate;
-                    // Call init() on all child nodes
+                    // Call init() on all child nodes, scaling sample_rate by
+                    // each node's rate annotation.
                     #(#node_init_calls)*
+                    // Reset every cross-rate resampler kernel.
+                    #(#resampler_resets)*
                 }
 
                 fn process(&mut self) {
