@@ -2,7 +2,7 @@
 //! Exercises the four shapes (Scalar / Broadcast / FanIn / Parallel) across
 //! stream / value / event endpoints over a rate boundary.
 
-use oscen::graph::{EventInput, EventInstance, EventPayload, StreamOutput, ValueInput, ValueOutput};
+use oscen::graph::{EventInput, EventInstance, EventPayload, StreamInput, StreamOutput, ValueInput, ValueOutput};
 use oscen::{graph, Node, SignalProcessor};
 
 /// Trivial value-passthrough node: copies its value input into its value
@@ -260,4 +260,101 @@ fn broadcast_event_outer_to_oversampled_array_with_rescale() {
             "captures[{i}].captured_offset = {got}, expected 2.0 (rescaled from outer offset 1)"
         );
     }
+}
+
+/// Mock voice with one of every endpoint kind. Models c15-synth's voice
+/// surface area without bringing in the full DSP. The gate handler latches
+/// `gate_seen = true`; subsequent process() ticks emit a constant so we can
+/// detect that the voice activated.
+#[derive(Debug, Node)]
+pub struct MockVoice {
+    pub freq: ValueInput<f32>,
+    pub gate: EventInput,
+    pub mod_in: StreamInput,
+    pub audio_out: StreamOutput,
+    gate_seen: bool,
+}
+
+impl MockVoice {
+    pub fn new() -> Self {
+        Self {
+            freq: ValueInput::default(),
+            gate: EventInput::default(),
+            mod_in: StreamInput::default(),
+            audio_out: StreamOutput::default(),
+            gate_seen: false,
+        }
+    }
+
+    pub fn on_gate(&mut self, _ev: &EventInstance) {
+        self.gate_seen = true;
+    }
+}
+
+impl Default for MockVoice {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SignalProcessor for MockVoice {
+    #[inline(always)]
+    fn process(&mut self) {
+        // After a gate, emit a constant signal proportional to freq+mod so
+        // the test can verify the voice actually ran. Before the gate, stays
+        // silent — proves event delivery.
+        *self.audio_out = if self.gate_seen {
+            *self.freq * 0.001 + *self.mod_in
+        } else {
+            0.0
+        };
+    }
+}
+
+graph! {
+    name: C15ShapeArrayAt2x;
+    input value frequency = 440.0;
+    input stream mod_signal;
+    input event gate;
+    output stream audio_out;
+
+    nodes {
+        voices = [MockVoice::new(); 8] * 2;
+    }
+
+    connections {
+        frequency  -> voices.freq;
+        mod_signal -> voices.mod_in;
+        gate       -> voices.gate;
+        [sinc] voices.audio_out -> audio_out;
+    }
+}
+
+#[test]
+fn c15_voice_array_at_2x_compiles_and_processes() {
+    let mut g = C15ShapeArrayAt2x::new();
+    g.init(48_000.0);
+    g.frequency = 440.0;
+
+    // Fill the mod_signal block with a small constant; the per-frame
+    // process_block path reads from `<input>_block`.
+    for s in g.mod_signal_block.iter_mut().take(256) {
+        *s = 0.1;
+    }
+
+    let _ = g.gate.try_push(EventInstance {
+        frame_offset: 0,
+        payload: EventPayload::Scalar(1.0),
+    });
+    g.process_block(256);
+
+    let written = &g.audio_out_block[..256];
+    // After the gate fires, every voice emits ~freq*0.001 + 0.1 = 0.54 per
+    // tick. Sinc fan-in sum across 8 voices ≈ 8 * 0.54 = 4.32.
+    let tail = &written[192..256];
+    let avg: f32 = tail.iter().sum::<f32>() / tail.len() as f32;
+    assert!(
+        avg.abs() > 1.0,
+        "expected non-zero audio after gate (avg = {avg} over tail = {tail:?})"
+    );
 }
