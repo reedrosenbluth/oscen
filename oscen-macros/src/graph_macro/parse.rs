@@ -587,6 +587,36 @@ impl Parse for NodeBlock {
     }
 }
 
+/// Parse optional leading `[token]` policy prefix on a connection statement.
+/// Recognized: `latch`, `linear`, `sinc`, `sinc_iir`.
+fn parse_connection_policy(input: ParseStream) -> Result<ConnectionPolicy> {
+    if !input.peek(token::Bracket) {
+        return Ok(ConnectionPolicy::Default);
+    }
+    let content;
+    bracketed!(content in input);
+    let lookahead = content.lookahead1();
+    let policy = if lookahead.peek(kw::latch) {
+        content.parse::<kw::latch>()?;
+        ConnectionPolicy::Latch
+    } else if lookahead.peek(kw::linear) {
+        content.parse::<kw::linear>()?;
+        ConnectionPolicy::Linear
+    } else if lookahead.peek(kw::sinc_iir) {
+        content.parse::<kw::sinc_iir>()?;
+        ConnectionPolicy::SincIir
+    } else if lookahead.peek(kw::sinc) {
+        content.parse::<kw::sinc>()?;
+        ConnectionPolicy::Sinc
+    } else {
+        return Err(lookahead.error());
+    };
+    if !content.is_empty() {
+        return Err(content.error("unexpected tokens after policy keyword"));
+    }
+    Ok(policy)
+}
+
 // Parse connection block
 fn parse_connection_block(input: ParseStream) -> Result<Vec<ConnectionStmt>> {
     // Accept either 'connection' or 'connections'
@@ -601,6 +631,7 @@ fn parse_connection_block(input: ParseStream) -> Result<Vec<ConnectionStmt>> {
 
     let mut connections = Vec::new();
     while !content.is_empty() {
+        let policy = parse_connection_policy(&content)?;
         let source = parse_connection_expr(&content)?;
 
         // Parse -> as two separate tokens: - and >
@@ -613,7 +644,7 @@ fn parse_connection_block(input: ParseStream) -> Result<Vec<ConnectionStmt>> {
         connections.push(ConnectionStmt {
             source,
             dest,
-            policy: ConnectionPolicy::Default,
+            policy,
         });
     }
 
@@ -629,6 +660,7 @@ impl Parse for ConnectionBlock {
 impl Parse for ConnectionStmt {
     fn parse(input: ParseStream) -> Result<Self> {
         input.parse::<kw::connection>()?;
+        let policy = parse_connection_policy(input)?;
         let source = parse_connection_expr(input)?;
 
         // Parse -> as two separate tokens: - and >
@@ -641,7 +673,7 @@ impl Parse for ConnectionStmt {
         Ok(ConnectionStmt {
             source,
             dest,
-            policy: ConnectionPolicy::Default,
+            policy,
         })
     }
 }
@@ -940,4 +972,9 @@ mod kw {
     syn::custom_keyword!(smoother);
     syn::custom_keyword!(step);
     syn::custom_keyword!(group);
+    // Connection policy keywords (Phase 2 / Task 2.3).
+    // Note: `linear` already exists above (used for curve specs); reuse it here.
+    syn::custom_keyword!(latch);
+    syn::custom_keyword!(sinc);
+    syn::custom_keyword!(sinc_iir);
 }

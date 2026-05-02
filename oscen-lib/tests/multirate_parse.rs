@@ -23,3 +23,20 @@ fn graph_macro_with_oversample_compiles() {
     g.init(44100.0);
     let _ = g;
 }
+
+graph! {
+    name: PolicySmoke;
+    output stream audio_out;
+    nodes {
+        osc = PolyBlepOscillator::saw(440.0, 0.6) * 2;
+    }
+    connections {
+        [sinc] osc.output -> audio_out;
+    }
+}
+
+#[test]
+fn graph_macro_with_connection_policy_compiles() {
+    let mut g = PolicySmoke::new();
+    g.init(44100.0);
+}
