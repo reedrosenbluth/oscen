@@ -2,10 +2,7 @@
 //! Exercises the four shapes (Scalar / Broadcast / FanIn / Parallel) across
 //! stream / value / event endpoints over a rate boundary.
 
-use oscen::graph::{
-    EventInput, EventInstance, EventOutput, EventPayload, StreamInput, StreamOutput,
-    ValueInput, ValueOutput,
-};
+use oscen::graph::{ValueInput, ValueOutput};
 use oscen::{graph, Node, SignalProcessor};
 
 /// Trivial value-passthrough node: copies its value input into its value
