@@ -500,7 +500,9 @@ impl CodegenContext {
                 EdgeKernel::Down { factor, kind } => kernel_down_type(factor, kind),
             };
             let field_name = resampler_field_name(edge.edge_index);
-            let init_expr = if let FanoutShape::Parallel { n } = edge.shape {
+            let init_expr = if matches!(edge.shape, FanoutShape::Parallel { .. }) {
+                // Field type already encodes [Kernel; N]; from_fn infers N
+                // from the assignment target.
                 quote! { ::core::array::from_fn(|_| <#ty>::new()) }
             } else {
                 quote! { <#ty>::new() }

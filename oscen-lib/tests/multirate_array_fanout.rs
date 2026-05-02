@@ -189,12 +189,11 @@ fn parallel_value_array_to_oversampled_array_independent_states() {
         g.process();
     }
     let expected = [0.1_f32, 0.3, 0.5, 0.7];
-    for i in 0..4 {
+    for (i, want) in expected.iter().enumerate() {
         let got = *g.latches[i].output;
         assert!(
-            (got - expected[i]).abs() < 1e-6,
-            "latches[{i}].output = {got}, expected {}",
-            expected[i]
+            (got - want).abs() < 1e-6,
+            "latches[{i}].output = {got}, expected {want}"
         );
     }
 }
