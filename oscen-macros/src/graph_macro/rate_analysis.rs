@@ -1,6 +1,7 @@
 use super::ast::{
     ConnectionPolicy, ConnectionStmt, EndpointKind, GraphDef, GraphItem, NodeDecl, NodeRate,
 };
+use super::fanout::{classify_fanout, FanoutShape};
 use super::type_check::TypeContext;
 use std::collections::HashMap;
 use syn::Result;
@@ -40,6 +41,10 @@ pub struct EdgeRate {
     pub source_rate: NodeRate,
     pub dest_rate: NodeRate,
     pub kernel: EdgeKernel,
+    /// Per-edge fan-out shape derived from source/dest node array sizes.
+    /// Used by codegen to dispatch between scalar / parallel / broadcast /
+    /// fan-in emission for both same-rate and cross-rate edges.
+    pub shape: FanoutShape,
 }
 
 /// Per-graph rate analysis.
@@ -47,6 +52,10 @@ pub struct EdgeRate {
 pub struct RateAnalysis {
     /// Node name → rate.
     pub node_rates: HashMap<String, NodeRate>,
+    /// Node name → array size (`None` for scalar nodes). Populated for every
+    /// node decl so codegen can classify edge fan-out without re-scanning the
+    /// node list.
+    pub node_array_sizes: HashMap<String, Option<usize>>,
     /// `lcm` of all node up-factors (1 if everything is at outer rate).
     pub max_factor: u32,
     /// `lcm` of all node down-divisors.
@@ -74,6 +83,7 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
     }
 
     let mut node_rates = HashMap::new();
+    let mut node_array_sizes: HashMap<String, Option<usize>> = HashMap::new();
     let mut max_factor: u32 = 1;
     let mut min_divisor: u32 = 1;
     for n in &nodes {
@@ -87,6 +97,7 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
             ));
         }
         node_rates.insert(n.name.to_string(), n.rate);
+        node_array_sizes.insert(n.name.to_string(), n.array_size);
         match n.rate {
             NodeRate::Up(f) => {
                 max_factor = lcm(max_factor, f);
@@ -137,16 +148,34 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
         };
 
         let kernel = classify_edge(source_rate, dest_rate, c.policy, span)?;
+
+        // Resolve array sizes through the same root-name keying as rates.
+        // Indexed accesses (`voices[3].field`) deliberately use the array
+        // size of the parent — current codegen treats them as fan-in/out
+        // by sum at same-rate; cross-rate indexed access remains out of
+        // scope for v1 (see spec §"Out of Scope").
+        let src_size = src_node
+            .as_ref()
+            .and_then(|n| node_array_sizes.get(n).copied())
+            .unwrap_or(None);
+        let dst_size = dst_node
+            .as_ref()
+            .and_then(|n| node_array_sizes.get(n).copied())
+            .unwrap_or(None);
+        let shape = classify_fanout(src_size, dst_size);
+
         edges.push(EdgeRate {
             edge_index: idx,
             source_rate,
             dest_rate,
             kernel,
+            shape,
         });
     }
 
     Ok(RateAnalysis {
         node_rates,
+        node_array_sizes,
         max_factor,
         min_divisor,
         edges,
@@ -300,5 +329,65 @@ fn gcd(a: u32, b: u32) -> u32 {
         a
     } else {
         gcd(b, a % b)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::fanout::FanoutShape;
+    use syn::parse_quote;
+
+    fn parse(src: proc_macro2::TokenStream) -> super::super::ast::GraphDef {
+        syn::parse2(src).expect("parse failed")
+    }
+
+    #[test]
+    fn analyze_classifies_scalar_to_array_as_broadcast() {
+        let def = parse(parse_quote! {
+            name: G;
+            input value v = 0.0;
+            nodes {
+                xs = [Holder::new(); 4];
+            }
+            connections {
+                v -> xs.input;
+            }
+        });
+        let ra = analyze(&def).expect("analyze failed");
+        assert_eq!(ra.edges.len(), 1);
+        assert_eq!(ra.edges[0].shape, FanoutShape::Broadcast { n: 4 });
+    }
+
+    #[test]
+    fn analyze_classifies_array_to_array_as_parallel() {
+        let def = parse(parse_quote! {
+            name: G;
+            nodes {
+                xs = [Src::new(); 4];
+                ys = [Dst::new(); 4];
+            }
+            connections {
+                xs.out -> ys.input;
+            }
+        });
+        let ra = analyze(&def).expect("analyze failed");
+        assert_eq!(ra.edges[0].shape, FanoutShape::Parallel { n: 4 });
+    }
+
+    #[test]
+    fn analyze_classifies_array_to_scalar_as_fanin() {
+        let def = parse(parse_quote! {
+            name: G;
+            output stream o;
+            nodes {
+                xs = [Src::new(); 8];
+            }
+            connections {
+                xs.out -> o;
+            }
+        });
+        let ra = analyze(&def).expect("analyze failed");
+        assert_eq!(ra.edges[0].shape, FanoutShape::FanIn { n: 8 });
     }
 }
