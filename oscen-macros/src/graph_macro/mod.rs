@@ -1,5 +1,6 @@
 mod ast;
 mod codegen;
+mod fanout;
 mod parse;
 mod rate_analysis;
 mod type_check;
