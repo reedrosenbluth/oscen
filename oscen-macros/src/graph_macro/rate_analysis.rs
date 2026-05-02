@@ -52,10 +52,6 @@ pub struct EdgeRate {
 pub struct RateAnalysis {
     /// Node name → rate.
     pub node_rates: HashMap<String, NodeRate>,
-    /// Node name → array size (`None` for scalar nodes). Populated for every
-    /// node decl so codegen can classify edge fan-out without re-scanning the
-    /// node list.
-    pub node_array_sizes: HashMap<String, Option<usize>>,
     /// `lcm` of all node up-factors (1 if everything is at outer rate).
     pub max_factor: u32,
     /// `lcm` of all node down-divisors.
@@ -175,7 +171,6 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
 
     Ok(RateAnalysis {
         node_rates,
-        node_array_sizes,
         max_factor,
         min_divisor,
         edges,
