@@ -333,6 +333,51 @@ fn hardclip_4x_has_less_aliasing_than_1x() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Mixed-rate graph: two oversampled branches summed at outer rate (Phase 6 Task 6.2)
+//
+// Verifies that two independent 4× oversampled branches can be combined at the
+// outer (host) rate via a binary expression connection. Exercises multi-rate
+// codegen with multiple cross-rate edges feeding a same-rate downstream sum.
+
+graph! {
+    name: TwoStage;
+    output stream out;
+    output stream out_a;
+    output stream out_b;
+    nodes {
+        a = PolyBlepOscillator::saw(220.0, 0.5) * 4;
+        b = PolyBlepOscillator::saw(330.0, 0.5) * 4;
+    }
+    connections {
+        [sinc] a.output -> out_a;
+        [sinc] b.output -> out_b;
+        out_a + out_b -> out;
+    }
+}
+
+#[test]
+fn two_oversampled_branches_sum_to_outer() {
+    let mut g = TwoStage::new();
+    g.init(48_000.0);
+    let block = 256;
+    let total = 1024;
+    let mut sum_block = Vec::with_capacity(total);
+    let mut n = 0;
+    while n < total {
+        let chunk = block.min(total - n);
+        g.process_block(chunk);
+        sum_block.extend_from_slice(&g.out_block[..chunk]);
+        n += chunk;
+    }
+    let warmup = 100;
+    let mixed = &sum_block[warmup..];
+    let max = mixed.iter().cloned().fold(0.0_f32, f32::max);
+    let min = mixed.iter().cloned().fold(0.0_f32, f32::min);
+    assert!(max > 0.7, "two saws summed should swing > 0.7 (max = {max})");
+    assert!(min < -0.5, "two saws summed should swing < -0.5 (min = {min})");
+}
+
 /// Single-bin DFT magnitude at `freq` (cycles/sample), normalized by N.
 fn bin_magnitude(samples: &[f32], freq: f32, n: usize) -> f32 {
     let mut re = 0.0_f32;
