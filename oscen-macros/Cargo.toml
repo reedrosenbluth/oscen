@@ -19,3 +19,4 @@ proc-macro2 = "1.0"
 oscen = { path = "../oscen-lib" }
 arrayvec = "0.7"
 nih_plug = { git = "https://github.com/reedrosenbluth/nih-plug" }
+trybuild = "1.0"

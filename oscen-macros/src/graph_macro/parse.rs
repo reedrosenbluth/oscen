@@ -219,6 +219,38 @@ impl Parse for InputDecl {
     }
 }
 
+/// Parse optional `* N` or `/ N` after a node constructor expression, where N is a
+/// power-of-2 integer literal in {1, 2, 4, 8}. Stops at `;`.
+fn parse_node_rate(input: ParseStream) -> Result<NodeRate> {
+    if input.peek(Token![;]) {
+        return Ok(NodeRate::Same);
+    }
+    let is_up = if input.peek(Token![*]) {
+        input.parse::<Token![*]>()?;
+        true
+    } else if input.peek(Token![/]) {
+        input.parse::<Token![/]>()?;
+        false
+    } else {
+        return Ok(NodeRate::Same);
+    };
+    let lit: syn::LitInt = input.parse()?;
+    let n: u32 = lit.base10_parse()?;
+    if !matches!(n, 1 | 2 | 4 | 8) {
+        return Err(syn::Error::new(
+            lit.span(),
+            "rate factor must be 1, 2, 4, or 8",
+        ));
+    }
+    Ok(if n == 1 {
+        NodeRate::Same
+    } else if is_up {
+        NodeRate::Up(n)
+    } else {
+        NodeRate::Down(n)
+    })
+}
+
 // Parse a simple expression that won't consume brackets
 fn parse_simple_expr(input: ParseStream) -> Result<Expr> {
     // Parse literals (numbers, strings, etc.) or simple paths
@@ -310,6 +342,8 @@ impl Parse for NodeDecl {
                 (constructor, None, extracted_type)
             };
 
+        let rate = parse_node_rate(input)?;
+
         input.parse::<Token![;]>()?;
 
         Ok(NodeDecl {
@@ -317,7 +351,7 @@ impl Parse for NodeDecl {
             constructor: actual_constructor,
             node_type,
             array_size,
-            rate: NodeRate::Same,
+            rate,
         })
     }
 }
@@ -360,6 +394,8 @@ fn parse_node_block(input: ParseStream) -> Result<Vec<NodeDecl>> {
                 (constructor, None, extracted_type)
             };
 
+        let rate = parse_node_rate(&content)?;
+
         content.parse::<Token![;]>()?;
 
         nodes.push(NodeDecl {
@@ -367,7 +403,7 @@ fn parse_node_block(input: ParseStream) -> Result<Vec<NodeDecl>> {
             constructor: actual_constructor,
             node_type,
             array_size,
-            rate: NodeRate::Same,
+            rate,
         });
     }
 
