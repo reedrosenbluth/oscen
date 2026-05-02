@@ -21,3 +21,9 @@ fn array_with_invalid_rate_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/array_with_invalid_rate.rs");
 }
+
+#[test]
+fn array_with_double_rate_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/array_with_double_rate.rs");
+}

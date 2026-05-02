@@ -251,6 +251,27 @@ fn parse_node_rate(input: ParseStream) -> Result<NodeRate> {
     })
 }
 
+/// Walk down the left side of nested `Binary(Mul|Div, _, IntLit)` expressions
+/// until we stop being a rate-binary. Returns `true` if the chain bottoms out
+/// at an `Expr::Repeat`.
+fn rate_chain_ends_in_repeat(expr: &Expr) -> bool {
+    use syn::{BinOp, ExprLit, Lit};
+    let mut cursor = expr;
+    while let Expr::Binary(bin) = cursor {
+        let is_rate_op = matches!(bin.op, BinOp::Mul(_) | BinOp::Div(_));
+        let rhs_is_int = matches!(
+            &*bin.right,
+            Expr::Lit(ExprLit { lit: Lit::Int(_), .. })
+        );
+        if is_rate_op && rhs_is_int {
+            cursor = &*bin.left;
+        } else {
+            return false;
+        }
+    }
+    matches!(cursor, Expr::Repeat(_))
+}
+
 /// Post-process a parsed constructor expression to extract:
 ///   - the actual constructor expression to store in NodeDecl
 ///   - the array size if the constructor was `[expr; N]`
@@ -280,6 +301,23 @@ fn extract_array_and_embedded_rate(
     if let Expr::Binary(bin) = &expr {
         let is_up = matches!(bin.op, BinOp::Mul(_));
         let is_down = matches!(bin.op, BinOp::Div(_));
+
+        // Shape 0: nested rate chain on the left → conflict.
+        // E.g. `[X; 4] * 2 * 4` parses as `Binary(Mul, Binary(Mul, Repeat, 2), 4)`.
+        // Walk left through any Mul|Div * IntLit chain; if we land on a Repeat,
+        // the user wrote multiple rate factors and we should report a conflict.
+        if (is_up || is_down) && matches!(&*bin.left, Expr::Binary(_)) {
+            if let Expr::Lit(ExprLit { lit: Lit::Int(n_lit), .. }) = &*bin.right {
+                if rate_chain_ends_in_repeat(&bin.left) {
+                    return Err(syn::Error::new(
+                        n_lit.span(),
+                        "node already has an embedded rate (`* N` or `/ N`) from the array literal; \
+                         remove the trailing rate annotation",
+                    ));
+                }
+            }
+        }
+
         if (is_up || is_down) && matches!(&*bin.left, Expr::Repeat(_)) {
             if let Expr::Lit(ExprLit { lit: Lit::Int(n_lit), .. }) = &*bin.right {
                 let n: u32 = n_lit.base10_parse()?;
