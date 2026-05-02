@@ -303,6 +303,24 @@ graph! {
     }
 }
 
+// IIR halfband variant of the same chain. The IIR halfband cascade
+// (Regalia-Mitra polyphase all-pass) is a different codegen path and a
+// different filter family — it has non-linear phase but typically a steeper
+// stopband for comparable order than the 23-tap Kaiser FIR. This guards the
+// `[sinc_iir]` policy with the same end-to-end aliasing assertion.
+graph! {
+    name: ClipOversampledIir;
+    input stream input;
+    output stream out;
+    nodes {
+        clip = HardClip::new() * 4;
+    }
+    connections {
+        [sinc_iir] input -> clip.input;
+        [sinc_iir] clip.output -> out;
+    }
+}
+
 #[test]
 fn hardclip_4x_has_less_aliasing_than_1x() {
     let mut a = ClipRef::new();
@@ -357,6 +375,61 @@ fn hardclip_4x_has_less_aliasing_than_1x() {
     assert!(
         four_x_ratio < one_x_ratio * 0.5,
         "4× should have <50% the aliasing ratio of 1×: 4x={four_x_ratio}, 1x={one_x_ratio}"
+    );
+}
+
+#[test]
+fn hardclip_4x_iir_has_less_aliasing_than_1x() {
+    let mut a = ClipRef::new();
+    let mut b = ClipOversampledIir::new();
+    a.init(48_000.0);
+    b.init(48_000.0);
+
+    // Same setup as the FIR variant: 9.6 kHz sine clipped at ±0.7. The 3rd
+    // harmonic at 28.8 kHz folds to 19.2 kHz (0.4 cyc/sample) at 1×; the 4×
+    // IIR halfband cascade should attenuate it.
+    let f = 9_600.0_f32 / 48_000.0;
+    let block = 256;
+    let total = 4096;
+    let warmup = 512;
+
+    let mut a_out = Vec::with_capacity(total);
+    let mut b_out = Vec::with_capacity(total);
+
+    let mut sample_n: usize = 0;
+    while sample_n < total {
+        let chunk = block.min(total - sample_n);
+        for i in 0..chunk {
+            let n = sample_n + i;
+            let amp = 0.9_f32;
+            let x = amp * (2.0 * std::f32::consts::PI * f * n as f32).sin();
+            a.input_block[i] = x;
+            b.input_block[i] = x;
+        }
+        a.process_block(chunk);
+        b.process_block(chunk);
+        a_out.extend_from_slice(&a.out_block[..chunk]);
+        b_out.extend_from_slice(&b.out_block[..chunk]);
+        sample_n += chunk;
+    }
+
+    let f_fundamental = 0.2_f32;
+    let f_alias = 0.4_f32;
+    let span = total - warmup;
+    let one_x_alias = bin_magnitude(&a_out[warmup..], f_alias, span);
+    let four_x_alias = bin_magnitude(&b_out[warmup..], f_alias, span);
+    let one_x_fund = bin_magnitude(&a_out[warmup..], f_fundamental, span);
+    let four_x_fund = bin_magnitude(&b_out[warmup..], f_fundamental, span);
+
+    let one_x_ratio = one_x_alias / one_x_fund.max(1e-9);
+    let four_x_ratio = four_x_alias / four_x_fund.max(1e-9);
+
+    println!("1x  aliasing/fundamental:        {one_x_ratio}");
+    println!("4x IIR aliasing/fundamental:     {four_x_ratio}");
+
+    assert!(
+        four_x_ratio < one_x_ratio * 0.5,
+        "4× IIR should have <50% the aliasing ratio of 1×: 4x={four_x_ratio}, 1x={one_x_ratio}"
     );
 }
 
