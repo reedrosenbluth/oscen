@@ -75,3 +75,15 @@ fn multirate_matches_reference_low_freq() {
     }
     assert!(best_mse < 0.05, "MSE between 4×-resampled and reference = {best_mse}");
 }
+
+#[test]
+fn multirate_reports_nonzero_latency() {
+    let g = MultiPass::new();
+    assert!(g.latency_samples() > 0, "4×→1× sinc downsampler should report > 0 latency");
+}
+
+#[test]
+fn samerate_reports_zero_latency() {
+    let g = PassRef::new();
+    assert_eq!(g.latency_samples(), 0);
+}

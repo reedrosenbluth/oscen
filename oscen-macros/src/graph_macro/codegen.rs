@@ -489,6 +489,41 @@ impl CodegenContext {
         resets
     }
 
+    /// Generate the `latency_samples()` method on the graph struct.
+    ///
+    /// Reports the outer-rate latency (in samples) introduced by all multi-rate
+    /// downsamplers. Each `Down` edge holds its latency at the **source (high)**
+    /// rate; we divide by the resampling factor to convert to the outer rate.
+    ///
+    /// Up edges' latency is internal to the inner loop and does not affect
+    /// outer-rate output timing, so they do not contribute here.
+    fn generate_latency_method(&self) -> TokenStream {
+        let down_latencies: Vec<_> = self
+            .rate_analysis
+            .edges
+            .iter()
+            .filter_map(|e| match e.kernel {
+                EdgeKernel::Down { factor, .. } => {
+                    let f = resampler_field_name(e.edge_index);
+                    let factor_lit = factor as usize;
+                    Some(quote! {
+                        total += ::oscen::resample::StreamDownsampler::latency_samples(&self.#f) / #factor_lit;
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+
+        quote! {
+            /// Outer-rate latency in samples introduced by all multi-rate downsamplers.
+            pub fn latency_samples(&self) -> usize {
+                let mut total: usize = 0;
+                #(#down_latencies)*
+                total
+            }
+        }
+    }
+
     // ========== Static Graph Generation ==========
     /// Extract the root node identifier from a connection expression
     /// For example: osc.output -> "osc", filter.cutoff -> "filter"
@@ -2073,6 +2108,7 @@ impl CodegenContext {
         let event_handler_methods = self.generate_static_event_handler_methods();
         let tick_ramps_method = self.generate_tick_ramps_method();
         let value_setter_methods = self.generate_value_setter_methods();
+        let latency_method = self.generate_latency_method();
 
         // Generate init() calls for each node, scaling `sample_rate` by the
         // node's rate annotation (`* N` -> ×N, `/ N` -> ÷N, default -> unchanged).
@@ -2145,6 +2181,8 @@ impl CodegenContext {
                 #tick_ramps_method
 
                 #(#value_setter_methods)*
+
+                #latency_method
             }
 
             // Generate SignalProcessor implementation for compile-time graphs
