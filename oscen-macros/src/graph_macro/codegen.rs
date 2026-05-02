@@ -1,9 +1,41 @@
 use super::ast::*;
-use super::rate_analysis::{analyze, RateAnalysis};
+use super::rate_analysis::{analyze, EdgeKernel, RateAnalysis};
 use super::type_check::TypeContext;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Expr, Result};
+
+/// Field name for the resampler kernel state stored on the graph struct for
+/// the connection at `idx` (index into `RateAnalysis::edges`).
+fn resampler_field_name(idx: usize) -> syn::Ident {
+    syn::Ident::new(&format!("__resampler_{}", idx), proc_macro2::Span::call_site())
+}
+
+/// Choose the Rust kernel type for an upsampler edge based on policy.
+fn kernel_up_type(factor: u32, policy: ConnectionPolicy) -> TokenStream {
+    let n = factor as usize;
+    match policy {
+        ConnectionPolicy::Latch => quote! { ::oscen::resample::LatchUp<#n> },
+        ConnectionPolicy::Linear => quote! { ::oscen::resample::LinearUp<#n> },
+        ConnectionPolicy::Sinc | ConnectionPolicy::Default => {
+            quote! { ::oscen::resample::SincUpFir<#n> }
+        }
+        ConnectionPolicy::SincIir => quote! { ::oscen::resample::IirHalfbandUp<#n> },
+    }
+}
+
+/// Choose the Rust kernel type for a downsampler edge based on policy.
+fn kernel_down_type(factor: u32, policy: ConnectionPolicy) -> TokenStream {
+    let n = factor as usize;
+    match policy {
+        ConnectionPolicy::Latch => quote! { ::oscen::resample::LatchDown<#n> },
+        ConnectionPolicy::Linear => quote! { ::oscen::resample::LinearDown<#n> },
+        ConnectionPolicy::Sinc | ConnectionPolicy::Default => {
+            quote! { ::oscen::resample::SincDownFir<#n> }
+        }
+        ConnectionPolicy::SincIir => quote! { ::oscen::resample::IirHalfbandDown<#n> },
+    }
+}
 
 pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
     // Validate rate annotations and edge rate combinations before collecting
@@ -37,10 +69,8 @@ struct CodegenContext {
     nodes: Vec<NodeDecl>,
     connections: Vec<ConnectionStmt>,
     nih_params: bool,
-    /// Rate analysis result. Not yet consumed by emit methods (Task 4.2+ will
-    /// thread per-edge kernels into generated code), but available on `self`
-    /// so subsequent tasks can read it without restructuring codegen.
-    #[allow(dead_code)]
+    /// Rate analysis result. Consumed by emit methods to generate per-edge
+    /// resampler fields and (in later tasks) the multi-rate inner loop.
     rate_analysis: RateAnalysis,
 }
 
@@ -360,6 +390,39 @@ impl CodegenContext {
             #(#output_fields,)*
             #(#node_fields),*
         }
+    }
+
+    /// Generate one struct field per cross-rate connection. Each field holds a
+    /// resampler kernel instance whose type is chosen by edge direction and
+    /// policy. Same-rate edges produce no fields.
+    fn generate_resampler_fields(&self) -> Vec<TokenStream> {
+        let mut fields = Vec::new();
+        for edge in &self.rate_analysis.edges {
+            let ty = match edge.kernel {
+                EdgeKernel::None => continue,
+                EdgeKernel::Up { factor, kind } => kernel_up_type(factor, kind),
+                EdgeKernel::Down { factor, kind } => kernel_down_type(factor, kind),
+            };
+            let field_name = resampler_field_name(edge.edge_index);
+            fields.push(quote! { pub #field_name: #ty });
+        }
+        fields
+    }
+
+    /// Generate one initializer per cross-rate connection, calling the kernel
+    /// type's `new()` constructor. Order matches `generate_resampler_fields`.
+    fn generate_resampler_inits(&self) -> Vec<TokenStream> {
+        let mut inits = Vec::new();
+        for edge in &self.rate_analysis.edges {
+            let ty = match edge.kernel {
+                EdgeKernel::None => continue,
+                EdgeKernel::Up { factor, kind } => kernel_up_type(factor, kind),
+                EdgeKernel::Down { factor, kind } => kernel_down_type(factor, kind),
+            };
+            let field_name = resampler_field_name(edge.edge_index);
+            inits.push(quote! { #field_name: <#ty>::new() });
+        }
+        inits
     }
 
     // ========== Static Graph Generation ==========
@@ -1552,6 +1615,12 @@ impl CodegenContext {
         let node_init = self.generate_static_node_init();
         let struct_init = self.generate_static_struct_init();
 
+        // Per-edge resampler kernels for cross-rate connections (Task 4.2).
+        // Connection-routing logic (Task 4.4) consumes these fields; for now
+        // they are present and zero-initialized but unused for same-rate graphs.
+        let resampler_fields = self.generate_resampler_fields();
+        let resampler_inits = self.generate_resampler_inits();
+
         // For compile-time graphs, generate a static process() method
         let process_method = self.generate_static_process()?;
         let advance_one_frame_method = self.generate_advance_one_frame()?;
@@ -1588,11 +1657,21 @@ impl CodegenContext {
             quote! {}
         };
 
+        // If there are any cross-rate edges we append a leading comma to the
+        // tail so the existing `#struct_init` (which has no trailing comma)
+        // chains cleanly into the resampler inits.
+        let resampler_init_tail = if resampler_inits.is_empty() {
+            quote! {}
+        } else {
+            quote! { , #(#resampler_inits),* }
+        };
+
         Ok(quote! {
             #[allow(dead_code)]
             #[derive(Debug)]
             pub struct #name {
-                #(#fields),*
+                #(#fields,)*
+                #(#resampler_fields,)*
             }
 
             impl #name {
@@ -1614,6 +1693,7 @@ impl CodegenContext {
 
                     Self {
                         #struct_init
+                        #resampler_init_tail
                     }
                 }
 
