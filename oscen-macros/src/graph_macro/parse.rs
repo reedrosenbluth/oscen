@@ -278,6 +278,8 @@ fn rate_chain_ends_in_repeat(expr: &Expr) -> bool {
 ///   - an embedded rate if the constructor was `[expr; N] * M` or `[expr; N] / M`
 ///
 /// Recognised shapes (in order):
+///   0. Expr::Binary(Mul|Div, lhs=rate-chain ending in Repeat, rhs=IntLit)
+///                                                    → Err (conflict: `[X; N] * M * P`)
 ///   1. Expr::Binary(Mul|Div, lhs=Repeat, rhs=IntLit) → (inner, size, Some(rate))
 ///   2. Expr::Repeat                                  → (inner, size, None)
 ///   3. anything else                                 → (expr,  None,  None)
