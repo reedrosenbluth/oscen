@@ -50,6 +50,7 @@ pub struct NodeDecl {
     pub constructor: Expr,
     pub node_type: Option<syn::Path>,
     pub array_size: Option<usize>, // For Voice[4] syntax
+    pub rate: NodeRate,
 }
 
 /// Connection statement
@@ -57,6 +58,7 @@ pub struct NodeDecl {
 pub struct ConnectionStmt {
     pub source: ConnectionExpr,
     pub dest: ConnectionExpr,
+    pub policy: ConnectionPolicy,
 }
 
 /// Connection expression (can be endpoint, arithmetic, etc.)
@@ -84,6 +86,35 @@ pub enum BinaryOp {
     Sub,
     Mul,
     Div,
+}
+
+/// Rate ratio of a node relative to the parent graph's rate.
+/// Default is `Same` (1/1). `Up(N)` means the node runs at N× the graph's rate;
+/// `Down(N)` means it runs at 1/N of the graph's rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeRate {
+    Same,
+    Up(u32),    // factor must be in {2, 4, 8}
+    Down(u32),  // factor must be in {2, 4, 8}
+}
+
+impl Default for NodeRate {
+    fn default() -> Self { NodeRate::Same }
+}
+
+/// Policy for a connection that crosses a rate boundary.
+/// `Default` lets the macro pick based on endpoint kind (see spec § Default Policies).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionPolicy {
+    Default,
+    Latch,
+    Linear,
+    Sinc,
+    SincIir,
+}
+
+impl Default for ConnectionPolicy {
+    fn default() -> Self { ConnectionPolicy::Default }
 }
 
 /// Endpoint type

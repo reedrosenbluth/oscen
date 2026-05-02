@@ -317,6 +317,7 @@ impl Parse for NodeDecl {
             constructor: actual_constructor,
             node_type,
             array_size,
+            rate: NodeRate::Same,
         })
     }
 }
@@ -366,6 +367,7 @@ fn parse_node_block(input: ParseStream) -> Result<Vec<NodeDecl>> {
             constructor: actual_constructor,
             node_type,
             array_size,
+            rate: NodeRate::Same,
         });
     }
 
@@ -572,7 +574,11 @@ fn parse_connection_block(input: ParseStream) -> Result<Vec<ConnectionStmt>> {
         let dest = parse_connection_expr(&content)?;
         content.parse::<Token![;]>()?;
 
-        connections.push(ConnectionStmt { source, dest });
+        connections.push(ConnectionStmt {
+            source,
+            dest,
+            policy: ConnectionPolicy::Default,
+        });
     }
 
     Ok(connections)
@@ -596,7 +602,11 @@ impl Parse for ConnectionStmt {
         let dest = parse_connection_expr(input)?;
         input.parse::<Token![;]>()?;
 
-        Ok(ConnectionStmt { source, dest })
+        Ok(ConnectionStmt {
+            source,
+            dest,
+            policy: ConnectionPolicy::Default,
+        })
     }
 }
 
