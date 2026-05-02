@@ -1,12 +1,16 @@
 use super::ast::*;
-use super::rate_analysis::analyze;
+use super::rate_analysis::{analyze, RateAnalysis};
 use super::type_check::TypeContext;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Expr, Result};
 
 pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
-    let mut ctx = CodegenContext::new();
+    // Validate rate annotations and edge rate combinations before collecting
+    // codegen state so the analysis is available to every emit method.
+    let rate_analysis = analyze(graph_def)?;
+
+    let mut ctx = CodegenContext::new(rate_analysis);
 
     // Collect all declarations
     for item in &graph_def.items {
@@ -15,10 +19,6 @@ pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
 
     // Validate connections
     ctx.validate_connections()?;
-
-    // Validate rate annotations and edge rate combinations.
-    // Result is unused for now; codegen consumption lands in Task 4.1.
-    let _rate_analysis = analyze(graph_def)?;
 
     // Static graphs require a name
     if let Some(name) = &graph_def.name {
@@ -37,16 +37,22 @@ struct CodegenContext {
     nodes: Vec<NodeDecl>,
     connections: Vec<ConnectionStmt>,
     nih_params: bool,
+    /// Rate analysis result. Not yet consumed by emit methods (Task 4.2+ will
+    /// thread per-edge kernels into generated code), but available on `self`
+    /// so subsequent tasks can read it without restructuring codegen.
+    #[allow(dead_code)]
+    rate_analysis: RateAnalysis,
 }
 
 impl CodegenContext {
-    fn new() -> Self {
+    fn new(rate_analysis: RateAnalysis) -> Self {
         Self {
             inputs: Vec::new(),
             outputs: Vec::new(),
             nodes: Vec::new(),
             connections: Vec::new(),
             nih_params: false,
+            rate_analysis,
         }
     }
 
