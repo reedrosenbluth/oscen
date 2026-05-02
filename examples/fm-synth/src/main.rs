@@ -358,7 +358,13 @@ fn run_ui(tx: Sender<ParamChange>) -> Result<()> {
     bind_param!(ui, tx, ui_weak, on_filter_decay_edited, FilterDecay);
     bind_param!(ui, tx, ui_weak, on_filter_sustain_edited, FilterSustain);
     bind_param!(ui, tx, ui_weak, on_filter_release_edited, FilterRelease);
-    bind_param!(ui, tx, ui_weak, on_filter_env_amount_edited, FilterEnvAmount);
+    bind_param!(
+        ui,
+        tx,
+        ui_weak,
+        on_filter_env_amount_edited,
+        FilterEnvAmount
+    );
 
     render_waveform(&ui);
 

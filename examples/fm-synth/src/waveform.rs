@@ -37,8 +37,7 @@ fn compute_waveform(params: &FmWaveformParams) -> Vec<f32> {
         let op3_to_2 = op3_out * (1.0 - params.route);
         let op3_to_1 = op3_out * params.route;
 
-        let op2_total_phase =
-            params.op2_ratio * phase + op3_to_2 + params.op2_feedback * op2_prev;
+        let op2_total_phase = params.op2_ratio * phase + op3_to_2 + params.op2_feedback * op2_prev;
         let op2_out = (op2_total_phase * TAU).sin() * params.op2_level;
         op2_prev = op2_out;
 

@@ -27,9 +27,13 @@ impl<const N: usize> StreamUpsampler for LinearUp<N> {
         self.prev = x;
     }
     #[inline]
-    fn latency_samples(&self) -> usize { 1 }
+    fn latency_samples(&self) -> usize {
+        1
+    }
     #[inline]
-    fn reset(&mut self) { self.prev = 0.0; }
+    fn reset(&mut self) {
+        self.prev = 0.0;
+    }
 }
 
 /// Linear-interpolation downsampler.
@@ -40,7 +44,9 @@ impl<const N: usize> StreamUpsampler for LinearUp<N> {
 pub struct LinearDown<const N: usize>;
 
 impl<const N: usize> LinearDown<N> {
-    pub const fn new() -> Self { Self }
+    pub const fn new() -> Self {
+        Self
+    }
 }
 
 impl<const N: usize> StreamDownsampler for LinearDown<N> {
@@ -54,7 +60,9 @@ impl<const N: usize> StreamDownsampler for LinearDown<N> {
         acc / N as f32
     }
     #[inline]
-    fn latency_samples(&self) -> usize { 0 }
+    fn latency_samples(&self) -> usize {
+        0
+    }
     #[inline]
     fn reset(&mut self) {}
 }

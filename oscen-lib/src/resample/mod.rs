@@ -4,17 +4,17 @@
 //! resampler state. The macro generates fields of these types in the graph struct
 //! and calls them from the inner loop of `process_block`.
 
+pub mod coeffs;
+pub mod halfband_iir;
 pub mod latch;
 pub mod linear;
 pub mod sinc_fir;
-pub mod halfband_iir;
-pub mod coeffs;
 
 // Re-exported in Tasks 1.2-1.6
+pub use halfband_iir::{IirHalfbandDown, IirHalfbandUp};
 pub use latch::{LatchDown, LatchUp};
 pub use linear::{LinearDown, LinearUp};
 pub use sinc_fir::{SincDownFir, SincUpFir};
-pub use halfband_iir::{IirHalfbandDown, IirHalfbandUp};
 
 /// Upsampler: one source sample in, N destination samples out.
 pub trait StreamUpsampler: Send + std::fmt::Debug {

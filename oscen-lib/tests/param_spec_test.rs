@@ -26,9 +26,9 @@ fn test_param_specs_with_commas() {
     graph.init(44100.0);
 
     // Test the ramped value input has setter methods
-    graph.set_freq(880.0);  // Uses default 100-frame ramp
-    graph.set_freq_with_ramp(440.0, 50);  // Custom 50-frame ramp
-    graph.set_freq_immediate(1000.0);  // Immediate change (no ramp)
+    graph.set_freq(880.0); // Uses default 100-frame ramp
+    graph.set_freq_with_ramp(440.0, 50); // Custom 50-frame ramp
+    graph.set_freq_immediate(1000.0); // Immediate change (no ramp)
 
     // The freq field should be a ValueRampState
     assert_eq!(graph.freq.current, 1000.0);

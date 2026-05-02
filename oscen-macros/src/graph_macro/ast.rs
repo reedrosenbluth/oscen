@@ -94,12 +94,14 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeRate {
     Same,
-    Up(u32),    // factor must be in {2, 4, 8}
-    Down(u32),  // factor must be in {2, 4, 8}
+    Up(u32),   // factor must be in {2, 4, 8}
+    Down(u32), // factor must be in {2, 4, 8}
 }
 
 impl Default for NodeRate {
-    fn default() -> Self { NodeRate::Same }
+    fn default() -> Self {
+        NodeRate::Same
+    }
 }
 
 /// Policy for a connection that crosses a rate boundary.
@@ -114,7 +116,9 @@ pub enum ConnectionPolicy {
 }
 
 impl Default for ConnectionPolicy {
-    fn default() -> Self { ConnectionPolicy::Default }
+    fn default() -> Self {
+        ConnectionPolicy::Default
+    }
 }
 
 /// Endpoint type
@@ -133,12 +137,12 @@ pub struct ParamSpec {
     pub curve: Option<Curve>,
     pub ramp: Option<usize>,
     // NIH-plug specific fields
-    pub center: Option<Expr>,          // Value at slider midpoint (for skewed ranges)
-    pub unit: Option<String>,          // Display unit (e.g., " Hz")
-    pub smoother: Option<Expr>,        // Smoothing time in ms
-    pub step: Option<Expr>,            // Step size
-    pub display_name: Option<String>,  // Human-readable name (defaults to field name)
-    pub group: Option<String>,         // Nested params group
+    pub center: Option<Expr>, // Value at slider midpoint (for skewed ranges)
+    pub unit: Option<String>, // Display unit (e.g., " Hz")
+    pub smoother: Option<Expr>, // Smoothing time in ms
+    pub step: Option<Expr>,   // Step size
+    pub display_name: Option<String>, // Human-readable name (defaults to field name)
+    pub group: Option<String>, // Nested params group
 }
 
 #[derive(Clone)]

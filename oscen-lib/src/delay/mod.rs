@@ -43,7 +43,8 @@ impl Delay {
     fn apply_parameter_updates(&mut self) {
         if self.frame_counter == 0 {
             let max_delay = self.buffer.capacity() as f32 - 1.0;
-            self.delay_samples.set(self.delay_samples.clamp(0.0, max_delay));
+            self.delay_samples
+                .set(self.delay_samples.clamp(0.0, max_delay));
             self.feedback.set(self.feedback.clamp(0.0, 0.99));
         }
 

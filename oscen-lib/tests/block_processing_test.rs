@@ -335,7 +335,9 @@ fn test_block_with_stream_input() {
         assert!(
             (graph.audio_out_block[i] - expected).abs() < 1e-6,
             "Stream input mismatch at sample {}: got={} expected={}",
-            i, graph.audio_out_block[i], expected
+            i,
+            graph.audio_out_block[i],
+            expected
         );
     }
 }

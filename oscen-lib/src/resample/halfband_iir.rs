@@ -29,7 +29,11 @@ struct Allpass1 {
 
 impl Allpass1 {
     const fn new(a: f32) -> Self {
-        Self { a, x_prev: 0.0, y_prev: 0.0 }
+        Self {
+            a,
+            x_prev: 0.0,
+            y_prev: 0.0,
+        }
     }
 
     #[inline]
@@ -67,8 +71,14 @@ struct IirHalfband2x {
 impl IirHalfband2x {
     fn new() -> Self {
         Self {
-            branch_a: [Allpass1::new(BRANCH_A_BETAS[0]), Allpass1::new(BRANCH_A_BETAS[1])],
-            branch_b: [Allpass1::new(BRANCH_B_BETAS[0]), Allpass1::new(BRANCH_B_BETAS[1])],
+            branch_a: [
+                Allpass1::new(BRANCH_A_BETAS[0]),
+                Allpass1::new(BRANCH_A_BETAS[1]),
+            ],
+            branch_b: [
+                Allpass1::new(BRANCH_B_BETAS[0]),
+                Allpass1::new(BRANCH_B_BETAS[1]),
+            ],
             prev_odd_in: 0.0,
         }
     }
@@ -81,9 +91,13 @@ impl IirHalfband2x {
     #[inline]
     fn step_up(&mut self, x: f32, out: &mut [f32; 2]) {
         let mut a = x;
-        for s in self.branch_a.iter_mut() { a = s.step(a); }
+        for s in self.branch_a.iter_mut() {
+            a = s.step(a);
+        }
         let mut b = x;
-        for s in self.branch_b.iter_mut() { b = s.step(b); }
+        for s in self.branch_b.iter_mut() {
+            b = s.step(b);
+        }
         out[0] = a;
         out[1] = b;
     }
@@ -96,16 +110,24 @@ impl IirHalfband2x {
     #[inline]
     fn step_down(&mut self, xs: &[f32; 2]) -> f32 {
         let mut a = xs[0];
-        for s in self.branch_a.iter_mut() { a = s.step(a); }
+        for s in self.branch_a.iter_mut() {
+            a = s.step(a);
+        }
         let mut b = self.prev_odd_in;
-        for s in self.branch_b.iter_mut() { b = s.step(b); }
+        for s in self.branch_b.iter_mut() {
+            b = s.step(b);
+        }
         self.prev_odd_in = xs[1];
         0.5 * (a + b)
     }
 
     fn reset(&mut self) {
-        for s in self.branch_a.iter_mut() { s.reset(); }
-        for s in self.branch_b.iter_mut() { s.reset(); }
+        for s in self.branch_a.iter_mut() {
+            s.reset();
+        }
+        for s in self.branch_b.iter_mut() {
+            s.reset();
+        }
         self.prev_odd_in = 0.0;
     }
 }
@@ -129,7 +151,9 @@ impl<const N: usize> IirHalfbandUp<N> {
 }
 
 impl<const N: usize> Default for IirHalfbandUp<N> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<const N: usize> StreamUpsampler for IirHalfbandUp<N> {
@@ -158,11 +182,17 @@ impl<const N: usize> StreamUpsampler for IirHalfbandUp<N> {
         // n cascaded stages the total at the final high rate is
         // GROUP_DELAY * (2^n - 1).
         let n = self.stages.len();
-        if n == 0 { 0 } else { IIR_HALFBAND_GROUP_DELAY * ((1 << n) - 1) }
+        if n == 0 {
+            0
+        } else {
+            IIR_HALFBAND_GROUP_DELAY * ((1 << n) - 1)
+        }
     }
 
     fn reset(&mut self) {
-        for s in self.stages.iter_mut() { s.reset(); }
+        for s in self.stages.iter_mut() {
+            s.reset();
+        }
     }
 }
 
@@ -185,7 +215,9 @@ impl<const N: usize> IirHalfbandDown<N> {
 }
 
 impl<const N: usize> Default for IirHalfbandDown<N> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<const N: usize> StreamDownsampler for IirHalfbandDown<N> {
@@ -211,15 +243,24 @@ impl<const N: usize> StreamDownsampler for IirHalfbandDown<N> {
         // Reported at the source (high) rate. Same expression as the upsampler
         // since both are measured at the high rate.
         let n = self.stages.len();
-        if n == 0 { 0 } else { IIR_HALFBAND_GROUP_DELAY * ((1 << n) - 1) }
+        if n == 0 {
+            0
+        } else {
+            IIR_HALFBAND_GROUP_DELAY * ((1 << n) - 1)
+        }
     }
 
     fn reset(&mut self) {
-        for s in self.stages.iter_mut() { s.reset(); }
+        for s in self.stages.iter_mut() {
+            s.reset();
+        }
     }
 }
 
 /// Compile-time assert that N ∈ {1, 2, 4, 8}. (1 produces zero stages, valid no-op.)
 const fn const_assert_pow2_le_8<const N: usize>() {
-    assert!(N == 1 || N == 2 || N == 4 || N == 8, "N must be 1, 2, 4, or 8");
+    assert!(
+        N == 1 || N == 2 || N == 4 || N == 8,
+        "N must be 1, 2, 4, or 8"
+    );
 }

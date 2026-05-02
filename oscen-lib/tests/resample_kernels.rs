@@ -57,8 +57,8 @@ fn latch_reset_is_noop() {
     assert_eq!(out, [1.0, 1.0]);
 }
 
-use oscen::resample::{LinearDown, LinearUp};
 use float_cmp::approx_eq;
+use oscen::resample::{LinearDown, LinearUp};
 
 #[test]
 fn linear_up_2_interpolates_between_samples() {
@@ -124,7 +124,9 @@ fn linear_reset_clears_history() {
 
 use oscen::resample::{SincDownFir, SincUpFir};
 
-fn db(x: f32) -> f32 { 20.0 * x.abs().max(1e-12).log10() }
+fn db(x: f32) -> f32 {
+    20.0 * x.abs().max(1e-12).log10()
+}
 
 #[test]
 fn sinc_fir_up_dc_unity_gain() {
@@ -197,7 +199,10 @@ fn sinc_fir_stopband_attenuated() {
         }
     }
     let attenuation_db = -db(peak);
-    assert!(attenuation_db > 50.0, "stopband attenuation = {attenuation_db} dB");
+    assert!(
+        attenuation_db > 50.0,
+        "stopband attenuation = {attenuation_db} dB"
+    );
 }
 
 #[test]
@@ -214,7 +219,10 @@ fn iir_hb_up_dc_unity_gain() {
     let mut up = IirHalfbandUp::<2>::new();
     let mut out = [0.0_f32; 2];
     let mut last = [0.0_f32; 2];
-    for _ in 0..1000 { up.upsample(0.5, &mut out); last = out; }
+    for _ in 0..1000 {
+        up.upsample(0.5, &mut out);
+        last = out;
+    }
     assert!(approx_eq!(f32, last[0], 0.5, epsilon = 5e-3));
     assert!(approx_eq!(f32, last[1], 0.5, epsilon = 5e-3));
 }
@@ -223,7 +231,9 @@ fn iir_hb_up_dc_unity_gain() {
 fn iir_hb_down_dc_unity_gain() {
     let mut down = IirHalfbandDown::<2>::new();
     let mut y = 0.0;
-    for _ in 0..1000 { y = down.downsample(&[0.5, 0.5]); }
+    for _ in 0..1000 {
+        y = down.downsample(&[0.5, 0.5]);
+    }
     assert!(approx_eq!(f32, y, 0.5, epsilon = 5e-3));
 }
 
@@ -239,7 +249,9 @@ fn iir_hb_stopband_attenuated() {
         let x0 = (2.0 * std::f32::consts::PI * f * (2 * m) as f32).sin();
         let x1 = (2.0 * std::f32::consts::PI * f * (2 * m + 1) as f32).sin();
         let y = down.downsample(&[x0, x1]);
-        if m > warmup { peak = peak.max(y.abs()); }
+        if m > warmup {
+            peak = peak.max(y.abs());
+        }
     }
     let atten_db = -db(peak);
     assert!(atten_db > 40.0, "IIR halfband stopband = {atten_db} dB");
@@ -249,5 +261,8 @@ fn iir_hb_stopband_attenuated() {
 fn iir_hb_latency_smaller_than_fir() {
     let iir = IirHalfbandUp::<2>::new().latency_samples();
     let fir = SincUpFir::<2>::new().latency_samples();
-    assert!(iir < fir, "IIR halfband should have lower latency than FIR (got {iir} vs {fir})");
+    assert!(
+        iir < fir,
+        "IIR halfband should have lower latency than FIR (got {iir} vs {fir})"
+    );
 }

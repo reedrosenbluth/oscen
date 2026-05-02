@@ -10,8 +10,8 @@ pub mod midi;
 pub mod oscillators;
 pub mod oscilloscope;
 pub mod prelude;
-pub mod ring_buffer;
 pub mod resample;
+pub mod ring_buffer;
 pub mod value;
 pub mod voice_allocator;
 

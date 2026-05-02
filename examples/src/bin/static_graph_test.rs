@@ -46,19 +46,19 @@ graph! {
 fn main() {
     let mut graph = StaticGraphTest::new();
     graph.init(44100.0);
-    
+
     // Test if inputs are generated as fields
     graph.brightness = 0.5;
-    
+
     // Run process to trigger connection assignments
     graph.process();
-    
+
     // Verify values
     println!("Voice 0 brightness: {}", graph.voices[0].brightness);
     println!("Single brightness: {}", graph.single.brightness);
-    
+
     assert_eq!(graph.voices[0].brightness, 0.5);
     assert_eq!(graph.single.brightness, 0.5);
-    
+
     println!("Test passed!");
 }

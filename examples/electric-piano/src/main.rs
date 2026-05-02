@@ -359,7 +359,6 @@ mod tests {
                 let handler_freq = synth.voice_handlers[0].frequency;
                 let voice_freq = synth.voices[0].frequency;
 
-
                 (max, voice0, handler_freq, voice_freq)
             })
             .expect("spawn test thread")

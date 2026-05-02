@@ -204,7 +204,10 @@ impl MidiParser {
                             // Push note-on event directly to EventOutput field
                             let _ = self.note_on.try_push(EventInstance {
                                 frame_offset: event.frame_offset,
-                                payload: EventPayload::Object(Arc::new(NoteOnEvent { note, velocity })),
+                                payload: EventPayload::Object(Arc::new(NoteOnEvent {
+                                    note,
+                                    velocity,
+                                })),
                             });
                         }
                         ParsedMidi::NoteOff { note } => {
@@ -234,7 +237,8 @@ mod tests {
     fn test_note_to_frequency_conversion() {
         assert_eq!(MidiVoiceHandler::midi_note_to_freq(69), 440.0); // A4
         assert!((MidiVoiceHandler::midi_note_to_freq(60) - 261.626).abs() < 0.01); // C4
-        assert!((MidiVoiceHandler::midi_note_to_freq(81) - 880.0).abs() < 0.01); // A5
+        assert!((MidiVoiceHandler::midi_note_to_freq(81) - 880.0).abs() < 0.01);
+        // A5
     }
 
     #[test]

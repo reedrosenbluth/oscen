@@ -1,6 +1,6 @@
+use oscen::filters::TptFilter;
 use oscen::graph;
 use oscen::oscillators::PolyBlepOscillator;
-use oscen::filters::TptFilter;
 use oscen::SignalProcessor;
 
 #[test]

@@ -558,7 +558,10 @@ mod tests {
         allocator.handle_note_on_events(&note_on_events);
         allocator.process();
 
-        eprintln!("Allocator voices[0] queue len: {}", allocator.voices[0].len());
+        eprintln!(
+            "Allocator voices[0] queue len: {}",
+            allocator.voices[0].len()
+        );
         for (i, ev) in allocator.voices[0].iter().enumerate() {
             eprintln!("  Voice 0 event {}: {:?}", i, ev.payload);
         }
@@ -615,7 +618,10 @@ mod tests {
         // Check all handlers
         eprintln!("After 1 frame:");
         for i in 0..8 {
-            eprintln!("  Handler {} frequency: {}", i, synth.voice_handlers[i].frequency);
+            eprintln!(
+                "  Handler {} frequency: {}",
+                i, synth.voice_handlers[i].frequency
+            );
         }
 
         // Process more frames
@@ -624,7 +630,10 @@ mod tests {
         }
 
         eprintln!("After 10 frames:");
-        eprintln!("  Handler 0 frequency: {}", synth.voice_handlers[0].frequency);
+        eprintln!(
+            "  Handler 0 frequency: {}",
+            synth.voice_handlers[0].frequency
+        );
         eprintln!("  Voice 0 frequency: {}", synth.voices[0].frequency);
 
         // Also try sending directly to a voice handler to test
@@ -638,8 +647,14 @@ mod tests {
         };
         let _ = synth.voice_handlers[0].note_on.try_push(direct_event);
         synth.process();
-        eprintln!("  Handler 0 frequency after direct push: {}", synth.voice_handlers[0].frequency);
-        eprintln!("  Voice 0 frequency after direct push: {}", synth.voices[0].frequency);
+        eprintln!(
+            "  Handler 0 frequency after direct push: {}",
+            synth.voice_handlers[0].frequency
+        );
+        eprintln!(
+            "  Voice 0 frequency after direct push: {}",
+            synth.voices[0].frequency
+        );
 
         let mut max_output = 0.0f32;
         for i in 0..8192 {
@@ -656,9 +671,16 @@ mod tests {
         // Debug: check voice state
         eprintln!("Final state:");
         eprintln!("  Voice 0 frequency: {}", synth.voices[0].frequency);
-        eprintln!("  Handler 0 frequency: {}", synth.voice_handlers[0].frequency);
+        eprintln!(
+            "  Handler 0 frequency: {}",
+            synth.voice_handlers[0].frequency
+        );
 
-        assert!(max_output > 0.0001, "Expected sound output, got max={}", max_output);
+        assert!(
+            max_output > 0.0001,
+            "Expected sound output, got max={}",
+            max_output
+        );
     }
 
     #[test]
@@ -692,6 +714,10 @@ mod tests {
         }
 
         eprintln!("Voice max output: {}", max_output);
-        assert!(max_output > 0.0001, "Expected voice output, got max={}", max_output);
+        assert!(
+            max_output > 0.0001,
+            "Expected voice output, got max={}",
+            max_output
+        );
     }
 }

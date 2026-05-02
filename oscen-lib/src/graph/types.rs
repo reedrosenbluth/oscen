@@ -171,7 +171,10 @@ impl<T> EventInput<T> {
     }
 
     /// Try to push an event into this input.
-    pub fn try_push(&mut self, event: EventInstance) -> Result<(), arrayvec::CapacityError<EventInstance>> {
+    pub fn try_push(
+        &mut self,
+        event: EventInstance,
+    ) -> Result<(), arrayvec::CapacityError<EventInstance>> {
         self.queue.try_push(event)
     }
 
@@ -205,7 +208,10 @@ impl<T> EventOutput<T> {
     }
 
     /// Try to push an event into this output.
-    pub fn try_push(&mut self, event: EventInstance) -> Result<(), arrayvec::CapacityError<EventInstance>> {
+    pub fn try_push(
+        &mut self,
+        event: EventInstance,
+    ) -> Result<(), arrayvec::CapacityError<EventInstance>> {
         self.queue.try_push(event)
     }
 
@@ -318,42 +324,62 @@ macro_rules! impl_binops_for {
     ($type:ident) => {
         impl std::ops::Add<f32> for $type<f32> {
             type Output = f32;
-            fn add(self, rhs: f32) -> f32 { self.0 + rhs }
+            fn add(self, rhs: f32) -> f32 {
+                self.0 + rhs
+            }
         }
         impl std::ops::Add<$type<f32>> for f32 {
             type Output = f32;
-            fn add(self, rhs: $type<f32>) -> f32 { self + rhs.0 }
+            fn add(self, rhs: $type<f32>) -> f32 {
+                self + rhs.0
+            }
         }
         impl std::ops::Sub<f32> for $type<f32> {
             type Output = f32;
-            fn sub(self, rhs: f32) -> f32 { self.0 - rhs }
+            fn sub(self, rhs: f32) -> f32 {
+                self.0 - rhs
+            }
         }
         impl std::ops::Sub<$type<f32>> for f32 {
             type Output = f32;
-            fn sub(self, rhs: $type<f32>) -> f32 { self - rhs.0 }
+            fn sub(self, rhs: $type<f32>) -> f32 {
+                self - rhs.0
+            }
         }
         impl std::ops::Mul<f32> for $type<f32> {
             type Output = f32;
-            fn mul(self, rhs: f32) -> f32 { self.0 * rhs }
+            fn mul(self, rhs: f32) -> f32 {
+                self.0 * rhs
+            }
         }
         impl std::ops::Mul<$type<f32>> for f32 {
             type Output = f32;
-            fn mul(self, rhs: $type<f32>) -> f32 { self * rhs.0 }
+            fn mul(self, rhs: $type<f32>) -> f32 {
+                self * rhs.0
+            }
         }
         impl std::ops::Div<f32> for $type<f32> {
             type Output = f32;
-            fn div(self, rhs: f32) -> f32 { self.0 / rhs }
+            fn div(self, rhs: f32) -> f32 {
+                self.0 / rhs
+            }
         }
         impl std::ops::Div<$type<f32>> for f32 {
             type Output = f32;
-            fn div(self, rhs: $type<f32>) -> f32 { self / rhs.0 }
+            fn div(self, rhs: $type<f32>) -> f32 {
+                self / rhs.0
+            }
         }
         impl std::ops::Neg for $type<f32> {
             type Output = f32;
-            fn neg(self) -> f32 { -self.0 }
+            fn neg(self) -> f32 {
+                -self.0
+            }
         }
         impl PartialEq<f32> for $type<f32> {
-            fn eq(&self, other: &f32) -> bool { self.0 == *other }
+            fn eq(&self, other: &f32) -> bool {
+                self.0 == *other
+            }
         }
         impl PartialOrd<f32> for $type<f32> {
             fn partial_cmp(&self, other: &f32) -> Option<std::cmp::Ordering> {
@@ -367,19 +393,27 @@ macro_rules! impl_cross_binops {
     ($lhs:ident, $rhs:ident) => {
         impl std::ops::Add<$rhs<f32>> for $lhs<f32> {
             type Output = f32;
-            fn add(self, rhs: $rhs<f32>) -> f32 { self.0 + rhs.0 }
+            fn add(self, rhs: $rhs<f32>) -> f32 {
+                self.0 + rhs.0
+            }
         }
         impl std::ops::Sub<$rhs<f32>> for $lhs<f32> {
             type Output = f32;
-            fn sub(self, rhs: $rhs<f32>) -> f32 { self.0 - rhs.0 }
+            fn sub(self, rhs: $rhs<f32>) -> f32 {
+                self.0 - rhs.0
+            }
         }
         impl std::ops::Mul<$rhs<f32>> for $lhs<f32> {
             type Output = f32;
-            fn mul(self, rhs: $rhs<f32>) -> f32 { self.0 * rhs.0 }
+            fn mul(self, rhs: $rhs<f32>) -> f32 {
+                self.0 * rhs.0
+            }
         }
         impl std::ops::Div<$rhs<f32>> for $lhs<f32> {
             type Output = f32;
-            fn div(self, rhs: $rhs<f32>) -> f32 { self.0 / rhs.0 }
+            fn div(self, rhs: $rhs<f32>) -> f32 {
+                self.0 / rhs.0
+            }
         }
     };
 }
@@ -557,7 +591,7 @@ mod tests {
         assert!(ramp.is_ramping());
 
         assert!(ramp.tick()); // Completed!
-        // Should land exactly on target
+                              // Should land exactly on target
         assert_eq!(ramp.current, 100.0);
         assert!(!ramp.is_ramping());
     }

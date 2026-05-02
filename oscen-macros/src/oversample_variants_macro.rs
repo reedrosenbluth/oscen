@@ -152,4 +152,3 @@ fn is_factor_placeholder(g: &Group) -> bool {
         _ => false,
     }
 }
-

@@ -19,7 +19,9 @@ impl<const N: usize> StreamUpsampler for LatchUp<N> {
         }
     }
     #[inline]
-    fn latency_samples(&self) -> usize { 0 }
+    fn latency_samples(&self) -> usize {
+        0
+    }
     #[inline]
     fn reset(&mut self) {}
 }
@@ -41,7 +43,9 @@ impl<const N: usize> StreamDownsampler for LatchDown<N> {
         xs[0]
     }
     #[inline]
-    fn latency_samples(&self) -> usize { 0 }
+    fn latency_samples(&self) -> usize {
+        0
+    }
     #[inline]
     fn reset(&mut self) {}
 }

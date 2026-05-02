@@ -27,7 +27,11 @@ fn test_multiply_to_output() {
     }
 
     // Output should be osc.output * 0.5, so bounded by [-0.5, 0.5]
-    assert!(graph.out.abs() <= 0.5 + 0.001, "Output {} should be <= 0.5", graph.out);
+    assert!(
+        graph.out.abs() <= 0.5 + 0.001,
+        "Output {} should be <= 0.5",
+        graph.out
+    );
 }
 
 // Test addition: osc1.output + osc2.output -> out
@@ -57,7 +61,11 @@ fn test_add_to_output() {
     }
 
     // Output should be sum of two oscillators, bounded by [-0.6, 0.6]
-    assert!(graph.out.abs() <= 0.6 + 0.001, "Output {} should be <= 0.6", graph.out);
+    assert!(
+        graph.out.abs() <= 0.6 + 0.001,
+        "Output {} should be <= 0.6",
+        graph.out
+    );
 }
 
 // Test subtraction: osc1.output - osc2.output -> out
@@ -88,7 +96,11 @@ fn test_subtract_to_output() {
 
     // Same frequency oscillators started at same phase should cancel
     // (allowing small floating point error)
-    assert!(graph.out.abs() < 0.001, "Output {} should be ~0 (oscillators cancel)", graph.out);
+    assert!(
+        graph.out.abs() < 0.001,
+        "Output {} should be ~0 (oscillators cancel)",
+        graph.out
+    );
 }
 
 // Test chained expression: (osc.output * envelope) + offset -> out
@@ -119,8 +131,11 @@ fn test_chained_expression() {
     }
 
     // Output should be (osc * 0.5) + 0.1, so in range [-0.4, 0.6]
-    assert!(graph.out >= -0.4 - 0.001 && graph.out <= 0.6 + 0.001,
-            "Output {} should be in [-0.4, 0.6]", graph.out);
+    assert!(
+        graph.out >= -0.4 - 0.001 && graph.out <= 0.6 + 0.001,
+        "Output {} should be in [-0.4, 0.6]",
+        graph.out
+    );
 }
 
 // Test three-way addition: osc1 + osc2 + osc3 -> out
@@ -151,7 +166,11 @@ fn test_three_way_add() {
     }
 
     // Output should be sum of three oscillators, bounded by [-0.6, 0.6]
-    assert!(graph.out.abs() <= 0.6 + 0.001, "Output {} should be <= 0.6", graph.out);
+    assert!(
+        graph.out.abs() <= 0.6 + 0.001,
+        "Output {} should be <= 0.6",
+        graph.out
+    );
 }
 
 // Test multiplication with two node outputs (the original bug case)
@@ -181,7 +200,11 @@ fn test_two_node_multiply() {
     }
 
     // Output should be product of two oscillators, bounded by [-1, 1]
-    assert!(graph.out.abs() <= 1.0 + 0.001, "Output {} should be <= 1.0", graph.out);
+    assert!(
+        graph.out.abs() <= 1.0 + 0.001,
+        "Output {} should be <= 1.0",
+        graph.out
+    );
     assert!(graph.out.is_finite(), "Output should be finite");
 }
 
@@ -212,7 +235,11 @@ fn test_divide_to_output() {
     }
 
     // Output should be osc.output / 2.0, so bounded by [-0.5, 0.5]
-    assert!(graph.out.abs() <= 0.5 + 0.001, "Output {} should be <= 0.5", graph.out);
+    assert!(
+        graph.out.abs() <= 0.5 + 0.001,
+        "Output {} should be <= 0.5",
+        graph.out
+    );
 }
 
 // Test that output actually changes (not stuck at 0 due to codegen bug)
@@ -230,5 +257,8 @@ fn test_binary_expression_produces_nonzero_output() {
         }
     }
 
-    assert!(found_nonzero, "Binary expression should produce non-zero output at some point");
+    assert!(
+        found_nonzero,
+        "Binary expression should produce non-zero output at some point"
+    );
 }

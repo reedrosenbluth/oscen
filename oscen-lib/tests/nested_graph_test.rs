@@ -1,5 +1,5 @@
-use oscen::{graph, AdsrEnvelope, PolyBlepOscillator, SignalProcessor};
 use oscen::graph::{EventInstance, EventPayload};
+use oscen::{graph, AdsrEnvelope, PolyBlepOscillator, SignalProcessor};
 
 // Define a simple Voice subgraph
 graph! {
@@ -180,7 +180,10 @@ fn test_nested_graph_with_events_processing() {
     }
 
     // Output should be near zero (envelope not triggered)
-    assert!(synth.out.abs() < 0.001, "Output should be near zero without gate");
+    assert!(
+        synth.out.abs() < 0.001,
+        "Output should be near zero without gate"
+    );
 }
 
 #[test]
@@ -190,10 +193,13 @@ fn test_nested_graph_event_routing() {
     voice.init(48000.0);
 
     // Send gate event directly to inner voice
-    voice.gate.try_push(EventInstance {
-        frame_offset: 0,
-        payload: EventPayload::Scalar(1.0),
-    }).unwrap();
+    voice
+        .gate
+        .try_push(EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Scalar(1.0),
+        })
+        .unwrap();
 
     // Process many frames
     for _ in 0..1000 {
@@ -201,17 +207,24 @@ fn test_nested_graph_event_routing() {
     }
 
     // Inner voice should produce output
-    assert!(voice.audio.abs() > 0.0001, "Inner voice should produce output, got {}", voice.audio);
+    assert!(
+        voice.audio.abs() > 0.0001,
+        "Inner voice should produce output, got {}",
+        voice.audio
+    );
 
     // Now test the outer graph
     let mut synth = EventDualVoiceSynth::new();
     synth.init(48000.0);
 
     // Send a gate-on event (scalar value > 0 triggers envelope)
-    synth.gate.try_push(EventInstance {
-        frame_offset: 0,
-        payload: EventPayload::Scalar(1.0),
-    }).unwrap();
+    synth
+        .gate
+        .try_push(EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Scalar(1.0),
+        })
+        .unwrap();
 
     // Process many frames to let the envelope attack phase complete
     // At 48kHz, 0.01s attack = 480 samples
@@ -220,7 +233,11 @@ fn test_nested_graph_event_routing() {
     }
 
     // Output should be non-zero now (envelope is in sustain phase)
-    assert!(synth.out.abs() > 0.0001, "Output should be non-zero after gate trigger, got {}", synth.out);
+    assert!(
+        synth.out.abs() > 0.0001,
+        "Output should be non-zero after gate trigger, got {}",
+        synth.out
+    );
 }
 
 #[test]
@@ -229,16 +246,23 @@ fn test_events_are_cleared_between_frames() {
     synth.init(48000.0);
 
     // Send a gate-on event
-    synth.gate.try_push(EventInstance {
-        frame_offset: 0,
-        payload: EventPayload::Scalar(1.0),
-    }).unwrap();
+    synth
+        .gate
+        .try_push(EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Scalar(1.0),
+        })
+        .unwrap();
 
     // Process once - this should consume the event
     synth.process();
 
     // The graph-level event queue should be cleared after processing
-    assert_eq!(synth.gate.len(), 0, "Event queue should be cleared after processing");
+    assert_eq!(
+        synth.gate.len(),
+        0,
+        "Event queue should be cleared after processing"
+    );
 
     // Process many more frames - if events weren't cleared, they would
     // re-trigger on every frame causing incorrect behavior

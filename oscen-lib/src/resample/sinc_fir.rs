@@ -34,7 +34,10 @@ struct Halfband2xUpStage {
 
 impl Halfband2xUpStage {
     fn new() -> Self {
-        Self { history: [0.0; HB_UP_HISTORY], head: 0 }
+        Self {
+            history: [0.0; HB_UP_HISTORY],
+            head: 0,
+        }
     }
 
     /// Push one source sample, write 2 destination samples to `out`.
@@ -47,9 +50,7 @@ impl Halfband2xUpStage {
 
         // Helper: at(d) returns x[n - d] for d=0..(cap-1), with d=0 being the
         // sample we just stored (newest).
-        let at = |d: usize| -> f32 {
-            self.history[(self.head + cap - d) % cap]
-        };
+        let at = |d: usize| -> f32 { self.history[(self.head + cap - d) % cap] };
 
         // Polyphase E_odd branch — only the center tap h[11] is non-zero.
         // y[2n+1] = h[11] * x[n - 5] = 0.5 * x[n - 5].
@@ -96,7 +97,10 @@ struct Halfband2xDownStage {
 
 impl Halfband2xDownStage {
     fn new() -> Self {
-        Self { history: [0.0; HB_DOWN_BUF], head: 0 }
+        Self {
+            history: [0.0; HB_DOWN_BUF],
+            head: 0,
+        }
     }
 
     /// Push two source samples, return one destination sample.
@@ -113,9 +117,7 @@ impl Halfband2xDownStage {
         // The newest sample written is xs[1] = x[2m + 1]. The older sample of
         // this pair is xs[0] = x[2m]. So `at(d) = x[2m - d]` should read the
         // slot one back from `head`. Using `head + cap - 1 - d` mod cap.
-        let at = |d: usize| -> f32 {
-            self.history[(self.head + cap - 1 - d) % cap]
-        };
+        let at = |d: usize| -> f32 { self.history[(self.head + cap - 1 - d) % cap] };
 
         // Center tap at delay HB_CENTER_IDX = 11 in high-rate samples.
         let mut acc = HALFBAND_23_CENTER * at(HB_CENTER_IDX);
@@ -146,12 +148,16 @@ impl<const N: usize> SincUpFir<N> {
     pub fn new() -> Self {
         const_assert_pow2_le_8::<N>();
         let n_stages = (N as u32).trailing_zeros() as usize; // 0,1,2,3 for N=1,2,4,8
-        Self { stages: (0..n_stages).map(|_| Halfband2xUpStage::new()).collect() }
+        Self {
+            stages: (0..n_stages).map(|_| Halfband2xUpStage::new()).collect(),
+        }
     }
 }
 
 impl<const N: usize> Default for SincUpFir<N> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<const N: usize> StreamUpsampler for SincUpFir<N> {
@@ -167,7 +173,7 @@ impl<const N: usize> StreamUpsampler for SincUpFir<N> {
             for i in 0..len {
                 let mut pair = [0.0_f32; 2];
                 stage.step(buf[i], &mut pair);
-                next[2 * i]     = pair[0];
+                next[2 * i] = pair[0];
                 next[2 * i + 1] = pair[1];
             }
             len *= 2;
@@ -179,10 +185,16 @@ impl<const N: usize> StreamUpsampler for SincUpFir<N> {
         // Each stage adds GROUP_DELAY at its output rate. For cascaded stages,
         // total at final dest (high) rate = GROUP_DELAY * (2^n - 1) for n stages.
         let n = self.stages.len();
-        if n == 0 { 0 } else { HALFBAND_23_GROUP_DELAY * ((1 << n) - 1) }
+        if n == 0 {
+            0
+        } else {
+            HALFBAND_23_GROUP_DELAY * ((1 << n) - 1)
+        }
     }
     fn reset(&mut self) {
-        for s in &mut self.stages { s.reset(); }
+        for s in &mut self.stages {
+            s.reset();
+        }
     }
 }
 
@@ -196,12 +208,16 @@ impl<const N: usize> SincDownFir<N> {
     pub fn new() -> Self {
         const_assert_pow2_le_8::<N>();
         let n_stages = (N as u32).trailing_zeros() as usize;
-        Self { stages: (0..n_stages).map(|_| Halfband2xDownStage::new()).collect() }
+        Self {
+            stages: (0..n_stages).map(|_| Halfband2xDownStage::new()).collect(),
+        }
     }
 }
 
 impl<const N: usize> Default for SincDownFir<N> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<const N: usize> StreamDownsampler for SincDownFir<N> {
@@ -227,14 +243,23 @@ impl<const N: usize> StreamDownsampler for SincDownFir<N> {
         // at the stage's input rate. Total source-rate latency for n_stages =
         // log2(N) is GROUP_DELAY * (N - 1).
         let n = self.stages.len();
-        if n == 0 { 0 } else { HALFBAND_23_GROUP_DELAY * ((1 << n) - 1) }
+        if n == 0 {
+            0
+        } else {
+            HALFBAND_23_GROUP_DELAY * ((1 << n) - 1)
+        }
     }
     fn reset(&mut self) {
-        for s in &mut self.stages { s.reset(); }
+        for s in &mut self.stages {
+            s.reset();
+        }
     }
 }
 
 /// Compile-time assert that N ∈ {1, 2, 4, 8}. (1 produces zero stages, valid no-op.)
 const fn const_assert_pow2_le_8<const N: usize>() {
-    assert!(N == 1 || N == 2 || N == 4 || N == 8, "N must be 1, 2, 4, or 8");
+    assert!(
+        N == 1 || N == 2 || N == 4 || N == 8,
+        "N must be 1, 2, 4, or 8"
+    );
 }

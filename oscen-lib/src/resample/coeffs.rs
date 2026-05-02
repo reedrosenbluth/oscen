@@ -16,11 +16,11 @@
 /// upsampler must scale by 2 to compensate for zero-stuffing).
 pub const HALFBAND_23_HALF: [f32; 6] = [
     -3.855_851_4e-5,
-     1.221_846_5e-3,
+    1.221_846_5e-3,
     -7.285_480_8e-3,
-     2.640_921_0e-2,
+    2.640_921_0e-2,
     -7.812_884_3e-2,
-     3.078_269_7e-1,
+    3.078_269_7e-1,
 ];
 
 /// The center (index 11) tap of the 23-tap halfband.

@@ -150,10 +150,20 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
         } else {
             classify_edge(source_rate, dest_rate, c.policy, span)?
         };
-        edges.push(EdgeRate { edge_index: idx, source_rate, dest_rate, kernel });
+        edges.push(EdgeRate {
+            edge_index: idx,
+            source_rate,
+            dest_rate,
+            kernel,
+        });
     }
 
-    Ok(RateAnalysis { node_rates, max_factor, min_divisor, edges })
+    Ok(RateAnalysis {
+        node_rates,
+        max_factor,
+        min_divisor,
+        edges,
+    })
 }
 
 fn classify_edge(
@@ -181,8 +191,14 @@ fn classify_edge(
     };
 
     Ok(match direction {
-        Direction::Up => EdgeKernel::Up { factor, kind: policy },
-        Direction::Down => EdgeKernel::Down { factor, kind: policy },
+        Direction::Up => EdgeKernel::Up {
+            factor,
+            kind: policy,
+        },
+        Direction::Down => EdgeKernel::Down {
+            factor,
+            kind: policy,
+        },
     })
 }
 

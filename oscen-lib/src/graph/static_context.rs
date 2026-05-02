@@ -37,10 +37,7 @@ pub trait ConnectEndpoints<Src, Dst> {
 // Event → Event (StaticEventQueue to StaticEventQueue)
 impl ConnectEndpoints<super::types::StaticEventQueue, super::types::StaticEventQueue> for () {
     #[inline]
-    fn connect(
-        src: &super::types::StaticEventQueue,
-        dst: &mut super::types::StaticEventQueue,
-    ) {
+    fn connect(src: &super::types::StaticEventQueue, dst: &mut super::types::StaticEventQueue) {
         dst.clear();
         // Copy all events from source to destination
         for event in src.iter() {
@@ -79,10 +76,7 @@ impl<const N: usize> ConnectEndpoints<[f32; N], [f32; N]> for () {
 // without requiring the macro to know endpoint types at expansion time.
 impl<S, D> ConnectEndpoints<super::types::EventOutput<S>, super::types::EventInput<D>> for () {
     #[inline]
-    fn connect(
-        src: &super::types::EventOutput<S>,
-        dst: &mut super::types::EventInput<D>,
-    ) {
+    fn connect(src: &super::types::EventOutput<S>, dst: &mut super::types::EventInput<D>) {
         dst.clear();
         // Copy all events from source output to destination input
         for event in src.iter() {
@@ -94,10 +88,7 @@ impl<S, D> ConnectEndpoints<super::types::EventOutput<S>, super::types::EventInp
 // EventInput → EventInput (for graph-level event input forwarding)
 impl<S, D> ConnectEndpoints<super::types::EventInput<S>, super::types::EventInput<D>> for () {
     #[inline]
-    fn connect(
-        src: &super::types::EventInput<S>,
-        dst: &mut super::types::EventInput<D>,
-    ) {
+    fn connect(src: &super::types::EventInput<S>, dst: &mut super::types::EventInput<D>) {
         dst.clear();
         // Copy all events from source to destination
         for event in src.iter() {
@@ -127,10 +118,7 @@ impl<S, D, const N: usize>
 // StaticEventQueue → EventInput (graph input → node input)
 impl<T> ConnectEndpoints<super::types::StaticEventQueue, super::types::EventInput<T>> for () {
     #[inline]
-    fn connect(
-        src: &super::types::StaticEventQueue,
-        dst: &mut super::types::EventInput<T>,
-    ) {
+    fn connect(src: &super::types::StaticEventQueue, dst: &mut super::types::EventInput<T>) {
         dst.clear();
         for event in src.iter() {
             let _ = dst.try_push(event.clone());
@@ -141,10 +129,7 @@ impl<T> ConnectEndpoints<super::types::StaticEventQueue, super::types::EventInpu
 // EventOutput → StaticEventQueue (node output → graph output)
 impl<T> ConnectEndpoints<super::types::EventOutput<T>, super::types::StaticEventQueue> for () {
     #[inline]
-    fn connect(
-        src: &super::types::EventOutput<T>,
-        dst: &mut super::types::StaticEventQueue,
-    ) {
+    fn connect(src: &super::types::EventOutput<T>, dst: &mut super::types::StaticEventQueue) {
         dst.clear();
         for event in src.iter() {
             let _ = dst.try_push(event.clone());

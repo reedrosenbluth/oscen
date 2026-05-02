@@ -99,22 +99,37 @@ fn multirate_matches_reference_low_freq() {
     // pick the one with smallest MSE.
     let mut best_mse = f32::INFINITY;
     for lag in 0..32 {
-        if lag >= xs.len() { break; }
+        if lag >= xs.len() {
+            break;
+        }
         let n = xs.len().saturating_sub(lag).min(ys.len());
-        if n == 0 { continue; }
-        let mse: f32 = (0..n).map(|i| {
-            let d = xs[i] - ys[i + lag];
-            d * d
-        }).sum::<f32>() / n as f32;
-        if mse < best_mse { best_mse = mse; }
+        if n == 0 {
+            continue;
+        }
+        let mse: f32 = (0..n)
+            .map(|i| {
+                let d = xs[i] - ys[i + lag];
+                d * d
+            })
+            .sum::<f32>()
+            / n as f32;
+        if mse < best_mse {
+            best_mse = mse;
+        }
     }
-    assert!(best_mse < 0.05, "MSE between 4×-resampled and reference = {best_mse}");
+    assert!(
+        best_mse < 0.05,
+        "MSE between 4×-resampled and reference = {best_mse}"
+    );
 }
 
 #[test]
 fn multirate_reports_nonzero_latency() {
     let g = MultiPass::new();
-    assert!(g.latency_samples() > 0, "4×→1× sinc downsampler should report > 0 latency");
+    assert!(
+        g.latency_samples() > 0,
+        "4×→1× sinc downsampler should report > 0 latency"
+    );
 }
 
 #[test]
@@ -374,8 +389,14 @@ fn two_oversampled_branches_sum_to_outer() {
     let mixed = &sum_block[warmup..];
     let max = mixed.iter().cloned().fold(0.0_f32, f32::max);
     let min = mixed.iter().cloned().fold(0.0_f32, f32::min);
-    assert!(max > 0.7, "two saws summed should swing > 0.7 (max = {max})");
-    assert!(min < -0.5, "two saws summed should swing < -0.5 (min = {min})");
+    assert!(
+        max > 0.7,
+        "two saws summed should swing > 0.7 (max = {max})"
+    );
+    assert!(
+        min < -0.5,
+        "two saws summed should swing < -0.5 (min = {min})"
+    );
 }
 
 /// Single-bin DFT magnitude at `freq` (cycles/sample), normalized by N.

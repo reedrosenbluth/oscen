@@ -2,7 +2,6 @@
 /// This test ensures that VoiceAllocator works correctly with event routing.
 ///
 /// NOTE: This is a simplified test that verifies the API compiles correctly.
-
 use oscen::prelude::*;
 use oscen::voice_allocator::VoiceAllocator;
 

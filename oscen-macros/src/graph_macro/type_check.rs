@@ -32,13 +32,25 @@ impl TypeContext {
     }
 
     /// Register a node endpoint (from connection analysis or explicit declaration)
-    pub fn register_node_endpoint(&mut self, node_name: &str, endpoint_name: &str, kind: EndpointKind) {
-        self.node_endpoints.insert((node_name.to_string(), endpoint_name.to_string()), kind);
+    pub fn register_node_endpoint(
+        &mut self,
+        node_name: &str,
+        endpoint_name: &str,
+        kind: EndpointKind,
+    ) {
+        self.node_endpoints
+            .insert((node_name.to_string(), endpoint_name.to_string()), kind);
     }
 
     /// Get the type of a node endpoint if known
-    pub fn get_node_endpoint_type(&self, node_name: &str, endpoint_name: &str) -> Option<EndpointKind> {
-        self.node_endpoints.get(&(node_name.to_string(), endpoint_name.to_string())).copied()
+    pub fn get_node_endpoint_type(
+        &self,
+        node_name: &str,
+        endpoint_name: &str,
+    ) -> Option<EndpointKind> {
+        self.node_endpoints
+            .get(&(node_name.to_string(), endpoint_name.to_string()))
+            .copied()
     }
 
     /// Infer the type of a connection expression
@@ -61,7 +73,9 @@ impl TypeContext {
 
                 // Try to look up the node endpoint type from our registry
                 if let ConnectionExpr::Ident(node_name) = &**obj {
-                    if let Some(kind) = self.get_node_endpoint_type(&node_name.to_string(), &field_name) {
+                    if let Some(kind) =
+                        self.get_node_endpoint_type(&node_name.to_string(), &field_name)
+                    {
                         return Some(kind);
                     }
                 }

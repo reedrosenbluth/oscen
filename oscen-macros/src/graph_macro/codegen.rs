@@ -8,7 +8,10 @@ use syn::{Expr, Result};
 /// Field name for the resampler kernel state stored on the graph struct for
 /// the connection at `idx` (index into `RateAnalysis::edges`).
 fn resampler_field_name(idx: usize) -> syn::Ident {
-    syn::Ident::new(&format!("__resampler_{}", idx), proc_macro2::Span::call_site())
+    syn::Ident::new(
+        &format!("__resampler_{}", idx),
+        proc_macro2::Span::call_site(),
+    )
 }
 
 /// Local-variable name for the upsample buffer associated with edge `idx`.
@@ -19,7 +22,10 @@ fn up_buf_name(idx: usize) -> syn::Ident {
 /// Local-variable name for the downsample accumulator buffer associated with
 /// edge `idx`.
 fn down_buf_name(idx: usize) -> syn::Ident {
-    syn::Ident::new(&format!("__down_buf_{}", idx), proc_macro2::Span::call_site())
+    syn::Ident::new(
+        &format!("__down_buf_{}", idx),
+        proc_macro2::Span::call_site(),
+    )
 }
 
 /// Choose the Rust kernel type for an upsampler edge based on policy.
@@ -185,16 +191,33 @@ impl CodegenContext {
                             // This is a voice array marker
                             // Mark both source and destination as event endpoints
                             let source_key = (source_node.to_string(), source_endpoint.to_string());
-                            if type_ctx.get_node_endpoint_type(&source_key.0, &source_key.1).is_none() {
-                                type_ctx.register_node_endpoint(&source_key.0, &source_key.1, EndpointKind::Event);
+                            if type_ctx
+                                .get_node_endpoint_type(&source_key.0, &source_key.1)
+                                .is_none()
+                            {
+                                type_ctx.register_node_endpoint(
+                                    &source_key.0,
+                                    &source_key.1,
+                                    EndpointKind::Event,
+                                );
                                 changed = true;
                             }
 
                             if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
-                                if let Some(dest_endpoint) = Self::extract_endpoint_field(&conn.dest) {
-                                    let dest_key = (dest_node.to_string(), dest_endpoint.to_string());
-                                    if type_ctx.get_node_endpoint_type(&dest_key.0, &dest_key.1).is_none() {
-                                        type_ctx.register_node_endpoint(&dest_key.0, &dest_key.1, EndpointKind::Event);
+                                if let Some(dest_endpoint) =
+                                    Self::extract_endpoint_field(&conn.dest)
+                                {
+                                    let dest_key =
+                                        (dest_node.to_string(), dest_endpoint.to_string());
+                                    if type_ctx
+                                        .get_node_endpoint_type(&dest_key.0, &dest_key.1)
+                                        .is_none()
+                                    {
+                                        type_ctx.register_node_endpoint(
+                                            &dest_key.0,
+                                            &dest_key.1,
+                                            EndpointKind::Event,
+                                        );
                                         changed = true;
                                     }
                                 }
@@ -242,75 +265,81 @@ impl CodegenContext {
     // ========== Static Graph Parameter Generation ==========
 
     fn generate_static_input_params(&self) -> Vec<TokenStream> {
-        self.inputs.iter().flat_map(|input| {
-            let name = &input.name;
-            let default_val = input.default.as_ref();
+        self.inputs
+            .iter()
+            .flat_map(|input| {
+                let name = &input.name;
+                let default_val = input.default.as_ref();
 
-            let mut stmts = Vec::new();
-            match input.kind {
-                EndpointKind::Value => {
-                    let default = default_val.map(|d| quote! { #d }).unwrap_or(quote! { 0.0 });
-                    if self.is_ramped_input(name).is_some() {
+                let mut stmts = Vec::new();
+                match input.kind {
+                    EndpointKind::Value => {
+                        let default = default_val.map(|d| quote! { #d }).unwrap_or(quote! { 0.0 });
+                        if self.is_ramped_input(name).is_some() {
+                            stmts.push(quote! {
+                                let #name = ::oscen::graph::ValueRampState::new(#default);
+                            });
+                        } else {
+                            stmts.push(quote! {
+                                let #name = #default;
+                            });
+                        }
+                    }
+                    EndpointKind::Event => {
                         stmts.push(quote! {
-                            let #name = ::oscen::graph::ValueRampState::new(#default);
+                            let #name = ::oscen::graph::StaticEventQueue::new();
                         });
-                    } else {
+                    }
+                    EndpointKind::Stream => {
                         stmts.push(quote! {
-                            let #name = #default;
+                            let #name = 0.0f32;
+                        });
+                        // Block buffer for stream inputs
+                        let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                        stmts.push(quote! {
+                            let #block_name = [0.0f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE];
                         });
                     }
                 }
-                EndpointKind::Event => {
-                    stmts.push(quote! {
-                        let #name = ::oscen::graph::StaticEventQueue::new();
-                    });
-                }
-                EndpointKind::Stream => {
-                    stmts.push(quote! {
-                        let #name = 0.0f32;
-                    });
-                    // Block buffer for stream inputs
-                    let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
-                    stmts.push(quote! {
-                        let #block_name = [0.0f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE];
-                    });
-                }
-            }
-            stmts
-        }).collect()
+                stmts
+            })
+            .collect()
     }
 
     /// Generate static initialization for output parameters
     /// For static graphs, outputs store actual values (f32) not endpoint wrappers
     fn generate_static_output_params(&self) -> Vec<TokenStream> {
-        self.outputs.iter().flat_map(|output| {
-            let name = &output.name;
-            let mut stmts = Vec::new();
+        self.outputs
+            .iter()
+            .flat_map(|output| {
+                let name = &output.name;
+                let mut stmts = Vec::new();
 
-            match output.kind {
-                EndpointKind::Stream => {
-                    stmts.push(quote! {
-                        let #name = 0.0f32;
-                    });
-                    // Block buffer for stream outputs
-                    let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
-                    stmts.push(quote! {
-                        let #block_name = [0.0f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE];
-                    });
+                match output.kind {
+                    EndpointKind::Stream => {
+                        stmts.push(quote! {
+                            let #name = 0.0f32;
+                        });
+                        // Block buffer for stream outputs
+                        let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                        stmts.push(quote! {
+                            let #block_name = [0.0f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE];
+                        });
+                    }
+                    EndpointKind::Value => {
+                        stmts.push(quote! {
+                            let #name = 0.0f32;
+                        });
+                    }
+                    EndpointKind::Event => {
+                        stmts.push(quote! {
+                            let #name = ::oscen::graph::StaticEventQueue::new();
+                        });
+                    }
                 }
-                EndpointKind::Value => {
-                    stmts.push(quote! {
-                        let #name = 0.0f32;
-                    });
-                }
-                EndpointKind::Event => {
-                    stmts.push(quote! {
-                        let #name = ::oscen::graph::StaticEventQueue::new();
-                    });
-                }
-            }
-            stmts
-        }).collect()
+                stmts
+            })
+            .collect()
     }
 
     /// Generate static initialization for nodes (direct constructor calls)
@@ -327,11 +356,11 @@ impl CodegenContext {
                         // Pattern 2: call new() without arguments
                         // init(sample_rate) will be called later
                         quote! { #path::new() }
-                    },
+                    }
                     Expr::Call(_) => {
                         let expr = &node.constructor;
                         quote! { #expr }
-                    },
+                    }
                     _ => {
                         let expr = &node.constructor;
                         quote! { #expr }
@@ -365,31 +394,43 @@ impl CodegenContext {
         };
 
         // Add input/output fields (including block buffer fields for streams)
-        let input_fields: Vec<_> = self.inputs.iter().flat_map(|input| {
-            let name = &input.name;
-            let mut fields = vec![quote! { #name }];
-            if input.kind == EndpointKind::Stream {
-                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
-                fields.push(quote! { #block_name });
-            }
-            fields
-        }).collect();
+        let input_fields: Vec<_> = self
+            .inputs
+            .iter()
+            .flat_map(|input| {
+                let name = &input.name;
+                let mut fields = vec![quote! { #name }];
+                if input.kind == EndpointKind::Stream {
+                    let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                    fields.push(quote! { #block_name });
+                }
+                fields
+            })
+            .collect();
 
-        let output_fields: Vec<_> = self.outputs.iter().flat_map(|output| {
-            let name = &output.name;
-            let mut fields = vec![quote! { #name }];
-            if output.kind == EndpointKind::Stream {
-                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
-                fields.push(quote! { #block_name });
-            }
-            fields
-        }).collect();
+        let output_fields: Vec<_> = self
+            .outputs
+            .iter()
+            .flat_map(|output| {
+                let name = &output.name;
+                let mut fields = vec![quote! { #name }];
+                if output.kind == EndpointKind::Stream {
+                    let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                    fields.push(quote! { #block_name });
+                }
+                fields
+            })
+            .collect();
 
         // Add node fields (no IO fields)
-        let node_fields: Vec<_> = self.nodes.iter().map(|node| {
-            let name = &node.name;
-            quote! { #name }
-        }).collect();
+        let node_fields: Vec<_> = self
+            .nodes
+            .iter()
+            .map(|node| {
+                let name = &node.name;
+                quote! { #name }
+            })
+            .collect();
 
         // Note: Graph-level event storage is no longer generated
         // Nodes own their own EventInput/EventOutput storage
@@ -553,10 +594,7 @@ impl CodegenContext {
     /// Walk the expression and push every identifier it mentions (node names,
     /// graph input/output names, function args) into `out`. Used by dependency
     /// tracking to order node processing when sources are compound expressions.
-    fn collect_referenced_idents<'a>(
-        expr: &'a ConnectionExpr,
-        out: &mut Vec<&'a syn::Ident>,
-    ) {
+    fn collect_referenced_idents<'a>(expr: &'a ConnectionExpr, out: &mut Vec<&'a syn::Ident>) {
         match expr {
             ConnectionExpr::Ident(ident) => out.push(ident),
             ConnectionExpr::Field(base, _) => Self::collect_referenced_idents(base, out),
@@ -652,10 +690,7 @@ impl CodegenContext {
         for node in &nodes {
             let dependencies = get_dependencies(node);
             for dep in dependencies {
-                adjacency
-                    .entry(dep.clone())
-                    .or_default()
-                    .push(node.clone());
+                adjacency.entry(dep.clone()).or_default().push(node.clone());
             }
         }
 
@@ -780,7 +815,8 @@ impl CodegenContext {
                 quote! { #lit }
             }
             ConnectionExpr::Call(func, args) => {
-                let arg_tokens: Vec<_> = args.iter()
+                let arg_tokens: Vec<_> = args
+                    .iter()
                     .map(|arg| self.connection_expr_to_tokens(arg))
                     .collect();
                 quote! { #func(#(#arg_tokens),*) }
@@ -848,7 +884,9 @@ impl CodegenContext {
             // Filter by edge kernel; same-rate (`None`) and cross-rate (`Up`/`Down`)
             // edges are routed through different code paths in the multi-rate
             // codegen.
-            let kernel = self.rate_analysis.edges
+            let kernel = self
+                .rate_analysis
+                .edges
                 .get(conn_idx)
                 .map(|e| e.kernel)
                 .unwrap_or(EdgeKernel::None);
@@ -893,7 +931,8 @@ impl CodegenContext {
 
                         if let Some(dest_field) = Self::extract_endpoint_field(&conn.dest) {
                             // Check if source is a graph input (not a node)
-                            let source_is_graph_input = self.inputs.iter().any(|i| i.name == *source_ident);
+                            let source_is_graph_input =
+                                self.inputs.iter().any(|i| i.name == *source_ident);
 
                             // Skip voice array marker connections (like .voices -> array.endpoint)
                             // These have special routing handled by the array output node
@@ -901,7 +940,9 @@ impl CodegenContext {
                                 if *field == "voices" {
                                     // For voice arrays, the routing is done element-by-element
                                     // from source[i] to dest[i]
-                                    if let Some(dest_array_size) = self.get_node_array_size(dest_node) {
+                                    if let Some(dest_array_size) =
+                                        self.get_node_array_size(dest_node)
+                                    {
                                         assignments.push(quote! {
                                             for i in 0..#dest_array_size {
                                                 <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
@@ -917,14 +958,17 @@ impl CodegenContext {
 
                             let dest_array_size = self.get_node_array_size(dest_node);
                             let source_array_size = if source_is_graph_input {
-                                None  // Graph inputs are never arrays
+                                None // Graph inputs are never arrays
                             } else {
                                 self.get_node_array_size(source_ident)
                             };
 
                             // Construct source expression part (field access or just node/input name)
                             // For ramped graph inputs, we need to access .current to get the f32 value
-                            let source_access = if source_is_graph_input && source_field.is_none() && self.is_ramped_input(source_ident).is_some() {
+                            let source_access = if source_is_graph_input
+                                && source_field.is_none()
+                                && self.is_ramped_input(source_ident).is_some()
+                            {
                                 // Ramped graph input: read .current
                                 quote! { .current }
                             } else if let Some(field) = source_field {
@@ -1082,7 +1126,9 @@ impl CodegenContext {
     {
         let mut out = Vec::new();
         for (conn_idx, conn) in self.connections.iter().enumerate() {
-            let kernel = self.rate_analysis.edges
+            let kernel = self
+                .rate_analysis
+                .edges
                 .get(conn_idx)
                 .map(|e| e.kernel)
                 .unwrap_or(EdgeKernel::None);
@@ -1100,7 +1146,8 @@ impl CodegenContext {
                             if is_simple_source {
                                 let source_node = source_node.unwrap();
                                 let source_field = source_field.unwrap();
-                                if let Some(_src_array_size) = self.get_node_array_size(source_node) {
+                                if let Some(_src_array_size) = self.get_node_array_size(source_node)
+                                {
                                     out.push(quote! {
                                         self.#dest_ident = self.#source_node.iter().map(|n| n.#source_field).sum();
                                     });
@@ -1204,7 +1251,7 @@ impl CodegenContext {
                 let endpoint_name = &input.name;
                 let method_name = syn::Ident::new(
                     &format!("handle_{}_events", endpoint_name),
-                    endpoint_name.span()
+                    endpoint_name.span(),
                 );
 
                 // Generate method that copies events to this graph's own input queue
@@ -1318,7 +1365,9 @@ impl CodegenContext {
         let process_body = self.generate_process_body()?;
 
         // Read stream inputs from block buffers
-        let stream_input_reads: Vec<_> = self.inputs.iter()
+        let stream_input_reads: Vec<_> = self
+            .inputs
+            .iter()
             .filter(|i| i.kind == EndpointKind::Stream)
             .map(|i| {
                 let name = &i.name;
@@ -1328,7 +1377,9 @@ impl CodegenContext {
             .collect();
 
         // Write stream outputs to block buffers
-        let stream_output_writes: Vec<_> = self.outputs.iter()
+        let stream_output_writes: Vec<_> = self
+            .outputs
+            .iter()
             .filter(|o| o.kind == EndpointKind::Stream)
             .map(|o| {
                 let name = &o.name;
@@ -1379,7 +1430,9 @@ impl CodegenContext {
             .collect();
 
         // Read stream inputs from block buffers (per outer tick).
-        let stream_input_reads: Vec<_> = self.inputs.iter()
+        let stream_input_reads: Vec<_> = self
+            .inputs
+            .iter()
             .filter(|i| i.kind == EndpointKind::Stream)
             .map(|i| {
                 let name = &i.name;
@@ -1389,7 +1442,9 @@ impl CodegenContext {
             .collect();
 
         // Write stream outputs to block buffers (per outer tick).
-        let stream_output_writes: Vec<_> = self.outputs.iter()
+        let stream_output_writes: Vec<_> = self
+            .outputs
+            .iter()
             .filter(|o| o.kind == EndpointKind::Stream)
             .map(|o| {
                 let name = &o.name;
@@ -1403,10 +1458,10 @@ impl CodegenContext {
         // edges are routed via resamplers below.
         let mut outer_process: Vec<TokenStream> = Vec::new();
         for node_name in &outer_node_names {
-            let assignments = self.generate_connection_assignments_for_node_filtered(
-                node_name,
-                |k| matches!(k, EdgeKernel::None),
-            );
+            let assignments = self
+                .generate_connection_assignments_for_node_filtered(node_name, |k| {
+                    matches!(k, EdgeKernel::None)
+                });
             outer_process.extend(assignments);
             outer_process.push(self.emit_node_process_call(node_name));
         }
@@ -1473,7 +1528,8 @@ impl CodegenContext {
 
         // Run process_event_inputs() for inner-rate nodes once per outer tick,
         // before the inner loop, so events arrive on the outer-rate boundary.
-        let inner_event_input_calls: Vec<TokenStream> = inner_node_names.iter()
+        let inner_event_input_calls: Vec<TokenStream> = inner_node_names
+            .iter()
             .map(|n| self.emit_node_process_event_inputs(n))
             .collect();
 
@@ -1482,17 +1538,18 @@ impl CodegenContext {
             if let EdgeKernel::Up { .. } = edge.kernel {
                 let buf = up_buf_name(edge.edge_index);
                 let conn = &self.connections[edge.edge_index];
-                let dest_assign = self.connection_dest_field_assign(&conn.dest, &quote! { #buf[__inner] });
+                let dest_assign =
+                    self.connection_dest_field_assign(&conn.dest, &quote! { #buf[__inner] });
                 inner_writes.push(dest_assign);
             }
         }
 
         let mut inner_node_runs: Vec<TokenStream> = Vec::new();
         for node_name in &inner_node_names {
-            let assignments = self.generate_connection_assignments_for_node_filtered(
-                node_name,
-                |k| matches!(k, EdgeKernel::None),
-            );
+            let assignments = self
+                .generate_connection_assignments_for_node_filtered(node_name, |k| {
+                    matches!(k, EdgeKernel::None)
+                });
             inner_node_runs.extend(assignments);
             inner_node_runs.push(self.emit_node_process_only(node_name));
         }
@@ -1533,9 +1590,8 @@ impl CodegenContext {
 
         // Step 8: Same-rate connection assignments to graph outputs (skip
         // cross-rate Down edges — those were finalized via downsamplers).
-        let same_rate_output_trailer = self.generate_graph_output_assignments_filtered(
-            |k| matches!(k, EdgeKernel::None),
-        );
+        let same_rate_output_trailer =
+            self.generate_graph_output_assignments_filtered(|k| matches!(k, EdgeKernel::None));
 
         Ok(quote! {
             #[inline(always)]
@@ -1585,7 +1641,8 @@ impl CodegenContext {
     /// for unknown names (defensive — should never happen for nodes that
     /// passed type checking).
     fn node_rate(&self, name: &syn::Ident) -> NodeRate {
-        self.rate_analysis.node_rates
+        self.rate_analysis
+            .node_rates
             .get(&name.to_string())
             .copied()
             .unwrap_or(NodeRate::Same)
@@ -1621,7 +1678,11 @@ impl CodegenContext {
     /// may be a node-input field (typed wrapper around f32) or a graph output
     /// (plain f32 / event queue). Uses `ConnectEndpoints` for node inputs to
     /// be wrapper-type-agnostic; uses direct assignment for graph outputs.
-    fn connection_dest_field_assign(&self, dest: &ConnectionExpr, value: &TokenStream) -> TokenStream {
+    fn connection_dest_field_assign(
+        &self,
+        dest: &ConnectionExpr,
+        value: &TokenStream,
+    ) -> TokenStream {
         // Graph output (Ident only, no field): direct assignment.
         if let Some(dest_ident) = Self::extract_root_node(dest) {
             if self.outputs.iter().any(|o| o.name == *dest_ident) {
@@ -1668,54 +1729,65 @@ impl CodegenContext {
         // Event inputs exist: generate sub-block splitting
 
         // Stage: copy events to local sorted storage, drain originals
-        let event_inputs: Vec<_> = self.inputs.iter()
+        let event_inputs: Vec<_> = self
+            .inputs
+            .iter()
             .filter(|i| i.kind == EndpointKind::Event)
             .collect();
 
-        let staging: Vec<_> = event_inputs.iter().map(|input| {
-            let name = &input.name;
-            let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
-            let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
-            quote! {
-                let mut #staged_name: ::oscen::graph::StaticEventQueue =
-                    ::oscen::graph::StaticEventQueue::new();
-                for __e in self.#name.iter() {
-                    let _ = #staged_name.try_push(__e.clone());
+        let staging: Vec<_> = event_inputs
+            .iter()
+            .map(|input| {
+                let name = &input.name;
+                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
+                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                quote! {
+                    let mut #staged_name: ::oscen::graph::StaticEventQueue =
+                        ::oscen::graph::StaticEventQueue::new();
+                    for __e in self.#name.iter() {
+                        let _ = #staged_name.try_push(__e.clone());
+                    }
+                    self.#name.clear();
+                    #staged_name.sort_unstable_by_key(|__e| __e.frame_offset);
+                    let mut #cursor_name: usize = 0;
                 }
-                self.#name.clear();
-                #staged_name.sort_unstable_by_key(|__e| __e.frame_offset);
-                let mut #cursor_name: usize = 0;
-            }
-        }).collect();
+            })
+            .collect();
 
         // Find next event boundary across all event inputs
-        let boundary_checks: Vec<_> = event_inputs.iter().map(|input| {
-            let name = &input.name;
-            let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
-            let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
-            quote! {
-                if #cursor_name < #staged_name.len() {
-                    __next_event = __next_event.min(
-                        (#staged_name[#cursor_name].frame_offset as usize).max(__frame)
-                    );
+        let boundary_checks: Vec<_> = event_inputs
+            .iter()
+            .map(|input| {
+                let name = &input.name;
+                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
+                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                quote! {
+                    if #cursor_name < #staged_name.len() {
+                        __next_event = __next_event.min(
+                            (#staged_name[#cursor_name].frame_offset as usize).max(__frame)
+                        );
+                    }
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         // Push events at boundary
-        let event_pushes: Vec<_> = event_inputs.iter().map(|input| {
-            let name = &input.name;
-            let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
-            let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
-            quote! {
-                while #cursor_name < #staged_name.len()
-                    && #staged_name[#cursor_name].frame_offset == __frame as u32
-                {
-                    let _ = self.#name.try_push(#staged_name[#cursor_name].clone());
-                    #cursor_name += 1;
+        let event_pushes: Vec<_> = event_inputs
+            .iter()
+            .map(|input| {
+                let name = &input.name;
+                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
+                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                quote! {
+                    while #cursor_name < #staged_name.len()
+                        && #staged_name[#cursor_name].frame_offset == __frame as u32
+                    {
+                        let _ = self.#name.try_push(#staged_name[#cursor_name].clone());
+                        #cursor_name += 1;
+                    }
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         // Clear event queues after event frame
         let event_clearing = self.generate_event_clearing();
@@ -1780,9 +1852,11 @@ impl CodegenContext {
 
         let tick_stmts: Vec<_> = ramped
             .iter()
-            .map(|name| quote! {
-                if self.#name.tick() {
-                    self.active_ramps -= 1;
+            .map(|name| {
+                quote! {
+                    if self.#name.tick() {
+                        self.active_ramps -= 1;
+                    }
                 }
             })
             .collect();
@@ -1868,25 +1942,27 @@ impl CodegenContext {
     /// Generate the NIH-plug params struct and its implementations
     /// Only called when `nih_params` flag is set and feature is enabled
     fn generate_nih_params_struct(&self, graph_name: &syn::Ident) -> TokenStream {
-        let params_name = syn::Ident::new(
-            &format!("{}Params", graph_name),
-            graph_name.span(),
-        );
+        let params_name = syn::Ident::new(&format!("{}Params", graph_name), graph_name.span());
 
         // Collect value inputs for parameter generation
-        let value_inputs: Vec<_> = self.inputs.iter()
+        let value_inputs: Vec<_> = self
+            .inputs
+            .iter()
             .filter(|input| input.kind == EndpointKind::Value)
             .collect();
 
         // Generate field definitions
-        let param_fields: Vec<_> = value_inputs.iter().map(|input| {
-            let field_name = &input.name;
-            let id_string = field_name.to_string();
-            quote! {
-                #[id = #id_string]
-                pub #field_name: ::nih_plug::prelude::FloatParam
-            }
-        }).collect();
+        let param_fields: Vec<_> = value_inputs
+            .iter()
+            .map(|input| {
+                let field_name = &input.name;
+                let id_string = field_name.to_string();
+                quote! {
+                    #[id = #id_string]
+                    pub #field_name: ::nih_plug::prelude::FloatParam
+                }
+            })
+            .collect();
 
         // Generate Default impl with FloatParam constructors
         let param_defaults: Vec<_> = value_inputs.iter().map(|input| {
@@ -2006,22 +2082,25 @@ impl CodegenContext {
         }).collect();
 
         // Generate sync_to method
-        let sync_assignments: Vec<_> = value_inputs.iter().map(|input| {
-            let field_name = &input.name;
-            let set_name = syn::Ident::new(&format!("set_{}", field_name), field_name.span());
-            if self.is_ramped_input(field_name).is_some() {
-                // Ramped inputs: use setter with raw value (oscen handles smoothing)
-                // The setter is smart and won't restart ramp if target unchanged
-                quote! {
-                    graph.#set_name(self.#field_name.value());
+        let sync_assignments: Vec<_> = value_inputs
+            .iter()
+            .map(|input| {
+                let field_name = &input.name;
+                let set_name = syn::Ident::new(&format!("set_{}", field_name), field_name.span());
+                if self.is_ramped_input(field_name).is_some() {
+                    // Ramped inputs: use setter with raw value (oscen handles smoothing)
+                    // The setter is smart and won't restart ramp if target unchanged
+                    quote! {
+                        graph.#set_name(self.#field_name.value());
+                    }
+                } else {
+                    // Non-ramped inputs: use raw value (safe for block-rate sync)
+                    quote! {
+                        graph.#field_name = self.#field_name.value();
+                    }
                 }
-            } else {
-                // Non-ramped inputs: use raw value (safe for block-rate sync)
-                quote! {
-                    graph.#field_name = self.#field_name.value();
-                }
-            }
-        }).collect();
+            })
+            .collect();
 
         quote! {
             #[derive(::nih_plug::prelude::Params)]
@@ -2049,9 +2128,9 @@ impl CodegenContext {
 
     /// Check if this graph has any ramped inputs
     fn has_ramped_inputs(&self) -> bool {
-        self.inputs.iter().any(|i| {
-            i.kind == EndpointKind::Value && self.is_ramped_input(&i.name).is_some()
-        })
+        self.inputs
+            .iter()
+            .any(|i| i.kind == EndpointKind::Value && self.is_ramped_input(&i.name).is_some())
     }
 
     fn generate_static_struct(&self, name: &syn::Ident) -> Result<TokenStream> {
@@ -2080,8 +2159,11 @@ impl CodegenContext {
 
             // Block buffer for stream inputs
             if input.kind == EndpointKind::Stream {
-                let block_name = syn::Ident::new(&format!("{}_block", field_name), field_name.span());
-                fields.push(quote! { pub #block_name: [f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] });
+                let block_name =
+                    syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+                fields.push(
+                    quote! { pub #block_name: [f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
+                );
             }
         }
 
@@ -2097,8 +2179,11 @@ impl CodegenContext {
 
             // Block buffer for stream outputs
             if output.kind == EndpointKind::Stream {
-                let block_name = syn::Ident::new(&format!("{}_block", field_name), field_name.span());
-                fields.push(quote! { pub #block_name: [f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] });
+                let block_name =
+                    syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+                fields.push(
+                    quote! { pub #block_name: [f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
+                );
             }
         }
 

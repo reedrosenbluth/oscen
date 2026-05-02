@@ -212,7 +212,11 @@ fn detect_output_kind_from_type(ty: &syn::Type) -> Option<EndpointTypeAttr> {
 
 fn last_segment_ident(ty: &syn::Type) -> Option<String> {
     if let syn::Type::Path(type_path) = ty {
-        type_path.path.segments.last().map(|seg| seg.ident.to_string())
+        type_path
+            .path
+            .segments
+            .last()
+            .map(|seg| seg.ident.to_string())
     } else {
         None
     }

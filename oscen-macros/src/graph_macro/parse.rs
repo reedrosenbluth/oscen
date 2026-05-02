@@ -556,7 +556,12 @@ fn extract_node_type(expr: &Expr) -> Option<syn::Path> {
                     let path = &path_expr.path;
                     if path.segments.len() >= 2 {
                         // Build a new path with all segments except the last
-                        let segments: Vec<_> = path.segments.iter().take(path.segments.len() - 1).cloned().collect();
+                        let segments: Vec<_> = path
+                            .segments
+                            .iter()
+                            .take(path.segments.len() - 1)
+                            .cloned()
+                            .collect();
                         let type_path = syn::Path {
                             leading_colon: path.leading_colon,
                             segments: segments.into_iter().collect(),
@@ -812,7 +817,10 @@ fn parse_endpoint_kind_from_ident(ident: &Ident) -> Result<EndpointKind> {
         "event" => Ok(EndpointKind::Event),
         _ => Err(syn::Error::new_spanned(
             ident,
-            format!("expected 'stream', 'value', or 'event', found '{}'", ident_str)
+            format!(
+                "expected 'stream', 'value', or 'event', found '{}'",
+                ident_str
+            ),
         )),
     }
 }
@@ -860,8 +868,10 @@ impl Parse for ParamSpec {
                 || (fork.peek(Ident) && {
                     let ident: Ident = fork.parse().unwrap();
                     // Not a known keyword
-                    !matches!(ident.to_string().as_str(),
-                        "step" | "unit" | "name" | "smooth" | "range" | "linear" | "log" | "ramp")
+                    !matches!(
+                        ident.to_string().as_str(),
+                        "step" | "unit" | "name" | "smooth" | "range" | "linear" | "log" | "ramp"
+                    )
                 });
 
             if is_range_start {

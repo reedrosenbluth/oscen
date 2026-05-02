@@ -15,7 +15,7 @@ pub struct EchoChannel {
 
 impl EchoChannel {
     fn new(sample_rate: f32) -> Self {
-        let mut delay = Delay::new(11025.0, 0.0);  // 0.25s at 44.1kHz, no internal feedback
+        let mut delay = Delay::new(11025.0, 0.0); // 0.25s at 44.1kHz, no internal feedback
         delay.init(sample_rate);
 
         let mut filter = TptFilter::new(4000.0, 0.7);
@@ -28,7 +28,14 @@ impl EchoChannel {
         }
     }
 
-    fn process(&mut self, input: f32, delay_time: f32, filter_cutoff: f32, feedback: f32, mix: f32) -> f32 {
+    fn process(
+        &mut self,
+        input: f32,
+        delay_time: f32,
+        filter_cutoff: f32,
+        feedback: f32,
+        mix: f32,
+    ) -> f32 {
         // Update delay time (convert seconds to samples)
         let _delay_samples = delay_time * self.sample_rate;
 
@@ -254,15 +261,18 @@ impl Plugin for SimpleEcho {
                 // Process based on channel count
                 if inputs.len() >= 2 {
                     // Stereo processing
-                    let output_left = left.process(inputs[0], delay_time, filter_cutoff, feedback, mix);
-                    let output_right = right.process(inputs[1], delay_time, filter_cutoff, feedback, mix);
+                    let output_left =
+                        left.process(inputs[0], delay_time, filter_cutoff, feedback, mix);
+                    let output_right =
+                        right.process(inputs[1], delay_time, filter_cutoff, feedback, mix);
 
                     for (i, sample) in channel_samples.into_iter().enumerate() {
                         *sample = if i == 0 { output_left } else { output_right };
                     }
                 } else {
                     // Mono processing - just use left channel
-                    let output_mono = left.process(inputs[0], delay_time, filter_cutoff, feedback, mix);
+                    let output_mono =
+                        left.process(inputs[0], delay_time, filter_cutoff, feedback, mix);
 
                     for sample in channel_samples {
                         *sample = output_mono;
