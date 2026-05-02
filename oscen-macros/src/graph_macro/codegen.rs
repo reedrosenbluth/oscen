@@ -1957,8 +1957,11 @@ impl CodegenContext {
     ///   * compound sources (arithmetic, calls): evaluate as f32
     ///   * scalar `<node>.<field>` or graph input: read via ConnectEndpoints
     ///   * array `<node>.<field>` (no explicit index): SUM all N elements'
-    ///     fields. This is the FanIn collapse — used by cross-rate Down
-    ///     edges so the downsampler kernel sees a single scalar stream.
+    ///     fields (FanIn collapse). Fires from both the Up-edge warmup and
+    ///     the Down-edge inner-loop capture. Linearity (sinc / IIR halfband
+    ///     / latch / linear are all LTI) makes summing-then-resampling
+    ///     equivalent to per-element resampling-then-summing at N× lower
+    ///     cost, so a single shared resampler kernel suffices.
     fn connection_source_value_expr(&self, source: &ConnectionExpr) -> TokenStream {
         // Compound or non-trivial sources: let the existing token converter
         // produce an f32 expression.
