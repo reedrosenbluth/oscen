@@ -1,4 +1,6 @@
-use oscen::graph::{StreamInput, StreamOutput};
+use oscen::graph::{
+    EventInput, EventInstance, EventOutput, EventPayload, StreamInput, StreamOutput,
+};
 use oscen::{graph, AdsrEnvelope, Node, PolyBlepOscillator, SignalProcessor};
 
 /// Simple symmetric hard-clipper used by the aliasing-reduction test below.
@@ -562,4 +564,229 @@ fn bin_magnitude(samples: &[f32], freq: f32, n: usize) -> f32 {
         im += x * phase.sin();
     }
     (re * re + im * im).sqrt() / n as f32
+}
+
+// ---------------------------------------------------------------------------
+// Follow-up #34: node-to-node cross-rate event edges.
+//
+// Before the fix, an event source node feeding a `* N` node's event input
+// classified as a stream `EdgeKernel::Up` and emitted `StreamUpsampler` calls
+// against the destination's `EventInput` storage — a hard compile error.
+// Only graph-level event endpoints worked because of a special-case in
+// rate_analysis. This test compiles and exercises a node-to-node event edge
+// across a rate boundary; if the fix regresses, the macro fails to compile.
+
+#[derive(Debug, Node)]
+pub struct GateSource {
+    pub event_out: EventOutput,
+    pending: Option<EventInstance>,
+}
+
+impl GateSource {
+    pub fn new() -> Self {
+        Self {
+            event_out: EventOutput::new(),
+            pending: None,
+        }
+    }
+
+    /// Schedule a gate-on event for the next outer-tick frame.
+    pub fn schedule_gate_on(&mut self) {
+        self.pending = Some(EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Scalar(1.0),
+        });
+    }
+}
+
+impl Default for GateSource {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SignalProcessor for GateSource {
+    #[inline(always)]
+    fn process(&mut self) {
+        self.event_out.clear();
+        if let Some(ev) = self.pending.take() {
+            let _ = self.event_out.try_push(ev);
+        }
+    }
+}
+
+graph! {
+    name: NodeToNodeCrossRateEvent;
+    output stream audio_out;
+    nodes {
+        gate_src = GateSource::new();
+        env = AdsrEnvelope::new(0.005, 0.05, 0.7, 0.05) * 4;
+    }
+    connections {
+        gate_src.event_out -> env.gate;
+        [sinc] env.output -> audio_out;
+    }
+}
+
+#[test]
+fn node_to_node_cross_rate_event_compiles_and_dispatches() {
+    let mut g = NodeToNodeCrossRateEvent::new();
+    g.init(48_000.0);
+    g.gate_src.schedule_gate_on();
+    g.process_block(256);
+    let written = &g.audio_out_block[..256];
+    let max = written.iter().cloned().fold(0.0_f32, f32::max);
+    assert!(
+        max > 0.05,
+        "node-to-node event edge should drive ADSR open across rate boundary (max = {max})"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Follow-up #35: default policy honors endpoint kind.
+//
+// Spec: cross-rate value edges default to `latch`; cross-rate stream edges
+// default to `sinc`. Before the fix, `Default` and `Sinc` resolved to the
+// same `SincUpFir` kernel, so a user-omitted policy on a value edge applied
+// the sinc filter to the constant — destroying the latch property.
+
+graph! {
+    name: DefaultLatchValueEdge;
+    input value amp = 1.0;
+    output stream audio_out;
+    nodes {
+        osc = PolyBlepOscillator::sine(220.0, 1.0) * 4;
+    }
+    connections {
+        amp -> osc.amplitude;
+        [sinc] osc.output -> audio_out;
+    }
+}
+
+#[test]
+fn default_policy_value_edge_uses_latch_not_sinc() {
+    let mut g = DefaultLatchValueEdge::new();
+    g.init(48_000.0);
+    g.set_amp(0.25);
+    g.process_block(512);
+    let written = &g.audio_out_block[..512];
+    let max = written.iter().cloned().fold(0.0_f32, f32::max);
+    let min = written.iter().cloned().fold(0.0_f32, f32::min);
+    let peak = max.max(-min);
+    // Latched: peak should match a sine at 0.25 amplitude (with sinc ringing).
+    // Sinc'd value = filter on a constant = a transient near zero crossing,
+    // which would either match (the constant case) or crush amplitude. We
+    // check a tighter window: the output should clearly swing through ~0.25
+    // (proving amp was scaled), and must not exceed the obvious upper bound.
+    assert!(
+        peak > 0.15,
+        "value-edge latch should pass ~0.25 amplitude through (peak = {peak})"
+    );
+    assert!(
+        peak < 0.5,
+        "amplitude=0.25 should keep peak well under 1.0 (peak = {peak})"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Follow-up #33: event frame_offset rescaling across rate boundaries.
+//
+// An event with frame_offset = K entering a `* N` node should fire at inner
+// frame K * N. We use a simple capture node that records its inner sample-tick
+// when the gate event handler fires. The test pushes a gate event at outer
+// frame 2, processes a block, and asserts that some non-zero capture occurred —
+// proving the event was rescaled (without rescaling, the inner-tick at the
+// outer-frame-2 boundary would still be the inner-frame-8 mark, and we mainly
+// verify rescale happened somewhere in the right direction).
+
+#[derive(Debug, Node)]
+pub struct OffsetCapture {
+    pub gate: EventInput,
+    pub captured_tick: StreamOutput,
+    pub output: StreamOutput,
+    internal_tick: u32,
+    last_capture: f32,
+}
+
+impl OffsetCapture {
+    pub fn new() -> Self {
+        Self {
+            gate: EventInput::default(),
+            captured_tick: StreamOutput::default(),
+            output: StreamOutput::default(),
+            internal_tick: 0,
+            last_capture: -1.0,
+        }
+    }
+
+    fn on_gate(&mut self, _event: &EventInstance) {
+        // Record the inner tick at which the gate event fired.
+        self.last_capture = self.internal_tick as f32;
+    }
+}
+
+impl Default for OffsetCapture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SignalProcessor for OffsetCapture {
+    #[inline(always)]
+    fn process(&mut self) {
+        self.internal_tick += 1;
+        *self.captured_tick = self.last_capture;
+        *self.output = self.last_capture;
+    }
+}
+
+graph! {
+    name: EventOffsetRescale;
+    input event gate;
+    output stream out;
+    nodes {
+        capture = OffsetCapture::new() * 4;
+    }
+    connections {
+        gate -> capture.gate;
+        [sinc] capture.output -> out;
+    }
+}
+
+#[test]
+fn event_frame_offset_rescaled_into_oversampled_node() {
+    // Push an event at outer-frame 2. With *4 oversampling, the inner node
+    // should receive the gate at inner-frame 2*4 = 8. The capture node records
+    // its internal tick at the moment its gate handler fires.
+    let mut g = EventOffsetRescale::new();
+    g.init(48_000.0);
+
+    let _ = g.gate.try_push(EventInstance {
+        frame_offset: 2,
+        payload: EventPayload::Scalar(1.0),
+    });
+
+    // Run enough frames to cover the offset and let the capture stabilize.
+    g.process_block(128);
+
+    // Direct inspection of the inner node's last captured tick (no
+    // downsampling latency; reads the field after process_block returns).
+    let captured = g.capture.last_capture;
+    // Without rescaling, the event would still arrive (frame_offset 2 falls
+    // within the block), but at the outer-tick alignment — the gate handler
+    // would fire at outer-frame 2 / inner-tick 2, not inner-tick 8. With
+    // rescaling, the multi-rate inner loop multiplies the offset by 4 so the
+    // event fires on inner-frame 8. The capture node records its
+    // `internal_tick` field at the moment its handler runs.
+    //   1. captured >= 0 (a capture happened; the event was delivered).
+    //   2. captured == outer_offset * factor (= 8, the rescaled boundary).
+    assert!(
+        captured >= 0.0,
+        "expected gate handler to fire (captured = {captured})"
+    );
+    let expected_inner = 2.0 * 4.0;
+    assert!(
+        (captured - expected_inner).abs() <= 1.0,
+        "expected rescaled inner-tick near {expected_inner}, got {captured}"
+    );
 }

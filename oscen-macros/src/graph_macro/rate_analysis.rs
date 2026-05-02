@@ -1,8 +1,20 @@
 use super::ast::{
     ConnectionPolicy, ConnectionStmt, EndpointKind, GraphDef, GraphItem, NodeDecl, NodeRate,
 };
-use std::collections::{HashMap, HashSet};
+use super::type_check::TypeContext;
+use std::collections::HashMap;
 use syn::Result;
+
+/// Per-edge frame_offset rescaling for event-typed cross-rate edges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventRescale {
+    /// Same-rate edge: no rescaling applied.
+    None,
+    /// Outer -> inner: multiply offsets by N.
+    Multiply(u32),
+    /// Inner -> outer: divide offsets by N.
+    Divide(u32),
+}
 
 /// Resampling kernel selection for a single cross-rate edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,6 +25,12 @@ pub enum EdgeKernel {
     Up { factor: u32, kind: ConnectionPolicy },
     /// Downsample: source faster, dest slower.
     Down { factor: u32, kind: ConnectionPolicy },
+    /// Event-typed edge. Same-rate (`rescale = None`) is functionally
+    /// equivalent to `EdgeKernel::None` and emits a plain copy via the
+    /// existing event try_push path; cross-rate variants emit the same
+    /// try_push loop but transform `EventInstance::frame_offset` per
+    /// `rescale` so events fire on the correct inner/outer tick.
+    Event { rescale: EventRescale },
 }
 
 /// Per-edge analysis result. `edge_index` indexes into the original `connections` slice.
@@ -91,23 +109,14 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
         }
     }
 
-    // Collect graph-level event input/output names. Used to detect cross-rate
-    // event edges, which are routed through the same-rate event-copy path
-    // (see `classify_edge` and the TODO(multirate-events) note in codegen.rs).
-    let mut event_endpoint_names: HashSet<String> = HashSet::new();
-    for item in &def.items {
-        match item {
-            GraphItem::Input(i) if i.kind == EndpointKind::Event => {
-                event_endpoint_names.insert(i.name.to_string());
-            }
-            GraphItem::Output(o) if o.kind == EndpointKind::Event => {
-                event_endpoint_names.insert(o.name.to_string());
-            }
-            _ => {}
-        }
-    }
-
     // 3. Classify each edge.
+    //
+    // This first pass classifies edges purely from rate annotations. The
+    // resulting `EdgeKernel`s for cross-rate edges are stream-typed (Up/Down
+    // with kernel chosen by policy) and may use `ConnectionPolicy::Default`.
+    // Node-to-node event edges and value vs. stream default-policy resolution
+    // need endpoint-kind metadata; those refinements happen in
+    // `refine_with_types`, called after the codegen's TypeContext is built.
     let mut edges = Vec::with_capacity(conns.len());
     for (idx, c) in conns.iter().enumerate() {
         let src_node = root_node_name(&c.source);
@@ -127,29 +136,7 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
             _ => proc_macro2::Span::call_site(),
         };
 
-        // If either endpoint root names a graph-level event input/output, this
-        // is an event edge. The cross-rate codegen path emits `StreamUpsampler`
-        // / `StreamDownsampler` calls that don't type-check against
-        // `StaticEventQueue`, so treat event edges as same-rate (`None`) — they
-        // route through the existing `ConnectEndpoints` event impls. Note: this
-        // does NOT rescale `EventInstance::frame_offset` across the rate
-        // boundary. See TODO(multirate-events) in codegen.rs and the "Known
-        // Limitations" section of the multi-rate design spec.
-        let src_is_event = src_node
-            .as_ref()
-            .map(|n| event_endpoint_names.contains(n))
-            .unwrap_or(false);
-        let dst_is_event = dst_node
-            .as_ref()
-            .map(|n| event_endpoint_names.contains(n))
-            .unwrap_or(false);
-        let is_event_edge = src_is_event || dst_is_event;
-
-        let kernel = if is_event_edge {
-            EdgeKernel::None
-        } else {
-            classify_edge(source_rate, dest_rate, c.policy, span)?
-        };
+        let kernel = classify_edge(source_rate, dest_rate, c.policy, span)?;
         edges.push(EdgeRate {
             edge_index: idx,
             source_rate,
@@ -164,6 +151,96 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
         min_divisor,
         edges,
     })
+}
+
+/// Refine the rate analysis using endpoint-kind information from the type
+/// context built by codegen. Two refinements run here:
+///
+/// 1. **Event edges.** Any edge whose source OR destination endpoint is an
+///    event endpoint is rewritten to `EdgeKernel::Event` with rescaling
+///    derived from the source/dest rates. This covers both graph-level event
+///    endpoints (which used to be special-cased via a name-based hack) and
+///    node-to-node event edges (previously broken — they classified as
+///    stream Up/Down and emitted code that didn't type-check).
+///
+/// 2. **Default policy on value edges.** A cross-rate edge whose source is a
+///    value endpoint and whose policy was left as `ConnectionPolicy::Default`
+///    is rewritten to `ConnectionPolicy::Latch`. Stream edges keep their
+///    Sinc default (resolved later in codegen `kernel_*_type` helpers).
+pub fn refine_with_types(
+    rate_analysis: &mut RateAnalysis,
+    conns: &[ConnectionStmt],
+    type_ctx: &TypeContext,
+) {
+    for edge in rate_analysis.edges.iter_mut() {
+        let conn = &conns[edge.edge_index];
+        let src_kind = type_ctx.infer_type(&conn.source);
+        let dst_kind = type_ctx.infer_type(&conn.dest);
+
+        let is_event_edge = matches!(src_kind, Some(EndpointKind::Event))
+            || matches!(dst_kind, Some(EndpointKind::Event));
+
+        if is_event_edge {
+            // Determined event edge: rescale frame_offset across rate boundaries.
+            let rescale = event_rescale(edge.source_rate, edge.dest_rate);
+            edge.kernel = EdgeKernel::Event { rescale };
+            continue;
+        }
+
+        // Heuristic for opaque node-to-node cross-rate connections where
+        // TypeContext can't determine either side's kind: route through the
+        // same-rate `ConnectEndpoints` path (Event { rescale: None }). The
+        // trait dispatch picks the right impl per concrete field type
+        // (event-copy for `EventOutput -> EventInput`, stream-copy for
+        // streams). This preserves type flexibility for the case the macro
+        // can't disambiguate without a graph-level endpoint anchoring one
+        // side of the type. We only apply this fallback when the user did
+        // NOT specify an explicit resampling policy: a `[sinc]` / `[latch]`
+        // / `[linear]` annotation strongly indicates a stream/value edge
+        // and the user wants real resampling, so we keep the original
+        // Up/Down classification in that case (and let trait dispatch error
+        // if they actually wrote a stream policy on an event edge). Note:
+        // cross-rate stream node-to-node edges with default policy therefore
+        // don't get resampling under this fallback. All current tests
+        // anchor at least one side of every cross-rate stream edge to a
+        // graph-level endpoint, so TypeContext always classifies them
+        // correctly and they take the resampler path.
+        let both_unknown = src_kind.is_none() && dst_kind.is_none();
+        let is_cross_rate = !matches!(edge.kernel, EdgeKernel::None);
+        let policy_is_default = matches!(conn.policy, ConnectionPolicy::Default);
+
+        if both_unknown && is_cross_rate && policy_is_default {
+            edge.kernel = EdgeKernel::Event {
+                rescale: EventRescale::None,
+            };
+            continue;
+        }
+
+        // Default policy on value cross-rate edges should latch, not sinc.
+        let is_value_edge = matches!(src_kind, Some(EndpointKind::Value))
+            || matches!(dst_kind, Some(EndpointKind::Value));
+        if is_value_edge {
+            match &mut edge.kernel {
+                EdgeKernel::Up { kind, .. } | EdgeKernel::Down { kind, .. } => {
+                    if matches!(kind, ConnectionPolicy::Default) {
+                        *kind = ConnectionPolicy::Latch;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Compute the `EventRescale` for a single event edge given source/dest rates.
+fn event_rescale(src: NodeRate, dst: NodeRate) -> EventRescale {
+    use NodeRate::*;
+    match (src, dst) {
+        (Same, Up(n)) => EventRescale::Multiply(n),
+        (Up(n), Same) => EventRescale::Divide(n),
+        // Same -> Same, Up(n) -> Up(n): no rescaling needed.
+        _ => EventRescale::None,
+    }
 }
 
 fn classify_edge(

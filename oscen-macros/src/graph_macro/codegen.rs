@@ -1,5 +1,7 @@
 use super::ast::*;
-use super::rate_analysis::{analyze, root_node_name, EdgeKernel, RateAnalysis};
+use super::rate_analysis::{
+    analyze, refine_with_types, root_node_name, EdgeKernel, EventRescale, RateAnalysis,
+};
 use super::type_check::TypeContext;
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -55,6 +57,19 @@ fn kernel_down_type(factor: u32, policy: ConnectionPolicy) -> TokenStream {
     }
 }
 
+/// True for edges that flow through the same-rate `ConnectEndpoints` path:
+/// either a true same-rate edge or a same-rate event edge. Cross-rate event
+/// edges have their own dedicated rescale path and are not handled here.
+fn is_same_rate_kernel(k: &EdgeKernel) -> bool {
+    matches!(
+        k,
+        EdgeKernel::None
+            | EdgeKernel::Event {
+                rescale: EventRescale::None
+            }
+    )
+}
+
 pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
     // Validate rate annotations and edge rate combinations before collecting
     // codegen state so the analysis is available to every emit method.
@@ -67,8 +82,11 @@ pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
         ctx.collect_item(item)?;
     }
 
-    // Validate connections
-    ctx.validate_connections()?;
+    // Validate connections; returns the type context built during inference,
+    // which we then use to refine the rate analysis so cross-rate event edges
+    // and default-policy value edges classify correctly.
+    let type_ctx = ctx.validate_connections()?;
+    refine_with_types(&mut ctx.rate_analysis, &ctx.connections, &type_ctx);
 
     // Static graphs require a name
     if let Some(name) = &graph_def.name {
@@ -140,7 +158,7 @@ impl CodegenContext {
             .and_then(|s| s.ramp)
     }
 
-    fn validate_connections(&self) -> Result<()> {
+    fn validate_connections(&self) -> Result<TypeContext> {
         let mut type_ctx = TypeContext::new();
 
         // Register all inputs and outputs
@@ -152,9 +170,10 @@ impl CodegenContext {
             type_ctx.register_output(&output.name, output.kind);
         }
 
-        // Infer node endpoint types from connections for type compatibility checking
-        // Note: This inference is no longer needed for codegen (process_event_inputs() is called uniformly)
-        // but we keep it for type compatibility validation
+        // Infer node endpoint types from connections. The type context is
+        // returned to the caller so it can be reused by `refine_with_types` to
+        // classify cross-rate event edges and resolve default-policy value
+        // edges to `Latch`.
         self.infer_node_endpoint_types(&mut type_ctx);
 
         // Validate each connection for type compatibility
@@ -166,7 +185,7 @@ impl CodegenContext {
             type_ctx.validate_connection(&conn.source, &conn.dest)?;
         }
 
-        Ok(())
+        Ok(type_ctx)
     }
 
     /// Infer node endpoint types from connections
@@ -445,14 +464,14 @@ impl CodegenContext {
         }
     }
 
-    /// Generate one struct field per cross-rate connection. Each field holds a
-    /// resampler kernel instance whose type is chosen by edge direction and
-    /// policy. Same-rate edges produce no fields.
+    /// Generate one struct field per cross-rate stream/value connection. Each
+    /// field holds a resampler kernel instance whose type is chosen by edge
+    /// direction and policy. Same-rate and event edges produce no fields.
     fn generate_resampler_fields(&self) -> Vec<TokenStream> {
         let mut fields = Vec::new();
         for edge in &self.rate_analysis.edges {
             let ty = match edge.kernel {
-                EdgeKernel::None => continue,
+                EdgeKernel::None | EdgeKernel::Event { .. } => continue,
                 EdgeKernel::Up { factor, kind } => kernel_up_type(factor, kind),
                 EdgeKernel::Down { factor, kind } => kernel_down_type(factor, kind),
             };
@@ -462,13 +481,13 @@ impl CodegenContext {
         fields
     }
 
-    /// Generate one initializer per cross-rate connection, calling the kernel
-    /// type's `new()` constructor. Order matches `generate_resampler_fields`.
+    /// Generate one initializer per cross-rate stream/value connection, calling
+    /// the kernel type's `new()` constructor. Order matches `generate_resampler_fields`.
     fn generate_resampler_inits(&self) -> Vec<TokenStream> {
         let mut inits = Vec::new();
         for edge in &self.rate_analysis.edges {
             let ty = match edge.kernel {
-                EdgeKernel::None => continue,
+                EdgeKernel::None | EdgeKernel::Event { .. } => continue,
                 EdgeKernel::Up { factor, kind } => kernel_up_type(factor, kind),
                 EdgeKernel::Down { factor, kind } => kernel_down_type(factor, kind),
             };
@@ -512,13 +531,14 @@ impl CodegenContext {
     }
 
     /// Generate `reset()` calls for every cross-rate resampler kernel.
-    /// Same-rate edges (`EdgeKernel::None`) produce no field, so they are skipped.
+    /// Same-rate edges (`EdgeKernel::None`) and event edges produce no field,
+    /// so they are skipped.
     fn generate_resampler_resets(&self) -> Vec<TokenStream> {
         let mut resets = Vec::new();
         for edge in &self.rate_analysis.edges {
             let f = resampler_field_name(edge.edge_index);
             let stmt = match edge.kernel {
-                EdgeKernel::None => continue,
+                EdgeKernel::None | EdgeKernel::Event { .. } => continue,
                 EdgeKernel::Up { .. } => quote! {
                     ::oscen::resample::StreamUpsampler::reset(&mut self.#f);
                 },
@@ -1529,9 +1549,7 @@ impl CodegenContext {
         let mut outer_process: Vec<TokenStream> = Vec::new();
         for node_name in &pre_inner_outer_names {
             let assignments = self
-                .generate_connection_assignments_for_node_filtered(node_name, |k| {
-                    matches!(k, EdgeKernel::None)
-                });
+                .generate_connection_assignments_for_node_filtered(node_name, is_same_rate_kernel);
             outer_process.extend(assignments);
             outer_process.push(self.emit_node_process_call(node_name));
         }
@@ -1543,9 +1561,7 @@ impl CodegenContext {
         let mut post_inner_outer_process: Vec<TokenStream> = Vec::new();
         for node_name in &post_inner_outer_names {
             let assignments = self
-                .generate_connection_assignments_for_node_filtered(node_name, |k| {
-                    matches!(k, EdgeKernel::None)
-                });
+                .generate_connection_assignments_for_node_filtered(node_name, is_same_rate_kernel);
             post_inner_outer_process.extend(assignments);
             post_inner_outer_process.push(self.emit_node_process_call(node_name));
         }
@@ -1610,6 +1626,42 @@ impl CodegenContext {
         // value-vs-stream codegen path is required here; the latch behavior
         // falls out of the Latch kernel + the field-not-cleared property.
 
+        // Outer -> inner cross-rate event drains. For each event edge with
+        // `Multiply(N)`, copy events from the source queue into the dest queue
+        // with `frame_offset *= N`. Runs once per outer tick, BEFORE
+        // `process_event_inputs()` so the inner node's gate handler sees the
+        // rescaled offsets.
+        let mut event_outer_to_inner_drains: Vec<TokenStream> = Vec::new();
+        for edge in &self.rate_analysis.edges {
+            if let EdgeKernel::Event {
+                rescale: EventRescale::Multiply(n),
+            } = edge.kernel
+            {
+                let conn = &self.connections[edge.edge_index];
+                let drain =
+                    self.generate_event_drain(&conn.source, &conn.dest, EventRescale::Multiply(n));
+                event_outer_to_inner_drains.push(drain);
+            }
+        }
+
+        // Inner -> outer cross-rate event drains. For each event edge with
+        // `Divide(N)`, copy events from the source queue (an inner-rate node's
+        // event output) into the dest queue with `frame_offset /= N`. Runs
+        // once per outer tick, AFTER the inner loop so all inner ticks have
+        // had a chance to push events.
+        let mut event_inner_to_outer_drains: Vec<TokenStream> = Vec::new();
+        for edge in &self.rate_analysis.edges {
+            if let EdgeKernel::Event {
+                rescale: EventRescale::Divide(n),
+            } = edge.kernel
+            {
+                let conn = &self.connections[edge.edge_index];
+                let drain =
+                    self.generate_event_drain(&conn.source, &conn.dest, EventRescale::Divide(n));
+                event_inner_to_outer_drains.push(drain);
+            }
+        }
+
         // Run process_event_inputs() for inner-rate nodes once per outer tick,
         // before the inner loop, so events arrive on the outer-rate boundary.
         let inner_event_input_calls: Vec<TokenStream> = inner_node_names
@@ -1631,9 +1683,7 @@ impl CodegenContext {
         let mut inner_node_runs: Vec<TokenStream> = Vec::new();
         for node_name in &inner_node_names {
             let assignments = self
-                .generate_connection_assignments_for_node_filtered(node_name, |k| {
-                    matches!(k, EdgeKernel::None)
-                });
+                .generate_connection_assignments_for_node_filtered(node_name, is_same_rate_kernel);
             inner_node_runs.extend(assignments);
             inner_node_runs.push(self.emit_node_process_only(node_name));
         }
@@ -1673,9 +1723,10 @@ impl CodegenContext {
         }
 
         // Step 8: Same-rate connection assignments to graph outputs (skip
-        // cross-rate Down edges — those were finalized via downsamplers).
+        // cross-rate Down edges and cross-rate Event edges — those are
+        // finalized via downsamplers / dedicated event drains).
         let same_rate_output_trailer =
-            self.generate_graph_output_assignments_filtered(|k| matches!(k, EdgeKernel::None));
+            self.generate_graph_output_assignments_filtered(is_same_rate_kernel);
 
         Ok(quote! {
             {
@@ -1693,6 +1744,11 @@ impl CodegenContext {
                 // 5. Per-edge accumulator buffers for cross-rate Down edges.
                 #(#down_decls)*
 
+                // 5.5. Cross-rate event drains: outer -> inner. Multiplies
+                // each event's `frame_offset` by N before pushing into the
+                // inner node's event queue.
+                #(#event_outer_to_inner_drains)*
+
                 // 6a. Run process_event_inputs() once per outer tick for inner
                 // nodes — events fire at outer rate to keep dispatch cheap.
                 #(#inner_event_input_calls)*
@@ -1707,6 +1763,11 @@ impl CodegenContext {
                 // 7. Downsample once per outer tick into dest fields.
                 #(#down_finalizes)*
 
+                // 7a. Cross-rate event drains: inner -> outer. Divides each
+                // event's `frame_offset` by N before pushing into the outer
+                // queue (graph output or outer node input).
+                #(#event_inner_to_outer_drains)*
+
                 // 7.5. Post-inner outer-rate nodes (any Same node downstream
                 // of a Down edge, transitively). They run after step 7 so they
                 // observe the freshly-downsampled values for this outer tick
@@ -1717,6 +1778,44 @@ impl CodegenContext {
                 #(#same_rate_output_trailer)*
             }
         })
+    }
+
+    /// Emit the cross-rate event drain for one edge: clear the destination
+    /// queue, then iterate the source queue, transform each event's
+    /// `frame_offset` per `rescale`, and `try_push` into the destination.
+    /// Handles three connection-expression shapes:
+    ///   * source is `node.field` -> `&self.<node>.<field>` iterator
+    ///   * source is `graph_input` -> `&self.<input>` iterator
+    ///   * dest mirrors the same shapes (event input on a node, or graph output queue)
+    fn generate_event_drain(
+        &self,
+        source: &ConnectionExpr,
+        dest: &ConnectionExpr,
+        rescale: EventRescale,
+    ) -> TokenStream {
+        let source_tokens = self.connection_expr_to_tokens(source);
+        let dest_tokens = self.connection_expr_to_tokens(dest);
+
+        let transform = match rescale {
+            EventRescale::Multiply(n) => {
+                quote! { __ev.frame_offset = __ev.frame_offset.saturating_mul(#n); }
+            }
+            EventRescale::Divide(n) => {
+                quote! { __ev.frame_offset /= #n; }
+            }
+            EventRescale::None => quote! {},
+        };
+
+        quote! {
+            {
+                #dest_tokens.clear();
+                for __ev_ref in #source_tokens.iter() {
+                    let mut __ev = __ev_ref.clone();
+                    #transform
+                    let _ = #dest_tokens.try_push(__ev);
+                }
+            }
+        }
     }
 
     /// Look up the rate annotation for a node by name. Falls back to `Same`
@@ -1747,7 +1846,17 @@ impl CodegenContext {
         };
 
         for edge in &self.rate_analysis.edges {
-            if let EdgeKernel::Down { .. } = edge.kernel {
+            // Outer-rate consumers of any inner-produced data must run after
+            // the inner loop. This includes both downsampled stream/value
+            // edges and inner -> outer event drains.
+            let is_inner_produced = matches!(
+                edge.kernel,
+                EdgeKernel::Down { .. }
+                    | EdgeKernel::Event {
+                        rescale: EventRescale::Divide(_)
+                    }
+            );
+            if is_inner_produced {
                 let conn = &self.connections[edge.edge_index];
                 if let Some(dst) = root_node_name(&conn.dest) {
                     if same_rate(&dst) {
