@@ -139,3 +139,67 @@ fn event_routed_to_oversampled_node_at_offset_zero() {
          (max envelope output = {max})"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Value latch across rate boundaries (Phase 5 Task 5.2)
+//
+// Values are piecewise-constant. When a graph-level value input feeds an
+// inner-rate (`* N`) node's value-input field via the `[latch]` policy, the
+// `LatchUp` kernel writes the same value into all N inner-tick slots of the
+// per-edge buffer; the inner node's field is then assigned that value on each
+// inner tick. Because the field is not cleared between inner ticks, every
+// inner `process()` observes the same constant — exactly the latch semantic
+// the design spec calls for. No special codegen path is required.
+
+graph! {
+    name: ValueLatchOversampledGraph;
+    input value amp = 1.0;
+    output stream audio_out;
+    nodes {
+        osc = PolyBlepOscillator::saw(220.0, 1.0) * 4;
+    }
+    connections {
+        [latch] amp -> osc.amplitude;
+        [sinc] osc.output -> audio_out;
+    }
+}
+
+#[test]
+fn value_latched_into_oversampled_node() {
+    let mut g = ValueLatchOversampledGraph::new();
+    g.init(48_000.0);
+
+    // Set the graph-level amplitude value to a known constant. The latch
+    // upsampler should propagate this verbatim into the *4 oscillator's
+    // amplitude field every inner tick.
+    g.set_amp(0.25);
+
+    // Process enough samples for the saw to swing through a full period and
+    // for the sinc downsampler at the output to reach steady state.
+    g.process_block(512);
+
+    let written = &g.audio_out_block[..512];
+    let max = written.iter().cloned().fold(0.0_f32, f32::max);
+    let min = written.iter().cloned().fold(0.0_f32, f32::min);
+
+    // A 220 Hz saw at amplitude=0.25 should swing within ±0.25 (plus a small
+    // margin for sinc downsampler ringing and PolyBLEP overshoot at the
+    // discontinuity). If the value were not latched (e.g., dropped to zero
+    // between inner ticks) the output would collapse toward 0.
+    assert!(
+        max > 0.15,
+        "expected scaled saw to swing positive ~0.25 (max = {max})"
+    );
+    assert!(
+        min < -0.05,
+        "expected scaled saw to swing negative (min = {min})"
+    );
+    // Loose upper bound: amplitude=0.25 should keep the magnitude well under
+    // amplitude=1.0's typical swing. Sinc filtering can overshoot the saw
+    // discontinuity slightly so allow some headroom above 0.25.
+    let peak = max.max(-min);
+    assert!(
+        peak < 0.5,
+        "amplitude=0.25 should keep peak well below 1.0 (peak = {peak})"
+    );
+}

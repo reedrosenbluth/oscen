@@ -1459,6 +1459,17 @@ impl CodegenContext {
         //      below) — events fire at outer rate.
         //   c) For each Down edge: capture the source's current inner-rate
         //      output into the per-edge accumulator buffer.
+        //
+        // Note on value latch across rate boundaries (Phase 5 Task 5.2):
+        // value-typed cross-rate edges flow through the same Up/Down kernel
+        // pipeline as stream edges (they're all read into an `f32` and written
+        // via `ConnectEndpoints`). When the user picks `[latch]` policy the
+        // `LatchUp` kernel writes the same value into all N inner-tick slots,
+        // and because the inner node's `ValueInput` field is not cleared
+        // between inner ticks, every inner `process()` reads the same latched
+        // value — the desired piecewise-constant semantics. No special
+        // value-vs-stream codegen path is required here; the latch behavior
+        // falls out of the Latch kernel + the field-not-cleared property.
 
         // Run process_event_inputs() for inner-rate nodes once per outer tick,
         // before the inner loop, so events arrive on the outer-rate boundary.
