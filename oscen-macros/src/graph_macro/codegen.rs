@@ -1,4 +1,5 @@
 use super::ast::*;
+use super::fanout::{classify_fanout, FanoutShape};
 use super::rate_analysis::{
     analyze, refine_with_types, root_node_name, EdgeKernel, EventRescale, RateAnalysis,
 };
@@ -852,6 +853,84 @@ impl CodegenContext {
             .and_then(|n| n.array_size)
     }
 
+    /// Same-rate Scalar → Scalar connection via `ConnectEndpoints`.
+    fn emit_scalar_connect(
+        &self,
+        source_ident: &syn::Ident,
+        source_access: &TokenStream,
+        dest_node: &syn::Ident,
+        dest_field: &syn::Ident,
+    ) -> TokenStream {
+        quote! {
+            <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                &self.#source_ident #source_access,
+                &mut self.#dest_node.#dest_field
+            );
+        }
+    }
+
+    /// Same-rate Array → Array connection: parallel pairing, one
+    /// `ConnectEndpoints` per index.
+    fn emit_parallel_connect(
+        &self,
+        source_ident: &syn::Ident,
+        source_access: &TokenStream,
+        dest_node: &syn::Ident,
+        dest_field: &syn::Ident,
+        n: usize,
+    ) -> TokenStream {
+        quote! {
+            for i in 0..#n {
+                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                    &self.#source_ident[i] #source_access,
+                    &mut self.#dest_node[i].#dest_field
+                );
+            }
+        }
+    }
+
+    /// Same-rate Scalar → Array broadcast: same source value into every
+    /// dest element via N independent `ConnectEndpoints` calls.
+    fn emit_broadcast_connect(
+        &self,
+        source_ident: &syn::Ident,
+        source_access: &TokenStream,
+        dest_node: &syn::Ident,
+        dest_field: &syn::Ident,
+        n: usize,
+    ) -> TokenStream {
+        quote! {
+            for i in 0..#n {
+                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                    &self.#source_ident #source_access,
+                    &mut self.#dest_node[i].#dest_field
+                );
+            }
+        }
+    }
+
+    /// Same-rate Array → Scalar fan-in: iterator-sum the source elements'
+    /// fields into the dest scalar field. Mirrors today's behavior at
+    /// `codegen.rs:1037-1048` (sum either via `.iter().map(...).sum()` or
+    /// `.iter().sum()` when the source has no field selector).
+    fn emit_fanin_connect(
+        &self,
+        source_ident: &syn::Ident,
+        source_field: Option<&syn::Ident>,
+        dest_node: &syn::Ident,
+        dest_field: &syn::Ident,
+    ) -> TokenStream {
+        if let Some(field) = source_field {
+            quote! {
+                self.#dest_node.#dest_field = self.#source_ident.iter().map(|n| n.#field).sum();
+            }
+        } else {
+            quote! {
+                self.#dest_node.#dest_field = self.#source_ident.iter().sum();
+            }
+        }
+    }
+
     /// Generate connection assignments for a specific node
     /// Returns assignments that should be executed before processing this node
     /// Uses trait-based dispatch (ConnectEndpoints) for ALL connection types,
@@ -998,64 +1077,22 @@ impl CodegenContext {
                                 quote! {}
                             };
 
-                            match (dest_array_size, source_array_size) {
-                                (Some(dest_size), Some(src_size)) => {
-                                    // Array-to-Array connection using trait dispatch
-                                    if dest_size == src_size {
-                                        assignments.push(quote! {
-                                            for i in 0..#dest_size {
-                                                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                                    &self.#source_ident[i] #source_access,
-                                                    &mut self.#dest_node[i].#dest_field
-                                                );
-                                            }
-                                        });
-                                    } else {
-                                        // Mismatched sizes - assuming 1-to-1 for min length
-                                        let min_size = std::cmp::min(dest_size, src_size);
-                                        assignments.push(quote! {
-                                            for i in 0..#min_size {
-                                                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                                    &self.#source_ident[i] #source_access,
-                                                    &mut self.#dest_node[i].#dest_field
-                                                );
-                                            }
-                                        });
-                                    }
-                                }
-                                (Some(dest_size), None) => {
-                                    // Scalar-to-Array broadcasting using trait dispatch
-                                    assignments.push(quote! {
-                                        for i in 0..#dest_size {
-                                            <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                                &self.#source_ident #source_access,
-                                                &mut self.#dest_node[i].#dest_field
-                                            );
-                                        }
-                                    });
-                                }
-                                (None, Some(_)) => {
-                                    // Array-to-Scalar reduction (Summing)
-                                    if let Some(field) = source_field {
-                                        assignments.push(quote! {
-                                            self.#dest_node.#dest_field = self.#source_ident.iter().map(|n| n.#field).sum();
-                                        });
-                                    } else {
-                                        assignments.push(quote! {
-                                            self.#dest_node.#dest_field = self.#source_ident.iter().sum();
-                                        });
-                                    }
-                                }
-                                (None, None) => {
-                                    // Scalar-to-Scalar using trait dispatch
-                                    assignments.push(quote! {
-                                        <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                            &self.#source_ident #source_access,
-                                            &mut self.#dest_node.#dest_field
-                                        );
-                                    });
-                                }
-                            }
+                            let shape = classify_fanout(source_array_size, dest_array_size);
+                            let stmt = match shape {
+                                FanoutShape::Scalar => self.emit_scalar_connect(
+                                    source_ident, &source_access, dest_node, dest_field,
+                                ),
+                                FanoutShape::Parallel { n } => self.emit_parallel_connect(
+                                    source_ident, &source_access, dest_node, dest_field, n,
+                                ),
+                                FanoutShape::Broadcast { n } => self.emit_broadcast_connect(
+                                    source_ident, &source_access, dest_node, dest_field, n,
+                                ),
+                                FanoutShape::FanIn { n: _ } => self.emit_fanin_connect(
+                                    source_ident, source_field, dest_node, dest_field,
+                                ),
+                            };
+                            assignments.push(stmt);
                         }
                     }
                 }
