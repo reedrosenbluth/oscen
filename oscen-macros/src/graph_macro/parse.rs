@@ -251,6 +251,70 @@ fn parse_node_rate(input: ParseStream) -> Result<NodeRate> {
     })
 }
 
+/// Post-process a parsed constructor expression to extract:
+///   - the actual constructor expression to store in NodeDecl
+///   - the array size if the constructor was `[expr; N]`
+///   - an embedded rate if the constructor was `[expr; N] * M` or `[expr; N] / M`
+///
+/// Recognised shapes (in order):
+///   1. Expr::Binary(Mul|Div, lhs=Repeat, rhs=IntLit) → (inner, size, Some(rate))
+///   2. Expr::Repeat                                  → (inner, size, None)
+///   3. anything else                                 → (expr,  None,  None)
+fn extract_array_and_embedded_rate(
+    expr: Expr,
+) -> Result<(Expr, Option<usize>, Option<NodeRate>)> {
+    use syn::{BinOp, ExprLit, Lit};
+
+    // Helper: unwrap `Expr::Repeat` into (inner, count_opt). Caller has
+    // already checked `expr` is a Repeat.
+    fn unwrap_repeat(repeat: syn::ExprRepeat) -> Result<(Expr, Option<usize>)> {
+        let count = if let Expr::Lit(ExprLit { lit: Lit::Int(c), .. }) = &*repeat.len {
+            Some(c.base10_parse::<usize>()?)
+        } else {
+            None
+        };
+        Ok((*repeat.expr, count))
+    }
+
+    // Shape 1: Binary(Mul|Div, Repeat, IntLit) → embedded rate
+    if let Expr::Binary(bin) = &expr {
+        let is_up = matches!(bin.op, BinOp::Mul(_));
+        let is_down = matches!(bin.op, BinOp::Div(_));
+        if (is_up || is_down) && matches!(&*bin.left, Expr::Repeat(_)) {
+            if let Expr::Lit(ExprLit { lit: Lit::Int(n_lit), .. }) = &*bin.right {
+                let n: u32 = n_lit.base10_parse()?;
+                if !matches!(n, 1 | 2 | 4 | 8) {
+                    return Err(syn::Error::new(
+                        n_lit.span(),
+                        "rate factor must be 1, 2, 4, or 8",
+                    ));
+                }
+                let rate = if n == 1 {
+                    NodeRate::Same
+                } else if is_up {
+                    NodeRate::Up(n)
+                } else {
+                    NodeRate::Down(n)
+                };
+                // Re-destructure to get owned values out of `expr`.
+                let Expr::Binary(bin) = expr else { unreachable!() };
+                let Expr::Repeat(repeat) = *bin.left else { unreachable!() };
+                let (inner, count) = unwrap_repeat(repeat)?;
+                return Ok((inner, count, Some(rate)));
+            }
+        }
+    }
+
+    // Shape 2: bare Repeat
+    if let Expr::Repeat(repeat) = expr {
+        let (inner, count) = unwrap_repeat(repeat)?;
+        return Ok((inner, count, None));
+    }
+
+    // Shape 3: anything else
+    Ok((expr, None, None))
+}
+
 // Parse a simple expression that won't consume brackets
 fn parse_simple_expr(input: ParseStream) -> Result<Expr> {
     // Parse literals (numbers, strings, etc.) or simple paths
@@ -321,28 +385,22 @@ impl Parse for NodeDecl {
         let name = input.parse()?;
         input.parse::<Token![=]>()?;
         let (constructor, extracted_type) = parse_constructor_with_type(input)?;
+        let (actual_constructor, array_size, embedded_rate) =
+            extract_array_and_embedded_rate(constructor)?;
+        let node_type = extracted_type.or_else(|| extract_node_type(&actual_constructor));
 
-        // Check if constructor is an array literal: [Type::new(); N]
-        let (actual_constructor, array_size, node_type) =
-            if let Expr::Repeat(repeat_expr) = constructor {
-                // Extract the repeated expression and count
-                let count = if let Expr::Lit(syn::ExprLit {
-                    lit: syn::Lit::Int(count),
-                    ..
-                }) = &*repeat_expr.len
-                {
-                    Some(count.base10_parse::<usize>()?)
-                } else {
-                    None
-                };
-                // For array repeats, try to extract type from the inner expression
-                let inner_type = extracted_type.or_else(|| extract_node_type(&repeat_expr.expr));
-                (*repeat_expr.expr, count, inner_type)
-            } else {
-                (constructor, None, extracted_type)
-            };
-
-        let rate = parse_node_rate(input)?;
+        let rate = match embedded_rate {
+            Some(r) => {
+                if !input.peek(Token![;]) {
+                    return Err(input.error(
+                        "node already has an embedded rate `* N` from the array; \
+                         remove the trailing rate annotation",
+                    ));
+                }
+                r
+            }
+            None => parse_node_rate(input)?,
+        };
 
         input.parse::<Token![;]>()?;
 
@@ -373,28 +431,22 @@ fn parse_node_block(input: ParseStream) -> Result<Vec<NodeDecl>> {
         let name = content.parse()?;
         content.parse::<Token![=]>()?;
         let (constructor, extracted_type) = parse_constructor_with_type(&content)?;
+        let (actual_constructor, array_size, embedded_rate) =
+            extract_array_and_embedded_rate(constructor)?;
+        let node_type = extracted_type.or_else(|| extract_node_type(&actual_constructor));
 
-        // Check if constructor is an array literal: [Type::new(); N]
-        let (actual_constructor, array_size, node_type) =
-            if let Expr::Repeat(repeat_expr) = constructor {
-                // Extract the repeated expression and count
-                let count = if let Expr::Lit(syn::ExprLit {
-                    lit: syn::Lit::Int(count),
-                    ..
-                }) = &*repeat_expr.len
-                {
-                    Some(count.base10_parse::<usize>()?)
-                } else {
-                    None
-                };
-                // For array repeats, try to extract type from the inner expression
-                let inner_type = extracted_type.or_else(|| extract_node_type(&repeat_expr.expr));
-                (*repeat_expr.expr, count, inner_type)
-            } else {
-                (constructor, None, extracted_type)
-            };
-
-        let rate = parse_node_rate(&content)?;
+        let rate = match embedded_rate {
+            Some(r) => {
+                if !content.peek(Token![;]) {
+                    return Err(content.error(
+                        "node already has an embedded rate `* N` from the array; \
+                         remove the trailing rate annotation",
+                    ));
+                }
+                r
+            }
+            None => parse_node_rate(&content)?,
+        };
 
         content.parse::<Token![;]>()?;
 

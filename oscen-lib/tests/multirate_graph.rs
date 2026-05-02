@@ -929,9 +929,13 @@ fn array_node_with_embedded_rate_oversamples_each_instance() {
     for _ in 0..k {
         g.process();
     }
+    // Each of the 4 inner-graph instances should have ticked exactly `k * 2`
+    // times — the embedded `* 2` rate annotation oversamples every voice.
+    // We read the raw inner counter directly (rather than going through the
+    // graph output, which is a Down-rate-edge sample of the inner counter).
     let expected = (2 * k) as f32;
-    assert_eq!(*g.total_a, expected, "voice 0 ran wrong number of inner ticks");
-    assert_eq!(*g.total_b, expected, "voice 1 ran wrong number of inner ticks");
-    assert_eq!(*g.total_c, expected, "voice 2 ran wrong number of inner ticks");
-    assert_eq!(*g.total_d, expected, "voice 3 ran wrong number of inner ticks");
+    assert_eq!(*g.counters[0].counter.count, expected, "voice 0 ran wrong number of inner ticks");
+    assert_eq!(*g.counters[1].counter.count, expected, "voice 1 ran wrong number of inner ticks");
+    assert_eq!(*g.counters[2].counter.count, expected, "voice 2 ran wrong number of inner ticks");
+    assert_eq!(*g.counters[3].counter.count, expected, "voice 3 ran wrong number of inner ticks");
 }
