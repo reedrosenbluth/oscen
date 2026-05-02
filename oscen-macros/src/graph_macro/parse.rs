@@ -393,7 +393,7 @@ impl Parse for NodeDecl {
             Some(r) => {
                 if !input.peek(Token![;]) {
                     return Err(input.error(
-                        "node already has an embedded rate `* N` from the array; \
+                        "node already has an embedded rate (`* N` or `/ N`) from the array literal; \
                          remove the trailing rate annotation",
                     ));
                 }
@@ -439,7 +439,7 @@ fn parse_node_block(input: ParseStream) -> Result<Vec<NodeDecl>> {
             Some(r) => {
                 if !content.peek(Token![;]) {
                     return Err(content.error(
-                        "node already has an embedded rate `* N` from the array; \
+                        "node already has an embedded rate (`* N` or `/ N`) from the array literal; \
                          remove the trailing rate annotation",
                     ));
                 }
