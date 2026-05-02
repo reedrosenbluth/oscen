@@ -1222,9 +1222,29 @@ impl CodegenContext {
     /// Generate the static process() method for compile-time graphs.
     /// Wraps the shared process body with tick_ramps() and event clearing.
     fn generate_static_process(&self) -> Result<TokenStream> {
-        let process_body = self.generate_process_body()?;
         let event_clearing = self.generate_event_clearing();
 
+        if self.rate_analysis.max_factor > 1 {
+            // Multi-rate graph nested as a node: the multi-rate inner-loop
+            // schedule must run on every call to `process()`, otherwise inner
+            // (`* N`) nodes only tick once per outer call instead of N times.
+            // The body uses graph-struct fields directly (no `_block`
+            // buffers), so it composes cleanly with the outer graph's
+            // `ConnectEndpoints` reads/writes.
+            let body = self.generate_multirate_inner_body()?;
+            return Ok(quote! {
+                #[inline(always)]
+                #[allow(unused_variables, unused_mut)]
+                pub fn process(&mut self) {
+                    #body
+
+                    // Clear event queues after processing.
+                    #(#event_clearing)*
+                }
+            });
+        }
+
+        let process_body = self.generate_process_body()?;
         Ok(quote! {
             #[inline(always)]
             pub fn process(&mut self) {
@@ -1415,6 +1435,56 @@ impl CodegenContext {
     /// tick into their destination fields. Same-rate connections to graph
     /// outputs run after the inner loop so they see post-downsampling values.
     fn generate_advance_one_frame_multirate(&self) -> Result<TokenStream> {
+        let body = self.generate_multirate_inner_body()?;
+
+        // Read stream inputs from block buffers (per outer tick).
+        let stream_input_reads: Vec<_> = self
+            .inputs
+            .iter()
+            .filter(|i| i.kind == EndpointKind::Stream)
+            .map(|i| {
+                let name = &i.name;
+                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                quote! { self.#name = self.#block_name[__frame]; }
+            })
+            .collect();
+
+        // Write stream outputs to block buffers (per outer tick).
+        let stream_output_writes: Vec<_> = self
+            .outputs
+            .iter()
+            .filter(|o| o.kind == EndpointKind::Stream)
+            .map(|o| {
+                let name = &o.name;
+                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                quote! { self.#block_name[__frame] = self.#name; }
+            })
+            .collect();
+
+        Ok(quote! {
+            #[inline(always)]
+            #[allow(unused_variables, unused_mut)]
+            fn __advance_one_frame(&mut self, __frame: usize) {
+                // 1. Read stream inputs from block buffers (outer-rate).
+                #(#stream_input_reads)*
+
+                // 2-8. Multi-rate body: tick ramps, outer/inner processing,
+                // downsample finalize, post-inner Same nodes, output trailer.
+                #body
+
+                // 9. Write stream outputs to block buffers (outer-rate).
+                #(#stream_output_writes)*
+            }
+        })
+    }
+
+    /// Emit the multi-rate body shared by `__advance_one_frame` (block path)
+    /// and the inherent `pub fn process()` (nested-graph path). Includes
+    /// `tick_ramps`, the outer/inner-rate scheduling, the downsample finalize,
+    /// post-inner Same-node processing, and same-rate trailer assignments.
+    /// Does NOT read stream inputs from block buffers or write stream outputs
+    /// to them; the caller frames it appropriately.
+    fn generate_multirate_inner_body(&self) -> Result<TokenStream> {
         let max_factor = self.rate_analysis.max_factor as usize;
         let sorted_nodes = self.topological_sort_nodes()?;
 
@@ -1448,30 +1518,6 @@ impl CodegenContext {
             .iter()
             .filter(|n| tainted.contains(&n.to_string()))
             .cloned()
-            .collect();
-
-        // Read stream inputs from block buffers (per outer tick).
-        let stream_input_reads: Vec<_> = self
-            .inputs
-            .iter()
-            .filter(|i| i.kind == EndpointKind::Stream)
-            .map(|i| {
-                let name = &i.name;
-                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
-                quote! { self.#name = self.#block_name[__frame]; }
-            })
-            .collect();
-
-        // Write stream outputs to block buffers (per outer tick).
-        let stream_output_writes: Vec<_> = self
-            .outputs
-            .iter()
-            .filter(|o| o.kind == EndpointKind::Stream)
-            .map(|o| {
-                let name = &o.name;
-                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
-                quote! { self.#block_name[__frame] = self.#name; }
-            })
             .collect();
 
         // Step 3: Outer-rate node processing — pre-inner bucket only. Each
@@ -1632,13 +1678,8 @@ impl CodegenContext {
             self.generate_graph_output_assignments_filtered(|k| matches!(k, EdgeKernel::None));
 
         Ok(quote! {
-            #[inline(always)]
-            #[allow(unused_variables, unused_mut)]
-            fn __advance_one_frame(&mut self, __frame: usize) {
+            {
                 use ::oscen::SignalProcessor as _;
-
-                // 1. Read stream inputs from block buffers (outer-rate).
-                #(#stream_input_reads)*
 
                 // 2. Tick ramped value inputs at outer rate.
                 self.tick_ramps();
@@ -1674,9 +1715,6 @@ impl CodegenContext {
 
                 // 8. Same-rate trailer assignments (e.g., to graph outputs).
                 #(#same_rate_output_trailer)*
-
-                // 9. Write stream outputs to block buffers (outer-rate).
-                #(#stream_output_writes)*
             }
         })
     }

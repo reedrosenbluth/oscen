@@ -479,6 +479,78 @@ fn same_node_downstream_of_down_edge_is_in_phase() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Multi-rate graph nested as a node in an outer graph (Follow-up #31)
+//
+// When a multi-rate graph is used as a node inside another graph, the outer
+// graph calls its inherent `process()` method once per outer tick. That
+// method must run the multi-rate inner loop (×N inner ticks per outer call)
+// otherwise the inner-rate (`* N`) nodes only advance once per outer call —
+// the oscillator's effective output frequency becomes 1/N of what was
+// requested, producing the wrong waveform with no compile-time signal.
+//
+// The reference path runs the same multi-rate graph directly via
+// `process_block`, which routes through `__advance_one_frame_multirate` and
+// is already correct. The nested path must match it sample-for-sample.
+
+graph! {
+    name: NestedMultirateInner;
+    output stream audio_out;
+    nodes {
+        osc = PolyBlepOscillator::sine(440.0, 0.5) * 4;
+    }
+    connections {
+        [sinc] osc.output -> audio_out;
+    }
+}
+
+graph! {
+    name: NestedMultirateOuter;
+    output stream audio_out;
+    nodes {
+        inner = NestedMultirateInner;
+    }
+    connections {
+        inner.audio_out -> audio_out;
+    }
+}
+
+#[test]
+fn nested_multirate_graph_ticks_inner_loop_per_outer_call() {
+    let mut direct = NestedMultirateInner::new();
+    let mut nested = NestedMultirateOuter::new();
+    direct.init(48_000.0);
+    nested.init(48_000.0);
+
+    const CHUNK: usize = 256;
+    const TOTAL: usize = 1024;
+    let mut direct_buf = Vec::with_capacity(TOTAL);
+    let mut nested_buf = Vec::with_capacity(TOTAL);
+    for _ in 0..(TOTAL / CHUNK) {
+        direct.process_block(CHUNK);
+        nested.process_block(CHUNK);
+        direct_buf.extend_from_slice(&direct.audio_out_block[..CHUNK]);
+        nested_buf.extend_from_slice(&nested.audio_out_block[..CHUNK]);
+    }
+
+    // The two paths share the same inner kernel state and same inputs, so
+    // they should match sample-for-sample. With the bug the nested path
+    // would tick the *4 oscillator only once per outer sample, producing a
+    // 110 Hz output instead of 440 Hz — a gross divergence (>0.1 amplitude).
+    let warmup = 64;
+    let mut max_abs_diff = 0.0_f32;
+    for i in warmup..TOTAL {
+        let d = (direct_buf[i] - nested_buf[i]).abs();
+        if d > max_abs_diff {
+            max_abs_diff = d;
+        }
+    }
+    assert!(
+        max_abs_diff < 1.0e-6,
+        "nested multirate graph must match standalone (max abs diff = {max_abs_diff})"
+    );
+}
+
 /// Single-bin DFT magnitude at `freq` (cycles/sample), normalized by N.
 fn bin_magnitude(samples: &[f32], freq: f32, n: usize) -> f32 {
     let mut re = 0.0_f32;
