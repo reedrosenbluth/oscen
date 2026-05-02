@@ -57,12 +57,22 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
     let mut max_factor: u32 = 1;
     let mut min_divisor: u32 = 1;
     for n in &nodes {
+        // v1 scope: only oversampling (`* N`) is implemented. Reject `/ N`
+        // (undersampling) here so users get a clear error at macro-expansion
+        // time instead of a confusing codegen failure.
+        if let NodeRate::Down(_) = n.rate {
+            return Err(syn::Error::new(
+                n.name.span(),
+                "node undersampling (`/ N`) is not yet supported in v1; only oversampling (`* N`) is implemented",
+            ));
+        }
         node_rates.insert(n.name.to_string(), n.rate);
         match n.rate {
             NodeRate::Up(f) => {
                 max_factor = lcm(max_factor, f);
             }
             NodeRate::Down(d) => {
+                // Rejected above; kept for future when undersampling is added.
                 min_divisor = lcm(min_divisor, d);
             }
             NodeRate::Same => {}

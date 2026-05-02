@@ -11,6 +11,17 @@ fn resampler_field_name(idx: usize) -> syn::Ident {
     syn::Ident::new(&format!("__resampler_{}", idx), proc_macro2::Span::call_site())
 }
 
+/// Local-variable name for the upsample buffer associated with edge `idx`.
+fn up_buf_name(idx: usize) -> syn::Ident {
+    syn::Ident::new(&format!("__up_buf_{}", idx), proc_macro2::Span::call_site())
+}
+
+/// Local-variable name for the downsample accumulator buffer associated with
+/// edge `idx`.
+fn down_buf_name(idx: usize) -> syn::Ident {
+    syn::Ident::new(&format!("__down_buf_{}", idx), proc_macro2::Span::call_site())
+}
+
 /// Choose the Rust kernel type for an upsampler edge based on policy.
 fn kernel_up_type(factor: u32, policy: ConnectionPolicy) -> TokenStream {
     let n = factor as usize;
@@ -754,10 +765,39 @@ impl CodegenContext {
     /// Uses trait-based dispatch (ConnectEndpoints) for ALL connection types,
     /// eliminating the need for type inference to determine event vs stream connections.
     fn generate_connection_assignments_for_node(&self, node_name: &syn::Ident) -> Vec<TokenStream> {
+        // Default: emit all connection assignments (no filtering by edge kernel).
+        // Used by the same-rate path; the multi-rate path uses
+        // `generate_connection_assignments_for_node_filtered` to skip cross-rate
+        // edges (those are bridged by upsamplers/downsamplers).
+        self.generate_connection_assignments_for_node_filtered(node_name, |_| true)
+    }
+
+    /// Like `generate_connection_assignments_for_node` but only emits assignments
+    /// for connections whose `EdgeKernel` matches `keep`. Connection-index
+    /// alignment with `RateAnalysis::edges` is preserved by enumerating
+    /// `self.connections` in order.
+    fn generate_connection_assignments_for_node_filtered<F>(
+        &self,
+        node_name: &syn::Ident,
+        keep: F,
+    ) -> Vec<TokenStream>
+    where
+        F: Fn(&EdgeKernel) -> bool,
+    {
         let mut assignments = Vec::new();
 
         // Find all connections where this node is the destination
-        for conn in &self.connections {
+        for (conn_idx, conn) in self.connections.iter().enumerate() {
+            // Filter by edge kernel; same-rate (`None`) and cross-rate (`Up`/`Down`)
+            // edges are routed through different code paths in the multi-rate
+            // codegen.
+            let kernel = self.rate_analysis.edges
+                .get(conn_idx)
+                .map(|e| e.kernel)
+                .unwrap_or(EdgeKernel::None);
+            if !keep(&kernel) {
+                continue;
+            }
             if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
                 if dest_node == node_name {
                     // Compound sources (arithmetic, function/method calls) don't have
@@ -916,23 +956,82 @@ impl CodegenContext {
             process_body.extend(assignments);
 
             // process_event_inputs() + process() for each node
-            if let Some(array_size) = self.get_node_array_size(node_name) {
-                process_body.push(quote! {
-                    for i in 0..#array_size {
-                        self.#node_name[i].process_event_inputs();
-                        self.#node_name[i].process();
-                    }
-                });
-            } else {
-                process_body.push(quote! {
-                    self.#node_name.process_event_inputs();
-                    self.#node_name.process();
-                });
-            }
+            process_body.push(self.emit_node_process_call(node_name));
         }
 
-        // Assignments for connections to graph outputs
-        for conn in &self.connections {
+        // Assignments for connections to graph outputs (no edge-kernel filtering).
+        process_body.extend(self.generate_graph_output_assignments_filtered(|_| true));
+
+        Ok(process_body)
+    }
+
+    /// Emit `process_event_inputs()` + `process()` for a single node (handles
+    /// both scalar and array nodes).
+    fn emit_node_process_call(&self, node_name: &syn::Ident) -> TokenStream {
+        if let Some(array_size) = self.get_node_array_size(node_name) {
+            quote! {
+                for i in 0..#array_size {
+                    self.#node_name[i].process_event_inputs();
+                    self.#node_name[i].process();
+                }
+            }
+        } else {
+            quote! {
+                self.#node_name.process_event_inputs();
+                self.#node_name.process();
+            }
+        }
+    }
+
+    /// Emit only `process()` for a single node (no event-input handling). Used
+    /// inside the multi-rate inner loop where `process_event_inputs()` should
+    /// run once per outer tick rather than per inner sample.
+    fn emit_node_process_only(&self, node_name: &syn::Ident) -> TokenStream {
+        if let Some(array_size) = self.get_node_array_size(node_name) {
+            quote! {
+                for i in 0..#array_size {
+                    self.#node_name[i].process();
+                }
+            }
+        } else {
+            quote! {
+                self.#node_name.process();
+            }
+        }
+    }
+
+    /// Emit `process_event_inputs()` for a single node (no `process()`).
+    fn emit_node_process_event_inputs(&self, node_name: &syn::Ident) -> TokenStream {
+        if let Some(array_size) = self.get_node_array_size(node_name) {
+            quote! {
+                for i in 0..#array_size {
+                    self.#node_name[i].process_event_inputs();
+                }
+            }
+        } else {
+            quote! {
+                self.#node_name.process_event_inputs();
+            }
+        }
+    }
+
+    /// Emit assignments for connections that target graph outputs.
+    /// `keep` filters by edge kernel — multi-rate codegen passes
+    /// `|k| matches!(k, EdgeKernel::None)` to skip cross-rate edges, which are
+    /// finalized via the per-edge downsampler instead.
+    fn generate_graph_output_assignments_filtered<F>(&self, keep: F) -> Vec<TokenStream>
+    where
+        F: Fn(&EdgeKernel) -> bool,
+    {
+        let mut out = Vec::new();
+        for (conn_idx, conn) in self.connections.iter().enumerate() {
+            let kernel = self.rate_analysis.edges
+                .get(conn_idx)
+                .map(|e| e.kernel)
+                .unwrap_or(EdgeKernel::None);
+            if !keep(&kernel) {
+                continue;
+            }
             if let Some(dest_ident) = Self::extract_root_node(&conn.dest) {
                 if let Some(output_decl) = self.outputs.iter().find(|o| o.name == *dest_ident) {
                     let source_node = Self::extract_root_node(&conn.source);
@@ -945,11 +1044,11 @@ impl CodegenContext {
                                 let source_node = source_node.unwrap();
                                 let source_field = source_field.unwrap();
                                 if let Some(_src_array_size) = self.get_node_array_size(source_node) {
-                                    process_body.push(quote! {
+                                    out.push(quote! {
                                         self.#dest_ident = self.#source_node.iter().map(|n| n.#source_field).sum();
                                     });
                                 } else {
-                                    process_body.push(quote! {
+                                    out.push(quote! {
                                         <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
                                             &self.#source_node.#source_field,
                                             &mut self.#dest_ident
@@ -958,7 +1057,7 @@ impl CodegenContext {
                                 }
                             } else {
                                 let source_tokens = self.connection_expr_to_tokens(&conn.source);
-                                process_body.push(quote! {
+                                out.push(quote! {
                                     self.#dest_ident = #source_tokens;
                                 });
                             }
@@ -968,7 +1067,7 @@ impl CodegenContext {
                                 let source_node = source_node.unwrap();
                                 let source_field = source_field.unwrap();
                                 if let Some(array_size) = self.get_node_array_size(source_node) {
-                                    process_body.push(quote! {
+                                    out.push(quote! {
                                         self.#dest_ident.clear();
                                         for i in 0..#array_size {
                                             for event in self.#source_node[i].#source_field.iter() {
@@ -977,7 +1076,7 @@ impl CodegenContext {
                                         }
                                     });
                                 } else {
-                                    process_body.push(quote! {
+                                    out.push(quote! {
                                         <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
                                             &self.#source_node.#source_field,
                                             &mut self.#dest_ident
@@ -990,8 +1089,7 @@ impl CodegenContext {
                 }
             }
         }
-
-        Ok(process_body)
+        out
     }
 
     /// Generate event queue clearing statements for graph-level event inputs/outputs.
@@ -1145,9 +1243,21 @@ impl CodegenContext {
     // ========== Block Processing Methods ==========
 
     /// Generate the `__advance_one_frame()` private method.
-    /// Contains stream block buffer I/O, tick_ramps(), and the shared process body.
-    /// Marked `#[inline(always)]` so LLVM inlines it into the tight inner loop.
+    /// Dispatches to either the same-rate fast path or the multi-rate variant
+    /// based on `RateAnalysis::max_factor`. Same-rate graphs (max_factor == 1)
+    /// produce identical code to before the multi-rate work landed.
     fn generate_advance_one_frame(&self) -> Result<TokenStream> {
+        if self.rate_analysis.max_factor <= 1 {
+            self.generate_advance_one_frame_same_rate()
+        } else {
+            self.generate_advance_one_frame_multirate()
+        }
+    }
+
+    /// Same-rate fast path: a single per-frame call to the shared process body.
+    /// This is the original `__advance_one_frame` implementation; behavior must
+    /// be identical to pre-multi-rate codegen.
+    fn generate_advance_one_frame_same_rate(&self) -> Result<TokenStream> {
         let process_body = self.generate_process_body()?;
 
         // Read stream inputs from block buffers
@@ -1185,6 +1295,285 @@ impl CodegenContext {
                 #(#stream_output_writes)*
             }
         })
+    }
+
+    /// Multi-rate variant of `__advance_one_frame`. Splits the graph into
+    /// outer-rate (`Same`) nodes and oversampled (`Up(N)`) nodes, runs the
+    /// outer-rate ones once per outer tick, upsamples each cross-rate Up edge,
+    /// runs the inner loop ×N times for the oversampled nodes (with same-rate
+    /// inner-rate connections still emitted normally), captures Down-edge
+    /// sources into per-edge buffers, then downsamples them once per outer
+    /// tick into their destination fields. Same-rate connections to graph
+    /// outputs run after the inner loop so they see post-downsampling values.
+    fn generate_advance_one_frame_multirate(&self) -> Result<TokenStream> {
+        let max_factor = self.rate_analysis.max_factor as usize;
+        let sorted_nodes = self.topological_sort_nodes()?;
+
+        // Bucket nodes by rate.
+        let outer_node_names: Vec<syn::Ident> = sorted_nodes
+            .iter()
+            .filter(|name| matches!(self.node_rate(name), NodeRate::Same))
+            .cloned()
+            .collect();
+        let inner_node_names: Vec<syn::Ident> = sorted_nodes
+            .iter()
+            .filter(|name| matches!(self.node_rate(name), NodeRate::Up(_)))
+            .cloned()
+            .collect();
+
+        // Read stream inputs from block buffers (per outer tick).
+        let stream_input_reads: Vec<_> = self.inputs.iter()
+            .filter(|i| i.kind == EndpointKind::Stream)
+            .map(|i| {
+                let name = &i.name;
+                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                quote! { self.#name = self.#block_name[__frame]; }
+            })
+            .collect();
+
+        // Write stream outputs to block buffers (per outer tick).
+        let stream_output_writes: Vec<_> = self.outputs.iter()
+            .filter(|o| o.kind == EndpointKind::Stream)
+            .map(|o| {
+                let name = &o.name;
+                let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                quote! { self.#block_name[__frame] = self.#name; }
+            })
+            .collect();
+
+        // Step 3: Outer-rate node processing. Each outer-rate node sees only
+        // its same-rate (`EdgeKernel::None`) incoming assignments — cross-rate
+        // edges are routed via resamplers below.
+        let mut outer_process: Vec<TokenStream> = Vec::new();
+        for node_name in &outer_node_names {
+            let assignments = self.generate_connection_assignments_for_node_filtered(
+                node_name,
+                |k| matches!(k, EdgeKernel::None),
+            );
+            outer_process.extend(assignments);
+            outer_process.push(self.emit_node_process_call(node_name));
+        }
+
+        // Step 4: Per-edge upsample warmup for `EdgeKernel::Up` connections.
+        // Generates one fixed-size [f32; N] buffer per edge, populated by the
+        // edge's upsampler from the source's freshly-computed outer-rate value.
+        let mut up_decls: Vec<TokenStream> = Vec::new();
+        for edge in &self.rate_analysis.edges {
+            if let EdgeKernel::Up { factor, .. } = edge.kernel {
+                let factor_us = factor as usize;
+                let buf = up_buf_name(edge.edge_index);
+                let field = resampler_field_name(edge.edge_index);
+                let conn = &self.connections[edge.edge_index];
+                let src_value = self.connection_source_value_expr(&conn.source);
+                up_decls.push(quote! {
+                    let mut #buf: [f32; #factor_us] = [0.0; #factor_us];
+                    {
+                        let __src_val: f32 = #src_value;
+                        ::oscen::resample::StreamUpsampler::upsample(
+                            &mut self.#field,
+                            __src_val,
+                            &mut #buf,
+                        );
+                    }
+                });
+            }
+        }
+
+        // Step 5: Per-edge accumulator buffers for `EdgeKernel::Down`
+        // connections. Filled inside the inner loop and consumed afterwards.
+        let mut down_decls: Vec<TokenStream> = Vec::new();
+        for edge in &self.rate_analysis.edges {
+            if let EdgeKernel::Down { factor, .. } = edge.kernel {
+                let factor_us = factor as usize;
+                let buf = down_buf_name(edge.edge_index);
+                down_decls.push(quote! {
+                    let mut #buf: [f32; #factor_us] = [0.0; #factor_us];
+                });
+            }
+        }
+
+        // Step 6 inner-loop body. Runs ×N times.
+        //
+        //   a) For each Up edge whose dest is an inner-rate node: write the
+        //      precomputed upsampled sample into the dest's input field.
+        //   b) For each inner-rate node, in topo order: emit its same-rate
+        //      incoming assignments and call `process()`. We split
+        //      `process_event_inputs()` out and run it once per outer tick (see
+        //      below) — events fire at outer rate.
+        //   c) For each Down edge: capture the source's current inner-rate
+        //      output into the per-edge accumulator buffer.
+
+        // Run process_event_inputs() for inner-rate nodes once per outer tick,
+        // before the inner loop, so events arrive on the outer-rate boundary.
+        let inner_event_input_calls: Vec<TokenStream> = inner_node_names.iter()
+            .map(|n| self.emit_node_process_event_inputs(n))
+            .collect();
+
+        let mut inner_writes: Vec<TokenStream> = Vec::new();
+        for edge in &self.rate_analysis.edges {
+            if let EdgeKernel::Up { .. } = edge.kernel {
+                let buf = up_buf_name(edge.edge_index);
+                let conn = &self.connections[edge.edge_index];
+                let dest_assign = self.connection_dest_field_assign(&conn.dest, &quote! { #buf[__inner] });
+                inner_writes.push(dest_assign);
+            }
+        }
+
+        let mut inner_node_runs: Vec<TokenStream> = Vec::new();
+        for node_name in &inner_node_names {
+            let assignments = self.generate_connection_assignments_for_node_filtered(
+                node_name,
+                |k| matches!(k, EdgeKernel::None),
+            );
+            inner_node_runs.extend(assignments);
+            inner_node_runs.push(self.emit_node_process_only(node_name));
+        }
+
+        let mut down_captures: Vec<TokenStream> = Vec::new();
+        for edge in &self.rate_analysis.edges {
+            if let EdgeKernel::Down { .. } = edge.kernel {
+                let buf = down_buf_name(edge.edge_index);
+                let conn = &self.connections[edge.edge_index];
+                let src_value = self.connection_source_value_expr(&conn.source);
+                down_captures.push(quote! {
+                    #buf[__inner] = #src_value;
+                });
+            }
+        }
+
+        // Step 7: Finalize Down edges by calling the per-edge downsampler and
+        // writing the result into the dest field (which may be an outer-rate
+        // node input or a graph output).
+        let mut down_finalizes: Vec<TokenStream> = Vec::new();
+        for edge in &self.rate_analysis.edges {
+            if let EdgeKernel::Down { .. } = edge.kernel {
+                let buf = down_buf_name(edge.edge_index);
+                let field = resampler_field_name(edge.edge_index);
+                let conn = &self.connections[edge.edge_index];
+                let dest_assign = self.connection_dest_field_assign(
+                    &conn.dest,
+                    &quote! {
+                        ::oscen::resample::StreamDownsampler::downsample(
+                            &mut self.#field,
+                            &#buf,
+                        )
+                    },
+                );
+                down_finalizes.push(dest_assign);
+            }
+        }
+
+        // Step 8: Same-rate connection assignments to graph outputs (skip
+        // cross-rate Down edges — those were finalized via downsamplers).
+        let same_rate_output_trailer = self.generate_graph_output_assignments_filtered(
+            |k| matches!(k, EdgeKernel::None),
+        );
+
+        Ok(quote! {
+            #[inline(always)]
+            #[allow(unused_variables, unused_mut)]
+            fn __advance_one_frame(&mut self, __frame: usize) {
+                use ::oscen::SignalProcessor as _;
+
+                // 1. Read stream inputs from block buffers (outer-rate).
+                #(#stream_input_reads)*
+
+                // 2. Tick ramped value inputs at outer rate.
+                self.tick_ramps();
+
+                // 3. Outer-rate (Same) nodes process once per outer tick.
+                #(#outer_process)*
+
+                // 4. Per-edge upsample warmup for cross-rate Up edges.
+                #(#up_decls)*
+
+                // 5. Per-edge accumulator buffers for cross-rate Down edges.
+                #(#down_decls)*
+
+                // 6a. Run process_event_inputs() once per outer tick for inner
+                // nodes — events fire at outer rate to keep dispatch cheap.
+                #(#inner_event_input_calls)*
+
+                // 6. Inner loop: ×N nodes run N times per outer tick.
+                for __inner in 0..#max_factor {
+                    #(#inner_writes)*
+                    #(#inner_node_runs)*
+                    #(#down_captures)*
+                }
+
+                // 7. Downsample once per outer tick into dest fields.
+                #(#down_finalizes)*
+
+                // 8. Same-rate trailer assignments (e.g., to graph outputs).
+                #(#same_rate_output_trailer)*
+
+                // 9. Write stream outputs to block buffers (outer-rate).
+                #(#stream_output_writes)*
+            }
+        })
+    }
+
+    /// Look up the rate annotation for a node by name. Falls back to `Same`
+    /// for unknown names (defensive — should never happen for nodes that
+    /// passed type checking).
+    fn node_rate(&self, name: &syn::Ident) -> NodeRate {
+        self.rate_analysis.node_rates
+            .get(&name.to_string())
+            .copied()
+            .unwrap_or(NodeRate::Same)
+    }
+
+    /// Build an `f32`-valued expression for a connection's source. Handles the
+    /// common simple cases (graph input, `node.field`) by reading from the
+    /// graph state, and falls back to evaluating a compound expression.
+    fn connection_source_value_expr(&self, source: &ConnectionExpr) -> TokenStream {
+        // Compound or non-trivial sources: let the existing token converter
+        // produce an f32 expression.
+        if !Self::is_simple_endpoint_source(source) {
+            let toks = self.connection_expr_to_tokens(source);
+            return quote! { (#toks) as f32 };
+        }
+
+        // Simple endpoint source. Read via ConnectEndpoints into a local f32
+        // so we don't have to know the source's exact wrapper type.
+        let toks = self.connection_expr_to_tokens(source);
+        quote! {
+            {
+                let mut __src: f32 = 0.0;
+                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                    &#toks,
+                    &mut __src,
+                );
+                __src
+            }
+        }
+    }
+
+    /// Build an assignment `dest <- value` for a connection's dest. The dest
+    /// may be a node-input field (typed wrapper around f32) or a graph output
+    /// (plain f32 / event queue). Uses `ConnectEndpoints` for node inputs to
+    /// be wrapper-type-agnostic; uses direct assignment for graph outputs.
+    fn connection_dest_field_assign(&self, dest: &ConnectionExpr, value: &TokenStream) -> TokenStream {
+        // Graph output (Ident only, no field): direct assignment.
+        if let Some(dest_ident) = Self::extract_root_node(dest) {
+            if self.outputs.iter().any(|o| o.name == *dest_ident) {
+                if matches!(dest, ConnectionExpr::Ident(_)) {
+                    return quote! { self.#dest_ident = #value; };
+                }
+            }
+        }
+
+        // Node input: bridge via ConnectEndpoints to handle typed wrappers.
+        let dest_toks = self.connection_expr_to_tokens(dest);
+        quote! {
+            {
+                let __dst_val: f32 = #value;
+                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                    &__dst_val,
+                    &mut #dest_toks,
+                );
+            }
+        }
     }
 
     /// Generate the `process_block()` public method.
