@@ -2205,6 +2205,19 @@ impl CodegenContext {
             };
         }
 
+        // Ramped graph value input: read .current directly. The struct field
+        // is a `ValueRampState`, not a wrapper that ConnectEndpoints knows
+        // about; we'd hit `ConnectEndpoints<ValueRampState, f32>` (no impl)
+        // if we routed through the trait. The same-rate emitter has the
+        // same special case (see source_access computation in
+        // generate_connection_assignments_for_node_filtered).
+        if let ConnectionExpr::Ident(ident) = source {
+            let is_graph_input = self.inputs.iter().any(|i| i.name == *ident);
+            if is_graph_input && self.is_ramped_input(ident).is_some() {
+                return quote! { self.#ident.current };
+            }
+        }
+
         // Simple scalar endpoint source. Read via ConnectEndpoints into a
         // local f32 so we don't have to know the source's exact wrapper type.
         let toks = self.connection_expr_to_tokens(source);

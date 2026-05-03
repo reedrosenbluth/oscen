@@ -358,3 +358,37 @@ fn c15_voice_array_at_2x_compiles_and_processes() {
         "expected non-zero audio after gate (avg = {avg} over tail = {tail:?})"
     );
 }
+
+graph! {
+    name: RampedBroadcastToOversampled;
+    // Ramped graph value input. Without the source-side `.current` special
+    // case in `connection_source_value_expr`, this would emit a
+    // `ConnectEndpoints<ValueRampState, f32>` call with no impl. Triggered
+    // by c15-synth in real-world use.
+    input value gain = 0.0 [0.0..1.0, ramp: 16];
+    nodes {
+        latches = [ValueLatch::new(); 4] * 2;
+    }
+    connections {
+        gain -> latches.input;
+    }
+}
+
+#[test]
+fn ramped_value_input_broadcast_cross_rate() {
+    let mut g = RampedBroadcastToOversampled::new();
+    g.init(48_000.0);
+    g.gain.set_immediate(0.5);
+    // Ramp annotation is 16 frames; run enough outer ticks for it to settle
+    // and the cross-rate latch to propagate.
+    for _ in 0..32 {
+        g.process();
+    }
+    for i in 0..4 {
+        let got = *g.latches[i].output;
+        assert!(
+            (got - 0.5).abs() < 1e-3,
+            "latches[{i}].output = {got}, expected ≈ 0.5 after ramp settles"
+        );
+    }
+}
