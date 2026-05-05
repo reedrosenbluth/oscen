@@ -129,3 +129,101 @@ fn derive_maps_event_arrays_to_event_array_kind() {
         EventArrayKind,
     >();
 }
+
+#[test]
+fn cross_rate_kernel_state_types_match_table() {
+    // Verify each (StreamKind, StreamKind, Policy, N, Dir) tuple resolves to
+    // the exact UpState/DownState wrapper around the expected resampler kernel.
+    // Uses TypeId equality — any of the wrappers diverging from the dispatch
+    // table (e.g. the macro picking the wrong kernel) fails this test.
+    use oscen::dispatch::*;
+    use oscen::resample::*;
+
+    fn assert_state<S, D, P, const N: u32, Dir, Expected>()
+    where
+        (): CrossRateKernel<S, D, P, N, Dir>,
+        <() as CrossRateKernel<S, D, P, N, Dir>>::State: ::core::any::Any,
+        Expected: ::core::any::Any,
+    {
+        let s_id =
+            ::core::any::TypeId::of::<<() as CrossRateKernel<S, D, P, N, Dir>>::State>();
+        let e_id = ::core::any::TypeId::of::<Expected>();
+        assert_eq!(s_id, e_id);
+    }
+
+    // Up direction
+    assert_state::<
+        StreamKind,
+        StreamKind,
+        DefaultPolicy,
+        4,
+        UpDir,
+        oscen::dispatch::stream::UpState<SincUpFir<4>, 4>,
+    >();
+    assert_state::<
+        StreamKind,
+        StreamKind,
+        SincPolicy,
+        2,
+        UpDir,
+        oscen::dispatch::stream::UpState<SincUpFir<2>, 2>,
+    >();
+    assert_state::<
+        StreamKind,
+        StreamKind,
+        SincIirPolicy,
+        8,
+        UpDir,
+        oscen::dispatch::stream::UpState<IirHalfbandUp<8>, 8>,
+    >();
+    assert_state::<
+        StreamKind,
+        StreamKind,
+        LinearPolicy,
+        2,
+        UpDir,
+        oscen::dispatch::stream::UpState<LinearUp<2>, 2>,
+    >();
+    assert_state::<
+        StreamKind,
+        StreamKind,
+        LatchPolicy,
+        4,
+        UpDir,
+        oscen::dispatch::stream::UpState<LatchUp<4>, 4>,
+    >();
+
+    // Down direction
+    assert_state::<
+        StreamKind,
+        StreamKind,
+        DefaultPolicy,
+        2,
+        DownDir,
+        oscen::dispatch::stream::DownState<SincDownFir<2>, 2>,
+    >();
+    assert_state::<
+        StreamKind,
+        StreamKind,
+        SincIirPolicy,
+        4,
+        DownDir,
+        oscen::dispatch::stream::DownState<IirHalfbandDown<4>, 4>,
+    >();
+    assert_state::<
+        StreamKind,
+        StreamKind,
+        LinearPolicy,
+        4,
+        DownDir,
+        oscen::dispatch::stream::DownState<LinearDown<4>, 4>,
+    >();
+    assert_state::<
+        StreamKind,
+        StreamKind,
+        LatchPolicy,
+        8,
+        DownDir,
+        oscen::dispatch::stream::DownState<LatchDown<8>, 8>,
+    >();
+}
