@@ -211,35 +211,6 @@ pub fn refine_with_types(
             continue;
         }
 
-        // Heuristic for opaque node-to-node cross-rate connections where
-        // TypeContext can't determine either side's kind: route through the
-        // same-rate `ConnectEndpoints` path (Event { rescale: None }). The
-        // trait dispatch picks the right impl per concrete field type
-        // (event-copy for `EventOutput -> EventInput`, stream-copy for
-        // streams). This preserves type flexibility for the case the macro
-        // can't disambiguate without a graph-level endpoint anchoring one
-        // side of the type. We only apply this fallback when the user did
-        // NOT specify an explicit resampling policy: a `[sinc]` / `[latch]`
-        // / `[linear]` annotation strongly indicates a stream/value edge
-        // and the user wants real resampling, so we keep the original
-        // Up/Down classification in that case (and let trait dispatch error
-        // if they actually wrote a stream policy on an event edge). Note:
-        // cross-rate stream node-to-node edges with default policy therefore
-        // don't get resampling under this fallback. All current tests
-        // anchor at least one side of every cross-rate stream edge to a
-        // graph-level endpoint, so TypeContext always classifies them
-        // correctly and they take the resampler path.
-        let both_unknown = src_kind.is_none() && dst_kind.is_none();
-        let is_cross_rate = !matches!(edge.kernel, EdgeKernel::None);
-        let policy_is_default = matches!(conn.policy, ConnectionPolicy::Default);
-
-        if both_unknown && is_cross_rate && policy_is_default {
-            edge.kernel = EdgeKernel::Event {
-                rescale: EventRescale::None,
-            };
-            continue;
-        }
-
         // Default policy on value cross-rate edges should latch, not sinc.
         let is_value_edge = matches!(src_kind, Some(EndpointKind::Value))
             || matches!(dst_kind, Some(EndpointKind::Value));

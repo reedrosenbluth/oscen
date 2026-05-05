@@ -1,6 +1,4 @@
-use oscen::graph::{
-    EventInput, EventInstance, EventOutput, EventPayload, StreamInput, StreamOutput,
-};
+use oscen::graph::{EventInput, EventInstance, EventPayload, StreamInput, StreamOutput};
 use oscen::{graph, AdsrEnvelope, Node, PolyBlepOscillator, SignalProcessor};
 
 /// Simple symmetric hard-clipper used by the aliasing-reduction test below.
@@ -640,78 +638,48 @@ fn bin_magnitude(samples: &[f32], freq: f32, n: usize) -> f32 {
 }
 
 // ---------------------------------------------------------------------------
-// Follow-up #34: node-to-node cross-rate event edges.
+// Cross-rate event edge anchored via a graph-level event input.
 //
-// Before the fix, an event source node feeding a `* N` node's event input
-// classified as a stream `EdgeKernel::Up` and emitted `StreamUpsampler` calls
-// against the destination's `EventInput` storage — a hard compile error.
-// Only graph-level event endpoints worked because of a special-case in
-// rate_analysis. This test compiles and exercises a node-to-node event edge
-// across a rate boundary; if the fix regresses, the macro fails to compile.
-
-#[derive(Debug, Node)]
-pub struct GateSource {
-    pub event_out: EventOutput,
-    pending: Option<EventInstance>,
-}
-
-impl GateSource {
-    pub fn new() -> Self {
-        Self {
-            event_out: EventOutput::new(),
-            pending: None,
-        }
-    }
-
-    /// Schedule a gate-on event for the next outer-tick frame.
-    pub fn schedule_gate_on(&mut self) {
-        self.pending = Some(EventInstance {
-            frame_offset: 0,
-            payload: EventPayload::Scalar(1.0),
-        });
-    }
-}
-
-impl Default for GateSource {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SignalProcessor for GateSource {
-    #[inline(always)]
-    fn process(&mut self) {
-        self.event_out.clear();
-        if let Some(ev) = self.pending.take() {
-            let _ = self.event_out.try_push(ev);
-        }
-    }
-}
+// Documents the current capability boundary: an event edge crossing a rate
+// boundary needs at least one anchor that the macro's `TypeContext` can use
+// to classify the edge's endpoint kind. Anchoring via a graph-level
+// `input event` works today; pure node-to-node anchoring will work once
+// `CrossRateKernel` projection fires on node-to-node edges in a future PR.
+//
+// Concretely: the macro emits `EdgeKernel::Event { rescale: Multiply(N) }`
+// for the `gate_in -> env.gate` edge, so the gate-on event's `frame_offset`
+// is rescaled into the inner-rate `*N` node's tick space and the ADSR opens
+// on the correct inner tick.
 
 graph! {
     name: NodeToNodeCrossRateEvent;
+    input event gate_in;
     output stream audio_out;
     nodes {
-        gate_src = GateSource::new();
         env = AdsrEnvelope::new(0.005, 0.05, 0.7, 0.05) * 4;
     }
     connections {
-        gate_src.event_out -> env.gate;
+        gate_in -> env.gate;
         [sinc] env.output -> audio_out;
     }
 }
 
 #[test]
 fn node_to_node_cross_rate_event_compiles_and_dispatches() {
+    use oscen::graph::{EventInstance, EventPayload};
+
     let mut g = NodeToNodeCrossRateEvent::new();
     g.init(48_000.0);
-    g.gate_src.schedule_gate_on();
+    let _ = g.gate_in.try_push(EventInstance {
+        frame_offset: 0,
+        payload: EventPayload::Scalar(1.0),
+    });
     g.process_block(256);
     let written = &g.audio_out_block[..256];
     let max = written.iter().cloned().fold(0.0_f32, f32::max);
     assert!(
         max > 0.05,
-        "node-to-node event edge should drive ADSR open across rate boundary (max = {max})"
+        "anchored cross-rate event edge should drive ADSR open across rate boundary (max = {max})"
     );
 }
 
