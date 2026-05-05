@@ -218,6 +218,14 @@ fn cross_rate_kernel_state_types_match_table() {
 // Phase 2: inherent-assoc-type alias must resolve via fully-qualified path.
 // This is the projection form the graph! macro will emit.
 const _: fn() = || {
-    fn _assert_kind_is_stream<K>() where K: ::oscen::dispatch::__private_assert::IsStream {}
-    _assert_kind_is_stream::<<oscen::PolyBlepOscillator as ::oscen::dispatch::EndpointAt<<oscen::PolyBlepOscillator>::output__Ep>>::Kind>();
+    fn _assert_kind_is_stream<K>()
+    where
+        K: ::oscen::dispatch::__private_assert::IsStream,
+    {
+    }
+    _assert_kind_is_stream::<
+        <oscen::PolyBlepOscillator as ::oscen::dispatch::EndpointAt<
+            <oscen::PolyBlepOscillator>::output__Ep,
+        >>::Kind,
+    >();
 };

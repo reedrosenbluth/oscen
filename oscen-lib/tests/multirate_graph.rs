@@ -1,5 +1,7 @@
 #![feature(inherent_associated_types)]
-use oscen::graph::{EventInput, EventInstance, EventPayload, StreamInput, StreamOutput, ValueInput, ValueOutput};
+use oscen::graph::{
+    EventInput, EventInstance, EventPayload, StreamInput, StreamOutput, ValueInput, ValueOutput,
+};
 use oscen::{graph, AdsrEnvelope, Node, PolyBlepOscillator, SignalProcessor};
 
 /// Simple symmetric hard-clipper used by the aliasing-reduction test below.

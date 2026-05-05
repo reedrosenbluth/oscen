@@ -470,10 +470,8 @@ impl CodegenContext {
         };
         let node = self.nodes.iter().find(|n| n.name == node_name)?;
         let path = node.node_type.as_ref()?;
-        let assoc_ident = syn::Ident::new(
-            &format!("{}__Ep", field),
-            proc_macro2::Span::call_site(),
-        );
+        let assoc_ident =
+            syn::Ident::new(&format!("{}__Ep", field), proc_macro2::Span::call_site());
         Some((quote! { #path }, quote! { <#path>::#assoc_ident }))
     }
 

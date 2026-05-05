@@ -99,7 +99,6 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         }
                     });
                     endpoint_assoc_alias_emissions.push(quote! {
-                        #[allow(non_camel_case_types, dead_code)]
                         pub type #assoc_ident = #marker_ident;
                     });
                 }
@@ -204,6 +203,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let expanded = quote! {
         #(#endpoint_at_emissions)*
 
+        #[allow(non_camel_case_types, dead_code)]
         impl #impl_generics #name #ty_generics #where_clause {
             #(#endpoint_assoc_alias_emissions)*
         }
