@@ -1,7 +1,7 @@
 use super::ast::*;
 use super::fanout::{classify_fanout, FanoutShape};
 use super::rate_analysis::{
-    analyze, refine_with_types, root_node_name, EdgeKernel, EventRescale, RateAnalysis,
+    analyze, refine_with_types, root_node_name, EdgeKernel, EdgeRate, EventRescale, RateAnalysis,
 };
 use super::type_check::TypeContext;
 use proc_macro2::TokenStream;
@@ -30,6 +30,18 @@ fn down_buf_name(idx: usize) -> syn::Ident {
         &format!("__down_buf_{}", idx),
         proc_macro2::Span::call_site(),
     )
+}
+
+/// Map a parsed `ConnectionPolicy` to the marker-type token used in
+/// `CrossRateKernel<_, _, Policy, _, _>` projections.
+fn policy_marker_path(policy: ConnectionPolicy) -> TokenStream {
+    match policy {
+        ConnectionPolicy::Default => quote! { ::oscen::dispatch::DefaultPolicy },
+        ConnectionPolicy::Sinc => quote! { ::oscen::dispatch::SincPolicy },
+        ConnectionPolicy::SincIir => quote! { ::oscen::dispatch::SincIirPolicy },
+        ConnectionPolicy::Linear => quote! { ::oscen::dispatch::LinearPolicy },
+        ConnectionPolicy::Latch => quote! { ::oscen::dispatch::LatchPolicy },
+    }
 }
 
 /// Choose the Rust kernel type for an upsampler edge based on policy.
@@ -463,6 +475,78 @@ impl CodegenContext {
             #(#output_fields,)*
             #(#node_fields),*
         }
+    }
+
+    /// Project the EndpointAt marker token for a connection-expression endpoint.
+    /// Returns `Some((<NodeTypePath>, <NodeTypeName__field__Ep marker path>))`
+    /// when the expression is `node.field` (or `node[i].field`) AND the node
+    /// has a recorded `node_type`. Returns `None` for compound expressions,
+    /// graph inputs/outputs, or nodes whose type wasn't recorded — in which
+    /// case callers fall back to concrete `kernel_up_type` / `kernel_down_type`.
+    fn endpoint_marker_tokens(&self, expr: &ConnectionExpr) -> Option<(TokenStream, TokenStream)> {
+        let (node_name, field) = match expr {
+            ConnectionExpr::Field(base, field) => match &**base {
+                ConnectionExpr::Ident(n) => (n.clone(), field.clone()),
+                ConnectionExpr::ArrayIndex(inner, _) => {
+                    if let ConnectionExpr::Ident(n) = &**inner {
+                        (n.clone(), field.clone())
+                    } else {
+                        return None;
+                    }
+                }
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let node = self.nodes.iter().find(|n| n.name == node_name)?;
+        let path = node.node_type.as_ref()?;
+        let last_seg = path.segments.last()?;
+        let type_ident = &last_seg.ident;
+        let marker_ident = syn::Ident::new(
+            &format!("{}__{}__Ep", type_ident, field),
+            proc_macro2::Span::call_site(),
+        );
+        // The marker type lives in the same module as the node type. Reconstruct
+        // the path: keep all segments except the last, append the marker ident.
+        let mut marker_path = path.clone();
+        if let Some(last) = marker_path.segments.last_mut() {
+            last.ident = marker_ident;
+            last.arguments = syn::PathArguments::None;
+        }
+        Some((quote! { #path }, quote! { #marker_path }))
+    }
+
+    /// Emit the `<() as CrossRateKernel<SrcKind, DstKind, Policy, N, Dir>>::State`
+    /// projection for an edge. Returns `None` if either endpoint can't be
+    /// projected (e.g., compound source like `osc.output * 2.0`, or a graph
+    /// input/output that doesn't have a derive-emitted EndpointAt marker), in
+    /// which case callers fall back to `kernel_up_type` / `kernel_down_type`.
+    fn cross_rate_kernel_state_type(&self, edge: &EdgeRate) -> Option<TokenStream> {
+        let conn = &self.connections[edge.edge_index];
+        let (src_path, src_marker) = self.endpoint_marker_tokens(&conn.source)?;
+        let (dst_path, dst_marker) = self.endpoint_marker_tokens(&conn.dest)?;
+        let (factor, dir, policy) = match edge.kernel {
+            EdgeKernel::Up { factor, kind } => (
+                factor,
+                quote! { ::oscen::dispatch::UpDir },
+                policy_marker_path(kind),
+            ),
+            EdgeKernel::Down { factor, kind } => (
+                factor,
+                quote! { ::oscen::dispatch::DownDir },
+                policy_marker_path(kind),
+            ),
+            _ => return None,
+        };
+        Some(quote! {
+            <() as ::oscen::dispatch::CrossRateKernel<
+                <#src_path as ::oscen::dispatch::EndpointAt<#src_marker>>::Kind,
+                <#dst_path as ::oscen::dispatch::EndpointAt<#dst_marker>>::Kind,
+                #policy,
+                #factor,
+                #dir,
+            >>::State
+        })
     }
 
     /// Generate one struct field per cross-rate stream/value connection. Each
