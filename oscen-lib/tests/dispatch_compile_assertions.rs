@@ -41,7 +41,7 @@ fn cross_rate_kernel_trait_compiles() {
 use oscen::graph::{EventInput, EventOutput, StreamInput, StreamOutput, ValueInput, ValueOutput};
 use oscen::Node;
 
-#[derive(Debug, Node)]
+#[derive(Debug, Default, Node)]
 pub struct DispatchTestNode {
     pub stream_in: StreamInput,
     pub stream_out: StreamOutput,
@@ -53,14 +53,7 @@ pub struct DispatchTestNode {
 
 impl DispatchTestNode {
     pub fn new() -> Self {
-        Self {
-            stream_in: StreamInput::default(),
-            stream_out: StreamOutput::default(),
-            value_in: ValueInput::default(),
-            value_out: ValueOutput::default(),
-            event_in: EventInput::default(),
-            event_out: EventOutput::default(),
-        }
+        Self::default()
     }
 
     fn on_event_in(&mut self, _event: &oscen::graph::EventInstance) {}
@@ -89,7 +82,7 @@ fn derive_emits_endpoint_at_impls() {
     assert_kind::<DispatchTestNode, DispatchTestNode__event_out__Ep, EventKind>();
 }
 
-#[derive(Debug, Node)]
+#[derive(Debug, Default, Node)]
 pub struct DispatchTestVoiceAllocator {
     #[input(event)]
     pub note_on: EventInput,
@@ -99,10 +92,7 @@ pub struct DispatchTestVoiceAllocator {
 
 impl DispatchTestVoiceAllocator {
     pub fn new() -> Self {
-        Self {
-            note_on: EventInput::default(),
-            voices: std::array::from_fn(|_| EventOutput::default()),
-        }
+        Self::default()
     }
 
     fn on_note_on(&mut self, _event: &oscen::graph::EventInstance) {}

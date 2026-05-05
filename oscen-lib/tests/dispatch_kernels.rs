@@ -305,8 +305,8 @@ fn value_value_down_emits_latched_value() {
 
     // 4 inner ticks with different values; last-one-wins semantics.
     let srcs = [0.1, 0.2, 0.3, 0.4_f32];
-    for inner in 0..4 {
-        let src = ValueOutput::<f32>(srcs[inner]);
+    for (inner, &v) in srcs.iter().enumerate() {
+        let src = ValueOutput::<f32>(v);
         <() as CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 4, DownDir>>::on_inner(
             &mut state, inner, &src, &mut dst,
         );
