@@ -19,11 +19,14 @@
 //!     buffer and writes the single destination sample.
 
 use crate::dispatch::{
-    CrossRateKernel, DefaultPolicy, LatchPolicy, LinearPolicy, SincIirPolicy, SincPolicy,
+    CrossRateKernel, DefaultPolicy, DownDir, LatchPolicy, LinearPolicy, SincIirPolicy, SincPolicy,
     StreamKind, UpDir,
 };
 use crate::graph::{StreamInput, StreamOutput};
-use crate::resample::{IirHalfbandUp, LatchUp, LinearUp, SincUpFir, StreamUpsampler};
+use crate::resample::{
+    IirHalfbandDown, IirHalfbandUp, LatchDown, LatchUp, LinearDown, LinearUp, SincDownFir,
+    SincUpFir, StreamDownsampler, StreamUpsampler,
+};
 
 /// Per-edge state for stream upsampling: kernel + the precomputed `[f32; N]`
 /// upsample buffer that `before_inner` fills and `on_inner` reads from.
@@ -104,6 +107,43 @@ macro_rules! impl_stream_up_all_n {
     };
 }
 
+macro_rules! impl_stream_down {
+    ($Policy:ty, $Kernel:ident, $N:literal) => {
+        impl CrossRateKernel<StreamKind, StreamKind, $Policy, $N, DownDir> for () {
+            type State = DownState<$Kernel<$N>, $N>;
+            type Src = StreamOutput<f32>;
+            type Dst = StreamInput<f32>;
+
+            #[inline]
+            fn before_inner(_state: &mut Self::State, _src: &Self::Src, _dst: &mut Self::Dst) {}
+
+            #[inline]
+            fn on_inner(
+                state: &mut Self::State,
+                inner: usize,
+                src: &Self::Src,
+                _dst: &mut Self::Dst,
+            ) {
+                state.buffer[inner] = src.0;
+            }
+
+            #[inline]
+            fn after_inner(state: &mut Self::State, _src: &Self::Src, dst: &mut Self::Dst) {
+                dst.0 = state.kernel.downsample(&state.buffer);
+            }
+        }
+    };
+}
+
+macro_rules! impl_stream_down_all_n {
+    ($Policy:ty, $Kernel:ident) => {
+        impl_stream_down!($Policy, $Kernel, 1);
+        impl_stream_down!($Policy, $Kernel, 2);
+        impl_stream_down!($Policy, $Kernel, 4);
+        impl_stream_down!($Policy, $Kernel, 8);
+    };
+}
+
 // `Default` and `Sinc` both pick the FIR sinc kernel; downstream the macro
 // distinguishes them at the `ConnectionPolicy` level even if the kernel is
 // the same today.
@@ -113,13 +153,24 @@ impl_stream_up_all_n!(SincIirPolicy, IirHalfbandUp);
 impl_stream_up_all_n!(LinearPolicy, LinearUp);
 impl_stream_up_all_n!(LatchPolicy, LatchUp);
 
-// Mark `StreamUpsampler` as used so the trait import isn't flagged when its
-// methods are reached only through the kernel's own impl.
+impl_stream_down_all_n!(DefaultPolicy, SincDownFir);
+impl_stream_down_all_n!(SincPolicy, SincDownFir);
+impl_stream_down_all_n!(SincIirPolicy, IirHalfbandDown);
+impl_stream_down_all_n!(LinearPolicy, LinearDown);
+impl_stream_down_all_n!(LatchPolicy, LatchDown);
+
+// Mark the kernel traits as used so their imports aren't flagged when their
+// methods are reached only through each kernel's own impl.
 #[allow(dead_code)]
 fn _assert_kernel_traits() {
     fn up<K: StreamUpsampler>() {}
+    fn down<K: StreamDownsampler>() {}
     up::<SincUpFir<2>>();
     up::<IirHalfbandUp<2>>();
     up::<LinearUp<2>>();
     up::<LatchUp<2>>();
+    down::<SincDownFir<2>>();
+    down::<IirHalfbandDown<2>>();
+    down::<LinearDown<2>>();
+    down::<LatchDown<2>>();
 }
