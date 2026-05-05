@@ -5,6 +5,7 @@
 //! system; `CrossRateKernel` impls map `(SrcKind, DstKind, Policy)` tuples to
 //! concrete resampler/latch/event-rescale state.
 
+pub mod event;
 pub mod stream;
 pub mod value;
 

@@ -317,3 +317,30 @@ fn value_value_down_emits_latched_value() {
     );
     assert_eq!(dst.0, 0.4, "Down direction emits last captured value");
 }
+
+#[test]
+fn event_event_up_rescales_frame_offset_by_n() {
+    use oscen::dispatch::EventKind;
+    use oscen::graph::{EventInput, EventInstance, EventOutput, EventPayload};
+
+    type K = <() as CrossRateKernel<EventKind, EventKind, DefaultPolicy, 4, UpDir>>::State;
+    let mut state: K = Default::default();
+    let mut src = EventOutput::<f32>::default();
+    src.try_push(EventInstance {
+        frame_offset: 3,
+        payload: EventPayload::scalar(1.0),
+    })
+    .unwrap();
+    let mut dst = EventInput::<f32>::default();
+
+    <() as CrossRateKernel<EventKind, EventKind, DefaultPolicy, 4, UpDir>>::before_inner(
+        &mut state, &src, &mut dst,
+    );
+
+    assert_eq!(dst.len(), 1);
+    assert_eq!(
+        dst.as_slice()[0].frame_offset,
+        12,
+        "outer offset 3 -> inner offset 3*4"
+    );
+}
