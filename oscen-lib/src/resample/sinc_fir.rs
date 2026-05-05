@@ -1,9 +1,13 @@
+use arrayvec::ArrayVec;
+
 use super::coeffs::{HALFBAND_23_CENTER, HALFBAND_23_GROUP_DELAY, HALFBAND_23_HALF};
 use super::{StreamDownsampler, StreamUpsampler};
 
 const HB_LEN: usize = 23;
 const HB_CENTER_IDX: usize = 11; // center tap index of the 23-tap filter
 const HB_PAIR_SUM: usize = HB_LEN - 1; // = 22; symmetric pair indices sum to this
+/// Max cascaded 2× stages: log2(8) = 3 covers N ∈ {1, 2, 4, 8}.
+const MAX_STAGES: usize = 3;
 
 /// One stage of 2× upsample using a 23-tap symmetric halfband FIR.
 ///
@@ -141,16 +145,18 @@ impl Halfband2xDownStage {
 /// Sinc-FIR upsampler for N ∈ {1, 2, 4, 8}. Cascades 2× halfband stages.
 #[derive(Debug, Clone)]
 pub struct SincUpFir<const N: usize> {
-    stages: Vec<Halfband2xUpStage>,
+    stages: ArrayVec<Halfband2xUpStage, MAX_STAGES>,
 }
 
 impl<const N: usize> SincUpFir<N> {
     pub fn new() -> Self {
         const_assert_pow2_le_8::<N>();
         let n_stages = (N as u32).trailing_zeros() as usize; // 0,1,2,3 for N=1,2,4,8
-        Self {
-            stages: (0..n_stages).map(|_| Halfband2xUpStage::new()).collect(),
+        let mut stages = ArrayVec::new();
+        for _ in 0..n_stages {
+            stages.push(Halfband2xUpStage::new());
         }
+        Self { stages }
     }
 }
 
@@ -201,16 +207,18 @@ impl<const N: usize> StreamUpsampler for SincUpFir<N> {
 /// Sinc-FIR downsampler for N ∈ {1, 2, 4, 8}.
 #[derive(Debug, Clone)]
 pub struct SincDownFir<const N: usize> {
-    stages: Vec<Halfband2xDownStage>,
+    stages: ArrayVec<Halfband2xDownStage, MAX_STAGES>,
 }
 
 impl<const N: usize> SincDownFir<N> {
     pub fn new() -> Self {
         const_assert_pow2_le_8::<N>();
         let n_stages = (N as u32).trailing_zeros() as usize;
-        Self {
-            stages: (0..n_stages).map(|_| Halfband2xDownStage::new()).collect(),
+        let mut stages = ArrayVec::new();
+        for _ in 0..n_stages {
+            stages.push(Halfband2xDownStage::new());
         }
+        Self { stages }
     }
 }
 
