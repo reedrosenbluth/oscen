@@ -19,7 +19,7 @@
 //! so it must be covered.
 
 use crate::dispatch::{
-    CrossRateKernel, DefaultPolicy, EventKind, LatchPolicy, LinearPolicy, SincIirPolicy,
+    CrossRateKernel, DefaultPolicy, DownDir, EventKind, LatchPolicy, LinearPolicy, SincIirPolicy,
     SincPolicy, UpDir,
 };
 use crate::graph::{EventInput, EventOutput};
@@ -79,3 +79,55 @@ impl_event_up_all_n!(LatchPolicy);
 impl_event_up_all_n!(LinearPolicy);
 impl_event_up_all_n!(SincPolicy);
 impl_event_up_all_n!(SincIirPolicy);
+
+// ----------------------------------------------------------------------------
+// Down: inner -> outer. Divide frame_offset by N. Drain runs in after_inner so
+// that any events pushed into `src` during inner ticks are seen by the rescale.
+// ----------------------------------------------------------------------------
+
+macro_rules! impl_event_down {
+    ($Policy:ty, $N:literal) => {
+        impl CrossRateKernel<EventKind, EventKind, $Policy, $N, DownDir> for () {
+            type State = EventRescaleState;
+            type Src = EventOutput<f32>;
+            type Dst = EventInput<f32>;
+
+            #[inline]
+            fn before_inner(_state: &mut Self::State, _src: &Self::Src, _dst: &mut Self::Dst) {}
+
+            #[inline]
+            fn on_inner(
+                _state: &mut Self::State,
+                _inner: usize,
+                _src: &Self::Src,
+                _dst: &mut Self::Dst,
+            ) {
+            }
+
+            #[inline]
+            fn after_inner(_state: &mut Self::State, src: &Self::Src, dst: &mut Self::Dst) {
+                dst.clear();
+                for ev in src.iter() {
+                    let mut ev = ev.clone();
+                    ev.frame_offset /= $N;
+                    let _ = dst.try_push(ev);
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_event_down_all_n {
+    ($Policy:ty) => {
+        impl_event_down!($Policy, 1);
+        impl_event_down!($Policy, 2);
+        impl_event_down!($Policy, 4);
+        impl_event_down!($Policy, 8);
+    };
+}
+
+impl_event_down_all_n!(DefaultPolicy);
+impl_event_down_all_n!(LatchPolicy);
+impl_event_down_all_n!(LinearPolicy);
+impl_event_down_all_n!(SincPolicy);
+impl_event_down_all_n!(SincIirPolicy);
