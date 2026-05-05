@@ -1,6 +1,7 @@
 extern crate self as oscen;
 
 pub mod delay;
+pub mod dispatch;
 pub mod envelope;
 pub mod event_passthrough;
 pub mod filters;
@@ -20,6 +21,7 @@ mod multi_channel_test;
 
 // Re-export everything from each module to make it easy for consumers
 pub use delay::*;
+pub use dispatch::*;
 pub use envelope::*;
 pub use event_passthrough::*;
 pub use filters::iir_lowpass::*;
