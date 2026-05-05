@@ -324,3 +324,112 @@ fn iir_hb_down_no_denormals_after_silence() {
 
     assert_eq!(y, 0.0_f32, "downsample output = {y} after silence (expected exact 0.0)");
 }
+
+#[test]
+fn sinc_fir_passband_flat_n4() {
+    // 2-stage sinc-FIR cascade round-trip. The 2-stage cascade accumulates
+    // passband ripple, so we use f=0.05 (safely within passband) and a wider
+    // threshold than the N=2 test.
+    // Observed max_err ≈ 0.156; threshold 0.25 leaves ~1.6× margin.
+    // A stage-indexing regression (wrong stage applied) produces max_err ≈ 1.0.
+    let mut up = SincUpFir::<4>::new();
+    let mut down = SincDownFir::<4>::new();
+    let mut buf = [0.0_f32; 4];
+    let f = 0.05_f32;
+    let mut max_err = 0.0_f32;
+    let total = 1024;
+    let warmup = 128;
+    // Both latencies are at the high (4×) rate; divide by N to get source-rate lag.
+    let up_lat = SincUpFir::<4>::new().latency_samples();
+    let down_lat = SincDownFir::<4>::new().latency_samples();
+    let lag = (up_lat + down_lat) / 4;
+    for n in 0..total {
+        let x = (2.0 * std::f32::consts::PI * f * n as f32).sin();
+        up.upsample(x, &mut buf);
+        let y = down.downsample(&buf);
+        if n > warmup && n >= lag {
+            let expected = (2.0 * std::f32::consts::PI * f * (n - lag) as f32).sin();
+            max_err = max_err.max((y - expected).abs());
+        }
+    }
+    assert!(max_err < 0.25, "sinc_fir N=4 max passband error = {max_err}");
+}
+
+#[test]
+fn sinc_fir_passband_flat_n8() {
+    // 3-stage sinc-FIR cascade round-trip.
+    // Observed max_err ≈ 0.078; threshold 0.25 leaves >3× margin.
+    let mut up = SincUpFir::<8>::new();
+    let mut down = SincDownFir::<8>::new();
+    let mut buf = [0.0_f32; 8];
+    let f = 0.05_f32;
+    let mut max_err = 0.0_f32;
+    let total = 1024;
+    let warmup = 128;
+    let up_lat = SincUpFir::<8>::new().latency_samples();
+    let down_lat = SincDownFir::<8>::new().latency_samples();
+    let lag = (up_lat + down_lat) / 8;
+    for n in 0..total {
+        let x = (2.0 * std::f32::consts::PI * f * n as f32).sin();
+        up.upsample(x, &mut buf);
+        let y = down.downsample(&buf);
+        if n > warmup && n >= lag {
+            let expected = (2.0 * std::f32::consts::PI * f * (n - lag) as f32).sin();
+            max_err = max_err.max((y - expected).abs());
+        }
+    }
+    assert!(max_err < 0.25, "sinc_fir N=8 max passband error = {max_err}");
+}
+
+#[test]
+fn iir_hb_passband_flat_n4() {
+    // 2-stage IIR halfband cascade round-trip. Low f=0.03 stays deep in the
+    // passband. Observed max_err ≈ 0.030; threshold 0.1 leaves >3× margin.
+    // A stage-indexing regression produces max_err ≈ 0.5–1.0.
+    let mut up = IirHalfbandUp::<4>::new();
+    let mut down = IirHalfbandDown::<4>::new();
+    let mut buf = [0.0_f32; 4];
+    let f = 0.03_f32;
+    let mut max_err = 0.0_f32;
+    let total = 1024;
+    let warmup = 256;
+    let up_lat = IirHalfbandUp::<4>::new().latency_samples();
+    let down_lat = IirHalfbandDown::<4>::new().latency_samples();
+    let lag = (up_lat + down_lat) / 4;
+    for n in 0..total {
+        let x = (2.0 * std::f32::consts::PI * f * n as f32).sin();
+        up.upsample(x, &mut buf);
+        let y = down.downsample(&buf);
+        if n > warmup && n >= lag {
+            let expected = (2.0 * std::f32::consts::PI * f * (n - lag) as f32).sin();
+            max_err = max_err.max((y - expected).abs());
+        }
+    }
+    assert!(max_err < 0.1, "iir_hb N=4 max passband error = {max_err}");
+}
+
+#[test]
+fn iir_hb_passband_flat_n8() {
+    // 3-stage IIR halfband cascade round-trip.
+    // Observed max_err ≈ 0.059; threshold 0.15 leaves ~2.5× margin.
+    let mut up = IirHalfbandUp::<8>::new();
+    let mut down = IirHalfbandDown::<8>::new();
+    let mut buf = [0.0_f32; 8];
+    let f = 0.03_f32;
+    let mut max_err = 0.0_f32;
+    let total = 1024;
+    let warmup = 256;
+    let up_lat = IirHalfbandUp::<8>::new().latency_samples();
+    let down_lat = IirHalfbandDown::<8>::new().latency_samples();
+    let lag = (up_lat + down_lat) / 8;
+    for n in 0..total {
+        let x = (2.0 * std::f32::consts::PI * f * n as f32).sin();
+        up.upsample(x, &mut buf);
+        let y = down.downsample(&buf);
+        if n > warmup && n >= lag {
+            let expected = (2.0 * std::f32::consts::PI * f * (n - lag) as f32).sin();
+            max_err = max_err.max((y - expected).abs());
+        }
+    }
+    assert!(max_err < 0.15, "iir_hb N=8 max passband error = {max_err}");
+}
