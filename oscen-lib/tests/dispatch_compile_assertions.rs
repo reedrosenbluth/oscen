@@ -88,3 +88,44 @@ fn derive_emits_endpoint_at_impls() {
     assert_kind::<DispatchTestNode, DispatchTestNode__event_in__Ep, EventKind>();
     assert_kind::<DispatchTestNode, DispatchTestNode__event_out__Ep, EventKind>();
 }
+
+#[derive(Debug, Node)]
+pub struct DispatchTestVoiceAllocator {
+    #[input(event)]
+    pub note_on: EventInput,
+    #[output(event)]
+    pub voices: [EventOutput; 4],
+}
+
+impl DispatchTestVoiceAllocator {
+    pub fn new() -> Self {
+        Self {
+            note_on: EventInput::default(),
+            voices: std::array::from_fn(|_| EventOutput::default()),
+        }
+    }
+
+    fn on_note_on(&mut self, _event: &oscen::graph::EventInstance) {}
+}
+
+impl oscen::SignalProcessor for DispatchTestVoiceAllocator {
+    fn process(&mut self) {}
+}
+
+#[test]
+fn derive_maps_event_arrays_to_event_array_kind() {
+    use oscen::dispatch::{EndpointAt, EventArrayKind, EventKind};
+
+    fn assert_kind<N, M, K>()
+    where
+        N: EndpointAt<M, Kind = K>,
+    {
+    }
+
+    assert_kind::<DispatchTestVoiceAllocator, DispatchTestVoiceAllocator__note_on__Ep, EventKind>();
+    assert_kind::<
+        DispatchTestVoiceAllocator,
+        DispatchTestVoiceAllocator__voices__Ep,
+        EventArrayKind,
+    >();
+}
