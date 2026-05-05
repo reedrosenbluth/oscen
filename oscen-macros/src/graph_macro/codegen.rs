@@ -216,50 +216,6 @@ impl CodegenContext {
             iteration += 1;
 
             for conn in &self.connections {
-                // Special handling for voice array markers (like .voices)
-                // These connections indicate event routing
-                if let Some(source_node) = Self::extract_root_node(&conn.source) {
-                    if let Some(source_endpoint) = Self::extract_endpoint_field(&conn.source) {
-                        if source_endpoint == "voices" {
-                            // This is a voice array marker
-                            // Mark both source and destination as event endpoints
-                            let source_key = (source_node.to_string(), source_endpoint.to_string());
-                            if type_ctx
-                                .get_node_endpoint_type(&source_key.0, &source_key.1)
-                                .is_none()
-                            {
-                                type_ctx.register_node_endpoint(
-                                    &source_key.0,
-                                    &source_key.1,
-                                    EndpointKind::Event,
-                                );
-                                changed = true;
-                            }
-
-                            if let Some(dest_node) = Self::extract_root_node(&conn.dest) {
-                                if let Some(dest_endpoint) =
-                                    Self::extract_endpoint_field(&conn.dest)
-                                {
-                                    let dest_key =
-                                        (dest_node.to_string(), dest_endpoint.to_string());
-                                    if type_ctx
-                                        .get_node_endpoint_type(&dest_key.0, &dest_key.1)
-                                        .is_none()
-                                    {
-                                        type_ctx.register_node_endpoint(
-                                            &dest_key.0,
-                                            &dest_key.1,
-                                            EndpointKind::Event,
-                                        );
-                                        changed = true;
-                                    }
-                                }
-                            }
-                            continue; // Skip normal type inference for this connection
-                        }
-                    }
-                }
-
                 // Get source type
                 let source_type = type_ctx.infer_type(&conn.source);
 
