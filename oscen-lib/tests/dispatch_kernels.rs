@@ -167,6 +167,48 @@ fn stream_down_linear_uses_linear_down() {
 }
 
 #[test]
+fn stream_up_default_matches_sinc_up_fir_reference() {
+    // Bit-identity check: the cross-rate kernel must produce the same output
+    // as a directly-instantiated SincUpFir<4>. Proves the trait wrapping
+    // doesn't perturb DSP behavior.
+    use oscen::resample::{SincUpFir, StreamUpsampler};
+
+    type State = <() as CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 4, UpDir>>::State;
+    let mut state: State = Default::default();
+
+    let inputs = [1.0_f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    let mut cross_out = Vec::with_capacity(inputs.len() * 4);
+
+    for &x in &inputs {
+        let src = StreamOutput::<f32>(x);
+        let mut dst = StreamInput::<f32>::default();
+        <() as CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 4, UpDir>>::before_inner(
+            &mut state, &src, &mut dst,
+        );
+        for inner in 0..4 {
+            <() as CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 4, UpDir>>::on_inner(
+                &mut state, inner, &src, &mut dst,
+            );
+            cross_out.push(dst.0);
+        }
+    }
+
+    let mut reference = SincUpFir::<4>::new();
+    let mut ref_full = Vec::with_capacity(inputs.len() * 4);
+    let mut buf = [0.0_f32; 4];
+    for &x in &inputs {
+        reference.upsample(x, &mut buf);
+        ref_full.extend_from_slice(&buf);
+    }
+
+    assert_eq!(cross_out.len(), ref_full.len());
+    for (i, (a, b)) in cross_out.iter().zip(ref_full.iter()).enumerate() {
+        let diff = (a - b).abs();
+        assert!(diff < 1e-6, "sample {i}: cross={a}, ref={b}, diff={diff}");
+    }
+}
+
+#[test]
 fn stream_down_latch_uses_latch_down() {
     type S = <() as CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 2, DownDir>>::State;
     let mut state: S = Default::default();
