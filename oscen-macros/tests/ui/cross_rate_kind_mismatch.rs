@@ -1,3 +1,5 @@
+#![feature(inherent_associated_types)]
+
 use oscen::graph::{EventOutput, StreamInput};
 use oscen::{graph, Node, SignalProcessor};
 

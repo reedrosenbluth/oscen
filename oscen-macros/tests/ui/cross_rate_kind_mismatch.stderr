@@ -1,12 +1,35 @@
-error[E0277]: the trait bound `(): ConnectEndpoints<EventOutput, f32>` is not satisfied
-  --> tests/ui/cross_rate_kind_mismatch.rs:34:1
+warning: the feature `inherent_associated_types` is incomplete and may not be safe to use and/or cause compiler crashes
+ --> tests/ui/cross_rate_kind_mismatch.rs:1:12
+  |
+1 | #![feature(inherent_associated_types)]
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: see issue #8995 <https://github.com/rust-lang/rust/issues/8995> for more information
+  = note: `#[warn(incomplete_features)]` on by default
+
+warning: associated type `gate__Ep` should have an upper camel case name
+ --> tests/ui/cross_rate_kind_mismatch.rs:8:9
+  |
+8 |     pub gate: EventOutput,
+  |         ^^^^ help: convert the identifier to upper camel case: `GateEp`
+  |
+  = note: `#[warn(non_camel_case_types)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: associated type `input__Ep` should have an upper camel case name
+  --> tests/ui/cross_rate_kind_mismatch.rs:23:9
    |
-34 | / graph! {
-35 | |     name: KindMismatch;
-36 | |     nodes {
-37 | |         ee = EventEmitter::new();
+23 |     pub input: StreamInput,
+   |         ^^^^^ help: convert the identifier to upper camel case: `InputEp`
+
+error[E0277]: the trait bound `(): ConnectEndpoints<EventOutput, f32>` is not satisfied
+  --> tests/ui/cross_rate_kind_mismatch.rs:36:1
+   |
+36 | / graph! {
+37 | |     name: KindMismatch;
+38 | |     nodes {
+39 | |         ee = EventEmitter::new();
 ...  |
-43 | | }
+45 | | }
    | |_^ the trait `ConnectEndpoints<EventOutput, f32>` is not implemented for `()`
    |
    = help: the following other types implement trait `ConnectEndpoints<Src, Dst>`:
