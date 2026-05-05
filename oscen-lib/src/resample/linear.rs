@@ -42,6 +42,7 @@ impl<const N: usize> StreamUpsampler for LinearUp<N> {
 /// Returns the arithmetic mean of the N source samples (a moving-average box
 /// filter equivalent to a 1st-order linear interpolator at the dest grid).
 /// Group delay is (N-1)/2 source samples (symmetric N-tap moving average).
+/// Reported as `usize`, so even N truncates (e.g. N=2 → 0, true value 0.5).
 #[derive(Debug, Clone, Default)]
 pub struct LinearDown<const N: usize>;
 

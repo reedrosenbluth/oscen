@@ -98,11 +98,31 @@ fn linear_up_latency_is_n_dest_samples() {
 }
 
 #[test]
-fn linear_down_latency_is_half_n() {
+fn linear_down_latency_is_symmetric_group_delay() {
     // N-tap moving average: group delay = (N-1)/2 source samples (integer division).
     assert_eq!(LinearDown::<2>::new().latency_samples(), 0); // (2-1)/2 = 0
     assert_eq!(LinearDown::<4>::new().latency_samples(), 1); // (4-1)/2 = 1
     assert_eq!(LinearDown::<8>::new().latency_samples(), 3); // (8-1)/2 = 3
+}
+
+#[test]
+fn linear_up_impulse_peak_matches_latency() {
+    // Behavioral check: dest-rate impulse peak position must equal latency_samples().
+    // Survives formula refactors that pure-int assertions would miss.
+    let mut up = LinearUp::<4>::new();
+    let mut buf = [0.0_f32; 4];
+    let mut response = Vec::new();
+    up.upsample(1.0, &mut buf);
+    response.extend_from_slice(&buf);
+    up.upsample(0.0, &mut buf);
+    response.extend_from_slice(&buf);
+    let peak_idx = response
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+        .unwrap()
+        .0;
+    assert_eq!(peak_idx, LinearUp::<4>::new().latency_samples());
 }
 
 #[test]
@@ -386,6 +406,9 @@ fn iir_hb_passband_flat_n4() {
     // 2-stage IIR halfband cascade round-trip. Low f=0.03 stays deep in the
     // passband. Observed max_err ≈ 0.030; threshold 0.1 leaves >3× margin.
     // A stage-indexing regression produces max_err ≈ 0.5–1.0.
+    // Cascade STAGE order is LTI-commutative; this test catches polyphase
+    // (prev_odd_in / branch routing) bugs, not stage swaps. (Verified by
+    // setting `let mut b = 0.0;` in step_down → max_err 0.75/0.88 vs ~0.03/0.06.)
     let mut up = IirHalfbandUp::<4>::new();
     let mut down = IirHalfbandDown::<4>::new();
     let mut buf = [0.0_f32; 4];
