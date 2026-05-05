@@ -76,12 +76,7 @@ pub trait CrossRateKernel<SrcKind, DstKind, Policy, const N: u32, Dir> {
 
     fn before_inner(state: &mut Self::State, src: &Self::Src, dst: &mut Self::Dst);
 
-    fn on_inner(
-        state: &mut Self::State,
-        inner: usize,
-        src: &Self::Src,
-        dst: &mut Self::Dst,
-    );
+    fn on_inner(state: &mut Self::State, inner: usize, src: &Self::Src, dst: &mut Self::Dst);
 
     fn after_inner(state: &mut Self::State, src: &Self::Src, dst: &mut Self::Dst);
 }

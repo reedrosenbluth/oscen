@@ -28,8 +28,11 @@ use crate::resample::{
     SincUpFir, StreamDownsampler, StreamUpsampler,
 };
 
-/// Per-edge state for stream upsampling: kernel + the precomputed `[f32; N]`
+/// Per-edge state for stream upsampling: kernel + the `[f32; N]` precomputed
 /// upsample buffer that `before_inner` fills and `on_inner` reads from.
+///
+/// Fields are `pub` for ergonomic access from macro-generated impls in this
+/// module; the struct is only constructed by `CrossRateKernel` impls.
 #[derive(Debug)]
 pub struct UpState<K, const N: usize> {
     pub kernel: K,
@@ -45,8 +48,11 @@ impl<K: Default, const N: usize> Default for UpState<K, N> {
     }
 }
 
-/// Per-edge state for stream downsampling: kernel + the captured `[f32; N]`
+/// Per-edge state for stream downsampling: kernel + the `[f32; N]` captured
 /// source-sample buffer that `on_inner` fills and `after_inner` consumes.
+///
+/// Fields are `pub` for ergonomic access from macro-generated impls in this
+/// module; the struct is only constructed by `CrossRateKernel` impls.
 #[derive(Debug)]
 pub struct DownState<K, const N: usize> {
     pub kernel: K,
@@ -158,19 +164,3 @@ impl_stream_down_all_n!(SincPolicy, SincDownFir);
 impl_stream_down_all_n!(SincIirPolicy, IirHalfbandDown);
 impl_stream_down_all_n!(LinearPolicy, LinearDown);
 impl_stream_down_all_n!(LatchPolicy, LatchDown);
-
-// Mark the kernel traits as used so their imports aren't flagged when their
-// methods are reached only through each kernel's own impl.
-#[allow(dead_code)]
-fn _assert_kernel_traits() {
-    fn up<K: StreamUpsampler>() {}
-    fn down<K: StreamDownsampler>() {}
-    up::<SincUpFir<2>>();
-    up::<IirHalfbandUp<2>>();
-    up::<LinearUp<2>>();
-    up::<LatchUp<2>>();
-    down::<SincDownFir<2>>();
-    down::<IirHalfbandDown<2>>();
-    down::<LinearDown<2>>();
-    down::<LatchDown<2>>();
-}

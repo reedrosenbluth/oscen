@@ -123,11 +123,8 @@ fn derive_maps_event_arrays_to_event_array_kind() {
     }
 
     assert_kind::<DispatchTestVoiceAllocator, DispatchTestVoiceAllocator__note_on__Ep, EventKind>();
-    assert_kind::<
-        DispatchTestVoiceAllocator,
-        DispatchTestVoiceAllocator__voices__Ep,
-        EventArrayKind,
-    >();
+    assert_kind::<DispatchTestVoiceAllocator, DispatchTestVoiceAllocator__voices__Ep, EventArrayKind>(
+    );
 }
 
 #[test]
@@ -145,8 +142,7 @@ fn cross_rate_kernel_state_types_match_table() {
         <() as CrossRateKernel<S, D, P, N, Dir>>::State: ::core::any::Any,
         Expected: ::core::any::Any,
     {
-        let s_id =
-            ::core::any::TypeId::of::<<() as CrossRateKernel<S, D, P, N, Dir>>::State>();
+        let s_id = ::core::any::TypeId::of::<<() as CrossRateKernel<S, D, P, N, Dir>>::State>();
         let e_id = ::core::any::TypeId::of::<Expected>();
         assert_eq!(s_id, e_id);
     }
