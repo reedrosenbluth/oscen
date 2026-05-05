@@ -1,3 +1,5 @@
+#![feature(inherent_associated_types)]
+
 extern crate self as oscen;
 
 pub mod delay;
