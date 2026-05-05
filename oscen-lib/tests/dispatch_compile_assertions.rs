@@ -37,3 +37,54 @@ fn cross_rate_kernel_trait_compiles() {
     {
     }
 }
+
+use oscen::graph::{EventInput, EventOutput, StreamInput, StreamOutput, ValueInput, ValueOutput};
+use oscen::Node;
+
+#[derive(Debug, Node)]
+pub struct DispatchTestNode {
+    pub stream_in: StreamInput,
+    pub stream_out: StreamOutput,
+    pub value_in: ValueInput,
+    pub value_out: ValueOutput,
+    pub event_in: EventInput,
+    pub event_out: EventOutput,
+}
+
+impl DispatchTestNode {
+    pub fn new() -> Self {
+        Self {
+            stream_in: StreamInput::default(),
+            stream_out: StreamOutput::default(),
+            value_in: ValueInput::default(),
+            value_out: ValueOutput::default(),
+            event_in: EventInput::default(),
+            event_out: EventOutput::default(),
+        }
+    }
+
+    fn on_event_in(&mut self, _event: &oscen::graph::EventInstance) {}
+}
+
+impl oscen::SignalProcessor for DispatchTestNode {
+    fn process(&mut self) {}
+}
+
+#[test]
+fn derive_emits_endpoint_at_impls() {
+    use oscen::dispatch::{EndpointAt, EventKind, StreamKind, ValueKind};
+
+    fn assert_kind<N, M, K>()
+    where
+        N: EndpointAt<M, Kind = K>,
+    {
+    }
+
+    // Marker name format: <NodeType>__<field>__Ep
+    assert_kind::<DispatchTestNode, DispatchTestNode__stream_in__Ep, StreamKind>();
+    assert_kind::<DispatchTestNode, DispatchTestNode__stream_out__Ep, StreamKind>();
+    assert_kind::<DispatchTestNode, DispatchTestNode__value_in__Ep, ValueKind>();
+    assert_kind::<DispatchTestNode, DispatchTestNode__value_out__Ep, ValueKind>();
+    assert_kind::<DispatchTestNode, DispatchTestNode__event_in__Ep, EventKind>();
+    assert_kind::<DispatchTestNode, DispatchTestNode__event_out__Ep, EventKind>();
+}
