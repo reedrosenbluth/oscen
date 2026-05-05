@@ -27,3 +27,9 @@ fn array_with_double_rate_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/array_with_double_rate.rs");
 }
+
+#[test]
+fn cross_rate_kind_mismatch_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/cross_rate_kind_mismatch.rs");
+}

@@ -1,0 +1,22 @@
+error[E0277]: the trait bound `(): ConnectEndpoints<EventOutput, f32>` is not satisfied
+  --> tests/ui/cross_rate_kind_mismatch.rs:34:1
+   |
+34 | / graph! {
+35 | |     name: KindMismatch;
+36 | |     nodes {
+37 | |         ee = EventEmitter::new();
+...  |
+43 | | }
+   | |_^ the trait `ConnectEndpoints<EventOutput, f32>` is not implemented for `()`
+   |
+   = help: the following other types implement trait `ConnectEndpoints<Src, Dst>`:
+             `()` implements `ConnectEndpoints<&f32, f32>`
+             `()` implements `ConnectEndpoints<EventInput<S>, EventInput<D>>`
+             `()` implements `ConnectEndpoints<EventOutput<S>, EventInput<D>>`
+             `()` implements `ConnectEndpoints<EventOutput<T>, arrayvec::arrayvec::ArrayVec<EventInstance, 32>>`
+             `()` implements `ConnectEndpoints<StreamOutput, f32>`
+             `()` implements `ConnectEndpoints<StreamOutput<T>, StreamInput<T>>`
+             `()` implements `ConnectEndpoints<ValueOutput, f32>`
+             `()` implements `ConnectEndpoints<ValueOutput<T>, StreamInput<T>>`
+           and $N others
+   = note: this error originates in the macro `graph` (in Nightly builds, run with -Z macro-backtrace for more info)
