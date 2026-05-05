@@ -91,9 +91,18 @@ fn linear_up_dc_passes_through_after_warmup() {
 }
 
 #[test]
-fn linear_up_latency_is_one_dest_sample() {
-    assert_eq!(LinearUp::<2>::new().latency_samples(), 1);
-    assert_eq!(LinearUp::<4>::new().latency_samples(), 1);
+fn linear_up_latency_is_n_dest_samples() {
+    assert_eq!(LinearUp::<2>::new().latency_samples(), 2);
+    assert_eq!(LinearUp::<4>::new().latency_samples(), 4);
+    assert_eq!(LinearUp::<8>::new().latency_samples(), 8);
+}
+
+#[test]
+fn linear_down_latency_is_half_n() {
+    // N-tap moving average: group delay = (N-1)/2 source samples (integer division).
+    assert_eq!(LinearDown::<2>::new().latency_samples(), 0); // (2-1)/2 = 0
+    assert_eq!(LinearDown::<4>::new().latency_samples(), 1); // (4-1)/2 = 1
+    assert_eq!(LinearDown::<8>::new().latency_samples(), 3); // (8-1)/2 = 3
 }
 
 #[test]

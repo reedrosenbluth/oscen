@@ -3,7 +3,8 @@ use super::{StreamDownsampler, StreamUpsampler};
 /// Linear-interpolation upsampler.
 ///
 /// Produces N output samples linearly interpolated between the previous and
-/// current source samples. Adds 1 destination-sample of group delay.
+/// current source samples. Adds N destination-samples of group delay (the
+/// impulse-response peak lands at dest-rate index N).
 #[derive(Debug, Clone, Default)]
 pub struct LinearUp<const N: usize> {
     prev: f32,
@@ -28,7 +29,7 @@ impl<const N: usize> StreamUpsampler for LinearUp<N> {
     }
     #[inline]
     fn latency_samples(&self) -> usize {
-        1
+        N
     }
     #[inline]
     fn reset(&mut self) {
@@ -40,6 +41,7 @@ impl<const N: usize> StreamUpsampler for LinearUp<N> {
 ///
 /// Returns the arithmetic mean of the N source samples (a moving-average box
 /// filter equivalent to a 1st-order linear interpolator at the dest grid).
+/// Group delay is (N-1)/2 source samples (symmetric N-tap moving average).
 #[derive(Debug, Clone, Default)]
 pub struct LinearDown<const N: usize>;
 
@@ -61,7 +63,7 @@ impl<const N: usize> StreamDownsampler for LinearDown<N> {
     }
     #[inline]
     fn latency_samples(&self) -> usize {
-        0
+        (N - 1) / 2
     }
     #[inline]
     fn reset(&mut self) {}
