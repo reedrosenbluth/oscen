@@ -878,12 +878,16 @@ pub struct TickCounter {
 
 impl TickCounter {
     pub fn new() -> Self {
-        Self { count: oscen::graph::ValueOutput(0.0) }
+        Self {
+            count: oscen::graph::ValueOutput(0.0),
+        }
     }
 }
 
 impl Default for TickCounter {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SignalProcessor for TickCounter {
@@ -934,8 +938,20 @@ fn array_node_with_embedded_rate_oversamples_each_instance() {
     // We read the raw inner counter directly (rather than going through the
     // graph output, which is a Down-rate-edge sample of the inner counter).
     let expected = (2 * k) as f32;
-    assert_eq!(*g.counters[0].counter.count, expected, "voice 0 ran wrong number of inner ticks");
-    assert_eq!(*g.counters[1].counter.count, expected, "voice 1 ran wrong number of inner ticks");
-    assert_eq!(*g.counters[2].counter.count, expected, "voice 2 ran wrong number of inner ticks");
-    assert_eq!(*g.counters[3].counter.count, expected, "voice 3 ran wrong number of inner ticks");
+    assert_eq!(
+        *g.counters[0].counter.count, expected,
+        "voice 0 ran wrong number of inner ticks"
+    );
+    assert_eq!(
+        *g.counters[1].counter.count, expected,
+        "voice 1 ran wrong number of inner ticks"
+    );
+    assert_eq!(
+        *g.counters[2].counter.count, expected,
+        "voice 2 ran wrong number of inner ticks"
+    );
+    assert_eq!(
+        *g.counters[3].counter.count, expected,
+        "voice 3 ran wrong number of inner ticks"
+    );
 }

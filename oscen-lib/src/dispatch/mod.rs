@@ -58,16 +58,12 @@ pub trait EndpointAt<Marker> {
 #[diagnostic::on_unimplemented(
     message = "no cross-rate kernel for {SrcKind} -> {DstKind} with policy {Policy}",
     note = "valid kind pairs are: (StreamKind, StreamKind), (ValueKind, ValueKind), (ValueKind, StreamKind), (EventKind, EventKind)",
-    label = "edge has no resampler",
+    label = "edge has no resampler"
 )]
 pub trait CrossRateKernel<SrcKind, DstKind, Policy, const N: u32, Dir> {
     type State: Default + Send;
 
-    fn before_inner<Src: ?Sized, Dst: ?Sized>(
-        state: &mut Self::State,
-        src: &Src,
-        dst: &mut Dst,
-    );
+    fn before_inner<Src: ?Sized, Dst: ?Sized>(state: &mut Self::State, src: &Src, dst: &mut Dst);
 
     fn on_inner<Src: ?Sized, Dst: ?Sized>(
         state: &mut Self::State,
@@ -76,9 +72,5 @@ pub trait CrossRateKernel<SrcKind, DstKind, Policy, const N: u32, Dir> {
         dst: &mut Dst,
     );
 
-    fn after_inner<Src: ?Sized, Dst: ?Sized>(
-        state: &mut Self::State,
-        src: &Src,
-        dst: &mut Dst,
-    );
+    fn after_inner<Src: ?Sized, Dst: ?Sized>(state: &mut Self::State, src: &Src, dst: &mut Dst);
 }

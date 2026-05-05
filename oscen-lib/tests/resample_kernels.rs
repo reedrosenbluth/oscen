@@ -342,7 +342,10 @@ fn iir_hb_down_no_denormals_after_silence() {
         y = down.downsample(&zeros);
     }
 
-    assert_eq!(y, 0.0_f32, "downsample output = {y} after silence (expected exact 0.0)");
+    assert_eq!(
+        y, 0.0_f32,
+        "downsample output = {y} after silence (expected exact 0.0)"
+    );
 }
 
 #[test]
@@ -372,7 +375,10 @@ fn sinc_fir_passband_flat_n4() {
             max_err = max_err.max((y - expected).abs());
         }
     }
-    assert!(max_err < 0.25, "sinc_fir N=4 max passband error = {max_err}");
+    assert!(
+        max_err < 0.25,
+        "sinc_fir N=4 max passband error = {max_err}"
+    );
 }
 
 #[test]
@@ -398,7 +404,10 @@ fn sinc_fir_passband_flat_n8() {
             max_err = max_err.max((y - expected).abs());
         }
     }
-    assert!(max_err < 0.25, "sinc_fir N=8 max passband error = {max_err}");
+    assert!(
+        max_err < 0.25,
+        "sinc_fir N=8 max passband error = {max_err}"
+    );
 }
 
 #[test]

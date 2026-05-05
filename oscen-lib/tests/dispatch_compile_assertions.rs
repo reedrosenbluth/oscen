@@ -1,6 +1,8 @@
 //! Compile-time assertions that the dispatch markers and EndpointAt projections
 //! resolve to the expected types. These never run; if they compile, they pass.
 
+#[allow(unused_imports)]
+// Used by Phase 1 tests; included here to assert presence in API surface.
 use oscen::dispatch::{
     DefaultPolicy, DownDir, EndpointAt, EventArrayKind, EventKind, LatchPolicy, LinearPolicy,
     SincIirPolicy, SincPolicy, StreamKind, UpDir, ValueKind,
