@@ -41,7 +41,7 @@ impl Allpass1 {
         let y = self.a * (x - self.y_prev) + self.x_prev;
         self.x_prev = x;
         self.y_prev = y;
-        // Denormal protection: snap very small values to zero
+        // Avoid ~100× denormal-multiply slowdown in the recursive a*y_prev term on x86.
         const DENORMAL_THRESHOLD: f32 = 1e-15;
         if self.x_prev.abs() < DENORMAL_THRESHOLD {
             self.x_prev = 0.0;

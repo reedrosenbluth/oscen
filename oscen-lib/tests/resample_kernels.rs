@@ -278,9 +278,9 @@ fn iir_hb_no_denormals_after_silence() {
         up.upsample(0.1, &mut out);
     }
 
-    // Feed exact zeros long enough for an unprotected cascade to linger in
-    // denormal range (never reaching exact zero without protection).
-    for _ in 0..10_000 {
+    // Worst-case section pole a ≈ 0.9056 → state shrinks ~9.4%/step;
+    // ~330 steps reach 1e-15 from ~0.1, so 1_000 is comfortable margin.
+    for _ in 0..1_000 {
         up.upsample(0.0, &mut out);
     }
 
@@ -292,4 +292,26 @@ fn iir_hb_no_denormals_after_silence() {
             "output[{i}] = {sample} after silence (expected exact 0.0)"
         );
     }
+}
+
+#[test]
+fn iir_hb_down_no_denormals_after_silence() {
+    // Companion to the upsampler test. IirHalfbandDown shares Allpass1::step
+    // but exercises a distinct path (step_down, prev_odd_in, 0.5*(a+b) mix).
+    let mut down = IirHalfbandDown::<8>::new();
+    let xs = [0.1_f32; 8];
+    let mut y = 0.0_f32;
+
+    // Prime the cascade with a small non-zero signal.
+    for _ in 0..100 {
+        y = down.downsample(&xs);
+    }
+
+    // Same decay analysis as the upsampler test — 1_000 calls is comfortable margin.
+    let zeros = [0.0_f32; 8];
+    for _ in 0..1_000 {
+        y = down.downsample(&zeros);
+    }
+
+    assert_eq!(y, 0.0_f32, "downsample output = {y} after silence (expected exact 0.0)");
 }
