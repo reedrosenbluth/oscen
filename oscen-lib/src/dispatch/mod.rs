@@ -6,6 +6,7 @@
 //! concrete resampler/latch/event-rescale state.
 
 pub mod stream;
+pub mod value;
 
 /// Endpoint-kind markers. Emitted by `#[derive(Node)]` as the `Kind` associated
 /// type of each endpoint's `EndpointAt` impl.

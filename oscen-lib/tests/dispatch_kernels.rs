@@ -251,3 +251,48 @@ fn stream_up_latch_uses_latch() {
         &mut state, &src, &mut dst,
     );
 }
+
+#[test]
+fn value_value_up_latches_value() {
+    use oscen::dispatch::ValueKind;
+    use oscen::graph::{ValueInput, ValueOutput};
+
+    type K = <() as CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 4, UpDir>>::State;
+    let mut state: K = Default::default();
+    let src = ValueOutput::<f32>(0.42);
+    let mut dst = ValueInput::<f32>::default();
+
+    <() as CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 4, UpDir>>::before_inner(
+        &mut state, &src, &mut dst,
+    );
+    for inner in 0..4 {
+        <() as CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 4, UpDir>>::on_inner(
+            &mut state, inner, &src, &mut dst,
+        );
+        assert_eq!(dst.0, 0.42, "all inner ticks see the latched value");
+    }
+}
+
+#[test]
+fn value_value_down_emits_latched_value() {
+    use oscen::dispatch::ValueKind;
+    use oscen::graph::{ValueInput, ValueOutput};
+
+    type K = <() as CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 4, DownDir>>::State;
+    let mut state: K = Default::default();
+    let mut dst = ValueInput::<f32>::default();
+
+    // 4 inner ticks with different values; last-one-wins semantics.
+    let srcs = [0.1, 0.2, 0.3, 0.4_f32];
+    for inner in 0..4 {
+        let src = ValueOutput::<f32>(srcs[inner]);
+        <() as CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 4, DownDir>>::on_inner(
+            &mut state, inner, &src, &mut dst,
+        );
+    }
+    let final_src = ValueOutput::<f32>(0.4);
+    <() as CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 4, DownDir>>::after_inner(
+        &mut state, &final_src, &mut dst,
+    );
+    assert_eq!(dst.0, 0.4, "Down direction emits last captured value");
+}
