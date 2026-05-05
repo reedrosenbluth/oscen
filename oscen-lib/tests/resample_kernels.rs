@@ -266,3 +266,30 @@ fn iir_hb_latency_smaller_than_fir() {
         "IIR halfband should have lower latency than FIR (got {iir} vs {fir})"
     );
 }
+
+#[test]
+fn iir_hb_no_denormals_after_silence() {
+    // Use the longest cascade (8×, 3 stages) to maximise feedback accumulation.
+    let mut up = IirHalfbandUp::<8>::new();
+    let mut out = [0.0_f32; 8];
+
+    // Prime all stage states with a small non-zero signal.
+    for _ in 0..100 {
+        up.upsample(0.1, &mut out);
+    }
+
+    // Feed exact zeros long enough for an unprotected cascade to linger in
+    // denormal range (never reaching exact zero without protection).
+    for _ in 0..10_000 {
+        up.upsample(0.0, &mut out);
+    }
+
+    // With denormal protection all state variables snap to exactly zero,
+    // so the output must be exactly 0.0.
+    for (i, &sample) in out.iter().enumerate() {
+        assert_eq!(
+            sample, 0.0_f32,
+            "output[{i}] = {sample} after silence (expected exact 0.0)"
+        );
+    }
+}
