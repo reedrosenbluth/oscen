@@ -1,6 +1,7 @@
 //! Cross-rate fan-out integration tests for rate-annotated array nodes.
 //! Exercises the four shapes (Scalar / Broadcast / FanIn / Parallel) across
 //! stream / value / event endpoints over a rate boundary.
+#![feature(inherent_associated_types)]
 
 use oscen::graph::{
     EventInput, EventInstance, EventPayload, StreamInput, StreamOutput, ValueInput, ValueOutput,

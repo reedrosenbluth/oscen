@@ -1,5 +1,6 @@
 //! Compile-time assertions that the dispatch markers and EndpointAt projections
 //! resolve to the expected types. These never run; if they compile, they pass.
+#![feature(inherent_associated_types)]
 
 #[allow(unused_imports)]
 // Used by Phase 1 tests; included here to assert presence in API surface.
@@ -213,3 +214,10 @@ fn cross_rate_kernel_state_types_match_table() {
         oscen::dispatch::stream::DownState<LatchDown<8>, 8>,
     >();
 }
+
+// Phase 2: inherent-assoc-type alias must resolve via fully-qualified path.
+// This is the projection form the graph! macro will emit.
+const _: fn() = || {
+    fn _assert_kind_is_stream<K>() where K: ::oscen::dispatch::__private_assert::IsStream {}
+    _assert_kind_is_stream::<<oscen::PolyBlepOscillator as ::oscen::dispatch::EndpointAt<<oscen::PolyBlepOscillator>::output__Ep>>::Kind>();
+};

@@ -82,3 +82,9 @@ pub trait CrossRateKernel<SrcKind, DstKind, Policy, const N: u32, Dir> {
 
     fn after_inner(state: &mut Self::State, src: &Self::Src, dst: &mut Self::Dst);
 }
+
+#[doc(hidden)]
+pub mod __private_assert {
+    pub trait IsStream {}
+    impl IsStream for super::StreamKind {}
+}

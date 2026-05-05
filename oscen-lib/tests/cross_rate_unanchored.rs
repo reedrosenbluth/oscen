@@ -4,6 +4,7 @@
 //! path silently, dropping the resampler. Post-fix (heuristic deleted): the
 //! edge classifies as Up/Down with Default policy, and the concrete-kernel
 //! emitter produces a SincUpFir/SincDownFir resampler.
+#![feature(inherent_associated_types)]
 
 use oscen::graph::{StreamInput, StreamOutput};
 use oscen::{graph, Node, SignalProcessor};

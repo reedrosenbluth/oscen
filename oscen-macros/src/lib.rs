@@ -18,6 +18,11 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     // Per-endpoint marker types and EndpointAt impls emitted alongside the inherent impl block.
     let mut endpoint_at_emissions: Vec<proc_macro2::TokenStream> = Vec::new();
 
+    // Per-endpoint inherent-assoc-type aliases. Accumulated into one inherent
+    // impl block at the end so the marker types are reachable as
+    // `<NodeType>::field__Ep` from anywhere `NodeType` is in scope.
+    let mut endpoint_assoc_alias_emissions: Vec<proc_macro2::TokenStream> = Vec::new();
+
     // Track event output fields on the node struct for clear_event_outputs() generation
     let mut node_event_output_fields: Vec<(syn::Ident, bool)> = Vec::new(); // (field_name, is_array)
 
@@ -83,6 +88,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 if let Some(kind) = primary_kind {
                     let marker_ident = format_ident!("{}__{}__Ep", name, field_name);
                     let kind_marker = kind_marker_for_attr(kind, &field_ty);
+                    let assoc_ident = format_ident!("{}__Ep", field_name);
                     endpoint_at_emissions.push(quote! {
                         #[allow(non_camel_case_types)]
                         pub struct #marker_ident;
@@ -91,6 +97,10 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         {
                             type Kind = #kind_marker;
                         }
+                    });
+                    endpoint_assoc_alias_emissions.push(quote! {
+                        #[allow(non_camel_case_types, dead_code)]
+                        pub type #assoc_ident = #marker_ident;
                     });
                 }
             }
@@ -193,6 +203,10 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         #(#endpoint_at_emissions)*
+
+        impl #impl_generics #name #ty_generics #where_clause {
+            #(#endpoint_assoc_alias_emissions)*
+        }
 
         impl #impl_generics #name #ty_generics #where_clause {
             #handle_events_method

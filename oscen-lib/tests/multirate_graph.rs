@@ -1,3 +1,4 @@
+#![feature(inherent_associated_types)]
 use oscen::graph::{EventInput, EventInstance, EventPayload, StreamInput, StreamOutput};
 use oscen::{graph, AdsrEnvelope, Node, PolyBlepOscillator, SignalProcessor};
 
