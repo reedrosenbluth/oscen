@@ -1,3 +1,5 @@
+#![feature(inherent_associated_types)]
+
 mod editor;
 pub mod fm_voice;
 pub mod nodes;

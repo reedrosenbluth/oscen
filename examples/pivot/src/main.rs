@@ -1,3 +1,5 @@
+#![feature(inherent_associated_types)]
+
 mod add_value;
 mod crossfade;
 mod fm_operator;

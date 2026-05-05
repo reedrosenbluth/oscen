@@ -1,3 +1,5 @@
+#![feature(inherent_associated_types)]
+
 mod electric_piano_voice;
 mod midi_input;
 mod tremolo;

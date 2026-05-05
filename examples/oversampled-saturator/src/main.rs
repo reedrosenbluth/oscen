@@ -1,3 +1,4 @@
+#![feature(inherent_associated_types)]
 //! Oversampled hard-clip saturator integration example.
 //!
 //! Drives a 2 kHz saw oscillator through a hard-clip non-linearity. At 1×

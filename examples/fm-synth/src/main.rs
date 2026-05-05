@@ -1,3 +1,5 @@
+#![feature(inherent_associated_types)]
+
 mod midi_input;
 
 use std::cell::Cell;

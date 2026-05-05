@@ -1,3 +1,5 @@
+#![feature(inherent_associated_types)]
+
 mod lp18_filter;
 
 use lp18_filter::LP18Filter;
