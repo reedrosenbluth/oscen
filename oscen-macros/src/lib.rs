@@ -15,6 +15,9 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut input_idents = Vec::new();
     let mut output_idents = Vec::new();
 
+    // Per-endpoint marker types and EndpointAt impls emitted alongside the inherent impl block.
+    let mut endpoint_at_emissions: Vec<proc_macro2::TokenStream> = Vec::new();
+
     // Track event output fields on the node struct for clear_event_outputs() generation
     let mut node_event_output_fields: Vec<(syn::Ident, bool)> = Vec::new(); // (field_name, is_array)
 
@@ -70,6 +73,25 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
                     output_idents.push(field_name.clone());
                     _output_idx += 1;
+                }
+
+                // Emit one marker type + EndpointAt impl per endpoint that has a known kind.
+                // A field is classified as either an input or an output (the existing walk
+                // enforces this by checking input then output) — so taking input first, then
+                // output, picks the field's actual endpoint kind.
+                let primary_kind = input_type_kind.or(output_type_kind);
+                if let Some(kind) = primary_kind {
+                    let marker_ident = format_ident!("{}__{}__Ep", name, field_name);
+                    let kind_marker = kind_marker_for_attr(kind, &field_ty);
+                    endpoint_at_emissions.push(quote! {
+                        #[allow(non_camel_case_types)]
+                        pub struct #marker_ident;
+                        impl #impl_generics ::oscen::dispatch::EndpointAt<#marker_ident>
+                            for #name #ty_generics #where_clause
+                        {
+                            type Kind = #kind_marker;
+                        }
+                    });
                 }
             }
         }
@@ -170,6 +192,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
+        #(#endpoint_at_emissions)*
+
         impl #impl_generics #name #ty_generics #where_clause {
             #handle_events_method
 
@@ -190,6 +214,20 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
 fn parse_endpoint_attr(attr: &syn::Attribute) -> Option<EndpointTypeAttr> {
     attr.parse_args::<EndpointTypeAttr>().ok()
+}
+
+fn kind_marker_for_attr(kind: EndpointTypeAttr, ty: &syn::Type) -> proc_macro2::TokenStream {
+    // Array-of-events maps to EventArrayKind; otherwise the scalar kind.
+    if matches!(kind, EndpointTypeAttr::Event) {
+        if let syn::Type::Array(_) = ty {
+            return quote! { ::oscen::dispatch::EventArrayKind };
+        }
+    }
+    match kind {
+        EndpointTypeAttr::Stream => quote! { ::oscen::dispatch::StreamKind },
+        EndpointTypeAttr::Value => quote! { ::oscen::dispatch::ValueKind },
+        EndpointTypeAttr::Event => quote! { ::oscen::dispatch::EventKind },
+    }
 }
 
 fn detect_input_kind_from_type(ty: &syn::Type) -> Option<EndpointTypeAttr> {
