@@ -1,5 +1,5 @@
 #![feature(inherent_associated_types)]
-use oscen::graph::{EventInput, EventInstance, EventPayload, StreamInput, StreamOutput};
+use oscen::graph::{EventInput, EventInstance, EventPayload, StreamInput, StreamOutput, ValueInput, ValueOutput};
 use oscen::{graph, AdsrEnvelope, Node, PolyBlepOscillator, SignalProcessor};
 
 /// Simple symmetric hard-clipper used by the aliasing-reduction test below.
@@ -946,4 +946,77 @@ fn projection_fires_on_bare_ident_node_type() {
     let mut g = ProjectionFires::new();
     g.init(48_000.0);
     g.process_block(64);
+}
+
+// ---------------------------------------------------------------------------
+// Value cross-rate test: a node-to-node ValueOutput -> ValueInput edge with
+// the inner side at *4 should latch the source's outer-rate value across all
+// 4 inner ticks. Exercises the concrete `LatchUp` fallback path (kind-gating
+// keeps value cross-rate edges off the projected path).
+
+#[derive(Debug, Default, Node)]
+pub struct ValueRamp {
+    pub out: ValueOutput,
+    counter: f32,
+}
+
+impl SignalProcessor for ValueRamp {
+    #[inline(always)]
+    fn process(&mut self) {
+        self.counter += 1.0;
+        *self.out = self.counter;
+    }
+}
+
+#[derive(Debug, Default, Node)]
+pub struct ValueEcho {
+    pub in_v: ValueInput,
+    pub out: StreamOutput,
+}
+
+impl SignalProcessor for ValueEcho {
+    #[inline(always)]
+    fn process(&mut self) {
+        *self.out = *self.in_v;
+    }
+}
+
+graph! {
+    name: ValueCrossRateLatch;
+    output stream audio_out;
+    nodes {
+        src = ValueRamp::default();
+        sink = ValueEcho::default() * 4;
+    }
+    connections {
+        [latch] src.out -> sink.in_v;
+        [latch] sink.out -> audio_out;
+    }
+}
+
+#[test]
+fn value_cross_rate_latches_across_inner_ticks() {
+    let mut g = ValueCrossRateLatch::new();
+    g.init(48_000.0);
+    g.process_block(4);
+    let out = &g.audio_out_block[..4];
+    // Each outer tick: src increments its counter and writes it to out (a
+    // ValueOutput).  The [latch] src.out -> sink.in_v edge latches that value
+    // into all 4 inner ticks.  ValueEcho echoes its ValueInput to its
+    // StreamOutput every inner tick, so all 4 inner samples equal the latched
+    // value.  The [latch] sink.out -> audio_out edge (LatchDown<4>) takes the
+    // first inner sample per outer tick, which is the latched value.
+    //
+    // audio_out_block is indexed by OUTER frame (one entry per outer tick):
+    //   outer 0: src.counter = 1.0  → audio_out_block[0] = 1.0
+    //   outer 1: src.counter = 2.0  → audio_out_block[1] = 2.0
+    //   outer 2: src.counter = 3.0  → audio_out_block[2] = 3.0
+    //   outer 3: src.counter = 4.0  → audio_out_block[3] = 4.0
+    for (i, &v) in out.iter().enumerate() {
+        let expected = (i + 1) as f32;
+        assert!(
+            (v - expected).abs() < 1e-6,
+            "outer tick {i}: expected {expected}, got {v}"
+        );
+    }
 }
