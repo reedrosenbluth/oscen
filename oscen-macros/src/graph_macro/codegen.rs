@@ -1071,28 +1071,6 @@ impl CodegenContext {
     /// for connections whose `EdgeKernel` matches `keep`. Connection-index
     /// alignment with `RateAnalysis::edges` is preserved by enumerating
     /// `self.connections` in order.
-    ///
-    /// TODO(multirate-events): cross-rate event edges (i.e. an event endpoint
-    /// connected from a `Same`-rate source to a `* N` destination, or vice
-    /// versa) are forced to `EdgeKernel::None` by `rate_analysis::analyze` —
-    /// the `StreamUpsampler` / `StreamDownsampler` kernels emitted on the
-    /// cross-rate path don't type-check against `StaticEventQueue`, and the
-    /// macro doesn't yet know endpoint kinds at codegen time to dispatch a
-    /// different kernel. As a result, those edges flow through this same-rate
-    /// `ConnectEndpoints::connect` dispatch and `EventInstance::frame_offset`
-    /// is **not** rescaled across the rate boundary. Events scheduled at
-    /// `frame_offset == 0` (the common case after `process_block`'s sub-block
-    /// split) are still delivered correctly because the inner loop runs
-    /// `process_event_inputs()` once per outer tick on the outer-rate
-    /// boundary; events at non-zero offsets fire at the wrong inner tick.
-    /// Implementing rescaling requires either (a) threading endpoint-kind
-    /// metadata into this codegen path, or (b) adding a `ConnectEndpointsRescaled`
-    /// trait variant. Tracked as Phase 5 Task 5.1 in the multi-rate plan and
-    /// in the "Known Limitations" section of the multi-rate design spec.
-    /// Currently this also implies node-to-node cross-rate event edges (with
-    /// no graph-level event endpoint involved) are *not* rerouted to the
-    /// same-rate path — they still fail to compile as the cross-rate path
-    /// emits `StreamUpsampler` calls for them.
     fn generate_connection_assignments_for_node_filtered<F>(
         &self,
         node_name: &syn::Ident,
