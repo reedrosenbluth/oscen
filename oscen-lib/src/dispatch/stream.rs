@@ -18,9 +18,12 @@
 //!   - `after_inner` calls [`StreamDownsampler::downsample`] on the captured
 //!     buffer and writes the single destination sample.
 
-use crate::dispatch::{CrossRateKernel, DefaultPolicy, SincPolicy, StreamKind, UpDir};
+use crate::dispatch::{
+    CrossRateKernel, DefaultPolicy, LatchPolicy, LinearPolicy, SincIirPolicy, SincPolicy,
+    StreamKind, UpDir,
+};
 use crate::graph::{StreamInput, StreamOutput};
-use crate::resample::{SincUpFir, StreamUpsampler};
+use crate::resample::{IirHalfbandUp, LatchUp, LinearUp, SincUpFir, StreamUpsampler};
 
 /// Per-edge state for stream upsampling: kernel + the precomputed `[f32; N]`
 /// upsample buffer that `before_inner` fills and `on_inner` reads from.
@@ -106,6 +109,9 @@ macro_rules! impl_stream_up_all_n {
 // the same today.
 impl_stream_up_all_n!(DefaultPolicy, SincUpFir);
 impl_stream_up_all_n!(SincPolicy, SincUpFir);
+impl_stream_up_all_n!(SincIirPolicy, IirHalfbandUp);
+impl_stream_up_all_n!(LinearPolicy, LinearUp);
+impl_stream_up_all_n!(LatchPolicy, LatchUp);
 
 // Mark `StreamUpsampler` as used so the trait import isn't flagged when its
 // methods are reached only through the kernel's own impl.
@@ -113,4 +119,7 @@ impl_stream_up_all_n!(SincPolicy, SincUpFir);
 fn _assert_kernel_traits() {
     fn up<K: StreamUpsampler>() {}
     up::<SincUpFir<2>>();
+    up::<IirHalfbandUp<2>>();
+    up::<LinearUp<2>>();
+    up::<LatchUp<2>>();
 }
