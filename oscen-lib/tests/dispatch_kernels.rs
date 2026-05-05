@@ -274,6 +274,27 @@ fn value_value_up_latches_value() {
 }
 
 #[test]
+fn value_to_stream_up_broadcasts_value() {
+    use oscen::dispatch::{StreamKind, ValueKind};
+    use oscen::graph::{StreamInput, ValueOutput};
+
+    type K = <() as CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 4, UpDir>>::State;
+    let mut state: K = Default::default();
+    let src = ValueOutput::<f32>(0.5);
+    let mut dst = StreamInput::<f32>::default();
+
+    <() as CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 4, UpDir>>::before_inner(
+        &mut state, &src, &mut dst,
+    );
+    for inner in 0..4 {
+        <() as CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 4, UpDir>>::on_inner(
+            &mut state, inner, &src, &mut dst,
+        );
+        assert_eq!(dst.0, 0.5);
+    }
+}
+
+#[test]
 fn value_value_down_emits_latched_value() {
     use oscen::dispatch::ValueKind;
     use oscen::graph::{ValueInput, ValueOutput};

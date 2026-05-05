@@ -5,12 +5,17 @@
 //! captures the source value once per outer tick and replays it across all `N`
 //! inner ticks; the Down direction captures inner ticks (last-one-wins) and
 //! emits the latched value at the outer-tick boundary.
+//!
+//! Two destination kinds are covered here:
+//!   - `(ValueKind, ValueKind)`: dest is `ValueInput<f32>`.
+//!   - `(ValueKind, StreamKind)`: dest is `StreamInput<f32>` — the value is
+//!     broadcast as a constant sample to a stream-rate consumer.
 
 use crate::dispatch::{
     CrossRateKernel, DefaultPolicy, DownDir, LatchPolicy, LinearPolicy, SincIirPolicy, SincPolicy,
-    UpDir, ValueKind,
+    StreamKind, UpDir, ValueKind,
 };
-use crate::graph::{ValueInput, ValueOutput};
+use crate::graph::{StreamInput, ValueInput, ValueOutput};
 
 /// Per-edge state for value latch: stores the latched `f32`.
 ///
@@ -113,3 +118,97 @@ impl_value_down_all_n!(LatchPolicy);
 impl_value_down_all_n!(LinearPolicy);
 impl_value_down_all_n!(SincPolicy);
 impl_value_down_all_n!(SincIirPolicy);
+
+// ----------------------------------------------------------------------------
+// (ValueKind, StreamKind)
+//
+// A value source feeding a stream-rate consumer: the value is broadcast as a
+// constant sample across the destination's stream ticks. Same latch state and
+// lifecycle shape as (Value, Value); only the `Dst` newtype changes.
+// ----------------------------------------------------------------------------
+
+macro_rules! impl_value_to_stream_up {
+    ($Policy:ty, $N:literal) => {
+        impl CrossRateKernel<ValueKind, StreamKind, $Policy, $N, UpDir> for () {
+            type State = ValueLatchState;
+            type Src = ValueOutput<f32>;
+            type Dst = StreamInput<f32>;
+
+            #[inline]
+            fn before_inner(state: &mut Self::State, src: &Self::Src, _dst: &mut Self::Dst) {
+                state.held = src.0;
+            }
+
+            #[inline]
+            fn on_inner(
+                state: &mut Self::State,
+                _inner: usize,
+                _src: &Self::Src,
+                dst: &mut Self::Dst,
+            ) {
+                dst.0 = state.held;
+            }
+
+            #[inline]
+            fn after_inner(_state: &mut Self::State, _src: &Self::Src, _dst: &mut Self::Dst) {}
+        }
+    };
+}
+
+macro_rules! impl_value_to_stream_up_all_n {
+    ($Policy:ty) => {
+        impl_value_to_stream_up!($Policy, 1);
+        impl_value_to_stream_up!($Policy, 2);
+        impl_value_to_stream_up!($Policy, 4);
+        impl_value_to_stream_up!($Policy, 8);
+    };
+}
+
+impl_value_to_stream_up_all_n!(DefaultPolicy);
+impl_value_to_stream_up_all_n!(LatchPolicy);
+impl_value_to_stream_up_all_n!(LinearPolicy);
+impl_value_to_stream_up_all_n!(SincPolicy);
+impl_value_to_stream_up_all_n!(SincIirPolicy);
+
+macro_rules! impl_value_to_stream_down {
+    ($Policy:ty, $N:literal) => {
+        impl CrossRateKernel<ValueKind, StreamKind, $Policy, $N, DownDir> for () {
+            type State = ValueLatchState;
+            type Src = ValueOutput<f32>;
+            type Dst = StreamInput<f32>;
+
+            #[inline]
+            fn before_inner(_state: &mut Self::State, _src: &Self::Src, _dst: &mut Self::Dst) {}
+
+            #[inline]
+            fn on_inner(
+                state: &mut Self::State,
+                _inner: usize,
+                src: &Self::Src,
+                _dst: &mut Self::Dst,
+            ) {
+                state.held = src.0;
+            }
+
+            #[inline]
+            fn after_inner(state: &mut Self::State, _src: &Self::Src, dst: &mut Self::Dst) {
+                dst.0 = state.held;
+            }
+        }
+    };
+}
+
+macro_rules! impl_value_to_stream_down_all_n {
+    ($Policy:ty) => {
+        impl_value_to_stream_down!($Policy, 1);
+        impl_value_to_stream_down!($Policy, 2);
+        impl_value_to_stream_down!($Policy, 4);
+        impl_value_to_stream_down!($Policy, 8);
+    };
+}
+
+impl_value_to_stream_down_all_n!(DefaultPolicy);
+impl_value_to_stream_down_all_n!(LatchPolicy);
+impl_value_to_stream_down_all_n!(LinearPolicy);
+impl_value_to_stream_down_all_n!(SincPolicy);
+impl_value_to_stream_down_all_n!(SincIirPolicy);
