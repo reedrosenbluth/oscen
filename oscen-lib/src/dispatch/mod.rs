@@ -5,6 +5,8 @@
 //! system; `CrossRateKernel` impls map `(SrcKind, DstKind, Policy)` tuples to
 //! concrete resampler/latch/event-rescale state.
 
+pub mod stream;
+
 /// Endpoint-kind markers. Emitted by `#[derive(Node)]` as the `Kind` associated
 /// type of each endpoint's `EndpointAt` impl.
 #[derive(Debug, Clone, Copy, Default)]
@@ -55,6 +57,13 @@ pub trait EndpointAt<Marker> {
 /// Each impl is responsible for the entire per-edge work for its kind tuple.
 /// Lifecycle phases that don't apply to a given kind are no-op'd and inlined
 /// out by the optimizer.
+///
+/// `Src` and `Dst` are associated types so each `(SrcKind, DstKind, Policy, N,
+/// Dir)` tuple commits to a concrete pair (e.g. `StreamOutput<f32>` ->
+/// `StreamInput<f32>` for stream edges). This lets impls perform concrete
+/// reads/writes without having to plumb `?Sized` generic parameters through
+/// every method — Rust forbids impls from adding `where`-clauses to
+/// trait-method generics.
 #[diagnostic::on_unimplemented(
     message = "no cross-rate kernel for {SrcKind} -> {DstKind} with policy {Policy}",
     note = "valid kind pairs are: (StreamKind, StreamKind), (ValueKind, ValueKind), (ValueKind, StreamKind), (EventKind, EventKind)",
@@ -62,15 +71,17 @@ pub trait EndpointAt<Marker> {
 )]
 pub trait CrossRateKernel<SrcKind, DstKind, Policy, const N: u32, Dir> {
     type State: Default + Send;
+    type Src: ?Sized;
+    type Dst: ?Sized;
 
-    fn before_inner<Src: ?Sized, Dst: ?Sized>(state: &mut Self::State, src: &Src, dst: &mut Dst);
+    fn before_inner(state: &mut Self::State, src: &Self::Src, dst: &mut Self::Dst);
 
-    fn on_inner<Src: ?Sized, Dst: ?Sized>(
+    fn on_inner(
         state: &mut Self::State,
         inner: usize,
-        src: &Src,
-        dst: &mut Dst,
+        src: &Self::Src,
+        dst: &mut Self::Dst,
     );
 
-    fn after_inner<Src: ?Sized, Dst: ?Sized>(state: &mut Self::State, src: &Src, dst: &mut Dst);
+    fn after_inner(state: &mut Self::State, src: &Self::Src, dst: &mut Self::Dst);
 }
