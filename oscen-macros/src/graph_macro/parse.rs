@@ -261,7 +261,10 @@ fn rate_chain_ends_in_repeat(expr: &Expr) -> bool {
         let is_rate_op = matches!(bin.op, BinOp::Mul(_) | BinOp::Div(_));
         let rhs_is_int = matches!(
             &*bin.right,
-            Expr::Lit(ExprLit { lit: Lit::Int(_), .. })
+            Expr::Lit(ExprLit {
+                lit: Lit::Int(_),
+                ..
+            })
         );
         if is_rate_op && rhs_is_int {
             cursor = &*bin.left;
@@ -283,15 +286,16 @@ fn rate_chain_ends_in_repeat(expr: &Expr) -> bool {
 ///   1. Expr::Binary(Mul|Div, lhs=Repeat, rhs=IntLit) → (inner, size, Some(rate))
 ///   2. Expr::Repeat                                  → (inner, size, None)
 ///   3. anything else                                 → (expr,  None,  None)
-fn extract_array_and_embedded_rate(
-    expr: Expr,
-) -> Result<(Expr, Option<usize>, Option<NodeRate>)> {
+fn extract_array_and_embedded_rate(expr: Expr) -> Result<(Expr, Option<usize>, Option<NodeRate>)> {
     use syn::{BinOp, ExprLit, Lit};
 
     // Helper: unwrap `Expr::Repeat` into (inner, count_opt). Caller has
     // already checked `expr` is a Repeat.
     fn unwrap_repeat(repeat: syn::ExprRepeat) -> Result<(Expr, Option<usize>)> {
-        let count = if let Expr::Lit(ExprLit { lit: Lit::Int(c), .. }) = &*repeat.len {
+        let count = if let Expr::Lit(ExprLit {
+            lit: Lit::Int(c), ..
+        }) = &*repeat.len
+        {
             Some(c.base10_parse::<usize>()?)
         } else {
             None
@@ -309,7 +313,11 @@ fn extract_array_and_embedded_rate(
         // Walk left through any Mul|Div * IntLit chain; if we land on a Repeat,
         // the user wrote multiple rate factors and we should report a conflict.
         if (is_up || is_down) && matches!(&*bin.left, Expr::Binary(_)) {
-            if let Expr::Lit(ExprLit { lit: Lit::Int(n_lit), .. }) = &*bin.right {
+            if let Expr::Lit(ExprLit {
+                lit: Lit::Int(n_lit),
+                ..
+            }) = &*bin.right
+            {
                 if rate_chain_ends_in_repeat(&bin.left) {
                     return Err(syn::Error::new(
                         n_lit.span(),
@@ -321,7 +329,11 @@ fn extract_array_and_embedded_rate(
         }
 
         if (is_up || is_down) && matches!(&*bin.left, Expr::Repeat(_)) {
-            if let Expr::Lit(ExprLit { lit: Lit::Int(n_lit), .. }) = &*bin.right {
+            if let Expr::Lit(ExprLit {
+                lit: Lit::Int(n_lit),
+                ..
+            }) = &*bin.right
+            {
                 let n: u32 = n_lit.base10_parse()?;
                 if !matches!(n, 1 | 2 | 4 | 8) {
                     return Err(syn::Error::new(
@@ -337,8 +349,12 @@ fn extract_array_and_embedded_rate(
                     NodeRate::Down(n)
                 };
                 // Re-destructure to get owned values out of `expr`.
-                let Expr::Binary(bin) = expr else { unreachable!() };
-                let Expr::Repeat(repeat) = *bin.left else { unreachable!() };
+                let Expr::Binary(bin) = expr else {
+                    unreachable!()
+                };
+                let Expr::Repeat(repeat) = *bin.left else {
+                    unreachable!()
+                };
                 let (inner, count) = unwrap_repeat(repeat)?;
                 return Ok((inner, count, Some(rate)));
             }

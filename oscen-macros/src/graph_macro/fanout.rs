@@ -46,7 +46,10 @@ mod tests {
 
     #[test]
     fn scalar_to_array_is_broadcast() {
-        assert_eq!(classify_fanout(None, Some(4)), FanoutShape::Broadcast { n: 4 });
+        assert_eq!(
+            classify_fanout(None, Some(4)),
+            FanoutShape::Broadcast { n: 4 }
+        );
     }
 
     #[test]
@@ -56,12 +59,21 @@ mod tests {
 
     #[test]
     fn equal_arrays_are_parallel() {
-        assert_eq!(classify_fanout(Some(4), Some(4)), FanoutShape::Parallel { n: 4 });
+        assert_eq!(
+            classify_fanout(Some(4), Some(4)),
+            FanoutShape::Parallel { n: 4 }
+        );
     }
 
     #[test]
     fn mismatched_arrays_truncate_to_min() {
-        assert_eq!(classify_fanout(Some(4), Some(8)), FanoutShape::Parallel { n: 4 });
-        assert_eq!(classify_fanout(Some(8), Some(4)), FanoutShape::Parallel { n: 4 });
+        assert_eq!(
+            classify_fanout(Some(4), Some(8)),
+            FanoutShape::Parallel { n: 4 }
+        );
+        assert_eq!(
+            classify_fanout(Some(8), Some(4)),
+            FanoutShape::Parallel { n: 4 }
+        );
     }
 }

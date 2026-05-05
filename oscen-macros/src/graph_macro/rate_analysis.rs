@@ -300,8 +300,8 @@ fn gcd(a: u32, b: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::fanout::FanoutShape;
+    use super::*;
     use syn::parse_quote;
 
     fn parse(src: proc_macro2::TokenStream) -> super::super::ast::GraphDef {
