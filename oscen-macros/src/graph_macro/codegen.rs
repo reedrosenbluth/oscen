@@ -100,6 +100,7 @@ pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
     // and default-policy value edges classify correctly.
     let type_ctx = ctx.validate_connections()?;
     refine_with_types(&mut ctx.rate_analysis, &ctx.connections, &type_ctx);
+    ctx.type_ctx = Some(type_ctx);
 
     // Static graphs require a name
     if let Some(name) = &graph_def.name {
@@ -121,6 +122,10 @@ struct CodegenContext {
     /// Rate analysis result. Consumed by emit methods to generate per-edge
     /// resampler fields and (in later tasks) the multi-rate inner loop.
     rate_analysis: RateAnalysis,
+    /// Type context populated after `validate_connections`. Used by
+    /// `cross_rate_kernel_state_type` to kind-gate projection: only stream/stream
+    /// edges project; value/event edges fall back to concrete kernels.
+    type_ctx: Option<TypeContext>,
 }
 
 impl CodegenContext {
@@ -132,6 +137,7 @@ impl CodegenContext {
             connections: Vec::new(),
             nih_params: false,
             rate_analysis,
+            type_ctx: None,
         }
     }
 
@@ -437,19 +443,16 @@ impl CodegenContext {
     /// Returns `Some((<NodeTypePath>, <NodeTypeName__field__Ep marker path>))`
     /// when the expression is `node.field` (or `node[i].field`) AND the node
     /// has a recorded `node_type` whose path is multi-segment. Returns `None`
-    /// for compound expressions, graph inputs/outputs, nodes whose type wasn't
-    /// recorded, or single-segment node-type paths — in which case callers
-    /// fall back to concrete `kernel_up_type` / `kernel_down_type`.
+    /// Per-endpoint marker projection. Returns `(node_type_path, marker_type_path)`
+    /// where the marker path is `<node_type>::field__Ep` — a public inherent
+    /// associated type alias emitted by `derive(Node)`. This form resolves
+    /// wherever the node type is in scope (no separate marker import needed),
+    /// which lets the `graph!` macro project through `CrossRateKernel` for
+    /// bare-ident, qualified, and generic-bracket node-type paths uniformly.
     ///
-    /// The single-segment restriction sidesteps a Phase 1 limitation: derive
-    /// (Node) emits each marker as a sibling of the node type in the same
-    /// module, but the user's import (`use oscen::PolyBlepOscillator`) brings
-    /// only the type into scope, not the marker. A multi-segment path means
-    /// the user qualified the path, so the marker is reachable as
-    /// `<prefix>::TypeName__field__Ep`. A bare single-segment ident means the
-    /// type is `use`'d but the marker may not be — in those cases we drop
-    /// back to the concrete kernel-type emission, which doesn't depend on
-    /// the marker being in scope.
+    /// Returns `None` for non-`Field(Ident, _)` / `Field(ArrayIndex(Ident), _)`
+    /// expressions (compound sources, literals, calls). Callers fall back to the
+    /// concrete-kernel emitter (`kernel_up_type` / `kernel_down_type`).
     fn endpoint_marker_tokens(&self, expr: &ConnectionExpr) -> Option<(TokenStream, TokenStream)> {
         let (node_name, field) = match expr {
             ConnectionExpr::Field(base, field) => match &**base {
@@ -467,25 +470,11 @@ impl CodegenContext {
         };
         let node = self.nodes.iter().find(|n| n.name == node_name)?;
         let path = node.node_type.as_ref()?;
-        // Only project if the user qualified the path; otherwise we can't be
-        // sure the marker is in scope at the macro use site (see doc above).
-        if path.segments.len() < 2 {
-            return None;
-        }
-        let last_seg = path.segments.last()?;
-        let type_ident = &last_seg.ident;
-        let marker_ident = syn::Ident::new(
-            &format!("{}__{}__Ep", type_ident, field),
+        let assoc_ident = syn::Ident::new(
+            &format!("{}__Ep", field),
             proc_macro2::Span::call_site(),
         );
-        // The marker type lives in the same module as the node type. Reconstruct
-        // the path: keep all segments except the last, append the marker ident.
-        let mut marker_path = path.clone();
-        if let Some(last) = marker_path.segments.last_mut() {
-            last.ident = marker_ident;
-            last.arguments = syn::PathArguments::None;
-        }
-        Some((quote! { #path }, quote! { #marker_path }))
+        Some((quote! { #path }, quote! { <#path>::#assoc_ident }))
     }
 
     /// Emit the `<() as CrossRateKernel<SrcKind, DstKind, Policy, N, Dir>>::State`
@@ -495,6 +484,20 @@ impl CodegenContext {
     /// which case callers fall back to `kernel_up_type` / `kernel_down_type`.
     fn cross_rate_kernel_state_type(&self, edge: &EdgeRate) -> Option<TokenStream> {
         let conn = &self.connections[edge.edge_index];
+        // Kind-gate: only project for stream/stream edges. Value cross-rate edges
+        // need `ValueLatchState` whose State has no `.kernel` field; the per-tick
+        // emission later uses `.kernel.upsample(...)` and would fail to compile.
+        // Value/event cross-rate edges fall back to the concrete-kernel emitter,
+        // which uses `LatchUp`/`LatchDown` (value) or dedicated event drains.
+        let type_ctx = self.type_ctx.as_ref()?;
+        let src_kind = type_ctx.infer_type(&conn.source)?;
+        let dst_kind = type_ctx.infer_type(&conn.dest)?;
+        if !matches!(
+            (src_kind, dst_kind),
+            (EndpointKind::Stream, EndpointKind::Stream)
+        ) {
+            return None;
+        }
         let (src_path, src_marker) = self.endpoint_marker_tokens(&conn.source)?;
         let (dst_path, dst_marker) = self.endpoint_marker_tokens(&conn.dest)?;
         let (factor, dir, policy) = match edge.kernel {

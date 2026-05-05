@@ -924,3 +924,26 @@ fn array_node_with_embedded_rate_oversamples_each_instance() {
         "voice 3 ran wrong number of inner ticks"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Projection-fires test. The macro must project through inherent-assoc-type
+// aliases so a bare-ident node-type path resolves the per-endpoint marker.
+// Compilation alone is the assertion.
+
+graph! {
+    name: ProjectionFires;
+    output stream out;
+    nodes {
+        osc = PolyBlepOscillator::sine(440.0, 1.0) * 4;
+    }
+    connections {
+        [sinc] osc.output -> out;
+    }
+}
+
+#[test]
+fn projection_fires_on_bare_ident_node_type() {
+    let mut g = ProjectionFires::new();
+    g.init(48_000.0);
+    g.process_block(64);
+}
