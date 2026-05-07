@@ -324,7 +324,7 @@ impl syn::parse::Parse for EndpointTypeAttr {
 pub fn graph(input: TokenStream) -> TokenStream {
     match oscen_graph_compiler::compile(input.into()) {
         Ok(ts) => ts.into(),
-        Err(err) => err.to_compile_error().into(),
+        Err(diags) => diags.into_compile_errors().into(),
     }
 }
 

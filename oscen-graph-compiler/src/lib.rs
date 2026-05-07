@@ -5,19 +5,23 @@
 
 pub mod ast;
 pub mod codegen;
+pub mod diagnostics;
 pub mod fanout;
 pub mod parse;
 pub mod rate_analysis;
 pub mod type_check;
 
+pub use diagnostics::{Diagnostic, Diagnostics, Severity};
+
 /// Compile a `graph!` body into the generated graph struct + impls.
 ///
-/// Returns the generated tokens on success, or a `syn::Error` describing
-/// the first failure. (Phase 2a wraps the existing single-error path; the
-/// `Diagnostics` boundary type is added in Task 5.)
+/// Returns the generated tokens on success; returns the accumulated
+/// diagnostics on failure. Today only a single error is ever produced
+/// per call — the `Diagnostics` shape exists so future passes can
+/// accumulate without changing the public signature.
 pub fn compile(
     input: proc_macro2::TokenStream,
-) -> Result<proc_macro2::TokenStream, syn::Error> {
-    let graph_def: ast::GraphDef = syn::parse2(input)?;
-    codegen::generate(&graph_def)
+) -> Result<proc_macro2::TokenStream, Diagnostics> {
+    let graph_def: ast::GraphDef = syn::parse2(input).map_err(Diagnostics::from)?;
+    codegen::generate(&graph_def).map_err(Diagnostics::from)
 }
