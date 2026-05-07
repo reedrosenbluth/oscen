@@ -65,6 +65,11 @@ impl Diagnostics {
     /// Collapse all contained errors into a single `compile_error!` token
     /// stream by combining them via `syn::Error::combine`. Warnings are
     /// dropped for now (Phase 2a does not produce any).
+    ///
+    /// If `self` is empty or contains only warnings, returns an empty
+    /// `TokenStream`. Callers should only return `Err(diags)` from
+    /// `compile()` when at least one error is present — otherwise the
+    /// proc-macro host sees a silent successful expansion.
     pub fn into_compile_errors(self) -> TokenStream {
         let mut combined: Option<syn::Error> = None;
         for d in self.items {
