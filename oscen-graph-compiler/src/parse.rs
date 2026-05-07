@@ -1,4 +1,4 @@
-use super::ast::*;
+use crate::ast::*;
 use syn::{
     braced, bracketed, parenthesized,
     parse::{Parse, ParseStream},

@@ -10,5 +10,6 @@ members = [
     "examples/pivot",
     "oscen-lib",
     "oscen-macros",
+    "oscen-graph-compiler",
     "xtask"
 ]

@@ -2,7 +2,6 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
-mod graph_macro;
 mod oversample_variants_macro;
 
 #[proc_macro_derive(Node, attributes(input, output))]
@@ -323,7 +322,10 @@ impl syn::parse::Parse for EndpointTypeAttr {
 /// ```
 #[proc_macro]
 pub fn graph(input: TokenStream) -> TokenStream {
-    graph_macro::graph_impl(input)
+    match oscen_graph_compiler::compile(input.into()) {
+        Ok(ts) => ts.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }
 
 /// Materialize multiple `graph!` variants from a single body, substituting an

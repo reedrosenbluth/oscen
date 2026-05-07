@@ -4729,12 +4729,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "oscen-graph-compiler"
+version = "0.2.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
+]
+
+[[package]]
 name = "oscen-macros"
 version = "0.2.0"
 dependencies = [
  "arrayvec",
  "nih_plug 0.0.0 (git+https://github.com/reedrosenbluth/nih-plug)",
  "oscen",
+ "oscen-graph-compiler",
  "proc-macro2",
  "quote",
  "syn 2.0.98",

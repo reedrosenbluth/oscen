@@ -1,8 +1,8 @@
-use super::ast::{
+use crate::ast::{
     ConnectionPolicy, ConnectionStmt, EndpointKind, GraphDef, GraphItem, NodeDecl, NodeRate,
 };
-use super::fanout::{classify_fanout, FanoutShape};
-use super::type_check::TypeContext;
+use crate::fanout::{classify_fanout, FanoutShape};
+use crate::type_check::TypeContext;
 use std::collections::HashMap;
 use syn::Result;
 
@@ -139,7 +139,7 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
 
         // Span for error reporting: prefer source ident, fall back to call_site.
         let span = match &c.source {
-            super::ast::ConnectionExpr::Ident(i) => i.span(),
+            crate::ast::ConnectionExpr::Ident(i) => i.span(),
             _ => proc_macro2::Span::call_site(),
         };
 
@@ -275,8 +275,8 @@ fn classify_edge(
 }
 
 /// Extract the root node name from a connection expression (the leftmost identifier).
-pub(super) fn root_node_name(expr: &super::ast::ConnectionExpr) -> Option<String> {
-    use super::ast::ConnectionExpr::*;
+pub(crate) fn root_node_name(expr: &crate::ast::ConnectionExpr) -> Option<String> {
+    use crate::ast::ConnectionExpr::*;
     match expr {
         Ident(i) => Some(i.to_string()),
         Field(inner, _) => root_node_name(inner),
@@ -347,7 +347,7 @@ pub(crate) fn validate_cross_rate_kinds(
             continue;
         }
         let span = match &conn.source {
-            super::ast::ConnectionExpr::Ident(i) => i.span(),
+            crate::ast::ConnectionExpr::Ident(i) => i.span(),
             _ => proc_macro2::Span::call_site(),
         };
         return Err(syn::Error::new(
@@ -365,11 +365,11 @@ pub(crate) fn validate_cross_rate_kinds(
 
 #[cfg(test)]
 mod tests {
-    use super::super::fanout::FanoutShape;
+    use crate::fanout::FanoutShape;
     use super::*;
     use syn::parse_quote;
 
-    fn parse(src: proc_macro2::TokenStream) -> super::super::ast::GraphDef {
+    fn parse(src: proc_macro2::TokenStream) -> crate::ast::GraphDef {
         syn::parse2(src).expect("parse failed")
     }
 
@@ -426,7 +426,7 @@ mod tests {
 #[cfg(test)]
 mod cross_rate_kind_tests {
     use super::is_supported_cross_rate_kinds;
-    use crate::graph_macro::ast::EndpointKind;
+    use crate::ast::EndpointKind;
 
     #[test]
     fn supported_tuples_are_supported() {

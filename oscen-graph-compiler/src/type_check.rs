@@ -1,4 +1,4 @@
-use super::ast::*;
+use crate::ast::*;
 use std::collections::HashMap;
 use syn::{Ident, Result};
 

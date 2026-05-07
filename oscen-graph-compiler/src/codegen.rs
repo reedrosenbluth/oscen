@@ -1,10 +1,10 @@
-use super::ast::*;
-use super::fanout::{classify_fanout, FanoutShape};
-use super::rate_analysis::{
+use crate::ast::*;
+use crate::fanout::{classify_fanout, FanoutShape};
+use crate::rate_analysis::{
     analyze, refine_with_types, root_node_name, validate_cross_rate_kinds, EdgeKernel, EdgeRate,
     EventRescale, RateAnalysis,
 };
-use super::type_check::TypeContext;
+use crate::type_check::TypeContext;
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::collections::HashSet;
