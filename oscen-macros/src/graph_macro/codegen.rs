@@ -524,6 +524,76 @@ impl CodegenContext {
         })
     }
 
+    /// Emit a `quote_spanned!`-spanned const-time trait-bound assertion per
+    /// cross-rate edge whose source and destination are both projectable.
+    ///
+    /// Each assertion drives `<() as CrossRateKernel<SrcKind, DstKind, Policy,
+    /// N, Dir>>` resolution through `EndpointAt`. Unsupported kind tuples fail
+    /// trait resolution; `on_unimplemented` formats the message and
+    /// `quote_spanned!` attaches the user's connection-source span so the
+    /// error points at the `->` token.
+    fn generate_kind_assertions(&self) -> Vec<TokenStream> {
+        let mut out = Vec::new();
+        for edge in &self.rate_analysis.edges {
+            let (factor, dir, policy) = match edge.kernel {
+                EdgeKernel::Up { factor, kind } => (
+                    factor,
+                    quote! { ::oscen::dispatch::UpDir },
+                    policy_marker_path(kind),
+                ),
+                EdgeKernel::Down { factor, kind } => (
+                    factor,
+                    quote! { ::oscen::dispatch::DownDir },
+                    policy_marker_path(kind),
+                ),
+                EdgeKernel::None | EdgeKernel::Event { .. } => continue,
+            };
+            let conn = &self.connections[edge.edge_index];
+            let (src_path, src_marker) = match self.endpoint_marker_tokens(&conn.source) {
+                Some(t) => t,
+                None => continue,
+            };
+            let (dst_path, dst_marker) = match self.endpoint_marker_tokens(&conn.dest) {
+                Some(t) => t,
+                None => continue,
+            };
+            // Use the source ident's span so trait-resolution errors point at
+            // the user's connection.
+            let span = match &conn.source {
+                ConnectionExpr::Ident(i) => i.span(),
+                ConnectionExpr::Field(base, _) => match &**base {
+                    ConnectionExpr::Ident(i) => i.span(),
+                    ConnectionExpr::ArrayIndex(inner, _) => {
+                        if let ConnectionExpr::Ident(i) = &**inner {
+                            i.span()
+                        } else {
+                            proc_macro2::Span::call_site()
+                        }
+                    }
+                    _ => proc_macro2::Span::call_site(),
+                },
+                _ => proc_macro2::Span::call_site(),
+            };
+            let assertion = quote::quote_spanned! { span =>
+                #[allow(non_snake_case)]
+                const _: fn() = || {
+                    fn _assert_supported<P, const __N: u32, Dir>()
+                    where
+                        (): ::oscen::dispatch::CrossRateKernel<
+                            <#src_path as ::oscen::dispatch::EndpointAt<#src_marker>>::Kind,
+                            <#dst_path as ::oscen::dispatch::EndpointAt<#dst_marker>>::Kind,
+                            P, __N, Dir,
+                        >,
+                    {
+                    }
+                    _assert_supported::<#policy, #factor, #dir>();
+                };
+            };
+            out.push(assertion);
+        }
+        out
+    }
+
     /// Generate one struct field per cross-rate stream/value connection. Each
     /// field holds a resampler kernel instance whose type is chosen by edge
     /// direction and policy. Same-rate and event edges produce no fields.
@@ -2903,6 +2973,14 @@ impl CodegenContext {
         let resampler_fields = self.generate_resampler_fields();
         let resampler_inits = self.generate_resampler_inits();
 
+        // Const-time trait-bound assertion per cross-rate edge whose source
+        // and destination are projectable. Unsupported kind tuples (e.g.
+        // Event -> Stream) fail trait resolution; `on_unimplemented` on
+        // `CrossRateKernel` formats the message and `quote_spanned!` attaches
+        // the user's connection-source span so the error points at the `->`
+        // token.
+        let kind_assertions = self.generate_kind_assertions();
+
         // For compile-time graphs, generate a static process() method
         let process_method = self.generate_static_process()?;
         let advance_one_frame_method = self.generate_advance_one_frame()?;
@@ -2939,6 +3017,8 @@ impl CodegenContext {
         };
 
         Ok(quote! {
+            #(#kind_assertions)*
+
             #[allow(dead_code)]
             #[derive(Debug)]
             pub struct #name {

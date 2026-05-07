@@ -7,6 +7,35 @@ warning: the feature `inherent_associated_types` is incomplete and may not be sa
   = note: see issue #8995 <https://github.com/rust-lang/rust/issues/8995> for more information
   = note: `#[warn(incomplete_features)]` on by default
 
+error[E0277]: no cross-rate kernel for EventKind -> StreamKind with policy DefaultPolicy
+  --> tests/ui/cross_rate_kind_mismatch.rs:36:1
+   |
+36 | / graph! {
+37 | |     name: KindMismatch;
+38 | |     nodes {
+39 | |         ee = EventEmitter::new();
+...  |
+45 | | }
+   | |_^ edge has no resampler
+   |
+   = help: the trait `CrossRateKernel<EventKind, StreamKind, DefaultPolicy, 4, UpDir>` is not implemented for `()`
+   = note: valid kind pairs are: (StreamKind, StreamKind), (ValueKind, ValueKind), (ValueKind, StreamKind), (EventKind, EventKind)
+   = help: the following other types implement trait `CrossRateKernel<SrcKind, DstKind, Policy, N, Dir>`:
+             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 1, DownDir>`
+             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 1, UpDir>`
+             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 2, DownDir>`
+             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 2, UpDir>`
+             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 4, DownDir>`
+             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 4, UpDir>`
+             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 8, DownDir>`
+             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 8, UpDir>`
+           and $N others
+note: required by a bound in `_assert_supported`
+  --> tests/ui/cross_rate_kind_mismatch.rs:43:9
+   |
+43 |         ee.gate -> ss.input;  // EventOutput -> StreamInput across rates: should not compile.
+   |         ^^ required by this bound in `_assert_supported`
+
 error[E0277]: the trait bound `(): ConnectEndpoints<EventOutput, f32>` is not satisfied
   --> tests/ui/cross_rate_kind_mismatch.rs:36:1
    |
