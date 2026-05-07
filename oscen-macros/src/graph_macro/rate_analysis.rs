@@ -298,6 +298,71 @@ fn gcd(a: u32, b: u32) -> u32 {
     }
 }
 
+/// Cross-rate edges support a fixed set of `(SrcKind, DstKind)` tuples.
+/// Anything else has no `CrossRateKernel` impl and would have produced a
+/// confusing trait-resolution error pointed at the macro block; the
+/// `graph!` macro refuses these explicitly with a span at the connection.
+pub(crate) fn is_supported_cross_rate_kinds(src: EndpointKind, dst: EndpointKind) -> bool {
+    matches!(
+        (src, dst),
+        (EndpointKind::Stream, EndpointKind::Stream)
+            | (EndpointKind::Value, EndpointKind::Value)
+            | (EndpointKind::Value, EndpointKind::Stream)
+            | (EndpointKind::Event, EndpointKind::Event)
+    )
+}
+
+fn endpoint_kind_name(kind: EndpointKind) -> &'static str {
+    match kind {
+        EndpointKind::Stream => "stream",
+        EndpointKind::Value => "value",
+        EndpointKind::Event => "event",
+    }
+}
+
+/// Walk the rate-analysis edges and return the first `syn::Error` for an
+/// unsupported cross-rate kind tuple, or `Ok(())` if all edges are valid.
+/// Edges where one or both kinds cannot be inferred from `type_ctx` are
+/// skipped — those produce errors elsewhere or are not cross-rate.
+pub(crate) fn validate_cross_rate_kinds(
+    rate_analysis: &RateAnalysis,
+    connections: &[ConnectionStmt],
+    type_ctx: &TypeContext,
+) -> syn::Result<()> {
+    for edge in &rate_analysis.edges {
+        let is_cross_rate = matches!(
+            edge.kernel,
+            EdgeKernel::Up { .. } | EdgeKernel::Down { .. }
+        );
+        if !is_cross_rate {
+            continue;
+        }
+        let conn = &connections[edge.edge_index];
+        let (src, dst) = match (type_ctx.infer_type(&conn.source), type_ctx.infer_type(&conn.dest))
+        {
+            (Some(s), Some(d)) => (s, d),
+            _ => continue,
+        };
+        if is_supported_cross_rate_kinds(src, dst) {
+            continue;
+        }
+        let span = match &conn.source {
+            super::ast::ConnectionExpr::Ident(i) => i.span(),
+            _ => proc_macro2::Span::call_site(),
+        };
+        return Err(syn::Error::new(
+            span,
+            format!(
+                "cross-rate edge from {} to {} is not supported; \
+                 insert an explicit converter node, or change one side's rate",
+                endpoint_kind_name(src),
+                endpoint_kind_name(dst),
+            ),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::fanout::FanoutShape;
@@ -355,5 +420,28 @@ mod tests {
         });
         let ra = analyze(&def).expect("analyze failed");
         assert_eq!(ra.edges[0].shape, FanoutShape::FanIn { n: 8 });
+    }
+}
+
+#[cfg(test)]
+mod cross_rate_kind_tests {
+    use super::is_supported_cross_rate_kinds;
+    use crate::graph_macro::ast::EndpointKind;
+
+    #[test]
+    fn supported_tuples_are_supported() {
+        assert!(is_supported_cross_rate_kinds(EndpointKind::Stream, EndpointKind::Stream));
+        assert!(is_supported_cross_rate_kinds(EndpointKind::Value, EndpointKind::Value));
+        assert!(is_supported_cross_rate_kinds(EndpointKind::Value, EndpointKind::Stream));
+        assert!(is_supported_cross_rate_kinds(EndpointKind::Event, EndpointKind::Event));
+    }
+
+    #[test]
+    fn unsupported_tuples_are_unsupported() {
+        assert!(!is_supported_cross_rate_kinds(EndpointKind::Event, EndpointKind::Stream));
+        assert!(!is_supported_cross_rate_kinds(EndpointKind::Stream, EndpointKind::Event));
+        assert!(!is_supported_cross_rate_kinds(EndpointKind::Stream, EndpointKind::Value));
+        assert!(!is_supported_cross_rate_kinds(EndpointKind::Event, EndpointKind::Value));
+        assert!(!is_supported_cross_rate_kinds(EndpointKind::Value, EndpointKind::Event));
     }
 }

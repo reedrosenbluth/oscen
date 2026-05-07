@@ -1,7 +1,8 @@
 use super::ast::*;
 use super::fanout::{classify_fanout, FanoutShape};
 use super::rate_analysis::{
-    analyze, refine_with_types, root_node_name, EdgeKernel, EdgeRate, EventRescale, RateAnalysis,
+    analyze, refine_with_types, root_node_name, validate_cross_rate_kinds, EdgeKernel, EdgeRate,
+    EventRescale, RateAnalysis,
 };
 use super::type_check::TypeContext;
 use proc_macro2::TokenStream;
@@ -100,6 +101,7 @@ pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
     // and default-policy value edges classify correctly.
     let type_ctx = ctx.validate_connections()?;
     refine_with_types(&mut ctx.rate_analysis, &ctx.connections, &type_ctx);
+    validate_cross_rate_kinds(&ctx.rate_analysis, &ctx.connections, &type_ctx)?;
     ctx.type_ctx = Some(type_ctx);
 
     // Static graphs require a name
