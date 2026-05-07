@@ -14,7 +14,7 @@ pub mod type_check;
 ///
 /// Returns the generated tokens on success, or a `syn::Error` describing
 /// the first failure. (Phase 2a wraps the existing single-error path; the
-/// `Diagnostics` boundary type is added in Task 4.)
+/// `Diagnostics` boundary type is added in Task 5.)
 pub fn compile(
     input: proc_macro2::TokenStream,
 ) -> Result<proc_macro2::TokenStream, syn::Error> {
