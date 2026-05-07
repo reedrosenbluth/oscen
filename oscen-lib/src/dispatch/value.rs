@@ -1,214 +1,51 @@
 //! `(ValueKind, *)` impls of [`CrossRateKernel`].
 //!
-//! Value cross-rate edges always latch (under any `[policy]` keyword the user
-//! might write — values don't have a meaningful resampler). The Up direction
-//! captures the source value once per outer tick and replays it across all `N`
-//! inner ticks; the Down direction captures inner ticks (last-one-wins) and
-//! emits the latched value at the outer-tick boundary.
+//! Type-table only. Each impl declares the per-edge `State` shape so that
+//! Phase 3's codegen const-assertion can verify `(Value, Value)` and
+//! `(Value, Stream)` cross-rate kind tuples are supported. Codegen's
+//! kind-gate keeps these edges off the `::State` projection path at
+//! runtime, so the `State` here is `()` — never queried, never read.
 //!
-//! Two destination kinds are covered here:
-//!   - `(ValueKind, ValueKind)`: dest is `ValueInput<f32>`.
-//!   - `(ValueKind, StreamKind)`: dest is `StreamInput<f32>` — the value is
-//!     broadcast as a constant sample to a stream-rate consumer.
+//! Value cross-rate edges are handled by the `kernel_up_type` /
+//! `kernel_down_type` concrete-kernel fallback in `oscen-macros`'s codegen
+//! (`LatchUp`/`LatchDown`).
 
 use crate::dispatch::{
     CrossRateKernel, DefaultPolicy, DownDir, LatchPolicy, LinearPolicy, SincIirPolicy, SincPolicy,
     StreamKind, UpDir, ValueKind,
 };
-use crate::graph::{StreamInput, ValueInput, ValueOutput};
 
-/// Per-edge state for value latch: stores the latched `f32`.
-///
-/// Field is `pub` for ergonomic access from macro-generated impls in this
-/// module; the struct is only constructed by `CrossRateKernel` impls.
-#[derive(Debug, Default)]
-pub struct ValueLatchState {
-    pub held: f32,
-}
-
-// ----------------------------------------------------------------------------
-// (ValueKind, ValueKind)
-// ----------------------------------------------------------------------------
-
-// Up: outer -> inner. Capture in before_inner, replay in on_inner.
-macro_rules! impl_value_up {
-    ($Policy:ty, $N:literal) => {
-        impl CrossRateKernel<ValueKind, ValueKind, $Policy, $N, UpDir> for () {
-            type State = ValueLatchState;
-            type Src = ValueOutput<f32>;
-            type Dst = ValueInput<f32>;
-
-            #[inline]
-            fn before_inner(state: &mut Self::State, src: &Self::Src, _dst: &mut Self::Dst) {
-                state.held = src.0;
-            }
-
-            #[inline]
-            fn on_inner(
-                state: &mut Self::State,
-                _inner: usize,
-                _src: &Self::Src,
-                dst: &mut Self::Dst,
-            ) {
-                dst.0 = state.held;
-            }
-
-            #[inline]
-            fn after_inner(_state: &mut Self::State, _src: &Self::Src, _dst: &mut Self::Dst) {}
+macro_rules! impl_value_table {
+    ($SrcKind:ty, $DstKind:ty, $Policy:ty, $N:literal, $Dir:ty) => {
+        impl CrossRateKernel<$SrcKind, $DstKind, $Policy, $N, $Dir> for () {
+            type State = ();
         }
     };
 }
 
-macro_rules! impl_value_up_all_n {
-    ($Policy:ty) => {
-        impl_value_up!($Policy, 1);
-        impl_value_up!($Policy, 2);
-        impl_value_up!($Policy, 4);
-        impl_value_up!($Policy, 8);
+macro_rules! impl_value_table_all_n {
+    ($SrcKind:ty, $DstKind:ty, $Policy:ty, $Dir:ty) => {
+        impl_value_table!($SrcKind, $DstKind, $Policy, 1, $Dir);
+        impl_value_table!($SrcKind, $DstKind, $Policy, 2, $Dir);
+        impl_value_table!($SrcKind, $DstKind, $Policy, 4, $Dir);
+        impl_value_table!($SrcKind, $DstKind, $Policy, 8, $Dir);
     };
 }
 
-impl_value_up_all_n!(DefaultPolicy);
-impl_value_up_all_n!(LatchPolicy);
-impl_value_up_all_n!(LinearPolicy);
-impl_value_up_all_n!(SincPolicy);
-impl_value_up_all_n!(SincIirPolicy);
-
-// Down: inner -> outer. Capture in on_inner (last-one-wins), emit in
-// after_inner.
-macro_rules! impl_value_down {
-    ($Policy:ty, $N:literal) => {
-        impl CrossRateKernel<ValueKind, ValueKind, $Policy, $N, DownDir> for () {
-            type State = ValueLatchState;
-            type Src = ValueOutput<f32>;
-            type Dst = ValueInput<f32>;
-
-            #[inline]
-            fn before_inner(_state: &mut Self::State, _src: &Self::Src, _dst: &mut Self::Dst) {}
-
-            #[inline]
-            fn on_inner(
-                state: &mut Self::State,
-                _inner: usize,
-                src: &Self::Src,
-                _dst: &mut Self::Dst,
-            ) {
-                state.held = src.0;
-            }
-
-            #[inline]
-            fn after_inner(state: &mut Self::State, _src: &Self::Src, dst: &mut Self::Dst) {
-                dst.0 = state.held;
-            }
-        }
+macro_rules! impl_value_table_all_policies {
+    ($SrcKind:ty, $DstKind:ty, $Dir:ty) => {
+        impl_value_table_all_n!($SrcKind, $DstKind, DefaultPolicy, $Dir);
+        impl_value_table_all_n!($SrcKind, $DstKind, LatchPolicy, $Dir);
+        impl_value_table_all_n!($SrcKind, $DstKind, LinearPolicy, $Dir);
+        impl_value_table_all_n!($SrcKind, $DstKind, SincPolicy, $Dir);
+        impl_value_table_all_n!($SrcKind, $DstKind, SincIirPolicy, $Dir);
     };
 }
 
-macro_rules! impl_value_down_all_n {
-    ($Policy:ty) => {
-        impl_value_down!($Policy, 1);
-        impl_value_down!($Policy, 2);
-        impl_value_down!($Policy, 4);
-        impl_value_down!($Policy, 8);
-    };
-}
+// (Value, Value)
+impl_value_table_all_policies!(ValueKind, ValueKind, UpDir);
+impl_value_table_all_policies!(ValueKind, ValueKind, DownDir);
 
-impl_value_down_all_n!(DefaultPolicy);
-impl_value_down_all_n!(LatchPolicy);
-impl_value_down_all_n!(LinearPolicy);
-impl_value_down_all_n!(SincPolicy);
-impl_value_down_all_n!(SincIirPolicy);
-
-// ----------------------------------------------------------------------------
-// (ValueKind, StreamKind)
-//
-// A value source feeding a stream-rate consumer: the value is broadcast as a
-// constant sample across the destination's stream ticks. Same latch state and
-// lifecycle shape as (Value, Value); only the `Dst` newtype changes.
-// ----------------------------------------------------------------------------
-
-macro_rules! impl_value_to_stream_up {
-    ($Policy:ty, $N:literal) => {
-        impl CrossRateKernel<ValueKind, StreamKind, $Policy, $N, UpDir> for () {
-            type State = ValueLatchState;
-            type Src = ValueOutput<f32>;
-            type Dst = StreamInput<f32>;
-
-            #[inline]
-            fn before_inner(state: &mut Self::State, src: &Self::Src, _dst: &mut Self::Dst) {
-                state.held = src.0;
-            }
-
-            #[inline]
-            fn on_inner(
-                state: &mut Self::State,
-                _inner: usize,
-                _src: &Self::Src,
-                dst: &mut Self::Dst,
-            ) {
-                dst.0 = state.held;
-            }
-
-            #[inline]
-            fn after_inner(_state: &mut Self::State, _src: &Self::Src, _dst: &mut Self::Dst) {}
-        }
-    };
-}
-
-macro_rules! impl_value_to_stream_up_all_n {
-    ($Policy:ty) => {
-        impl_value_to_stream_up!($Policy, 1);
-        impl_value_to_stream_up!($Policy, 2);
-        impl_value_to_stream_up!($Policy, 4);
-        impl_value_to_stream_up!($Policy, 8);
-    };
-}
-
-impl_value_to_stream_up_all_n!(DefaultPolicy);
-impl_value_to_stream_up_all_n!(LatchPolicy);
-impl_value_to_stream_up_all_n!(LinearPolicy);
-impl_value_to_stream_up_all_n!(SincPolicy);
-impl_value_to_stream_up_all_n!(SincIirPolicy);
-
-macro_rules! impl_value_to_stream_down {
-    ($Policy:ty, $N:literal) => {
-        impl CrossRateKernel<ValueKind, StreamKind, $Policy, $N, DownDir> for () {
-            type State = ValueLatchState;
-            type Src = ValueOutput<f32>;
-            type Dst = StreamInput<f32>;
-
-            #[inline]
-            fn before_inner(_state: &mut Self::State, _src: &Self::Src, _dst: &mut Self::Dst) {}
-
-            #[inline]
-            fn on_inner(
-                state: &mut Self::State,
-                _inner: usize,
-                src: &Self::Src,
-                _dst: &mut Self::Dst,
-            ) {
-                state.held = src.0;
-            }
-
-            #[inline]
-            fn after_inner(state: &mut Self::State, _src: &Self::Src, dst: &mut Self::Dst) {
-                dst.0 = state.held;
-            }
-        }
-    };
-}
-
-macro_rules! impl_value_to_stream_down_all_n {
-    ($Policy:ty) => {
-        impl_value_to_stream_down!($Policy, 1);
-        impl_value_to_stream_down!($Policy, 2);
-        impl_value_to_stream_down!($Policy, 4);
-        impl_value_to_stream_down!($Policy, 8);
-    };
-}
-
-impl_value_to_stream_down_all_n!(DefaultPolicy);
-impl_value_to_stream_down_all_n!(LatchPolicy);
-impl_value_to_stream_down_all_n!(LinearPolicy);
-impl_value_to_stream_down_all_n!(SincPolicy);
-impl_value_to_stream_down_all_n!(SincIirPolicy);
+// (Value, Stream)
+impl_value_table_all_policies!(ValueKind, StreamKind, UpDir);
+impl_value_table_all_policies!(ValueKind, StreamKind, DownDir);

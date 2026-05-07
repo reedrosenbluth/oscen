@@ -51,21 +51,21 @@ pub trait EndpointAt<Marker> {
     type Kind;
 }
 
-/// Cross-rate edge kernel. Coherence picks an impl from the
+/// Cross-rate edge state-shape table. Coherence picks an impl from the
 /// `(SrcKind, DstKind, Policy)` tuple plus the const factor `N` and direction
-/// `Dir`. The graph macro emits a `<() as CrossRateKernel<...>>::State` field
-/// per cross-rate edge and three lifecycle method calls per outer tick.
+/// `Dir`. The trait is a type-level state-shape registry consumed by:
 ///
-/// Each impl is responsible for the entire per-edge work for its kind tuple.
-/// Lifecycle phases that don't apply to a given kind are no-op'd and inlined
-/// out by the optimizer.
+/// 1. The `graph!` macro's `::State` projection — chooses the field type for
+///    each cross-rate edge's resampler state on stream/stream edges.
+/// 2. A const-time trait-bound assertion emitted by codegen per cross-rate
+///    edge — drives `on_unimplemented` to surface unsupported kind tuples
+///    with a span at the user's connection token.
 ///
-/// `Src` and `Dst` are associated types so each `(SrcKind, DstKind, Policy, N,
-/// Dir)` tuple commits to a concrete pair (e.g. `StreamOutput<f32>` ->
-/// `StreamInput<f32>` for stream edges). This lets impls perform concrete
-/// reads/writes without having to plumb `?Sized` generic parameters through
-/// every method — Rust forbids impls from adding `where`-clauses to
-/// trait-method generics.
+/// Lifecycle ordering (warmup, per-tick, finalize) is owned by the macro's
+/// codegen; per-edge work is performed by direct calls to the concrete
+/// resampler traits (`StreamUpsampler` / `StreamDownsampler`) on
+/// `state.kernel`. There is no `before_inner` / `on_inner` / `after_inner`
+/// dispatch through this trait.
 #[diagnostic::on_unimplemented(
     message = "no cross-rate kernel for {SrcKind} -> {DstKind} with policy {Policy}",
     note = "valid kind pairs are: (StreamKind, StreamKind), (ValueKind, ValueKind), (ValueKind, StreamKind), (EventKind, EventKind)",
@@ -73,14 +73,6 @@ pub trait EndpointAt<Marker> {
 )]
 pub trait CrossRateKernel<SrcKind, DstKind, Policy, const N: u32, Dir> {
     type State: Default + Send;
-    type Src: ?Sized;
-    type Dst: ?Sized;
-
-    fn before_inner(state: &mut Self::State, src: &Self::Src, dst: &mut Self::Dst);
-
-    fn on_inner(state: &mut Self::State, inner: usize, src: &Self::Src, dst: &mut Self::Dst);
-
-    fn after_inner(state: &mut Self::State, src: &Self::Src, dst: &mut Self::Dst);
 }
 
 #[doc(hidden)]
