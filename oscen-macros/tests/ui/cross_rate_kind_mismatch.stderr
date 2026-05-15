@@ -36,7 +36,7 @@ note: required by a bound in `_assert_supported`
 43 |         ee.gate -> ss.input;  // EventOutput -> StreamInput across rates: should not compile.
    |         ^^ required by this bound in `_assert_supported`
 
-error[E0277]: the trait bound `(): ConnectEndpoints<EventOutput, f32>` is not satisfied
+error[E0277]: no connection from EventOutput to f32
   --> tests/ui/cross_rate_kind_mismatch.rs:36:1
    |
 36 | / graph! {
@@ -45,8 +45,10 @@ error[E0277]: the trait bound `(): ConnectEndpoints<EventOutput, f32>` is not sa
 39 | |         ee = EventEmitter::new();
 ...  |
 45 | | }
-   | |_^ the trait `ConnectEndpoints<EventOutput, f32>` is not implemented for `()`
+   | |_^ incompatible endpoint pair
    |
+   = help: the trait `ConnectEndpoints<EventOutput, f32>` is not implemented for `()`
+   = note: supported: StreamOutput -> StreamInput/f32, ValueOutput -> ValueInput/StreamInput/f32, EventOutput -> EventInput/ArrayVec<EventInstance, 32>
    = help: the following other types implement trait `ConnectEndpoints<Src, Dst>`:
              `()` implements `ConnectEndpoints<&f32, f32>`
              `()` implements `ConnectEndpoints<EventInput<S>, EventInput<D>>`

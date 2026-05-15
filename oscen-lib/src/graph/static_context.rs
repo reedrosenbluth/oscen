@@ -30,6 +30,11 @@
 /// let mut dst = ValueInput(0.0f32);
 /// <() as ConnectEndpoints<StreamOutput<f32>, ValueInput<f32>>>::connect(&src, &mut dst);
 /// ```
+#[diagnostic::on_unimplemented(
+    message = "no connection from {Src} to {Dst}",
+    note = "supported: StreamOutput -> StreamInput/f32, ValueOutput -> ValueInput/StreamInput/f32, EventOutput -> EventInput/ArrayVec<EventInstance, 32>",
+    label = "incompatible endpoint pair"
+)]
 pub trait ConnectEndpoints<Src, Dst> {
     fn connect(src: &Src, dst: &mut Dst);
 }
