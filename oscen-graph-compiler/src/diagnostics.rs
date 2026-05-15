@@ -1,8 +1,10 @@
 //! Boundary diagnostic types for the graph compiler.
 //!
-//! Today these wrap a single `syn::Error` per compile attempt, but the
-//! `Diagnostics` shape is plural so future passes can accumulate
-//! multiple errors without breaking API consumers.
+//! `Diagnostics` accumulates `syn::Error`s across post-parse validation
+//! passes (type-check, rate analysis), then `into_compile_errors` collapses
+//! them into a `compile_error!` token stream. Parse errors and codegen
+//! errors still produce one-element `Diagnostics` since those passes bail
+//! on first error by design.
 
 use proc_macro2::TokenStream;
 
@@ -64,7 +66,7 @@ impl Diagnostics {
 
     /// Collapse all contained errors into a single `compile_error!` token
     /// stream by combining them via `syn::Error::combine`. Warnings are
-    /// dropped for now (Phase 2a does not produce any).
+    /// dropped (no caller produces them today).
     ///
     /// If `self` is empty or contains only warnings, returns an empty
     /// `TokenStream`. Callers should only return `Err(diags)` from
