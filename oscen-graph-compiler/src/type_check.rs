@@ -121,37 +121,29 @@ impl TypeContext {
         &self,
         source: &ConnectionExpr,
         dest: &ConnectionExpr,
+        span: proc_macro2::Span,
     ) -> Result<()> {
         let source_type = self.infer_type(source);
         let dest_type = self.infer_type(dest);
 
         match (source_type, dest_type) {
             (Some(src), Some(dst)) => {
-                // Check if types are compatible
                 let compatible = match (src, dst) {
-                    // Exact matches
                     (EndpointKind::Stream, EndpointKind::Stream) => true,
                     (EndpointKind::Value, EndpointKind::Value) => true,
                     (EndpointKind::Event, EndpointKind::Event) => true,
-                    // Value sources can connect to Stream destinations (constant signal)
                     (EndpointKind::Value, EndpointKind::Stream) => true,
-                    // Stream→Value is NOT allowed (use value inputs for control parameters)
-                    // Everything else is incompatible
                     _ => false,
                 };
 
                 if !compatible {
-                    // Create a descriptive error message
                     let msg = format!(
                         "Type mismatch in connection: source is {:?} but destination expects {:?}",
                         src, dst
                     );
-
-                    // Try to create a helpful error pointing to the connection
-                    return Err(syn::Error::new(proc_macro2::Span::call_site(), msg));
+                    return Err(syn::Error::new(span, msg));
                 }
             }
-            // If we can't infer types, let Rust's type system handle it
             _ => {}
         }
 

@@ -1,15 +1,8 @@
 error: v1 does not support connections between two differently-rated non-default-rate nodes; route through an outer-rate node instead
-  --> tests/ui/mixed_rates.rs:3:1
+  --> tests/ui/mixed_rates.rs:11:9
    |
- 3 | / graph! {
- 4 | |     name: BadMix;
- 5 | |     output stream out;
- 6 | |     nodes {
-...  |
-14 | | }
-   | |_^
-   |
-   = note: this error originates in the macro `graph` (in Nightly builds, run with -Z macro-backtrace for more info)
+11 |         a.output -> b.input;  // 4 -> 2: not supported in v1
+   |         ^^^^^^^^^^^^^^^^^^^
 
 warning: unused imports: `PolyBlepOscillator` and `TptFilter`
  --> tests/ui/mixed_rates.rs:1:20

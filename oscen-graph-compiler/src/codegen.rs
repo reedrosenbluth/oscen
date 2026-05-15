@@ -203,7 +203,7 @@ impl CodegenContext {
             type_ctx.validate_destination(&conn.dest)?;
 
             // Validate type compatibility (stream/value/event)
-            type_ctx.validate_connection(&conn.source, &conn.dest)?;
+            type_ctx.validate_connection(&conn.source, &conn.dest, conn.span)?;
         }
 
         Ok(type_ctx)
@@ -2313,12 +2313,8 @@ impl CodegenContext {
                 let conn = &self.connections[edge.edge_index];
                 if let Some(src) = root_node_name(&conn.source) {
                     if tainted.contains(&src) {
-                        let span = match &conn.source {
-                            ConnectionExpr::Ident(i) => i.span(),
-                            _ => proc_macro2::Span::call_site(),
-                        };
                         return Err(syn::Error::new(
-                            span,
+                            conn.span,
                             "v1 limitation: a same-rate node downstream of a downsampled (cross-rate) edge cannot itself feed an oversampled (`* N`) node — \
                              the single-pass multi-rate pipeline can't service two cross-rate boundaries chained through a same-rate intermediate. \
                              Route the oversampled side directly from the original source instead.",

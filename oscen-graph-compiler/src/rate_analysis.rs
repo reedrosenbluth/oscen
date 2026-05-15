@@ -137,13 +137,7 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
             .and_then(|n| node_rates.get(n).copied())
             .unwrap_or(NodeRate::Same);
 
-        // Span for error reporting: prefer source ident, fall back to call_site.
-        let span = match &c.source {
-            crate::ast::ConnectionExpr::Ident(i) => i.span(),
-            _ => proc_macro2::Span::call_site(),
-        };
-
-        let kernel = classify_edge(source_rate, dest_rate, c.policy, span)?;
+        let kernel = classify_edge(source_rate, dest_rate, c.policy, c.span)?;
 
         // Resolve array sizes through the same root-name keying as rates.
         // Indexed accesses (`voices[3].field`) deliberately use the array
@@ -346,12 +340,8 @@ pub(crate) fn validate_cross_rate_kinds(
         if is_supported_cross_rate_kinds(src, dst) {
             continue;
         }
-        let span = match &conn.source {
-            crate::ast::ConnectionExpr::Ident(i) => i.span(),
-            _ => proc_macro2::Span::call_site(),
-        };
         return Err(syn::Error::new(
-            span,
+            conn.span,
             format!(
                 "cross-rate edge from {} to {} is not supported; \
                  insert an explicit converter node, or change one side's rate",
