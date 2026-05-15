@@ -14,21 +14,21 @@ pub enum Severity {
 
 #[derive(Debug)]
 pub struct Diagnostic {
-    pub error: syn::Error,
+    pub message: syn::Error,
     pub severity: Severity,
 }
 
 impl Diagnostic {
     pub fn error(error: syn::Error) -> Self {
         Self {
-            error,
+            message: error,
             severity: Severity::Error,
         }
     }
 
     pub fn warning(error: syn::Error) -> Self {
         Self {
-            error,
+            message: error,
             severity: Severity::Warning,
         }
     }
@@ -75,8 +75,8 @@ impl Diagnostics {
         for d in self.items {
             if matches!(d.severity, Severity::Error) {
                 match combined.as_mut() {
-                    Some(acc) => acc.combine(d.error),
-                    None => combined = Some(d.error),
+                    Some(acc) => acc.combine(d.message),
+                    None => combined = Some(d.message),
                 }
             }
         }
