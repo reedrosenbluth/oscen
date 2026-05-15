@@ -1,0 +1,11 @@
+error: Type mismatch in connection: source is Stream but destination expects Value
+  --> tests/ui/multi_error_type_mismatch.rs:13:9
+   |
+13 |         s1 -> v_out;
+   |         ^^^^^^^^^^^
+
+error: Type mismatch in connection: source is Stream but destination expects Value
+  --> tests/ui/multi_error_type_mismatch.rs:15:9
+   |
+15 |         s2 -> v_out;
+   |         ^^^^^^^^^^^

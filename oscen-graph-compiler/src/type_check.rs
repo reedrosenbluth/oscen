@@ -1,4 +1,5 @@
 use crate::ast::*;
+use crate::Diagnostics;
 use std::collections::HashMap;
 use syn::{Ident, Result};
 
@@ -116,38 +117,37 @@ impl TypeContext {
         }
     }
 
-    /// Validate that a connection is type-safe
+    /// Validate that a connection is type-safe. Pushes a Diagnostic on
+    /// type mismatch; does not short-circuit. Unknown types (e.g., user
+    /// method calls) are silently allowed — Rust's type system catches
+    /// them at the consumer site.
     pub fn validate_connection(
         &self,
         source: &ConnectionExpr,
         dest: &ConnectionExpr,
         span: proc_macro2::Span,
-    ) -> Result<()> {
+        diags: &mut Diagnostics,
+    ) {
         let source_type = self.infer_type(source);
         let dest_type = self.infer_type(dest);
 
-        match (source_type, dest_type) {
-            (Some(src), Some(dst)) => {
-                let compatible = match (src, dst) {
-                    (EndpointKind::Stream, EndpointKind::Stream) => true,
-                    (EndpointKind::Value, EndpointKind::Value) => true,
-                    (EndpointKind::Event, EndpointKind::Event) => true,
-                    (EndpointKind::Value, EndpointKind::Stream) => true,
-                    _ => false,
-                };
+        if let (Some(src), Some(dst)) = (source_type, dest_type) {
+            let compatible = match (src, dst) {
+                (EndpointKind::Stream, EndpointKind::Stream) => true,
+                (EndpointKind::Value, EndpointKind::Value) => true,
+                (EndpointKind::Event, EndpointKind::Event) => true,
+                (EndpointKind::Value, EndpointKind::Stream) => true,
+                _ => false,
+            };
 
-                if !compatible {
-                    let msg = format!(
-                        "Type mismatch in connection: source is {:?} but destination expects {:?}",
-                        src, dst
-                    );
-                    return Err(syn::Error::new(span, msg));
-                }
+            if !compatible {
+                let msg = format!(
+                    "Type mismatch in connection: source is {:?} but destination expects {:?}",
+                    src, dst
+                );
+                diags.push_error(syn::Error::new(span, msg));
             }
-            _ => {}
         }
-
-        Ok(())
     }
 
     /// Validate that a destination expression can receive input

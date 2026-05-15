@@ -33,3 +33,15 @@ fn cross_rate_kind_mismatch_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/cross_rate_kind_mismatch.rs");
 }
+
+#[test]
+fn multi_error_type_mismatch_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/multi_error_type_mismatch.rs");
+}
+
+#[test]
+fn multi_error_mixed_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/multi_error_mixed.rs");
+}

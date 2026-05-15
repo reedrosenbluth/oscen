@@ -1,4 +1,5 @@
 use crate::ast::*;
+use crate::diagnostics::Diagnostics;
 use crate::fanout::{classify_fanout, FanoutShape};
 use crate::rate_analysis::{
     analyze, refine_with_types, root_node_name, validate_cross_rate_kinds, EdgeKernel, EdgeRate,
@@ -84,34 +85,50 @@ fn is_same_rate_kernel(k: &EdgeKernel) -> bool {
     )
 }
 
-pub fn generate(graph_def: &GraphDef) -> Result<TokenStream> {
-    // Validate rate annotations and edge rate combinations before collecting
-    // codegen state so the analysis is available to every emit method.
-    let rate_analysis = analyze(graph_def)?;
+pub fn generate(graph_def: &GraphDef) -> std::result::Result<TokenStream, Diagnostics> {
+    let mut diags = Diagnostics::new();
+
+    // Rate analysis. Pushes diagnostics for invalid rates and edge classification
+    // errors; always returns Some today.
+    let rate_analysis = match analyze(graph_def, &mut diags) {
+        Some(r) => r,
+        None => return Err(diags),
+    };
 
     let mut ctx = CodegenContext::new(rate_analysis);
 
-    // Collect all declarations
+    // Collect all declarations. `collect_item` is infallible today but
+    // returns Result for future extension; surface its error as a single
+    // diagnostic and bail.
     for item in &graph_def.items {
-        ctx.collect_item(item)?;
+        if let Err(e) = ctx.collect_item(item) {
+            diags.push_error(e);
+            return Err(diags);
+        }
     }
 
-    // Validate connections; returns the type context built during inference,
-    // which we then use to refine the rate analysis so cross-rate event edges
-    // and default-policy value edges classify correctly.
-    let type_ctx = ctx.validate_connections()?;
+    // Validate connections; returns the type context built during inference.
+    // Accumulates type-mismatch diagnostics without short-circuiting.
+    let type_ctx = ctx.validate_connections(&mut diags);
     refine_with_types(&mut ctx.rate_analysis, &ctx.connections, &type_ctx);
-    validate_cross_rate_kinds(&ctx.rate_analysis, &ctx.connections, &type_ctx)?;
+    validate_cross_rate_kinds(&ctx.rate_analysis, &ctx.connections, &type_ctx, &mut diags);
     ctx.type_ctx = Some(type_ctx);
 
-    // Static graphs require a name
+    // Bail before any token emission if any validation diagnostic surfaced.
+    // Phase 2b emits no warnings; an empty check equals a has_errors check.
+    if !diags.is_empty() {
+        return Err(diags);
+    }
+
+    // Static graphs require a name. Codegen errors stay single-shot via
+    // syn::Error and are wrapped into a single-element Diagnostics.
     if let Some(name) = &graph_def.name {
-        ctx.generate_static_struct(name)
+        ctx.generate_static_struct(name).map_err(Diagnostics::from)
     } else {
-        Err(syn::Error::new(
+        Err(Diagnostics::from(syn::Error::new(
             proc_macro2::Span::call_site(),
             "graph! macro requires a name (anonymous graphs are no longer supported)",
-        ))
+        )))
     }
 }
 
@@ -179,7 +196,7 @@ impl CodegenContext {
             .and_then(|s| s.ramp)
     }
 
-    fn validate_connections(&self) -> Result<TypeContext> {
+    fn validate_connections(&self, diags: &mut Diagnostics) -> TypeContext {
         let mut type_ctx = TypeContext::new();
 
         // Register all inputs and outputs
@@ -191,22 +208,20 @@ impl CodegenContext {
             type_ctx.register_output(&output.name, output.kind);
         }
 
-        // Infer node endpoint types from connections. The type context is
-        // returned to the caller so it can be reused by `refine_with_types` to
-        // classify cross-rate event edges and resolve default-policy value
-        // edges to `Latch`.
+        // Infer node endpoint types from connections.
         self.infer_node_endpoint_types(&mut type_ctx);
 
-        // Validate each connection for type compatibility
+        // Validate each connection for type compatibility. Accumulates
+        // into `diags`; never returns Err.
         for conn in &self.connections {
-            // Validate destination
-            type_ctx.validate_destination(&conn.dest)?;
-
-            // Validate type compatibility (stream/value/event)
-            type_ctx.validate_connection(&conn.source, &conn.dest, conn.span)?;
+            // `validate_destination` is currently infallible (always Ok);
+            // ignore its Result. If it ever pushes a real error, that path
+            // should also accumulate into `diags` instead of returning.
+            let _ = type_ctx.validate_destination(&conn.dest);
+            type_ctx.validate_connection(&conn.source, &conn.dest, conn.span, diags);
         }
 
-        Ok(type_ctx)
+        type_ctx
     }
 
     /// Infer node endpoint types from connections

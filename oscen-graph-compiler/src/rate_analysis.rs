@@ -1,6 +1,7 @@
 use crate::ast::{
     ConnectionPolicy, ConnectionStmt, EndpointKind, GraphDef, GraphItem, NodeDecl, NodeRate,
 };
+use crate::diagnostics::Diagnostics;
 use crate::fanout::{classify_fanout, FanoutShape};
 use crate::type_check::TypeContext;
 use std::collections::HashMap;
@@ -67,7 +68,12 @@ enum Direction {
 }
 
 /// Analyze a parsed graph. Validates rates and produces edge classifications.
-pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
+/// Pushes diagnostics for invalid rates and unclassifiable edges; returns
+/// `Some(RateAnalysis)` with as much populated as could be analyzed. Returns
+/// `None` only if the input is structurally unusable downstream — currently
+/// never returns `None`, but the signature reserves room for future fatal
+/// errors that prevent any sensible analysis.
+pub fn analyze(def: &GraphDef, diags: &mut Diagnostics) -> Option<RateAnalysis> {
     // 1. Collect all node declarations.
     let mut nodes: Vec<&NodeDecl> = Vec::new();
     for item in &def.items {
@@ -87,10 +93,14 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
         // (undersampling) here so users get a clear error at macro-expansion
         // time instead of a confusing codegen failure.
         if let NodeRate::Down(_) = n.rate {
-            return Err(syn::Error::new(
+            diags.push_error(syn::Error::new(
                 n.name.span(),
                 "node undersampling (`/ N`) is not yet supported in v1; only oversampling (`* N`) is implemented",
             ));
+            // Skip recording this node's rate; downstream classification
+            // will treat references to it as Same-rate and may produce
+            // additional (related) diagnostics.
+            continue;
         }
         node_rates.insert(n.name.to_string(), n.rate);
         node_array_sizes.insert(n.name.to_string(), n.array_size);
@@ -98,8 +108,10 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
             NodeRate::Up(f) => {
                 max_factor = lcm(max_factor, f);
             }
+            // Unreachable today: every `Down` node hits the `continue` above
+            // after pushing an undersampling error. Retained for when
+            // undersampling becomes supported and that early bail is removed.
             NodeRate::Down(d) => {
-                // Rejected above; kept for future when undersampling is added.
                 min_divisor = lcm(min_divisor, d);
             }
             NodeRate::Same => {}
@@ -117,13 +129,6 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
     }
 
     // 3. Classify each edge.
-    //
-    // This first pass classifies edges purely from rate annotations. The
-    // resulting `EdgeKernel`s for cross-rate edges are stream-typed (Up/Down
-    // with kernel chosen by policy) and may use `ConnectionPolicy::Default`.
-    // Node-to-node event edges and value vs. stream default-policy resolution
-    // need endpoint-kind metadata; those refinements happen in
-    // `refine_with_types`, called after the codegen's TypeContext is built.
     let mut edges = Vec::with_capacity(conns.len());
     for (idx, c) in conns.iter().enumerate() {
         let src_node = root_node_name(&c.source);
@@ -137,13 +142,18 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
             .and_then(|n| node_rates.get(n).copied())
             .unwrap_or(NodeRate::Same);
 
-        let kernel = classify_edge(source_rate, dest_rate, c.policy, c.span)?;
+        let kernel = match classify_edge(source_rate, dest_rate, c.policy, c.span) {
+            Ok(k) => k,
+            Err(e) => {
+                diags.push_error(e);
+                // Use EdgeKernel::None as a placeholder so downstream
+                // codegen doesn't see a malformed RateAnalysis. (Codegen
+                // won't actually run because `compile()` bails on any
+                // accumulated diagnostic before emit.)
+                EdgeKernel::None
+            }
+        };
 
-        // Resolve array sizes through the same root-name keying as rates.
-        // Indexed accesses (`voices[3].field`) deliberately use the array
-        // size of the parent — current codegen treats them as fan-in/out
-        // by sum at same-rate; cross-rate indexed access remains out of
-        // scope for v1 (see spec §"Out of Scope").
         let src_size = src_node
             .as_ref()
             .and_then(|n| node_array_sizes.get(n).copied())
@@ -163,7 +173,7 @@ pub fn analyze(def: &GraphDef) -> Result<RateAnalysis> {
         });
     }
 
-    Ok(RateAnalysis {
+    Some(RateAnalysis {
         node_rates,
         max_factor,
         min_divisor,
@@ -314,15 +324,16 @@ fn endpoint_kind_name(kind: EndpointKind) -> &'static str {
     }
 }
 
-/// Walk the rate-analysis edges and return the first `syn::Error` for an
-/// unsupported cross-rate kind tuple, or `Ok(())` if all edges are valid.
-/// Edges where one or both kinds cannot be inferred from `type_ctx` are
-/// skipped — those produce errors elsewhere or are not cross-rate.
+/// Walk the rate-analysis edges and push diagnostics for unsupported
+/// cross-rate kind tuples. Edges where one or both kinds cannot be inferred
+/// from `type_ctx` are skipped — those produce errors elsewhere or are not
+/// cross-rate.
 pub(crate) fn validate_cross_rate_kinds(
     rate_analysis: &RateAnalysis,
     connections: &[ConnectionStmt],
     type_ctx: &TypeContext,
-) -> syn::Result<()> {
+    diags: &mut Diagnostics,
+) {
     for edge in &rate_analysis.edges {
         let is_cross_rate = matches!(
             edge.kernel,
@@ -340,7 +351,7 @@ pub(crate) fn validate_cross_rate_kinds(
         if is_supported_cross_rate_kinds(src, dst) {
             continue;
         }
-        return Err(syn::Error::new(
+        diags.push_error(syn::Error::new(
             conn.span,
             format!(
                 "cross-rate edge from {} to {} is not supported; \
@@ -350,7 +361,6 @@ pub(crate) fn validate_cross_rate_kinds(
             ),
         ));
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -375,7 +385,9 @@ mod tests {
                 v -> xs.input;
             }
         });
-        let ra = analyze(&def).expect("analyze failed");
+        let mut diags = crate::Diagnostics::new();
+        let ra = analyze(&def, &mut diags).expect("analyze failed");
+        assert!(diags.is_empty());
         assert_eq!(ra.edges.len(), 1);
         assert_eq!(ra.edges[0].shape, FanoutShape::Broadcast { n: 4 });
     }
@@ -392,7 +404,9 @@ mod tests {
                 xs.out -> ys.input;
             }
         });
-        let ra = analyze(&def).expect("analyze failed");
+        let mut diags = crate::Diagnostics::new();
+        let ra = analyze(&def, &mut diags).expect("analyze failed");
+        assert!(diags.is_empty());
         assert_eq!(ra.edges[0].shape, FanoutShape::Parallel { n: 4 });
     }
 
@@ -408,7 +422,9 @@ mod tests {
                 xs.out -> o;
             }
         });
-        let ra = analyze(&def).expect("analyze failed");
+        let mut diags = crate::Diagnostics::new();
+        let ra = analyze(&def, &mut diags).expect("analyze failed");
+        assert!(diags.is_empty());
         assert_eq!(ra.edges[0].shape, FanoutShape::FanIn { n: 8 });
     }
 }
