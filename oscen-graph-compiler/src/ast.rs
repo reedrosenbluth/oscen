@@ -1,3 +1,4 @@
+use syn::spanned::Spanned;
 use syn::{Expr, Ident};
 
 /// Root AST node for a graph definition
@@ -59,6 +60,7 @@ pub struct ConnectionStmt {
     pub source: ConnectionExpr,
     pub dest: ConnectionExpr,
     pub policy: ConnectionPolicy,
+    pub span: proc_macro2::Span,
 }
 
 /// Connection expression (can be endpoint, arithmetic, etc.)
@@ -155,4 +157,27 @@ pub struct RangeSpec {
 pub enum Curve {
     Linear,
     Logarithmic,
+}
+
+impl ConnectionExpr {
+    /// Span covering the most-meaningful token of this expression.
+    /// Used by error-reporting paths that previously fell back to
+    /// `Span::call_site`.
+    pub fn span(&self) -> proc_macro2::Span {
+        match self {
+            ConnectionExpr::Ident(i) => i.span(),
+            ConnectionExpr::ArrayIndex(inner, _) => inner.span(),
+            ConnectionExpr::Field(inner, field) => {
+                inner.span().join(field.span()).unwrap_or_else(|| inner.span())
+            }
+            ConnectionExpr::MethodCall(inner, method, _) => {
+                inner.span().join(method.span()).unwrap_or_else(|| inner.span())
+            }
+            ConnectionExpr::Binary(l, _, r) => {
+                l.span().join(r.span()).unwrap_or_else(|| l.span())
+            }
+            ConnectionExpr::Literal(e) => e.span(),
+            ConnectionExpr::Call(f, _) => f.span(),
+        }
+    }
 }
