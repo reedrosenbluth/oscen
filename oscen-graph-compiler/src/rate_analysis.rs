@@ -335,16 +335,15 @@ pub(crate) fn validate_cross_rate_kinds(
     diags: &mut Diagnostics,
 ) {
     for edge in &rate_analysis.edges {
-        let is_cross_rate = matches!(
-            edge.kernel,
-            EdgeKernel::Up { .. } | EdgeKernel::Down { .. }
-        );
+        let is_cross_rate = matches!(edge.kernel, EdgeKernel::Up { .. } | EdgeKernel::Down { .. });
         if !is_cross_rate {
             continue;
         }
         let conn = &connections[edge.edge_index];
-        let (src, dst) = match (type_ctx.infer_type(&conn.source), type_ctx.infer_type(&conn.dest))
-        {
+        let (src, dst) = match (
+            type_ctx.infer_type(&conn.source),
+            type_ctx.infer_type(&conn.dest),
+        ) {
             (Some(s), Some(d)) => (s, d),
             _ => continue,
         };
@@ -365,8 +364,8 @@ pub(crate) fn validate_cross_rate_kinds(
 
 #[cfg(test)]
 mod tests {
-    use crate::fanout::FanoutShape;
     use super::*;
+    use crate::fanout::FanoutShape;
     use syn::parse_quote;
 
     fn parse(src: proc_macro2::TokenStream) -> crate::ast::GraphDef {
@@ -436,18 +435,45 @@ mod cross_rate_kind_tests {
 
     #[test]
     fn supported_tuples_are_supported() {
-        assert!(is_supported_cross_rate_kinds(EndpointKind::Stream, EndpointKind::Stream));
-        assert!(is_supported_cross_rate_kinds(EndpointKind::Value, EndpointKind::Value));
-        assert!(is_supported_cross_rate_kinds(EndpointKind::Value, EndpointKind::Stream));
-        assert!(is_supported_cross_rate_kinds(EndpointKind::Event, EndpointKind::Event));
+        assert!(is_supported_cross_rate_kinds(
+            EndpointKind::Stream,
+            EndpointKind::Stream
+        ));
+        assert!(is_supported_cross_rate_kinds(
+            EndpointKind::Value,
+            EndpointKind::Value
+        ));
+        assert!(is_supported_cross_rate_kinds(
+            EndpointKind::Value,
+            EndpointKind::Stream
+        ));
+        assert!(is_supported_cross_rate_kinds(
+            EndpointKind::Event,
+            EndpointKind::Event
+        ));
     }
 
     #[test]
     fn unsupported_tuples_are_unsupported() {
-        assert!(!is_supported_cross_rate_kinds(EndpointKind::Event, EndpointKind::Stream));
-        assert!(!is_supported_cross_rate_kinds(EndpointKind::Stream, EndpointKind::Event));
-        assert!(!is_supported_cross_rate_kinds(EndpointKind::Stream, EndpointKind::Value));
-        assert!(!is_supported_cross_rate_kinds(EndpointKind::Event, EndpointKind::Value));
-        assert!(!is_supported_cross_rate_kinds(EndpointKind::Value, EndpointKind::Event));
+        assert!(!is_supported_cross_rate_kinds(
+            EndpointKind::Event,
+            EndpointKind::Stream
+        ));
+        assert!(!is_supported_cross_rate_kinds(
+            EndpointKind::Stream,
+            EndpointKind::Event
+        ));
+        assert!(!is_supported_cross_rate_kinds(
+            EndpointKind::Stream,
+            EndpointKind::Value
+        ));
+        assert!(!is_supported_cross_rate_kinds(
+            EndpointKind::Event,
+            EndpointKind::Value
+        ));
+        assert!(!is_supported_cross_rate_kinds(
+            EndpointKind::Value,
+            EndpointKind::Event
+        ));
     }
 }

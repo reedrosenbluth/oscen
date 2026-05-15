@@ -754,7 +754,10 @@ fn parse_connection_block(input: ParseStream) -> Result<Vec<ConnectionStmt>> {
         let dest = parse_connection_expr(&content)?;
         content.parse::<Token![;]>()?;
 
-        let span = source.span().join(dest.span()).unwrap_or_else(|| source.span());
+        let span = source
+            .span()
+            .join(dest.span())
+            .unwrap_or_else(|| source.span());
         connections.push(ConnectionStmt {
             source,
             dest,
@@ -785,7 +788,10 @@ impl Parse for ConnectionStmt {
         let dest = parse_connection_expr(input)?;
         input.parse::<Token![;]>()?;
 
-        let span = source.span().join(dest.span()).unwrap_or_else(|| source.span());
+        let span = source
+            .span()
+            .join(dest.span())
+            .unwrap_or_else(|| source.span());
         Ok(ConnectionStmt {
             source,
             dest,

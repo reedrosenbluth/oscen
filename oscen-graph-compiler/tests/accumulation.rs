@@ -33,7 +33,9 @@ fn compile_accumulates_two_type_mismatches() {
     );
     for e in &errors {
         assert!(
-            e.message.to_string().contains("Type mismatch in connection"),
+            e.message
+                .to_string()
+                .contains("Type mismatch in connection"),
             "unexpected error: {}",
             e.message
         );
@@ -56,18 +58,16 @@ fn compile_accumulates_rate_and_type_errors() {
 
     let result = compile(input);
     let diags = result.expect_err("expected diagnostics; got Ok");
-    let messages: Vec<String> = diags
-        .items
-        .iter()
-        .map(|d| d.message.to_string())
-        .collect();
+    let messages: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
     assert!(
         messages.iter().any(|m| m.contains("undersampling")),
         "expected an undersampling error; got: {:?}",
         messages
     );
     assert!(
-        messages.iter().any(|m| m.contains("Type mismatch in connection")),
+        messages
+            .iter()
+            .any(|m| m.contains("Type mismatch in connection")),
         "expected a type-mismatch error; got: {:?}",
         messages
     );

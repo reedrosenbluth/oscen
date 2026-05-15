@@ -167,15 +167,15 @@ impl ConnectionExpr {
         match self {
             ConnectionExpr::Ident(i) => i.span(),
             ConnectionExpr::ArrayIndex(inner, _) => inner.span(),
-            ConnectionExpr::Field(inner, field) => {
-                inner.span().join(field.span()).unwrap_or_else(|| inner.span())
-            }
-            ConnectionExpr::MethodCall(inner, method, _) => {
-                inner.span().join(method.span()).unwrap_or_else(|| inner.span())
-            }
-            ConnectionExpr::Binary(l, _, r) => {
-                l.span().join(r.span()).unwrap_or_else(|| l.span())
-            }
+            ConnectionExpr::Field(inner, field) => inner
+                .span()
+                .join(field.span())
+                .unwrap_or_else(|| inner.span()),
+            ConnectionExpr::MethodCall(inner, method, _) => inner
+                .span()
+                .join(method.span())
+                .unwrap_or_else(|| inner.span()),
+            ConnectionExpr::Binary(l, _, r) => l.span().join(r.span()).unwrap_or_else(|| l.span()),
             ConnectionExpr::Literal(e) => e.span(),
             ConnectionExpr::Call(f, _) => f.span(),
         }

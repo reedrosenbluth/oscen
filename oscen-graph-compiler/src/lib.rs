@@ -20,9 +20,7 @@ pub use diagnostics::{Diagnostic, Diagnostics, Severity};
 /// accumulated across all connections (and reported in a single compile
 /// cycle); parse errors and codegen errors continue to surface a single
 /// `syn::Error` wrapped in a one-element `Diagnostics`.
-pub fn compile(
-    input: proc_macro2::TokenStream,
-) -> Result<proc_macro2::TokenStream, Diagnostics> {
+pub fn compile(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenStream, Diagnostics> {
     let graph_def: ast::GraphDef = syn::parse2(input).map_err(Diagnostics::from)?;
     codegen::generate(&graph_def)
 }
