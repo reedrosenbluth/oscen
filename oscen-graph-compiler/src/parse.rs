@@ -7,19 +7,26 @@ use syn::{
 
 impl Parse for GraphDef {
     fn parse(input: ParseStream) -> Result<Self> {
-        let mut name = None;
-        let mut items = Vec::new();
-
-        // Check for optional name declaration at the start
-        if input.peek(kw::name) {
-            input.parse::<kw::name>()?;
-            input.parse::<Token![:]>()?;
-            name = Some(input.parse()?);
-            input.parse::<Token![;]>()?;
-        }
-
+        let mut items: Vec<GraphItem> = Vec::new();
         while !input.is_empty() {
             items.push(input.parse()?);
+        }
+
+        let mut name = None;
+        if matches!(items.first(), Some(GraphItem::Name(_))) {
+            if let GraphItem::Name(n) = items.remove(0) {
+                name = Some(n);
+            }
+        }
+
+        // Any remaining Name variant is misplaced — `name:` must appear first.
+        for item in &items {
+            if let GraphItem::Name(n) = item {
+                return Err(syn::Error::new(
+                    n.span(),
+                    "`name:` declaration must appear at the start of the graph",
+                ));
+            }
         }
 
         Ok(GraphDef { name, items })
@@ -28,6 +35,18 @@ impl Parse for GraphDef {
 
 impl Parse for GraphItem {
     fn parse(input: ParseStream) -> Result<Self> {
+        // `name: <ident>;` declaration — only valid as the first item;
+        // `Parse for GraphDef` drains it into `GraphDef.name` and reports
+        // an error if it appears later. We accept it here regardless so
+        // that the parser doesn't bail on a stray misplaced `name:`.
+        if input.peek(kw::name) && input.peek2(Token![:]) {
+            input.parse::<kw::name>()?;
+            input.parse::<Token![:]>()?;
+            let name: Ident = input.parse()?;
+            input.parse::<Token![;]>()?;
+            return Ok(GraphItem::Name(name));
+        }
+
         let lookahead = input.lookahead1();
 
         if lookahead.peek(kw::nih_params) {

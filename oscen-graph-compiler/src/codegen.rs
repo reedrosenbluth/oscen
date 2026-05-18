@@ -183,6 +183,11 @@ impl CodegenContext {
             GraphItem::NihParams => {
                 self.nih_params = true;
             }
+            GraphItem::Name(_) => {
+                // Drained out by parse_graph_def / Parse for GraphDef before
+                // reaching codegen. Treated as a no-op for defensive
+                // exhaustiveness.
+            }
         }
         Ok(())
     }

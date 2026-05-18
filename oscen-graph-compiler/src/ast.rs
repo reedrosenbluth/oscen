@@ -18,6 +18,10 @@ pub enum GraphItem {
     /// `nih_params;` - enables NIH-plug parameter generation
     /// Params struct name is derived from graph name: FMGraph -> FMGraphParams
     NihParams,
+    /// `name: <ident>;` declaration. Drained out of the items list into
+    /// `GraphDef.name` after parsing. If a `Name` variant appears as a
+    /// non-first item, the drain pass reports an error.
+    Name(Ident),
 }
 
 /// Wrapper for node block to avoid orphan rule
