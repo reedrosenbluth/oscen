@@ -454,38 +454,46 @@ impl Parse for OutputDecl {
     }
 }
 
+/// Parse the body of a node declaration (everything after the `node`
+/// keyword): `<name> = <constructor> [* N | / N];`. Shared between
+/// `Parse for NodeDecl` (which consumes `node` first) and the block
+/// chunker in Task 4 (which slices brace contents into body chunks).
+fn parse_node_decl_body(input: ParseStream) -> Result<NodeDecl> {
+    let name = input.parse()?;
+    input.parse::<Token![=]>()?;
+    let (constructor, extracted_type) = parse_constructor_with_type(input)?;
+    let (actual_constructor, array_size, embedded_rate) =
+        extract_array_and_embedded_rate(constructor)?;
+    let node_type = extracted_type.or_else(|| extract_node_type(&actual_constructor));
+
+    let rate = match embedded_rate {
+        Some(r) => {
+            if !input.peek(Token![;]) {
+                return Err(input.error(
+                    "node already has an embedded rate (`* N` or `/ N`) from the array literal; \
+                     remove the trailing rate annotation",
+                ));
+            }
+            r
+        }
+        None => parse_node_rate(input)?,
+    };
+
+    input.parse::<Token![;]>()?;
+
+    Ok(NodeDecl {
+        name,
+        constructor: actual_constructor,
+        node_type,
+        array_size,
+        rate,
+    })
+}
+
 impl Parse for NodeDecl {
     fn parse(input: ParseStream) -> Result<Self> {
         input.parse::<kw::node>()?;
-        let name = input.parse()?;
-        input.parse::<Token![=]>()?;
-        let (constructor, extracted_type) = parse_constructor_with_type(input)?;
-        let (actual_constructor, array_size, embedded_rate) =
-            extract_array_and_embedded_rate(constructor)?;
-        let node_type = extracted_type.or_else(|| extract_node_type(&actual_constructor));
-
-        let rate = match embedded_rate {
-            Some(r) => {
-                if !input.peek(Token![;]) {
-                    return Err(input.error(
-                        "node already has an embedded rate (`* N` or `/ N`) from the array literal; \
-                         remove the trailing rate annotation",
-                    ));
-                }
-                r
-            }
-            None => parse_node_rate(input)?,
-        };
-
-        input.parse::<Token![;]>()?;
-
-        Ok(NodeDecl {
-            name,
-            constructor: actual_constructor,
-            node_type,
-            array_size,
-            rate,
-        })
+        parse_node_decl_body(input)
     }
 }
 
@@ -503,35 +511,7 @@ fn parse_node_block(input: ParseStream) -> Result<Vec<NodeDecl>> {
 
     let mut nodes = Vec::new();
     while !content.is_empty() {
-        let name = content.parse()?;
-        content.parse::<Token![=]>()?;
-        let (constructor, extracted_type) = parse_constructor_with_type(&content)?;
-        let (actual_constructor, array_size, embedded_rate) =
-            extract_array_and_embedded_rate(constructor)?;
-        let node_type = extracted_type.or_else(|| extract_node_type(&actual_constructor));
-
-        let rate = match embedded_rate {
-            Some(r) => {
-                if !content.peek(Token![;]) {
-                    return Err(content.error(
-                        "node already has an embedded rate (`* N` or `/ N`) from the array literal; \
-                         remove the trailing rate annotation",
-                    ));
-                }
-                r
-            }
-            None => parse_node_rate(&content)?,
-        };
-
-        content.parse::<Token![;]>()?;
-
-        nodes.push(NodeDecl {
-            name,
-            constructor: actual_constructor,
-            node_type,
-            array_size,
-            rate,
-        });
+        nodes.push(parse_node_decl_body(&content)?);
     }
 
     Ok(nodes)
@@ -749,6 +729,36 @@ fn parse_connection_policy(input: ParseStream) -> Result<ConnectionPolicy> {
     Ok(policy)
 }
 
+/// Parse the body of a connection statement (everything after an
+/// optional `connection` keyword): `[<policy>] <source> -> <dest>;`.
+/// Shared between `Parse for ConnectionStmt` (which consumes
+/// `connection` first), `parse_connection_block` (which uses it inside
+/// `connection {}` / `connections {}` block contents), and the block
+/// chunker in Task 4.
+fn parse_connection_stmt_body(input: ParseStream) -> Result<ConnectionStmt> {
+    let policy = parse_connection_policy(input)?;
+    let source = parse_connection_expr(input)?;
+
+    // Parse -> as two separate tokens: - and >
+    input.parse::<Token![-]>()?;
+    input.parse::<Token![>]>()?;
+
+    let dest = parse_connection_expr(input)?;
+    input.parse::<Token![;]>()?;
+
+    let span = source
+        .span()
+        .join(dest.span())
+        .unwrap_or_else(|| source.span());
+
+    Ok(ConnectionStmt {
+        source,
+        dest,
+        policy,
+        span,
+    })
+}
+
 // Parse connection block
 fn parse_connection_block(input: ParseStream) -> Result<Vec<ConnectionStmt>> {
     // Accept either 'connection' or 'connections'
@@ -763,26 +773,7 @@ fn parse_connection_block(input: ParseStream) -> Result<Vec<ConnectionStmt>> {
 
     let mut connections = Vec::new();
     while !content.is_empty() {
-        let policy = parse_connection_policy(&content)?;
-        let source = parse_connection_expr(&content)?;
-
-        // Parse -> as two separate tokens: - and >
-        content.parse::<Token![-]>()?;
-        content.parse::<Token![>]>()?;
-
-        let dest = parse_connection_expr(&content)?;
-        content.parse::<Token![;]>()?;
-
-        let span = source
-            .span()
-            .join(dest.span())
-            .unwrap_or_else(|| source.span());
-        connections.push(ConnectionStmt {
-            source,
-            dest,
-            policy,
-            span,
-        });
+        connections.push(parse_connection_stmt_body(&content)?);
     }
 
     Ok(connections)
@@ -797,26 +788,7 @@ impl Parse for ConnectionBlock {
 impl Parse for ConnectionStmt {
     fn parse(input: ParseStream) -> Result<Self> {
         input.parse::<kw::connection>()?;
-        let policy = parse_connection_policy(input)?;
-        let source = parse_connection_expr(input)?;
-
-        // Parse -> as two separate tokens: - and >
-        input.parse::<Token![-]>()?;
-        input.parse::<Token![>]>()?;
-
-        let dest = parse_connection_expr(input)?;
-        input.parse::<Token![;]>()?;
-
-        let span = source
-            .span()
-            .join(dest.span())
-            .unwrap_or_else(|| source.span());
-        Ok(ConnectionStmt {
-            source,
-            dest,
-            policy,
-            span,
-        })
+        parse_connection_stmt_body(input)
     }
 }
 
