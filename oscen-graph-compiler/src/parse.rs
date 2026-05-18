@@ -19,8 +19,8 @@ use syn::{
 /// Trailing tokens with no terminator are emitted as a final chunk
 /// (which downstream parsing will reject with "expected `;`").
 ///
-/// Empty chunks are filtered out so a stray top-level `;` does not
-/// trigger a spurious "unexpected end of input" error.
+/// Empty chunks and pure-`;` chunks are filtered out so that a stray
+/// top-level `;` does not trigger a spurious downstream parse error.
 fn split_top_level_chunks(input: TokenStream) -> Vec<TokenStream> {
     const BLOCK_KEYWORDS: &[&str] = &["node", "nodes", "connection", "connections"];
 
@@ -56,7 +56,11 @@ fn split_top_level_chunks(input: TokenStream) -> Vec<TokenStream> {
                 }
             }
             let chunk: TokenStream = trees[start..i].iter().cloned().collect();
-            if chunk.clone().into_iter().next().is_some() {
+            if chunk
+                .clone()
+                .into_iter()
+                .any(|t| !matches!(&t, TokenTree::Punct(p) if p.as_char() == ';'))
+            {
                 chunks.push(chunk);
             }
         }

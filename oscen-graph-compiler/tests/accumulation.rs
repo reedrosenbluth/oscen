@@ -87,3 +87,26 @@ fn compile_ok_for_valid_graph_returns_no_diagnostics() {
     let result = compile(input);
     assert!(result.is_ok(), "expected Ok; got Err: {:?}", result.err());
 }
+
+#[test]
+fn stray_top_level_semicolon_does_not_error() {
+    let input = quote! {
+        name: WithStraySemi;
+        ;
+        input stream s;
+        output stream out;
+        connections {
+            s -> out;
+        }
+    };
+    let result = compile(input);
+    assert!(
+        result.is_ok(),
+        "expected Ok despite stray semicolon; got Err: {:?}",
+        result.err().map(|d| d
+            .items
+            .iter()
+            .map(|i| i.message.to_string())
+            .collect::<Vec<_>>())
+    );
+}
