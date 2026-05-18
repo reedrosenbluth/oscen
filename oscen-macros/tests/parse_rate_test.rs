@@ -51,3 +51,15 @@ fn multi_parse_error_top_level_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/multi_parse_error_top_level.rs");
 }
+
+#[test]
+fn multi_parse_error_in_node_block_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/multi_parse_error_in_node_block.rs");
+}
+
+#[test]
+fn multi_parse_error_in_connection_block_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/multi_parse_error_in_connection_block.rs");
+}

@@ -1,0 +1,11 @@
+error: expected `;`
+  --> tests/ui/multi_parse_error_in_node_block.rs:11:9
+   |
+11 |         lfo = PolyBlepOscillator::sine(2.0, 0.5);
+   |         ^^^
+
+error: expected `=`
+  --> tests/ui/multi_parse_error_in_node_block.rs:12:13
+   |
+12 |         amp $ 0.8;
+   |             ^

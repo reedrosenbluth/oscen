@@ -69,6 +69,122 @@ fn split_top_level_chunks(input: TokenStream) -> Vec<TokenStream> {
     chunks
 }
 
+/// Split a brace-group's stream into statement chunks for in-block
+/// parsing. Walks `TokenTree`s at depth 0 (which is "depth 0 relative
+/// to the enclosing brace") and slices at each top-level `;`.
+/// Block contents never contain nested `node {}` / `connection {}`
+/// blocks, so brace-based splitting is unnecessary here.
+///
+/// Empty chunks and pure-`;` chunks are filtered out to match
+/// `split_top_level_chunks`.
+fn split_statement_chunks(input: TokenStream) -> Vec<TokenStream> {
+    let trees: Vec<TokenTree> = input.into_iter().collect();
+    let mut chunks: Vec<TokenStream> = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+
+    while i < trees.len() {
+        let is_semi = matches!(
+            &trees[i],
+            TokenTree::Punct(p) if p.as_char() == ';'
+        );
+        i += 1;
+        if is_semi {
+            let chunk: TokenStream = trees[start..i].iter().cloned().collect();
+            if chunk
+                .clone()
+                .into_iter()
+                .any(|t| !matches!(&t, TokenTree::Punct(p) if p.as_char() == ';'))
+            {
+                chunks.push(chunk);
+            }
+            start = i;
+        }
+    }
+
+    if start < trees.len() {
+        let chunk: TokenStream = trees[start..].iter().cloned().collect();
+        if chunk
+            .clone()
+            .into_iter()
+            .any(|t| !matches!(&t, TokenTree::Punct(p) if p.as_char() == ';'))
+        {
+            chunks.push(chunk);
+        }
+    }
+
+    chunks
+}
+
+/// Parse the body of a `node {}` / `nodes {}` block from a chunk
+/// produced by `split_top_level_chunks`. The chunk begins with the
+/// `node` or `nodes` keyword and ends with the brace group. Statements
+/// inside the brace are chunked by `;`; per-chunk errors push into
+/// `diags`.
+fn parse_node_block_with_diags(chunk: TokenStream, diags: &mut Diagnostics) -> Vec<NodeDecl> {
+    let mut iter = chunk.into_iter();
+    // Drop the leading `node` / `nodes` keyword; the chunker only
+    // produces this shape, so this is infallible by construction.
+    let _kw = iter.next();
+    let group = match iter.next() {
+        Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace => g,
+        _ => {
+            // Shouldn't happen given chunker invariants, but stay
+            // defensive: report and bail with an empty Vec.
+            diags.push_error(syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "internal error: node block chunk missing brace group",
+            ));
+            return Vec::new();
+        }
+    };
+
+    let mut decls = Vec::new();
+    for stmt_chunk in split_statement_chunks(group.stream()) {
+        // `fn(ParseStream) -> Result<T>` automatically implements
+        // `syn::parse::Parser`, which has a `parse2(TokenStream)` method.
+        // This is how `syn` lets us parse with a free function instead of
+        // a `Parse` impl.
+        match syn::parse::Parser::parse2(parse_node_decl_body, stmt_chunk) {
+            Ok(decl) => decls.push(decl),
+            Err(e) => diags.push_error(e),
+        }
+    }
+    decls
+}
+
+/// Parse the body of a `connection {}` / `connections {}` block from a
+/// chunk produced by `split_top_level_chunks`. The chunk begins with
+/// the `connection` or `connections` keyword and ends with the brace
+/// group. Statements inside the brace are chunked by `;`; per-chunk
+/// errors push into `diags`.
+fn parse_connection_block_with_diags(
+    chunk: TokenStream,
+    diags: &mut Diagnostics,
+) -> Vec<ConnectionStmt> {
+    let mut iter = chunk.into_iter();
+    let _kw = iter.next();
+    let group = match iter.next() {
+        Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace => g,
+        _ => {
+            diags.push_error(syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "internal error: connection block chunk missing brace group",
+            ));
+            return Vec::new();
+        }
+    };
+
+    let mut stmts = Vec::new();
+    for stmt_chunk in split_statement_chunks(group.stream()) {
+        match syn::parse::Parser::parse2(parse_connection_stmt_body, stmt_chunk) {
+            Ok(stmt) => stmts.push(stmt),
+            Err(e) => diags.push_error(e),
+        }
+    }
+    stmts
+}
+
 /// Parse a `graph!` body into a `GraphDef`, accumulating per-item
 /// parse errors into `diags` instead of bailing on the first one.
 ///
@@ -80,22 +196,15 @@ pub fn parse_graph_def(input: TokenStream, diags: &mut Diagnostics) -> GraphDef 
     let mut items: Vec<GraphItem> = Vec::new();
 
     for chunk in split_top_level_chunks(input) {
-        // Block-item chunks (keyword + brace group) currently route to
-        // `syn::parse2::<NodeBlock>` / `<ConnectionBlock>`. Task 4
-        // replaces these with diag-aware helpers for in-block recovery.
         let is_block_node = chunk_starts_with_block_kw(&chunk, &["node", "nodes"]);
         let is_block_conn = chunk_starts_with_block_kw(&chunk, &["connection", "connections"]);
 
         if is_block_node {
-            match syn::parse2::<NodeBlock>(chunk) {
-                Ok(block) => items.push(GraphItem::NodeBlock(block)),
-                Err(e) => diags.push_error(e),
-            }
+            let decls = parse_node_block_with_diags(chunk, diags);
+            items.push(GraphItem::NodeBlock(NodeBlock(decls)));
         } else if is_block_conn {
-            match syn::parse2::<ConnectionBlock>(chunk) {
-                Ok(block) => items.push(GraphItem::ConnectionBlock(block)),
-                Err(e) => diags.push_error(e),
-            }
+            let stmts = parse_connection_block_with_diags(chunk, diags);
+            items.push(GraphItem::ConnectionBlock(ConnectionBlock(stmts)));
         } else {
             match syn::parse2::<GraphItem>(chunk) {
                 Ok(item) => items.push(item),
@@ -164,7 +273,6 @@ impl Parse for GraphItem {
         let lookahead = input.lookahead1();
 
         if lookahead.peek(kw::nih_params) {
-            // Parse `nih_params;` statement
             input.parse::<kw::nih_params>()?;
             input.parse::<Token![;]>()?;
             Ok(GraphItem::NihParams)
@@ -173,29 +281,11 @@ impl Parse for GraphItem {
         } else if lookahead.peek(kw::output) {
             Ok(GraphItem::Output(input.parse()?))
         } else if lookahead.peek(kw::node) {
-            // Check if it's a block or single declaration
-            let fork = input.fork();
-            fork.parse::<kw::node>()?;
-
-            if fork.peek(token::Brace) {
-                Ok(GraphItem::NodeBlock(input.parse()?))
-            } else {
-                Ok(GraphItem::Node(input.parse()?))
-            }
-        } else if lookahead.peek(kw::nodes) {
-            Ok(GraphItem::NodeBlock(input.parse()?))
+            input.parse::<kw::node>()?;
+            parse_node_decl_body(input).map(GraphItem::Node)
         } else if lookahead.peek(kw::connection) {
-            // Check if it's a block or single statement
-            let fork = input.fork();
-            fork.parse::<kw::connection>()?;
-
-            if fork.peek(token::Brace) {
-                Ok(GraphItem::ConnectionBlock(input.parse()?))
-            } else {
-                Ok(GraphItem::Connection(input.parse()?))
-            }
-        } else if lookahead.peek(kw::connections) {
-            Ok(GraphItem::ConnectionBlock(input.parse()?))
+            input.parse::<kw::connection>()?;
+            parse_connection_stmt_body(input).map(GraphItem::Connection)
         } else {
             Err(lookahead.error())
         }
@@ -570,8 +660,9 @@ impl Parse for OutputDecl {
 
 /// Parse the body of a node declaration (everything after the `node`
 /// keyword): `<name> = <constructor> [* N | / N];`. Shared between
-/// `Parse for NodeDecl` (which consumes `node` first) and the block
-/// chunker in Task 4 (which slices brace contents into body chunks).
+/// `Parse for NodeDecl` (which consumes `node` first) and
+/// `parse_node_block_with_diags` (which uses it on per-statement
+/// chunks inside `node {}` / `nodes {}` block contents).
 fn parse_node_decl_body(input: ParseStream) -> Result<NodeDecl> {
     let name = input.parse()?;
     input.parse::<Token![=]>()?;
@@ -609,26 +700,6 @@ impl Parse for NodeDecl {
         input.parse::<kw::node>()?;
         parse_node_decl_body(input)
     }
-}
-
-// Parse node block
-fn parse_node_block(input: ParseStream) -> Result<Vec<NodeDecl>> {
-    // Accept either 'node' or 'nodes'
-    if input.peek(kw::nodes) {
-        input.parse::<kw::nodes>()?;
-    } else {
-        input.parse::<kw::node>()?;
-    }
-
-    let content;
-    braced!(content in input);
-
-    let mut nodes = Vec::new();
-    while !content.is_empty() {
-        nodes.push(parse_node_decl_body(&content)?);
-    }
-
-    Ok(nodes)
 }
 
 /// Parse a constructor expression, handling generic type parameters
@@ -807,12 +878,6 @@ fn extract_node_type(expr: &Expr) -> Option<syn::Path> {
     }
 }
 
-impl Parse for NodeBlock {
-    fn parse(input: ParseStream) -> Result<Self> {
-        parse_node_block(input).map(NodeBlock)
-    }
-}
-
 /// Parse optional leading `[token]` policy prefix on a connection statement.
 /// Recognized: `latch`, `linear`, `sinc`, `sinc_iir`.
 fn parse_connection_policy(input: ParseStream) -> Result<ConnectionPolicy> {
@@ -846,9 +911,9 @@ fn parse_connection_policy(input: ParseStream) -> Result<ConnectionPolicy> {
 /// Parse the body of a connection statement (everything after an
 /// optional `connection` keyword): `[<policy>] <source> -> <dest>;`.
 /// Shared between `Parse for ConnectionStmt` (which consumes
-/// `connection` first), `parse_connection_block` (which uses it inside
-/// `connection {}` / `connections {}` block contents), and the block
-/// chunker in Task 4.
+/// `connection` first) and `parse_connection_block_with_diags` (which
+/// uses it on per-statement chunks inside `connection {}` /
+/// `connections {}` block contents).
 fn parse_connection_stmt_body(input: ParseStream) -> Result<ConnectionStmt> {
     let policy = parse_connection_policy(input)?;
     let source = parse_connection_expr(input)?;
@@ -871,32 +936,6 @@ fn parse_connection_stmt_body(input: ParseStream) -> Result<ConnectionStmt> {
         policy,
         span,
     })
-}
-
-// Parse connection block
-fn parse_connection_block(input: ParseStream) -> Result<Vec<ConnectionStmt>> {
-    // Accept either 'connection' or 'connections'
-    if input.peek(kw::connections) {
-        input.parse::<kw::connections>()?;
-    } else {
-        input.parse::<kw::connection>()?;
-    }
-
-    let content;
-    braced!(content in input);
-
-    let mut connections = Vec::new();
-    while !content.is_empty() {
-        connections.push(parse_connection_stmt_body(&content)?);
-    }
-
-    Ok(connections)
-}
-
-impl Parse for ConnectionBlock {
-    fn parse(input: ParseStream) -> Result<Self> {
-        parse_connection_block(input).map(ConnectionBlock)
-    }
 }
 
 impl Parse for ConnectionStmt {
