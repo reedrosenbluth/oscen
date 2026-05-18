@@ -1,0 +1,11 @@
+error: expected `;`
+ --> tests/ui/multi_parse_error_top_level.rs:7:5
+  |
+7 |     input stream s2;
+  |     ^^^^^
+
+error: expected one of: `nih_params`, `input`, `output`, `node`, `nodes`, `connection`, `connections`
+  --> tests/ui/multi_parse_error_top_level.rs:10:5
+   |
+10 |     foo bar baz;
+   |     ^^^

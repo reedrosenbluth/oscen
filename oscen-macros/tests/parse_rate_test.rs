@@ -45,3 +45,9 @@ fn multi_error_mixed_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/multi_error_mixed.rs");
 }
+
+#[test]
+fn multi_parse_error_top_level_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/multi_parse_error_top_level.rs");
+}

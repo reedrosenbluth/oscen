@@ -369,7 +369,10 @@ mod tests {
     use syn::parse_quote;
 
     fn parse(src: proc_macro2::TokenStream) -> crate::ast::GraphDef {
-        syn::parse2(src).expect("parse failed")
+        let mut diags = crate::Diagnostics::new();
+        let def = crate::parse::parse_graph_def(src, &mut diags);
+        assert!(diags.is_empty(), "parse failed");
+        def
     }
 
     #[test]

@@ -1,36 +1,146 @@
 use crate::ast::*;
+use crate::diagnostics::Diagnostics;
+use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use syn::{
     braced, bracketed, parenthesized,
     parse::{Parse, ParseStream},
     token, Expr, Ident, Result, Token,
 };
 
-impl Parse for GraphDef {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let mut items: Vec<GraphItem> = Vec::new();
-        while !input.is_empty() {
-            items.push(input.parse()?);
-        }
+/// Split a top-level `TokenStream` into per-item chunks for chunked
+/// parsing. Walks `TokenTree`s at depth 0; recognises two shapes:
+///
+/// - **Block item**: a `node`/`nodes`/`connection`/`connections`
+///   identifier immediately followed by a brace `Group`. The chunk is
+///   exactly those two trees.
+/// - **Statement item**: everything from the current position up to
+///   and including the next top-level `;`.
+///
+/// Trailing tokens with no terminator are emitted as a final chunk
+/// (which downstream parsing will reject with "expected `;`").
+///
+/// Empty chunks are filtered out so a stray top-level `;` does not
+/// trigger a spurious "unexpected end of input" error.
+fn split_top_level_chunks(input: TokenStream) -> Vec<TokenStream> {
+    const BLOCK_KEYWORDS: &[&str] = &["node", "nodes", "connection", "connections"];
 
-        let mut name = None;
-        if matches!(items.first(), Some(GraphItem::Name(_))) {
-            if let GraphItem::Name(n) = items.remove(0) {
-                name = Some(n);
+    let trees: Vec<TokenTree> = input.into_iter().collect();
+    let mut chunks: Vec<TokenStream> = Vec::new();
+    let mut i = 0;
+
+    while i < trees.len() {
+        let is_block = match &trees[i] {
+            TokenTree::Ident(id) if BLOCK_KEYWORDS.contains(&id.to_string().as_str()) => {
+                matches!(
+                    trees.get(i + 1),
+                    Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace
+                )
+            }
+            _ => false,
+        };
+
+        if is_block {
+            let chunk: TokenStream = trees[i..i + 2].iter().cloned().collect();
+            chunks.push(chunk);
+            i += 2;
+        } else {
+            let start = i;
+            while i < trees.len() {
+                let is_semi = matches!(
+                    &trees[i],
+                    TokenTree::Punct(p) if p.as_char() == ';'
+                );
+                i += 1;
+                if is_semi {
+                    break;
+                }
+            }
+            let chunk: TokenStream = trees[start..i].iter().cloned().collect();
+            if chunk.clone().into_iter().next().is_some() {
+                chunks.push(chunk);
             }
         }
-
-        // Any remaining Name variant is misplaced — `name:` must appear first.
-        for item in &items {
-            if let GraphItem::Name(n) = item {
-                return Err(syn::Error::new(
-                    n.span(),
-                    "`name:` declaration must appear at the start of the graph",
-                ));
-            }
-        }
-
-        Ok(GraphDef { name, items })
     }
+
+    chunks
+}
+
+/// Parse a `graph!` body into a `GraphDef`, accumulating per-item
+/// parse errors into `diags` instead of bailing on the first one.
+///
+/// Returns a best-effort `GraphDef` (with items from chunks that
+/// parsed successfully); on any pushed error, the caller in `compile`
+/// should bail before validation since the partial AST would yield
+/// misleading downstream errors.
+pub fn parse_graph_def(input: TokenStream, diags: &mut Diagnostics) -> GraphDef {
+    let mut items: Vec<GraphItem> = Vec::new();
+
+    for chunk in split_top_level_chunks(input) {
+        // Block-item chunks (keyword + brace group) currently route to
+        // `syn::parse2::<NodeBlock>` / `<ConnectionBlock>`. Task 4
+        // replaces these with diag-aware helpers for in-block recovery.
+        let is_block_node = chunk_starts_with_block_kw(&chunk, &["node", "nodes"]);
+        let is_block_conn = chunk_starts_with_block_kw(&chunk, &["connection", "connections"]);
+
+        if is_block_node {
+            match syn::parse2::<NodeBlock>(chunk) {
+                Ok(block) => items.push(GraphItem::NodeBlock(block)),
+                Err(e) => diags.push_error(e),
+            }
+        } else if is_block_conn {
+            match syn::parse2::<ConnectionBlock>(chunk) {
+                Ok(block) => items.push(GraphItem::ConnectionBlock(block)),
+                Err(e) => diags.push_error(e),
+            }
+        } else {
+            match syn::parse2::<GraphItem>(chunk) {
+                Ok(item) => items.push(item),
+                Err(e) => diags.push_error(e),
+            }
+        }
+    }
+
+    // Drain the leading `name:` declaration (Task 1's `Name` variant)
+    // into `GraphDef.name`. A `Name` variant anywhere except first is
+    // reported as an error.
+    let mut name = None;
+    if matches!(items.first(), Some(GraphItem::Name(_))) {
+        if let GraphItem::Name(n) = items.remove(0) {
+            name = Some(n);
+        }
+    }
+    let mut retained: Vec<GraphItem> = Vec::with_capacity(items.len());
+    for item in items {
+        if let GraphItem::Name(n) = &item {
+            diags.push_error(syn::Error::new(
+                n.span(),
+                "`name:` declaration must appear at the start of the graph",
+            ));
+            continue;
+        }
+        retained.push(item);
+    }
+
+    GraphDef {
+        name,
+        items: retained,
+    }
+}
+
+/// True when `chunk`'s first `TokenTree` is an identifier whose string
+/// matches one of `keywords`, followed by a brace `Group`. Used by
+/// `parse_graph_def` to route block-item chunks to the
+/// `NodeBlock` / `ConnectionBlock` parsers.
+fn chunk_starts_with_block_kw(chunk: &TokenStream, keywords: &[&str]) -> bool {
+    let mut iter = chunk.clone().into_iter();
+    let first = iter.next();
+    let second = iter.next();
+    matches!(
+        (&first, &second),
+        (Some(TokenTree::Ident(id)), Some(TokenTree::Group(g)))
+            if keywords.contains(&id.to_string().as_str())
+                && g.delimiter() == Delimiter::Brace
+    )
 }
 
 impl Parse for GraphItem {
