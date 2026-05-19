@@ -146,3 +146,23 @@ fn cross_rate_edge_picks_correct_kernel() {
         "expected a non-None (cross-rate) kernel, got {:?}", kernel
     );
 }
+
+#[test]
+fn scalar_edges_get_scalar_fanout() {
+    let (ir, diags) = lower_quote(quote! {
+        name: Scalar;
+        input stream s;
+        output stream out;
+        connections { s -> out; }
+    });
+    assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags.items);
+    let ir = ir.expect("lower should produce an IrGraph");
+
+    assert!(!ir.edges.is_empty(), "expected at least one edge");
+    for edge in ir.edges.values() {
+        assert!(
+            matches!(edge.fanout, oscen_graph_compiler::fanout::FanoutShape::Scalar),
+            "expected FanoutShape::Scalar, got {:?}", edge.fanout
+        );
+    }
+}
