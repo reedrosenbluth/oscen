@@ -22,8 +22,15 @@ fn minimal_graph_lowers_to_input_and_output_nodes() {
         input stream s;
         output stream out;
     });
-    assert!(diags.is_empty(), "unexpected diagnostics: {:?}",
-        diags.items.iter().map(|d| d.message.to_string()).collect::<Vec<_>>());
+    assert!(
+        diags.is_empty(),
+        "unexpected diagnostics: {:?}",
+        diags
+            .items
+            .iter()
+            .map(|d| d.message.to_string())
+            .collect::<Vec<_>>()
+    );
     let ir = ir.expect("lower should produce an IrGraph");
 
     assert_eq!(ir.name.to_string(), "Minimal");
@@ -59,7 +66,11 @@ fn linear_chain_lowers_with_typed_edges() {
             s -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags.items);
+    assert!(
+        diags.is_empty(),
+        "unexpected diagnostics: {:?}",
+        diags.items
+    );
     let ir = ir.expect("lower should produce an IrGraph");
 
     assert_eq!(ir.edges.len(), 1);
@@ -70,8 +81,10 @@ fn linear_chain_lowers_with_typed_edges() {
     assert_eq!(out_node.name.to_string(), "out");
 
     // Inputs always have endpoints populated by collect_declarations.
-    assert_eq!(s_node.endpoints[&edge.source.endpoint].kind,
-               oscen_graph_compiler::ast::EndpointKind::Stream);
+    assert_eq!(
+        s_node.endpoints[&edge.source.endpoint].kind,
+        oscen_graph_compiler::ast::EndpointKind::Stream
+    );
 }
 
 #[test]
@@ -87,11 +100,20 @@ fn type_mismatch_accumulates_per_connection() {
         }
     });
     assert!(ir.is_none(), "lower should return None on type errors");
-    let errors: Vec<_> = diags.items.iter()
+    let errors: Vec<_> = diags
+        .items
+        .iter()
         .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
         .collect();
-    assert_eq!(errors.len(), 2, "expected two type-mismatch errors, got: {:?}",
-        errors.iter().map(|e| e.message.to_string()).collect::<Vec<_>>());
+    assert_eq!(
+        errors.len(),
+        2,
+        "expected two type-mismatch errors, got: {:?}",
+        errors
+            .iter()
+            .map(|e| e.message.to_string())
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -106,15 +128,22 @@ fn upsampled_node_carries_rate_factor() {
             osc.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags.items);
+    assert!(
+        diags.is_empty(),
+        "unexpected diagnostics: {:?}",
+        diags.items
+    );
     let ir = ir.expect("lower should produce an IrGraph");
 
-    let osc = ir.processors.iter()
-        .find_map(|&id| (ir.nodes[id].name.to_string() == "osc").then(|| &ir.nodes[id]))
+    let osc = ir
+        .processors
+        .iter()
+        .find_map(|&id| (ir.nodes[id].name == "osc").then(|| &ir.nodes[id]))
         .expect("osc node should exist");
     assert!(
         matches!(osc.rate, oscen_graph_compiler::ast::NodeRate::Up(4)),
-        "expected NodeRate::Up(4), got {:?}", osc.rate
+        "expected NodeRate::Up(4), got {:?}",
+        osc.rate
     );
 }
 
@@ -130,20 +159,26 @@ fn cross_rate_edge_picks_correct_kernel() {
             osc.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags.items);
+    assert!(
+        diags.is_empty(),
+        "unexpected diagnostics: {:?}",
+        diags.items
+    );
     let ir = ir.expect("lower should produce an IrGraph");
 
     // The edge `osc.output -> out` crosses from rate x4 to rate x1 (graph rate)
     // and should have a non-None kernel (i.e., something other than EdgeKernel::None).
-    let cross_edges: Vec<_> = ir.edges.values()
-        .filter(|e| ir.nodes[e.source.node].name.to_string() == "osc"
-                 && ir.nodes[e.dest.node].name.to_string() == "out")
+    let cross_edges: Vec<_> = ir
+        .edges
+        .values()
+        .filter(|e| ir.nodes[e.source.node].name == "osc" && ir.nodes[e.dest.node].name == "out")
         .collect();
     assert_eq!(cross_edges.len(), 1);
     let kernel = &cross_edges[0].kernel;
     assert!(
-        !matches!(kernel, oscen_graph_compiler::rate_analysis::EdgeKernel::None),
-        "expected a non-None (cross-rate) kernel, got {:?}", kernel
+        !matches!(kernel, oscen_graph_compiler::ir::EdgeKernel::None),
+        "expected a non-None (cross-rate) kernel, got {:?}",
+        kernel
     );
 }
 
@@ -155,14 +190,19 @@ fn scalar_edges_get_scalar_fanout() {
         output stream out;
         connections { s -> out; }
     });
-    assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags.items);
+    assert!(
+        diags.is_empty(),
+        "unexpected diagnostics: {:?}",
+        diags.items
+    );
     let ir = ir.expect("lower should produce an IrGraph");
 
     assert!(!ir.edges.is_empty(), "expected at least one edge");
     for edge in ir.edges.values() {
         assert!(
-            matches!(edge.fanout, oscen_graph_compiler::fanout::FanoutShape::Scalar),
-            "expected FanoutShape::Scalar, got {:?}", edge.fanout
+            matches!(edge.fanout, oscen_graph_compiler::ir::FanoutShape::Scalar),
+            "expected FanoutShape::Scalar, got {:?}",
+            edge.fanout
         );
     }
 }
@@ -186,11 +226,20 @@ fn topo_sort_orders_branching_graph() {
     assert!(diags.is_empty(), "{:?}", diags.items);
     let ir = ir.expect("lower should produce an IrGraph");
 
-    let a_pos = ir.processors.iter()
-        .position(|&id| ir.nodes[id].name.to_string() == "a").unwrap();
-    let b_pos = ir.processors.iter()
-        .position(|&id| ir.nodes[id].name.to_string() == "b").unwrap();
-    assert!(a_pos < b_pos, "a (upstream of b) should come first in topo order, got a={a_pos} b={b_pos}");
+    let a_pos = ir
+        .processors
+        .iter()
+        .position(|&id| ir.nodes[id].name == "a")
+        .unwrap();
+    let b_pos = ir
+        .processors
+        .iter()
+        .position(|&id| ir.nodes[id].name == "b")
+        .unwrap();
+    assert!(
+        a_pos < b_pos,
+        "a (upstream of b) should come first in topo order, got a={a_pos} b={b_pos}"
+    );
 }
 
 #[test]
@@ -216,14 +265,20 @@ fn non_feedback_cycle_with_extra_delay_input_is_rejected() {
     });
     // We expect cycle detection to fire because X <-> Y is a non-feedback cycle.
     // The Delay's edge to x shouldn't mask it.
-    let errors: Vec<String> = diags.items.iter()
+    let errors: Vec<String> = diags
+        .items
+        .iter()
         .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
         .map(|d| d.message.to_string())
         .collect();
     assert!(
-        ir.is_none() && errors.iter().any(|e| e.contains("cycle") || e.contains("Cycle")),
+        ir.is_none()
+            && errors
+                .iter()
+                .any(|e| e.contains("cycle") || e.contains("Cycle")),
         "expected cycle detection; got ir.is_some()={} errors={:?}",
-        ir.is_some(), errors
+        ir.is_some(),
+        errors
     );
 }
 
@@ -240,7 +295,11 @@ fn validate_cross_rate_kinds_smoke() {
             osc.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags.items);
+    assert!(
+        diags.is_empty(),
+        "unexpected diagnostics: {:?}",
+        diags.items
+    );
     assert!(ir.is_some(), "expected lower to produce an IrGraph");
 }
 
@@ -256,10 +315,11 @@ fn unconnected_down_node_produces_undersampling_error() {
         }
     });
     assert!(ir.is_none(), "lower should reject undersampling");
-    let msgs: Vec<String> = diags.items.iter()
-        .map(|d| d.message.to_string()).collect();
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
     assert!(
-        msgs.iter().any(|m| m.to_lowercase().contains("undersampling")),
-        "expected undersampling error; got: {:?}", msgs
+        msgs.iter()
+            .any(|m| m.to_lowercase().contains("undersampling")),
+        "expected undersampling error; got: {:?}",
+        msgs
     );
 }

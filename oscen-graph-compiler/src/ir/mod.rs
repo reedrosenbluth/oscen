@@ -11,5 +11,6 @@ pub mod passes;
 pub mod validate;
 
 pub use graph::{
-    EdgeId, EndpointInfo, EndpointRef, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
+    classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EndpointRef, EventRescale, FanoutShape,
+    IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
 };

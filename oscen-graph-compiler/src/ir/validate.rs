@@ -29,7 +29,7 @@ pub fn validate(ir: &IrGraph) {
             );
             let edge = &ir.edges[eid];
             let is_primary = edge.source.node == nid;
-            let is_extra = edge.extra_source_nodes.iter().any(|&n| n == nid);
+            let is_extra = edge.extra_source_nodes.contains(&nid);
             assert!(
                 is_primary || is_extra,
                 "node {nid:?}.outgoing contains edge {eid:?} whose source is not this node \
@@ -61,13 +61,22 @@ pub fn validate(ir: &IrGraph) {
 
     // processors / inputs / outputs vectors reference live nodes.
     for &nid in &ir.processors {
-        assert!(node_set.contains(&nid), "processors[] contains dead node {nid:?}");
+        assert!(
+            node_set.contains(&nid),
+            "processors[] contains dead node {nid:?}"
+        );
     }
     for &nid in &ir.inputs {
-        assert!(node_set.contains(&nid), "inputs[] contains dead node {nid:?}");
+        assert!(
+            node_set.contains(&nid),
+            "inputs[] contains dead node {nid:?}"
+        );
     }
     for &nid in &ir.outputs {
-        assert!(node_set.contains(&nid), "outputs[] contains dead node {nid:?}");
+        assert!(
+            node_set.contains(&nid),
+            "outputs[] contains dead node {nid:?}"
+        );
     }
 
     // edge_order references live edges and contains every live edge.
@@ -103,7 +112,7 @@ mod tests {
         // Synthesize a dead NodeId by inserting then removing.
         let id = g.nodes.insert_with_key(|id| crate::ir::graph::IrNode {
             id,
-            kind: crate::ir::graph::IrNodeKind::Output { ty: None },
+            kind: crate::ir::graph::IrNodeKind::Output,
             name: format_ident!("dummy"),
             rate: crate::ast::NodeRate::Same,
             latency_samples: 0,

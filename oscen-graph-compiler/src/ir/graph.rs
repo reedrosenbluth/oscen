@@ -7,12 +7,71 @@
 //! order, and reference-validity invariants.
 
 use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, NodeRate};
-use crate::fanout::FanoutShape;
-use crate::rate_analysis::EdgeKernel;
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::Span;
 use slotmap::{new_key_type, SlotMap};
 use std::collections::HashMap;
-use syn::{Expr, Ident, Path, Type};
+use syn::{Expr, Ident, Path};
+
+// ---------------------------------------------------------------------------
+// Edge-type enums (moved here from legacy rate_analysis / fanout modules)
+// ---------------------------------------------------------------------------
+
+/// Per-edge frame_offset rescaling for event-typed cross-rate edges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventRescale {
+    /// Same-rate edge: no rescaling applied.
+    None,
+    /// Outer -> inner: multiply offsets by N.
+    Multiply(u32),
+    /// Inner -> outer: divide offsets by N.
+    Divide(u32),
+}
+
+/// Resampling kernel selection for a single cross-rate edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgeKernel {
+    /// No conversion needed (same rate, or both directions are no-op).
+    None,
+    /// Upsample: source slower, dest faster.
+    Up { factor: u32, kind: ConnectionPolicy },
+    /// Downsample: source faster, dest slower.
+    Down { factor: u32, kind: ConnectionPolicy },
+    /// Event-typed edge. Same-rate (`rescale = None`) is functionally
+    /// equivalent to `EdgeKernel::None` and emits a plain copy via the
+    /// existing event try_push path; cross-rate variants emit the same
+    /// try_push loop but transform `EventInstance::frame_offset` per
+    /// `rescale` so events fire on the correct inner/outer tick.
+    Event { rescale: EventRescale },
+}
+
+/// Per-edge fan-out shape: how many source values feed how many dest slots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FanoutShape {
+    /// Both sides scalar (or expression with no array root).
+    Scalar,
+    /// Both sides arrays of equal size N: parallel — one resampler per element.
+    Parallel { n: usize },
+    /// Scalar src → array dest of size N: broadcast — shared resampler, N dest writes.
+    Broadcast { n: usize },
+    /// Array src of size N → scalar dest: fan-in — sum sources first, then shared resampler.
+    FanIn { n: usize },
+}
+
+/// Classify a connection edge given the array sizes of its source and dest
+/// nodes (`None` for scalar nodes or graph endpoints).
+pub fn classify_fanout(
+    src_array_size: Option<usize>,
+    dst_array_size: Option<usize>,
+) -> FanoutShape {
+    use FanoutShape::*;
+    match (src_array_size, dst_array_size) {
+        (None, None) => Scalar,
+        (None, Some(n)) => Broadcast { n },
+        (Some(n), None) => FanIn { n },
+        (Some(n), Some(m)) if n == m => Parallel { n },
+        (Some(n), Some(m)) => Parallel { n: n.min(m) },
+    }
+}
 
 new_key_type! {
     pub struct NodeId;
@@ -50,18 +109,15 @@ pub struct IrNode {
     pub outgoing: Vec<EdgeId>,
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum IrNodeKind {
     Input {
         spec: Option<crate::ast::ParamSpec>,
-        ty: Option<Type>,
         default: Option<Expr>,
     },
-    Output {
-        ty: Option<Type>,
-    },
+    Output,
     Processor {
         ty: Option<Path>,
-        ctor: TokenStream,
         /// Raw constructor `syn::Expr`. Preserves Path-vs-Call distinction
         /// so codegen can emit `Type::new()` for bare paths and pass
         /// through call expressions unchanged.
@@ -69,7 +125,6 @@ pub enum IrNodeKind {
     },
     NodeArray {
         ty: Option<Path>,
-        ctor: TokenStream,
         /// Raw constructor `syn::Expr` (same rationale as `Processor`).
         ctor_expr: Expr,
         len: usize,
@@ -190,7 +245,6 @@ mod tests {
             id,
             kind: IrNodeKind::Processor {
                 ty: Some(parse_quote!(Dummy)),
-                ctor: quote::quote!(Dummy {}),
                 ctor_expr: parse_quote!(Dummy {}),
             },
             name: format_ident!("{}", name),
@@ -208,8 +262,14 @@ mod tests {
     fn mk_edge(graph: &mut IrGraph, source: NodeId, dest: NodeId) -> EdgeId {
         let id = graph.edges.insert_with_key(|id| IrEdge {
             id,
-            source: EndpointRef { node: source, endpoint: format_ident!("out") },
-            dest: EndpointRef { node: dest, endpoint: format_ident!("in") },
+            source: EndpointRef {
+                node: source,
+                endpoint: format_ident!("out"),
+            },
+            dest: EndpointRef {
+                node: dest,
+                endpoint: format_ident!("in"),
+            },
             policy: ConnectionPolicy::Default,
             kernel: EdgeKernel::None,
             fanout: FanoutShape::Scalar,
@@ -250,9 +310,21 @@ mod tests {
         g.remove_node(b);
 
         assert!(g.nodes.get(b).is_none(), "node b should be gone");
-        assert!(!g.processors.contains(&b), "b should be removed from processors[]");
-        assert!(g.edges.values().count() == 0, "both incident edges should be gone");
-        assert!(g.nodes[a].outgoing.is_empty(), "a's outgoing should be cleaned");
-        assert!(g.nodes[c].incoming.is_empty(), "c's incoming should be cleaned");
+        assert!(
+            !g.processors.contains(&b),
+            "b should be removed from processors[]"
+        );
+        assert!(
+            g.edges.values().count() == 0,
+            "both incident edges should be gone"
+        );
+        assert!(
+            g.nodes[a].outgoing.is_empty(),
+            "a's outgoing should be cleaned"
+        );
+        assert!(
+            g.nodes[c].incoming.is_empty(),
+            "c's incoming should be cleaned"
+        );
     }
 }

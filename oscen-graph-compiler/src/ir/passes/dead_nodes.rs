@@ -28,7 +28,7 @@ pub fn run(ir: &mut IrGraph) {
             continue;
         }
         // Collect first to avoid borrow conflict during graph mutation later.
-        let incoming: Vec<_> = ir.nodes[id].incoming.iter().copied().collect();
+        let incoming = ir.nodes[id].incoming.to_vec();
         for eid in incoming {
             let edge = &ir.edges[eid];
             queue.push_back(edge.source.node);
@@ -39,10 +39,14 @@ pub fn run(ir: &mut IrGraph) {
     }
 
     // Identify dead processor / node-array nodes (Input/Output are never candidates).
-    let dead: Vec<NodeId> = ir.nodes.iter()
+    let dead: Vec<NodeId> = ir
+        .nodes
+        .iter()
         .filter(|(id, node)| {
-            matches!(node.kind, IrNodeKind::Processor { .. } | IrNodeKind::NodeArray { .. })
-                && !live.contains(id)
+            matches!(
+                node.kind,
+                IrNodeKind::Processor { .. } | IrNodeKind::NodeArray { .. }
+            ) && !live.contains(id)
         })
         .map(|(id, _)| id)
         .collect();
@@ -58,25 +62,33 @@ pub fn run(ir: &mut IrGraph) {
 mod tests {
     use super::*;
     use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, NodeRate};
-    use crate::fanout::FanoutShape;
-    use crate::ir::graph::{EdgeId, EndpointInfo, EndpointRef, IrEdge, IrNode, IrNodeKind};
-    use crate::rate_analysis::EdgeKernel;
+    use crate::ir::graph::{
+        EdgeId, EdgeKernel, EndpointInfo, EndpointRef, FanoutShape, IrEdge, IrNode, IrNodeKind,
+    };
     use proc_macro2::Span;
-    use quote::{format_ident, quote};
+    use quote::format_ident;
     use std::collections::HashMap;
     use syn::parse_quote;
 
     fn add_input(g: &mut IrGraph, name: &str, endpoint: &str) -> NodeId {
         let id = g.nodes.insert_with_key(|id| IrNode {
             id,
-            kind: IrNodeKind::Input { spec: None, ty: None, default: None },
+            kind: IrNodeKind::Input {
+                spec: None,
+                default: None,
+            },
             name: format_ident!("{}", name),
             rate: NodeRate::Same,
             latency_samples: 0,
             span: Span::call_site(),
             endpoints: {
                 let mut m = HashMap::new();
-                m.insert(format_ident!("{}", endpoint), EndpointInfo { kind: EndpointKind::Stream });
+                m.insert(
+                    format_ident!("{}", endpoint),
+                    EndpointInfo {
+                        kind: EndpointKind::Stream,
+                    },
+                );
                 m
             },
             incoming: Vec::new(),
@@ -89,14 +101,19 @@ mod tests {
     fn add_output(g: &mut IrGraph, name: &str) -> NodeId {
         let id = g.nodes.insert_with_key(|id| IrNode {
             id,
-            kind: IrNodeKind::Output { ty: None },
+            kind: IrNodeKind::Output,
             name: format_ident!("{}", name),
             rate: NodeRate::Same,
             latency_samples: 0,
             span: Span::call_site(),
             endpoints: {
                 let mut m = HashMap::new();
-                m.insert(format_ident!("{}", name), EndpointInfo { kind: EndpointKind::Stream });
+                m.insert(
+                    format_ident!("{}", name),
+                    EndpointInfo {
+                        kind: EndpointKind::Stream,
+                    },
+                );
                 m
             },
             incoming: Vec::new(),
@@ -111,7 +128,6 @@ mod tests {
             id,
             kind: IrNodeKind::Processor {
                 ty: Some(parse_quote!(Dummy)),
-                ctor: quote!(Dummy {}),
                 ctor_expr: parse_quote!(Dummy {}),
             },
             name: format_ident!("{}", name),
@@ -129,8 +145,14 @@ mod tests {
     fn add_edge(g: &mut IrGraph, src: NodeId, src_ep: &str, dst: NodeId, dst_ep: &str) -> EdgeId {
         let id = g.edges.insert_with_key(|id| IrEdge {
             id,
-            source: EndpointRef { node: src, endpoint: format_ident!("{}", src_ep) },
-            dest: EndpointRef { node: dst, endpoint: format_ident!("{}", dst_ep) },
+            source: EndpointRef {
+                node: src,
+                endpoint: format_ident!("{}", src_ep),
+            },
+            dest: EndpointRef {
+                node: dst,
+                endpoint: format_ident!("{}", dst_ep),
+            },
             policy: ConnectionPolicy::Default,
             kernel: EdgeKernel::None,
             fanout: FanoutShape::Scalar,
@@ -242,8 +264,10 @@ mod tests {
         add_edge(&mut g, live, "out", o, "out");
 
         run(&mut g);
-        assert!(g.nodes.get(src).is_some(),
-            "src feeds a live endpoint and must be kept");
+        assert!(
+            g.nodes.get(src).is_some(),
+            "src feeds a live endpoint and must be kept"
+        );
         assert!(g.nodes.get(live).is_some());
     }
 
@@ -255,7 +279,6 @@ mod tests {
             id,
             kind: IrNodeKind::NodeArray {
                 ty: Some(parse_quote!(Voice)),
-                ctor: quote!(Voice {}),
                 ctor_expr: parse_quote!(Voice {}),
                 len: 8,
             },
@@ -270,6 +293,9 @@ mod tests {
         g.processors.push(id);
 
         run(&mut g);
-        assert!(g.nodes.get(id).is_none(), "dead NodeArray should be removed");
+        assert!(
+            g.nodes.get(id).is_none(),
+            "dead NodeArray should be removed"
+        );
     }
 }

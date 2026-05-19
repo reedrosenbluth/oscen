@@ -8,11 +8,11 @@
 
 use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, GraphDef, GraphItem, NodeRate};
 use crate::diagnostics::Diagnostics;
-use crate::fanout::{classify_fanout, FanoutShape};
-use crate::ir::graph::{EdgeId, EndpointInfo, EndpointRef, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId};
-use crate::rate_analysis::{EdgeKernel, EventRescale};
+use crate::ir::graph::{
+    classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EndpointRef, EventRescale, FanoutShape,
+    IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
+};
 use proc_macro2::Span;
-use quote::ToTokens;
 use std::collections::HashMap;
 use syn::Ident;
 
@@ -27,7 +27,10 @@ pub fn lower(graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
             return None;
         }
     };
-    let nih_params = graph_def.items.iter().any(|i| matches!(i, GraphItem::NihParams));
+    let nih_params = graph_def
+        .items
+        .iter()
+        .any(|i| matches!(i, GraphItem::NihParams));
     let mut ir = IrGraph::new(name, nih_params);
     let mut name_to_id: HashMap<String, NodeId> = HashMap::new();
 
@@ -71,7 +74,6 @@ fn collect_declarations(
                     id,
                     kind: IrNodeKind::Input {
                         spec: input.spec.clone(),
-                        ty: input.ty.clone(),
                         default: input.default.clone(),
                     },
                     name: input.name.clone(),
@@ -93,9 +95,7 @@ fn collect_declarations(
             GraphItem::Output(output) => {
                 let id = ir.nodes.insert_with_key(|id| IrNode {
                     id,
-                    kind: IrNodeKind::Output {
-                        ty: output.ty.clone(),
-                    },
+                    kind: IrNodeKind::Output,
                     name: output.name.clone(),
                     rate: NodeRate::Same,
                     latency_samples: 0,
@@ -140,14 +140,12 @@ fn collect_node_decl(
     let kind = if let Some(len) = decl.array_size {
         IrNodeKind::NodeArray {
             ty: decl.node_type.clone(),
-            ctor: decl.constructor.to_token_stream(),
             ctor_expr: decl.constructor.clone(),
             len,
         }
     } else {
         IrNodeKind::Processor {
             ty: decl.node_type.clone(),
-            ctor: decl.constructor.to_token_stream(),
             ctor_expr: decl.constructor.clone(),
         }
     };
@@ -220,9 +218,7 @@ fn infer_endpoint_types(
 
             // If the destination is a node.endpoint, propagate the kind.
             if let Some(src_kind) = src_kind {
-                if let Some((dst_id, dst_ep)) =
-                    resolve_node_endpoint(&stmt.dest, name_to_id)
-                {
+                if let Some((dst_id, dst_ep)) = resolve_node_endpoint(&stmt.dest, name_to_id) {
                     let node = &mut ir.nodes[dst_id];
                     use std::collections::hash_map::Entry;
                     match node.endpoints.entry(dst_ep) {
@@ -239,9 +235,7 @@ fn infer_endpoint_types(
             // is unknown, try to infer it from the dest.
             let dst_kind = endpoint_kind_of(&stmt.dest, ir, name_to_id);
             if let Some(dst_kind) = dst_kind {
-                if let Some((src_id, src_ep)) =
-                    resolve_node_endpoint(&stmt.source, name_to_id)
-                {
+                if let Some((src_id, src_ep)) = resolve_node_endpoint(&stmt.source, name_to_id) {
                     let node = &mut ir.nodes[src_id];
                     use std::collections::hash_map::Entry;
                     match node.endpoints.entry(src_ep) {
@@ -286,30 +280,29 @@ fn build_edges(
         // endpoint name so the edge still exists in the IR — codegen reads
         // the full shape from `source_expr`, and dead-node analysis uses
         // `extra_source_nodes` to cover the other referenced idents.
-        let (src_ref, extra_sources) =
-            match resolve_endpoint_ref(&stmt.source, name_to_id) {
-                Some(r) => (r, Vec::new()),
-                None => {
-                    // Collect every node id referenced by the compound source.
-                    let mut refs = collect_referenced_node_ids(&stmt.source, name_to_id);
-                    refs.dedup();
-                    if refs.is_empty() {
-                        // No node references at all (pure literal source). Skip
-                        // — we can't anchor this edge to a node.
-                        continue;
-                    }
-                    let primary = refs[0];
-                    let extras = refs[1..].to_vec();
-                    let ep_name = ir.nodes[primary].name.clone();
-                    (
-                        EndpointRef {
-                            node: primary,
-                            endpoint: ep_name,
-                        },
-                        extras,
-                    )
+        let (src_ref, extra_sources) = match resolve_endpoint_ref(&stmt.source, name_to_id) {
+            Some(r) => (r, Vec::new()),
+            None => {
+                // Collect every node id referenced by the compound source.
+                let mut refs = collect_referenced_node_ids(&stmt.source, name_to_id);
+                refs.dedup();
+                if refs.is_empty() {
+                    // No node references at all (pure literal source). Skip
+                    // — we can't anchor this edge to a node.
+                    continue;
                 }
-            };
+                let primary = refs[0];
+                let extras = refs[1..].to_vec();
+                let ep_name = ir.nodes[primary].name.clone();
+                (
+                    EndpointRef {
+                        node: primary,
+                        endpoint: ep_name,
+                    },
+                    extras,
+                )
+            }
+        };
 
         // Resolve dest EndpointRef.
         let dst_ref = match resolve_endpoint_ref(&stmt.dest, name_to_id) {
@@ -467,7 +460,6 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
         ir.edges[eid].kernel = kernel;
         ir.edges[eid].fanout = fanout;
     }
-
 }
 
 /// Per-node rate validation. Catches `Down(n)` rate annotations
@@ -571,9 +563,15 @@ fn classify_edge_ir(
     };
 
     Ok(if is_up {
-        EdgeKernel::Up { factor, kind: policy }
+        EdgeKernel::Up {
+            factor,
+            kind: policy,
+        }
     } else {
-        EdgeKernel::Down { factor, kind: policy }
+        EdgeKernel::Down {
+            factor,
+            kind: policy,
+        }
     })
 }
 
@@ -663,16 +661,15 @@ fn endpoint_kind_of(
 /// Get the root `NodeId` from a complex expression.
 /// For `osc.output[0]`, returns the id of `osc`.
 /// Recurses through `Field`, `MethodCall`, `ArrayIndex`.
-fn root_node_id(
-    expr: &ConnectionExpr,
-    name_to_id: &HashMap<String, NodeId>,
-) -> Option<NodeId> {
+fn root_node_id(expr: &ConnectionExpr, name_to_id: &HashMap<String, NodeId>) -> Option<NodeId> {
     match expr {
         ConnectionExpr::Ident(ident) => name_to_id.get(&ident.to_string()).copied(),
         ConnectionExpr::Field(obj, _) => root_node_id(obj, name_to_id),
         ConnectionExpr::MethodCall(obj, _, _) => root_node_id(obj, name_to_id),
         ConnectionExpr::ArrayIndex(inner, _) => root_node_id(inner, name_to_id),
-        ConnectionExpr::Binary(_, _, _) | ConnectionExpr::Literal(_) | ConnectionExpr::Call(_, _) => None,
+        ConnectionExpr::Binary(_, _, _)
+        | ConnectionExpr::Literal(_)
+        | ConnectionExpr::Call(_, _) => None,
     }
 }
 
@@ -729,8 +726,7 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
     use std::collections::{HashMap, VecDeque};
 
     // Build a set of processor NodeIds for fast membership test.
-    let processor_set: std::collections::HashSet<NodeId> =
-        ir.processors.iter().copied().collect();
+    let processor_set: std::collections::HashSet<NodeId> = ir.processors.iter().copied().collect();
 
     // Compute in-degree for each processor from edges whose source is also
     // a processor, skipping edges from feedback-allowing sources.
@@ -831,10 +827,7 @@ fn is_feedback_allowing_node(node: &IrNode) -> bool {
 /// are reported.
 fn validate_cross_rate_kinds(ir: &IrGraph, diags: &mut Diagnostics) {
     for edge in ir.edges.values() {
-        let is_cross_rate = matches!(
-            edge.kernel,
-            EdgeKernel::Up { .. } | EdgeKernel::Down { .. }
-        );
+        let is_cross_rate = matches!(edge.kernel, EdgeKernel::Up { .. } | EdgeKernel::Down { .. });
         if !is_cross_rate {
             continue;
         }

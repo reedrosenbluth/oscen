@@ -13,6 +13,7 @@ pub struct GraphDef {
 
 /// Top-level items in a graph definition
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum GraphItem {
     Input(InputDecl),
     Output(OutputDecl),
@@ -104,34 +105,24 @@ pub enum BinaryOp {
 /// Rate ratio of a node relative to the parent graph's rate.
 /// Default is `Same` (1/1). `Up(N)` means the node runs at N× the graph's rate;
 /// `Down(N)` means it runs at 1/N of the graph's rate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NodeRate {
+    #[default]
     Same,
     Up(u32),   // factor must be in {2, 4, 8}
     Down(u32), // factor must be in {2, 4, 8}
 }
 
-impl Default for NodeRate {
-    fn default() -> Self {
-        NodeRate::Same
-    }
-}
-
 /// Policy for a connection that crosses a rate boundary.
 /// `Default` lets the macro pick based on endpoint kind (see spec § Default Policies).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConnectionPolicy {
+    #[default]
     Default,
     Latch,
     Linear,
     Sinc,
     SincIir,
-}
-
-impl Default for ConnectionPolicy {
-    fn default() -> Self {
-        ConnectionPolicy::Default
-    }
 }
 
 /// Endpoint type

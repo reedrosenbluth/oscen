@@ -1,8 +1,8 @@
 use crate::ast::{BinaryOp, ConnectionExpr, ConnectionPolicy, EndpointKind, NodeRate};
 use crate::diagnostics::Diagnostics;
-use crate::fanout::FanoutShape;
-use crate::ir::graph::{EdgeId, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId};
-use crate::rate_analysis::{EdgeKernel, EventRescale};
+use crate::ir::graph::{
+    EdgeId, EdgeKernel, EventRescale, FanoutShape, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
+};
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::collections::{HashMap, HashSet};
@@ -217,7 +217,7 @@ impl<'a> CodegenContext<'a> {
 
     fn output_kind(&self, name: &syn::Ident) -> Option<EndpointKind> {
         let node = self.find_node_by_ident(name)?;
-        if !matches!(node.kind, IrNodeKind::Output { .. }) {
+        if !matches!(node.kind, IrNodeKind::Output) {
             return None;
         }
         node.endpoints.get(name).map(|e| e.kind)
@@ -233,7 +233,7 @@ impl<'a> CodegenContext<'a> {
     fn is_output(&self, name: &syn::Ident) -> bool {
         matches!(
             self.find_node_by_ident(name).map(|n| &n.kind),
-            Some(IrNodeKind::Output { .. })
+            Some(IrNodeKind::Output)
         )
     }
 
@@ -258,8 +258,9 @@ impl<'a> CodegenContext<'a> {
     /// Get the constructor `syn::Expr` for a processor/array node.
     fn node_ctor_expr<'b>(&self, node: &'b IrNode) -> Option<&'b Expr> {
         match &node.kind {
-            IrNodeKind::Processor { ctor_expr, .. }
-            | IrNodeKind::NodeArray { ctor_expr, .. } => Some(ctor_expr),
+            IrNodeKind::Processor { ctor_expr, .. } | IrNodeKind::NodeArray { ctor_expr, .. } => {
+                Some(ctor_expr)
+            }
             _ => None,
         }
     }
@@ -294,7 +295,10 @@ impl<'a> CodegenContext<'a> {
         if !matches!(node.kind, IrNodeKind::Input { .. }) {
             return None;
         }
-        if !matches!(node.endpoints.get(name).map(|e| e.kind), Some(EndpointKind::Value)) {
+        if !matches!(
+            node.endpoints.get(name).map(|e| e.kind),
+            Some(EndpointKind::Value)
+        ) {
             return None;
         }
         self.input_spec(node).and_then(|s| s.ramp)
@@ -306,7 +310,11 @@ impl<'a> CodegenContext<'a> {
         self.inputs()
             .flat_map(|node| {
                 let name = &node.name;
-                let kind = node.endpoints.get(name).map(|e| e.kind).unwrap_or(EndpointKind::Value);
+                let kind = node
+                    .endpoints
+                    .get(name)
+                    .map(|e| e.kind)
+                    .unwrap_or(EndpointKind::Value);
                 let default_val = self.input_default(node);
 
                 let mut stmts = Vec::new();
@@ -350,7 +358,11 @@ impl<'a> CodegenContext<'a> {
         self.outputs()
             .flat_map(|node| {
                 let name = &node.name;
-                let kind = node.endpoints.get(name).map(|e| e.kind).unwrap_or(EndpointKind::Stream);
+                let kind = node
+                    .endpoints
+                    .get(name)
+                    .map(|e| e.kind)
+                    .unwrap_or(EndpointKind::Stream);
                 let mut stmts = Vec::new();
 
                 match kind {
@@ -441,7 +453,11 @@ impl<'a> CodegenContext<'a> {
             .inputs()
             .flat_map(|node| {
                 let name = &node.name;
-                let kind = node.endpoints.get(name).map(|e| e.kind).unwrap_or(EndpointKind::Value);
+                let kind = node
+                    .endpoints
+                    .get(name)
+                    .map(|e| e.kind)
+                    .unwrap_or(EndpointKind::Value);
                 let mut fields = vec![quote! { #name }];
                 if kind == EndpointKind::Stream {
                     let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
@@ -455,7 +471,11 @@ impl<'a> CodegenContext<'a> {
             .outputs()
             .flat_map(|node| {
                 let name = &node.name;
-                let kind = node.endpoints.get(name).map(|e| e.kind).unwrap_or(EndpointKind::Stream);
+                let kind = node
+                    .endpoints
+                    .get(name)
+                    .map(|e| e.kind)
+                    .unwrap_or(EndpointKind::Stream);
                 let mut fields = vec![quote! { #name }];
                 if kind == EndpointKind::Stream {
                     let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
@@ -1030,8 +1050,10 @@ impl<'a> CodegenContext<'a> {
                                 quote! {}
                             };
 
-                            let shape =
-                                crate::fanout::classify_fanout(source_array_size, dest_array_size);
+                            let shape = crate::ir::graph::classify_fanout(
+                                source_array_size,
+                                dest_array_size,
+                            );
                             let stmt = match shape {
                                 FanoutShape::Scalar => self.emit_scalar_connect(
                                     source_ident,
@@ -2014,10 +2036,8 @@ impl<'a> CodegenContext<'a> {
     ) -> TokenStream {
         // Graph output (Ident only, no field): direct assignment.
         if let Some(dest_ident) = Self::extract_root_node(dest) {
-            if self.is_output(dest_ident) {
-                if matches!(dest, ConnectionExpr::Ident(_)) {
-                    return quote! { self.#dest_ident = #value; };
-                }
+            if self.is_output(dest_ident) && matches!(dest, ConnectionExpr::Ident(_)) {
+                return quote! { self.#dest_ident = #value; };
             }
         }
 
