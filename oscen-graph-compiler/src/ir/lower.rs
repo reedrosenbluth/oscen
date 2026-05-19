@@ -38,6 +38,7 @@ pub fn lower(graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
     analyze_rates(&mut ir, diags);
     refine_kernels(&mut ir);
     topo_sort(&mut ir, diags);
+    validate_cross_rate_kinds(&ir, diags);
 
     #[cfg(debug_assertions)]
     crate::ir::validate::validate(&ir);
@@ -699,6 +700,78 @@ fn is_feedback_allowing_node(node: &IrNode) -> bool {
             false
         }
         _ => false,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Step 8: Cross-rate kind validation
+// ---------------------------------------------------------------------------
+
+/// Step 8: Walk all cross-rate edges and push diagnostics for unsupported
+/// (src kind, dst kind) tuples.
+///
+/// Ports `rate_analysis::validate_cross_rate_kinds` to operate on `&IrGraph`
+/// instead of the legacy `RateAnalysis`/`TypeContext` side-tables. Edges
+/// where one or both endpoint kinds cannot be inferred are skipped — those
+/// produce errors elsewhere. Does not bail on the first error; all bad edges
+/// are reported.
+fn validate_cross_rate_kinds(ir: &IrGraph, diags: &mut Diagnostics) {
+    for edge in ir.edges.values() {
+        let is_cross_rate = matches!(
+            edge.kernel,
+            EdgeKernel::Up { .. } | EdgeKernel::Down { .. }
+        );
+        if !is_cross_rate {
+            continue;
+        }
+
+        let src_kind = ir.nodes[edge.source.node]
+            .endpoints
+            .get(&edge.source.endpoint)
+            .map(|e| e.kind);
+        let dst_kind = ir.nodes[edge.dest.node]
+            .endpoints
+            .get(&edge.dest.endpoint)
+            .map(|e| e.kind);
+
+        let (src, dst) = match (src_kind, dst_kind) {
+            (Some(s), Some(d)) => (s, d),
+            _ => continue,
+        };
+
+        if is_supported_cross_rate_kinds(src, dst) {
+            continue;
+        }
+
+        diags.push_error(syn::Error::new(
+            edge.span,
+            format!(
+                "cross-rate edge from {} to {} is not supported; \
+                 insert an explicit converter node, or change one side's rate",
+                endpoint_kind_name(src),
+                endpoint_kind_name(dst),
+            ),
+        ));
+    }
+}
+
+/// Cross-rate edges support a fixed set of `(SrcKind, DstKind)` tuples.
+/// Mirrors `rate_analysis::is_supported_cross_rate_kinds` exactly.
+fn is_supported_cross_rate_kinds(src: EndpointKind, dst: EndpointKind) -> bool {
+    matches!(
+        (src, dst),
+        (EndpointKind::Stream, EndpointKind::Stream)
+            | (EndpointKind::Value, EndpointKind::Value)
+            | (EndpointKind::Value, EndpointKind::Stream)
+            | (EndpointKind::Event, EndpointKind::Event)
+    )
+}
+
+fn endpoint_kind_name(kind: EndpointKind) -> &'static str {
+    match kind {
+        EndpointKind::Stream => "stream",
+        EndpointKind::Value => "value",
+        EndpointKind::Event => "event",
     }
 }
 

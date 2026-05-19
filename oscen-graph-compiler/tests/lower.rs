@@ -226,3 +226,20 @@ fn non_feedback_cycle_with_extra_delay_input_is_rejected() {
         ir.is_some(), errors
     );
 }
+
+#[test]
+fn validate_cross_rate_kinds_smoke() {
+    // A well-formed multi-rate graph passes validation cleanly.
+    let (ir, diags) = lower_quote(quote! {
+        name: Smoke;
+        input stream s;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5) * 4;
+        connections {
+            s -> osc.frequency;
+            osc.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags.items);
+    assert!(ir.is_some(), "expected lower to produce an IrGraph");
+}
