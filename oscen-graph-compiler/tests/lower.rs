@@ -93,3 +93,56 @@ fn type_mismatch_accumulates_per_connection() {
     assert_eq!(errors.len(), 2, "expected two type-mismatch errors, got: {:?}",
         errors.iter().map(|e| e.message.to_string()).collect::<Vec<_>>());
 }
+
+#[test]
+fn upsampled_node_carries_rate_factor() {
+    let (ir, diags) = lower_quote(quote! {
+        name: Up;
+        input stream s;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5) * 4;
+        connections {
+            s -> osc.frequency;
+            osc.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags.items);
+    let ir = ir.expect("lower should produce an IrGraph");
+
+    let osc = ir.processors.iter()
+        .find_map(|&id| (ir.nodes[id].name.to_string() == "osc").then(|| &ir.nodes[id]))
+        .expect("osc node should exist");
+    assert!(
+        matches!(osc.rate, oscen_graph_compiler::ast::NodeRate::Up(4)),
+        "expected NodeRate::Up(4), got {:?}", osc.rate
+    );
+}
+
+#[test]
+fn cross_rate_edge_picks_correct_kernel() {
+    let (ir, diags) = lower_quote(quote! {
+        name: CrossRate;
+        input stream s;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5) * 4;
+        connections {
+            s -> osc.frequency;
+            osc.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags.items);
+    let ir = ir.expect("lower should produce an IrGraph");
+
+    // The edge `osc.output -> out` crosses from rate x4 to rate x1 (graph rate)
+    // and should have a non-None kernel (i.e., something other than EdgeKernel::None).
+    let cross_edges: Vec<_> = ir.edges.values()
+        .filter(|e| ir.nodes[e.source.node].name.to_string() == "osc"
+                 && ir.nodes[e.dest.node].name.to_string() == "out")
+        .collect();
+    assert_eq!(cross_edges.len(), 1);
+    let kernel = &cross_edges[0].kernel;
+    assert!(
+        !matches!(kernel, oscen_graph_compiler::rate_analysis::EdgeKernel::None),
+        "expected a non-None (cross-rate) kernel, got {:?}", kernel
+    );
+}

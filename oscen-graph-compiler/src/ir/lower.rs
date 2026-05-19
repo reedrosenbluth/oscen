@@ -6,11 +6,11 @@
 //! mutation API. Accumulates diagnostics across all steps and returns
 //! `None` if any errors landed.
 
-use crate::ast::{ConnectionExpr, EndpointKind, GraphDef, GraphItem, NodeRate};
+use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, GraphDef, GraphItem, NodeRate};
 use crate::diagnostics::Diagnostics;
-use crate::fanout::FanoutShape;
+use crate::fanout::{classify_fanout, FanoutShape};
 use crate::ir::graph::{EndpointInfo, EndpointRef, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId};
-use crate::rate_analysis::EdgeKernel;
+use crate::rate_analysis::{EdgeKernel, EventRescale};
 use proc_macro2::Span;
 use quote::ToTokens;
 use std::collections::HashMap;
@@ -35,7 +35,8 @@ pub fn lower(graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
 
     infer_endpoint_types(&graph_def, &mut ir, &name_to_id, diags);
     build_edges(&graph_def, &mut ir, &name_to_id, diags);
-    // Steps 4–8 land in later tasks.
+    analyze_rates(&mut ir, diags);
+    refine_kernels(&mut ir);
 
     #[cfg(debug_assertions)]
     crate::ir::validate::validate(&ir);
@@ -316,6 +317,177 @@ fn build_edges(
         // Update adjacency.
         ir.nodes[src_ref.node].outgoing.push(eid);
         ir.nodes[dst_ref.node].incoming.push(eid);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Step 4: Rate analysis
+// ---------------------------------------------------------------------------
+
+/// Step 4: Classify each edge's resampling kernel and fanout shape.
+///
+/// For each edge, compares the source node's rate and the dest node's rate,
+/// selects the appropriate `EdgeKernel` (None / Up / Down), and computes the
+/// `FanoutShape` from node array sizes. Ports `rate_analysis::analyze` to
+/// operate on an already-populated `IrGraph` instead of the AST.
+///
+/// Any invalid rate combination (e.g., two differently-rated non-default-rate
+/// nodes) is pushed to `diags` without bailing. `EdgeKernel::None` is used
+/// as a placeholder on errored edges.
+fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
+    // Collect edge IDs up front to avoid borrow conflicts when mutating.
+    let edge_ids: Vec<_> = ir.edges.keys().collect();
+
+    for eid in edge_ids {
+        let (src_node_id, dst_node_id, policy, span) = {
+            let edge = &ir.edges[eid];
+            (edge.source.node, edge.dest.node, edge.policy, edge.span)
+        };
+
+        let source_rate = ir.nodes[src_node_id].rate;
+        let dest_rate = ir.nodes[dst_node_id].rate;
+
+        // Reject undersampling (mirrors rate_analysis::analyze).
+        if let NodeRate::Down(_) = source_rate {
+            diags.push_error(syn::Error::new(
+                ir.nodes[src_node_id].span,
+                "node undersampling (`/ N`) is not yet supported in v1; only oversampling (`* N`) is implemented",
+            ));
+            // Leave kernel as None.
+            continue;
+        }
+        if let NodeRate::Down(_) = dest_rate {
+            diags.push_error(syn::Error::new(
+                ir.nodes[dst_node_id].span,
+                "node undersampling (`/ N`) is not yet supported in v1; only oversampling (`* N`) is implemented",
+            ));
+            continue;
+        }
+
+        let kernel = match classify_edge_ir(source_rate, dest_rate, policy, span) {
+            Ok(k) => k,
+            Err(e) => {
+                diags.push_error(e);
+                EdgeKernel::None
+            }
+        };
+
+        // Compute fanout shape from source/dest node array sizes.
+        let src_array_size = array_size_of(&ir.nodes[src_node_id].kind);
+        let dst_array_size = array_size_of(&ir.nodes[dst_node_id].kind);
+        let fanout = classify_fanout(src_array_size, dst_array_size);
+
+        ir.edges[eid].kernel = kernel;
+        ir.edges[eid].fanout = fanout;
+    }
+
+}
+
+/// Step 5: Refine edge kernels using endpoint-kind information.
+///
+/// Two refinements mirror `rate_analysis::refine_with_types`:
+///
+/// 1. **Event edges.** Any edge whose source or destination endpoint is an
+///    event endpoint is rewritten to `EdgeKernel::Event` with rescaling
+///    derived from the source/dest rates.
+///
+/// 2. **Default policy on value cross-rate edges** is promoted to
+///    `ConnectionPolicy::Latch`. Stream edges keep their Sinc default.
+///
+/// No diagnostics are emitted here; bad kind tuples are caught by
+/// `validate_cross_rate_kinds` (step 8, Task 9).
+fn refine_kernels(ir: &mut IrGraph) {
+    let edge_ids: Vec<_> = ir.edges.keys().collect();
+
+    for eid in edge_ids {
+        let (src_node_id, dst_node_id, src_ep, dst_ep) = {
+            let edge = &ir.edges[eid];
+            (
+                edge.source.node,
+                edge.dest.node,
+                edge.source.endpoint.clone(),
+                edge.dest.endpoint.clone(),
+            )
+        };
+
+        let src_kind = ir.nodes[src_node_id].endpoints.get(&src_ep).map(|e| e.kind);
+        let dst_kind = ir.nodes[dst_node_id].endpoints.get(&dst_ep).map(|e| e.kind);
+
+        let is_event_edge = matches!(src_kind, Some(EndpointKind::Event))
+            || matches!(dst_kind, Some(EndpointKind::Event));
+
+        if is_event_edge {
+            let source_rate = ir.nodes[src_node_id].rate;
+            let dest_rate = ir.nodes[dst_node_id].rate;
+            let rescale = compute_event_rescale(source_rate, dest_rate);
+            ir.edges[eid].kernel = EdgeKernel::Event { rescale };
+            continue;
+        }
+
+        // Promote Default policy to Latch on value cross-rate edges.
+        let is_value_edge = matches!(src_kind, Some(EndpointKind::Value))
+            || matches!(dst_kind, Some(EndpointKind::Value));
+        if is_value_edge {
+            match &mut ir.edges[eid].kernel {
+                EdgeKernel::Up { kind, .. } | EdgeKernel::Down { kind, .. } => {
+                    if matches!(kind, ConnectionPolicy::Default) {
+                        *kind = ConnectionPolicy::Latch;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Classify a cross-rate edge, mirroring `rate_analysis::classify_edge`.
+fn classify_edge_ir(
+    src: NodeRate,
+    dst: NodeRate,
+    policy: ConnectionPolicy,
+    span: proc_macro2::Span,
+) -> syn::Result<EdgeKernel> {
+    use NodeRate::*;
+    let (factor, is_up) = match (src, dst) {
+        (Same, Same) => return Ok(EdgeKernel::None),
+        (Up(n), Same) => (n, false), // source faster → downsample at dest
+        (Same, Up(n)) => (n, true),  // dest faster → upsample from source
+        (Same, Down(n)) => (n, false),
+        (Down(n), Same) => (n, true),
+        (Up(a), Up(b)) if a == b => return Ok(EdgeKernel::None),
+        (Down(a), Down(b)) if a == b => return Ok(EdgeKernel::None),
+        _ => {
+            return Err(syn::Error::new(
+                span,
+                "v1 does not support connections between two differently-rated non-default-rate nodes; \
+                 route through an outer-rate node instead",
+            ));
+        }
+    };
+
+    Ok(if is_up {
+        EdgeKernel::Up { factor, kind: policy }
+    } else {
+        EdgeKernel::Down { factor, kind: policy }
+    })
+}
+
+/// Compute the `EventRescale` for an event edge given source/dest rates.
+/// Mirrors `rate_analysis::event_rescale`.
+fn compute_event_rescale(src: NodeRate, dst: NodeRate) -> EventRescale {
+    use NodeRate::*;
+    match (src, dst) {
+        (Same, Up(n)) => EventRescale::Multiply(n),
+        (Up(n), Same) => EventRescale::Divide(n),
+        _ => EventRescale::None,
+    }
+}
+
+/// Extract the array size from an `IrNodeKind`, if it is a `NodeArray`.
+fn array_size_of(kind: &IrNodeKind) -> Option<usize> {
+    match kind {
+        IrNodeKind::NodeArray { len, .. } => Some(*len),
+        _ => None,
     }
 }
 
