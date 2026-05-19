@@ -166,3 +166,29 @@ fn scalar_edges_get_scalar_fanout() {
         );
     }
 }
+
+#[test]
+fn topo_sort_orders_branching_graph() {
+    let (ir, diags) = lower_quote(quote! {
+        name: Branch;
+        input stream s;
+        output stream out;
+        // b is declared before a, but topologically depends on a.
+        // Without topo_sort, b would appear before a in processors[].
+        node b = Gain::new(0.5);
+        node a = Gain::new(0.5);
+        connections {
+            s -> a.input;
+            a.output -> b.input;
+            b.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "{:?}", diags.items);
+    let ir = ir.expect("lower should produce an IrGraph");
+
+    let a_pos = ir.processors.iter()
+        .position(|&id| ir.nodes[id].name.to_string() == "a").unwrap();
+    let b_pos = ir.processors.iter()
+        .position(|&id| ir.nodes[id].name.to_string() == "b").unwrap();
+    assert!(a_pos < b_pos, "a (upstream of b) should come first in topo order, got a={a_pos} b={b_pos}");
+}

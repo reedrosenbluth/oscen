@@ -9,7 +9,7 @@
 use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, GraphDef, GraphItem, NodeRate};
 use crate::diagnostics::Diagnostics;
 use crate::fanout::{classify_fanout, FanoutShape};
-use crate::ir::graph::{EndpointInfo, EndpointRef, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId};
+use crate::ir::graph::{EdgeId, EndpointInfo, EndpointRef, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId};
 use crate::rate_analysis::{EdgeKernel, EventRescale};
 use proc_macro2::Span;
 use quote::ToTokens;
@@ -37,6 +37,7 @@ pub fn lower(graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
     build_edges(&graph_def, &mut ir, &name_to_id, diags);
     analyze_rates(&mut ir, diags);
     refine_kernels(&mut ir);
+    topo_sort(&mut ir, diags);
 
     #[cfg(debug_assertions)]
     crate::ir::validate::validate(&ir);
@@ -607,6 +608,92 @@ fn resolve_endpoint_ref(
     name_to_id: &HashMap<String, NodeId>,
 ) -> Option<EndpointRef> {
     resolve_node_endpoint(expr, name_to_id).map(|(node, endpoint)| EndpointRef { node, endpoint })
+}
+
+// ---------------------------------------------------------------------------
+// Step 6: Topological sort
+// ---------------------------------------------------------------------------
+
+/// Step 6: Sort `ir.processors` into topological (dependency) order using
+/// Kahn's algorithm.
+///
+/// Feedback-allowing nodes (identified by `is_feedback_allowing_node`) have
+/// their incoming edges excluded from the in-degree count so they don't
+/// create false cycles. Emits a "non-feedback cycle" error into `diags` if
+/// the graph is cyclic after removing feedback edges.
+fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
+    use std::collections::{HashMap, VecDeque};
+
+    // Build a set of processor NodeIds for fast membership test.
+    let processor_set: std::collections::HashSet<NodeId> =
+        ir.processors.iter().copied().collect();
+
+    // Compute in-degree for each processor from edges whose source is also
+    // a processor, skipping edges from feedback-allowing sources.
+    let mut in_degree: HashMap<NodeId, usize> = HashMap::new();
+    for &nid in &ir.processors {
+        in_degree.insert(nid, 0);
+    }
+    for &nid in &ir.processors {
+        for &eid in &ir.nodes[nid].incoming {
+            let src = ir.edges[eid].source.node;
+            if processor_set.contains(&src) && !is_feedback_allowing_node(&ir.nodes[src]) {
+                *in_degree.get_mut(&nid).unwrap() += 1;
+            }
+        }
+    }
+
+    // Seed the queue with all zero-in-degree nodes.
+    let mut queue: VecDeque<NodeId> = in_degree
+        .iter()
+        .filter(|(_, &d)| d == 0)
+        .map(|(&id, _)| id)
+        .collect();
+    let mut sorted: Vec<NodeId> = Vec::with_capacity(ir.processors.len());
+
+    while let Some(nid) = queue.pop_front() {
+        sorted.push(nid);
+        // Clone outgoing to avoid borrow conflict when mutating in_degree.
+        let outgoing: Vec<EdgeId> = ir.nodes[nid].outgoing.clone();
+        for eid in outgoing {
+            let dst = ir.edges[eid].dest.node;
+            if let Some(d) = in_degree.get_mut(&dst) {
+                if *d > 0 {
+                    *d -= 1;
+                    if *d == 0 {
+                        queue.push_back(dst);
+                    }
+                }
+            }
+        }
+    }
+
+    if sorted.len() != ir.processors.len() {
+        diags.push_error(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "graph contains a non-feedback cycle",
+        ));
+        return;
+    }
+    ir.processors = sorted;
+}
+
+/// Return `true` if `node` is a feedback-allowing node (e.g., a delay line).
+///
+/// Uses the same string-match heuristic as `codegen::is_feedback_allowing_node`
+/// (line ~887): the last path segment of the node's type must contain "Delay".
+/// Replacing this with a marker-trait approach is tracked separately.
+fn is_feedback_allowing_node(node: &IrNode) -> bool {
+    match &node.kind {
+        IrNodeKind::Processor { ty: Some(path), .. }
+        | IrNodeKind::NodeArray { ty: Some(path), .. } => {
+            if let Some(seg) = path.segments.last() {
+                return seg.ident.to_string().contains("Delay");
+            }
+            false
+        }
+        _ => false,
+    }
 }
 
 /// Check whether a source kind is compatible with a destination kind.
