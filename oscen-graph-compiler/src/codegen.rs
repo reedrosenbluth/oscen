@@ -164,47 +164,12 @@ impl<'a> CodegenContext<'a> {
         max
     }
 
-    /// Endpoint kind for `node.endpoint`, if known.
-    fn endpoint_kind(&self, node_name: &str, endpoint: &syn::Ident) -> Option<EndpointKind> {
-        let node = self.find_node_by_name(node_name)?;
-        node.endpoints.get(endpoint).map(|e| e.kind)
-    }
-
-    /// Infer the endpoint kind of an arbitrary `ConnectionExpr`. Mirrors
-    /// the inference logic in `ir::lower::endpoint_kind_of` + the legacy
-    /// `TypeContext::infer_type` so cross-rate kernel projection and policy
-    /// promotion produce identical results.
+    /// Infer the endpoint kind of an arbitrary `ConnectionExpr`.
+    ///
+    /// Thin facade over [`crate::ir::lower::endpoint_kind_of`], which is the
+    /// single source of truth for endpoint-kind inference.
     fn infer_kind(&self, expr: &ConnectionExpr) -> Option<EndpointKind> {
-        match expr {
-            ConnectionExpr::Ident(ident) => {
-                // Inputs and outputs both store the implicit endpoint under
-                // their own name.
-                let node = self.find_node_by_ident(ident)?;
-                node.endpoints.get(ident).map(|e| e.kind)
-            }
-            ConnectionExpr::ArrayIndex(inner, _) => self.infer_kind(inner),
-            ConnectionExpr::Field(obj, field) => {
-                if let ConnectionExpr::Ident(node_ident) = &**obj {
-                    self.endpoint_kind(&node_ident.to_string(), field)
-                } else {
-                    None
-                }
-            }
-            ConnectionExpr::MethodCall(_, _, _) => None,
-            ConnectionExpr::Binary(left, _, right) => {
-                let l = self.infer_kind(left)?;
-                let r = self.infer_kind(right)?;
-                match (l, r) {
-                    (EndpointKind::Stream, EndpointKind::Stream)
-                    | (EndpointKind::Stream, EndpointKind::Value)
-                    | (EndpointKind::Value, EndpointKind::Stream) => Some(EndpointKind::Stream),
-                    (EndpointKind::Value, EndpointKind::Value) => Some(EndpointKind::Value),
-                    (EndpointKind::Event, _) | (_, EndpointKind::Event) => None,
-                }
-            }
-            ConnectionExpr::Literal(_) => Some(EndpointKind::Value),
-            ConnectionExpr::Call(_, _) => None,
-        }
+        crate::ir::lower::endpoint_kind_of(expr, self.ir, &self.name_to_id)
     }
 
     fn input_kind(&self, name: &syn::Ident) -> Option<EndpointKind> {

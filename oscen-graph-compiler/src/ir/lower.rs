@@ -603,7 +603,11 @@ fn array_size_of(kind: &IrNodeKind) -> Option<usize> {
 /// map for `Ident` lookups against graph input/output nodes.
 ///
 /// Ports `TypeContext::infer_type` from `type_check.rs`.
-fn endpoint_kind_of(
+///
+/// This is the single source of truth for endpoint-kind inference. Both the
+/// lowering pass and `codegen::CodegenContext::infer_kind` delegate here so
+/// cross-rate kernel projection and policy promotion rules stay in sync.
+pub(crate) fn endpoint_kind_of(
     expr: &ConnectionExpr,
     ir: &IrGraph,
     name_to_id: &HashMap<String, NodeId>,
