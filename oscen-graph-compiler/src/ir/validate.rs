@@ -1,1 +1,96 @@
 //! Debug-only IR invariant checks.
+//!
+//! `validate(&IrGraph)` panics if the IR is internally inconsistent.
+//! Called inside `lower()` and after every pass under
+//! `cfg(debug_assertions)`. Zero release-build cost.
+
+use crate::ir::graph::{EdgeId, IrGraph, NodeId};
+use std::collections::HashSet;
+
+pub fn validate(ir: &IrGraph) {
+    let edge_set: HashSet<EdgeId> = ir.edges.keys().collect();
+
+    for (nid, node) in &ir.nodes {
+        // Adjacency entries point at live edges.
+        for &eid in &node.incoming {
+            assert!(
+                edge_set.contains(&eid),
+                "node {nid:?}.incoming contains stale edge {eid:?}"
+            );
+            assert!(
+                ir.edges[eid].dest.node == nid,
+                "node {nid:?}.incoming contains edge {eid:?} whose dest is not this node"
+            );
+        }
+        for &eid in &node.outgoing {
+            assert!(
+                edge_set.contains(&eid),
+                "node {nid:?}.outgoing contains stale edge {eid:?}"
+            );
+            assert!(
+                ir.edges[eid].source.node == nid,
+                "node {nid:?}.outgoing contains edge {eid:?} whose source is not this node"
+            );
+        }
+    }
+
+    // Edges reference live nodes.
+    let node_set: HashSet<NodeId> = ir.nodes.keys().collect();
+    for (eid, edge) in &ir.edges {
+        assert!(
+            node_set.contains(&edge.source.node),
+            "edge {eid:?}.source references dead node {:?}",
+            edge.source.node
+        );
+        assert!(
+            node_set.contains(&edge.dest.node),
+            "edge {eid:?}.dest references dead node {:?}",
+            edge.dest.node
+        );
+    }
+
+    // processors / inputs / outputs vectors reference live nodes.
+    for &nid in &ir.processors {
+        assert!(node_set.contains(&nid), "processors[] contains dead node {nid:?}");
+    }
+    for &nid in &ir.inputs {
+        assert!(node_set.contains(&nid), "inputs[] contains dead node {nid:?}");
+    }
+    for &nid in &ir.outputs {
+        assert!(node_set.contains(&nid), "outputs[] contains dead node {nid:?}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::graph::IrGraph;
+    use quote::format_ident;
+
+    #[test]
+    fn empty_graph_validates() {
+        let g = IrGraph::new(format_ident!("Empty"), false);
+        validate(&g);
+    }
+
+    #[test]
+    #[should_panic(expected = "contains dead node")]
+    fn dead_processor_id_in_vec_panics() {
+        let mut g = IrGraph::new(format_ident!("G"), false);
+        // Synthesize a dead NodeId by inserting then removing.
+        let id = g.nodes.insert_with_key(|id| crate::ir::graph::IrNode {
+            id,
+            kind: crate::ir::graph::IrNodeKind::Output,
+            name: format_ident!("dummy"),
+            rate: crate::ast::NodeRate::Same,
+            latency_samples: 0,
+            span: proc_macro2::Span::call_site(),
+            endpoints: Default::default(),
+            incoming: Vec::new(),
+            outgoing: Vec::new(),
+        });
+        g.processors.push(id);
+        g.nodes.remove(id); // now processors[] is stale
+        validate(&g);
+    }
+}
