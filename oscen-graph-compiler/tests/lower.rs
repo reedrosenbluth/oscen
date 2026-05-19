@@ -243,3 +243,23 @@ fn validate_cross_rate_kinds_smoke() {
     assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags.items);
     assert!(ir.is_some(), "expected lower to produce an IrGraph");
 }
+
+#[test]
+fn unconnected_down_node_produces_undersampling_error() {
+    let (ir, diags) = lower_quote(quote! {
+        name: BadRate;
+        input stream s;
+        output stream out;
+        node x = Gain::new(0.5) / 2;
+        connections {
+            s -> out;
+        }
+    });
+    assert!(ir.is_none(), "lower should reject undersampling");
+    let msgs: Vec<String> = diags.items.iter()
+        .map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter().any(|m| m.to_lowercase().contains("undersampling")),
+        "expected undersampling error; got: {:?}", msgs
+    );
+}

@@ -36,6 +36,7 @@ pub fn lower(graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
     infer_endpoint_types(&graph_def, &mut ir, &name_to_id, diags);
     build_edges(&graph_def, &mut ir, &name_to_id, diags);
     analyze_rates(&mut ir, diags);
+    validate_node_rates(&ir, diags);
     refine_kernels(&mut ir);
     topo_sort(&mut ir, diags);
     validate_cross_rate_kinds(&ir, diags);
@@ -314,6 +315,7 @@ fn build_edges(
             fanout: FanoutShape::Scalar,
             span: stmt.span,
             source_expr: stmt.source.clone(),
+            dest_expr: stmt.dest.clone(),
         });
 
         // Update adjacency.
@@ -383,6 +385,24 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
         ir.edges[eid].fanout = fanout;
     }
 
+}
+
+/// Per-node rate validation. Catches `Down(n)` rate annotations
+/// (currently unsupported) even on nodes with no edges. Mirrors the
+/// per-node check in `rate_analysis::analyze` so that unconnected
+/// undersampled nodes also produce a diagnostic.
+fn validate_node_rates(ir: &IrGraph, diags: &mut Diagnostics) {
+    for &id in &ir.processors {
+        let node = &ir.nodes[id];
+        if let NodeRate::Down(n) = node.rate {
+            if n > 1 {
+                diags.push_error(syn::Error::new(
+                    node.span,
+                    "node undersampling (`/ N`) is not yet supported in v1; only oversampling (`* N`) is implemented",
+                ));
+            }
+        }
+    }
 }
 
 /// Step 5: Refine edge kernels using endpoint-kind information.

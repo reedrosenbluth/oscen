@@ -68,6 +68,10 @@ pub struct IrEdge {
     /// IR-native `IrExpr`; codegen continues to consume `ConnectionExpr`
     /// as today. The seam is documented in the design spec.
     pub source_expr: ConnectionExpr,
+    /// Raw AST destination expression. Preserves array indices and other
+    /// info that `dest: EndpointRef` collapses. Used by codegen to emit
+    /// the correct field assignment.
+    pub dest_expr: ConnectionExpr,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -168,6 +172,7 @@ mod tests {
             fanout: FanoutShape::Scalar,
             span: Span::call_site(),
             source_expr: ConnectionExpr::Ident(format_ident!("dummy")),
+            dest_expr: ConnectionExpr::Ident(format_ident!("dummy_dst")),
         });
         graph.nodes[source].outgoing.push(id);
         graph.nodes[dest].incoming.push(id);

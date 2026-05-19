@@ -121,6 +121,7 @@ mod tests {
             fanout: FanoutShape::Scalar,
             span: Span::call_site(),
             source_expr: ConnectionExpr::Ident(format_ident!("dummy")),
+            dest_expr: ConnectionExpr::Ident(format_ident!("dummy_dst")),
         });
         g.nodes[src].outgoing.push(id);
         g.nodes[dst].incoming.push(id);
