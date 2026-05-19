@@ -804,173 +804,6 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
-    /// Walk the expression and push every identifier it mentions into `out`.
-    fn collect_referenced_idents<'b>(expr: &'b ConnectionExpr, out: &mut Vec<&'b syn::Ident>) {
-        match expr {
-            ConnectionExpr::Ident(ident) => out.push(ident),
-            ConnectionExpr::Field(base, _) => Self::collect_referenced_idents(base, out),
-            ConnectionExpr::ArrayIndex(base, _) => Self::collect_referenced_idents(base, out),
-            ConnectionExpr::MethodCall(base, _, _) => Self::collect_referenced_idents(base, out),
-            ConnectionExpr::Binary(l, _, r) => {
-                Self::collect_referenced_idents(l, out);
-                Self::collect_referenced_idents(r, out);
-            }
-            ConnectionExpr::Call(_, args) => {
-                for arg in args {
-                    Self::collect_referenced_idents(arg, out);
-                }
-            }
-            ConnectionExpr::Literal(_) => {}
-        }
-    }
-
-    /// Build dependency map: node -> list of nodes it depends on
-    fn build_dependency_map(&self) -> HashMap<syn::Ident, Vec<syn::Ident>> {
-        let mut deps: HashMap<syn::Ident, Vec<syn::Ident>> = HashMap::new();
-
-        // Initialize all nodes with empty dependency lists
-        for node in self.nodes() {
-            deps.insert(node.name.clone(), Vec::new());
-        }
-
-        // Build dependencies from connections: dest depends on every node
-        // referenced by the source expression (handles arithmetic and calls).
-        for (_, edge) in self.edges() {
-            if let Some(dest_node) = Self::extract_root_node(&edge.dest_expr) {
-                if !deps.contains_key(dest_node) {
-                    continue;
-                }
-                let mut refs = Vec::new();
-                Self::collect_referenced_idents(&edge.source_expr, &mut refs);
-                for source_node in refs {
-                    if deps.contains_key(source_node) && source_node != dest_node {
-                        deps.get_mut(dest_node).unwrap().push(source_node.clone());
-                    }
-                }
-            }
-        }
-
-        deps
-    }
-
-    /// Check if a node type allows feedback (like Delay nodes)
-    fn is_feedback_allowing_node(node_type: &Option<&syn::Path>) -> bool {
-        if let Some(path) = node_type {
-            // Check if the type name ends with "Delay"
-            if let Some(last_segment) = path.segments.last() {
-                let type_name = last_segment.ident.to_string();
-                return type_name.contains("Delay");
-            }
-        }
-        false
-    }
-
-    /// Perform topological sort on nodes using the generic algorithm
-    fn topological_sort_nodes(&self) -> Result<Vec<syn::Ident>> {
-        let deps = self.build_dependency_map();
-
-        // Collect all node names
-        let nodes: Vec<syn::Ident> = self.nodes().map(|n| n.name.clone()).collect();
-
-        let get_dependencies =
-            |node: &syn::Ident| -> Vec<syn::Ident> { deps.get(node).cloned().unwrap_or_default() };
-
-        let allows_feedback = |node: &syn::Ident| -> bool {
-            self.find_node_by_ident(node)
-                .map(|n| Self::is_feedback_allowing_node(&self.node_type_path(n)))
-                .unwrap_or(false)
-        };
-
-        // Build adjacency map: node -> nodes that depend on it
-        let mut adjacency: HashMap<syn::Ident, Vec<syn::Ident>> = HashMap::new();
-        for node in &nodes {
-            adjacency.insert(node.clone(), Vec::new());
-        }
-
-        for node in &nodes {
-            let dependencies = get_dependencies(node);
-            for dep in dependencies {
-                adjacency.entry(dep.clone()).or_default().push(node.clone());
-            }
-        }
-
-        // Identify feedback-allowing nodes
-        let feedback_nodes: HashSet<syn::Ident> = nodes
-            .iter()
-            .filter(|n| allows_feedback(n))
-            .cloned()
-            .collect();
-
-        // For sorting, remove outgoing edges from feedback nodes to break cycles
-        let mut sort_adjacency = adjacency.clone();
-        for feedback_node in &feedback_nodes {
-            sort_adjacency.insert(feedback_node.clone(), Vec::new());
-        }
-
-        // Perform DFS-based topological sort
-        let mut sorted = Vec::with_capacity(nodes.len());
-        let mut visited = HashSet::new();
-        let mut recursion_stack = HashSet::new();
-
-        fn visit(
-            node: syn::Ident,
-            adjacency: &HashMap<syn::Ident, Vec<syn::Ident>>,
-            visited: &mut HashSet<syn::Ident>,
-            recursion_stack: &mut HashSet<syn::Ident>,
-            sorted: &mut Vec<syn::Ident>,
-        ) -> Result<()> {
-            let node_str = node.to_string();
-
-            if recursion_stack.contains(&node) {
-                return Err(syn::Error::new(
-                    node.span(),
-                    format!("Cycle detected involving node '{}'", node_str),
-                ));
-            }
-
-            if visited.contains(&node) {
-                return Ok(());
-            }
-
-            visited.insert(node.clone());
-            recursion_stack.insert(node.clone());
-
-            if let Some(neighbors) = adjacency.get(&node) {
-                for neighbor in neighbors {
-                    visit(
-                        neighbor.clone(),
-                        adjacency,
-                        visited,
-                        recursion_stack,
-                        sorted,
-                    )?;
-                }
-            }
-
-            recursion_stack.remove(&node);
-            sorted.push(node);
-
-            Ok(())
-        }
-
-        for node in &nodes {
-            if !visited.contains(node) {
-                visit(
-                    node.clone(),
-                    &sort_adjacency,
-                    &mut visited,
-                    &mut recursion_stack,
-                    &mut sorted,
-                )?;
-            }
-        }
-
-        // Reverse to get dependency order (dependencies first)
-        sorted.reverse();
-
-        Ok(sorted)
-    }
-
     /// Extract the endpoint field name from a simple field-access expression.
     fn extract_endpoint_field(expr: &ConnectionExpr) -> Option<&syn::Ident> {
         match expr {
@@ -1240,7 +1073,7 @@ impl<'a> CodegenContext<'a> {
     /// Generate the shared process body: connection assignments, node processing,
     /// and output routing.
     fn generate_process_body(&self) -> Result<Vec<TokenStream>> {
-        let sorted_nodes = self.topological_sort_nodes()?;
+        let sorted_nodes: Vec<syn::Ident> = self.nodes().map(|n| n.name.clone()).collect();
 
         let mut process_body = Vec::new();
 
@@ -1627,7 +1460,7 @@ impl<'a> CodegenContext<'a> {
     /// Emit the multi-rate body.
     fn generate_multirate_inner_body(&self) -> Result<TokenStream> {
         let max_factor = self.max_factor() as usize;
-        let sorted_nodes = self.topological_sort_nodes()?;
+        let sorted_nodes: Vec<syn::Ident> = self.nodes().map(|n| n.name.clone()).collect();
 
         // Bucket nodes by rate.
         let outer_node_names: Vec<syn::Ident> = sorted_nodes
