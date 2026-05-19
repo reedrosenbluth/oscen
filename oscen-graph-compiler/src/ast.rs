@@ -2,12 +2,17 @@ use syn::spanned::Spanned;
 use syn::{Expr, Ident};
 
 /// Root AST node for a graph definition
+// Clone is derived for the Phase 3 IR parallel path: compile() clones the
+// GraphDef so lower() can consume it while the original feeds the existing
+// codegen path.
+#[derive(Clone)]
 pub struct GraphDef {
     pub name: Option<syn::Ident>,
     pub items: Vec<GraphItem>,
 }
 
 /// Top-level items in a graph definition
+#[derive(Clone)]
 pub enum GraphItem {
     Input(InputDecl),
     Output(OutputDecl),
@@ -25,9 +30,11 @@ pub enum GraphItem {
 }
 
 /// Wrapper for node block to avoid orphan rule
+#[derive(Clone)]
 pub struct NodeBlock(pub Vec<NodeDecl>);
 
 /// Wrapper for connection block to avoid orphan rule
+#[derive(Clone)]
 pub struct ConnectionBlock(pub Vec<ConnectionStmt>);
 
 /// Input endpoint declaration

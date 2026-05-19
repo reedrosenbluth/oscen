@@ -31,5 +31,28 @@ pub fn compile(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenStre
     if !diags.is_empty() {
         return Err(diags);
     }
-    codegen::generate(&graph_def)
+
+    // Phase 3 checkpoint: run the IR lowering and dead-node pass in
+    // parallel with the existing codegen path. The IR is debug-validated
+    // internally and then discarded. This proves lower() succeeds on every
+    // existing test before Task 12 makes it load-bearing.
+    let mut lower_diags = Diagnostics::new();
+    if let Some(mut ir) = ir::lower::lower(graph_def.clone(), &mut lower_diags) {
+        ir::passes::dead_nodes::run(&mut ir);
+    }
+
+    // Always run the existing codegen path — it is still load-bearing.
+    let codegen_result = codegen::generate(&graph_def);
+
+    // If lower produced errors that codegen didn't catch, surface them so
+    // Task 12 can investigate the discrepancy. If codegen already failed,
+    // lower's errors are noise — the real diagnostics come from codegen.
+    if !lower_diags.is_empty() && codegen_result.is_ok() {
+        for d in lower_diags.items {
+            diags.items.push(d);
+        }
+        return Err(diags);
+    }
+
+    codegen_result
 }
