@@ -8,8 +8,19 @@ use crate::ir::graph::{IrGraph, IrNodeKind, NodeId};
 use std::collections::{HashSet, VecDeque};
 
 pub fn run(ir: &mut IrGraph) {
+    // Conservative guard: if a graph has no declared outputs, leave every
+    // node intact. Sink-less graphs are typically test fixtures or graphs
+    // whose effects (e.g., feeding into named node fields read by external
+    // code) aren't visible via the IR's output set. Pruning them would
+    // remove fields the user reaches via `graph.<node>.<field>` directly.
+    if ir.outputs.is_empty() {
+        return;
+    }
+
     // Mark live: start from each Output node; walk backward via incoming
-    // edges; mark every node visited as live.
+    // edges; mark every node visited as live. Compound-source edges carry
+    // additional referenced nodes in `extra_source_nodes` — walk those too
+    // so e.g. `a.x * b.y -> out` keeps both `a` and `b` alive.
     let mut live: HashSet<NodeId> = HashSet::new();
     let mut queue: VecDeque<NodeId> = ir.outputs.iter().copied().collect();
     while let Some(id) = queue.pop_front() {
@@ -19,8 +30,11 @@ pub fn run(ir: &mut IrGraph) {
         // Collect first to avoid borrow conflict during graph mutation later.
         let incoming: Vec<_> = ir.nodes[id].incoming.iter().copied().collect();
         for eid in incoming {
-            let src = ir.edges[eid].source.node;
-            queue.push_back(src);
+            let edge = &ir.edges[eid];
+            queue.push_back(edge.source.node);
+            for &extra in &edge.extra_source_nodes {
+                queue.push_back(extra);
+            }
         }
     }
 
@@ -55,7 +69,7 @@ mod tests {
     fn add_input(g: &mut IrGraph, name: &str, endpoint: &str) -> NodeId {
         let id = g.nodes.insert_with_key(|id| IrNode {
             id,
-            kind: IrNodeKind::Input { spec: None },
+            kind: IrNodeKind::Input { spec: None, ty: None, default: None },
             name: format_ident!("{}", name),
             rate: NodeRate::Same,
             latency_samples: 0,
@@ -75,7 +89,7 @@ mod tests {
     fn add_output(g: &mut IrGraph, name: &str) -> NodeId {
         let id = g.nodes.insert_with_key(|id| IrNode {
             id,
-            kind: IrNodeKind::Output,
+            kind: IrNodeKind::Output { ty: None },
             name: format_ident!("{}", name),
             rate: NodeRate::Same,
             latency_samples: 0,
@@ -98,6 +112,7 @@ mod tests {
             kind: IrNodeKind::Processor {
                 ty: Some(parse_quote!(Dummy)),
                 ctor: quote!(Dummy {}),
+                ctor_expr: parse_quote!(Dummy {}),
             },
             name: format_ident!("{}", name),
             rate: NodeRate::Same,
@@ -122,9 +137,11 @@ mod tests {
             span: Span::call_site(),
             source_expr: ConnectionExpr::Ident(format_ident!("dummy")),
             dest_expr: ConnectionExpr::Ident(format_ident!("dummy_dst")),
+            extra_source_nodes: Vec::new(),
         });
         g.nodes[src].outgoing.push(id);
         g.nodes[dst].incoming.push(id);
+        g.edge_order.push(id);
         id
     }
 
@@ -239,6 +256,7 @@ mod tests {
             kind: IrNodeKind::NodeArray {
                 ty: Some(parse_quote!(Voice)),
                 ctor: quote!(Voice {}),
+                ctor_expr: parse_quote!(Voice {}),
                 len: 8,
             },
             name: format_ident!("voices"),

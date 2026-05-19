@@ -27,9 +27,13 @@ pub fn validate(ir: &IrGraph) {
                 edge_set.contains(&eid),
                 "node {nid:?}.outgoing contains stale edge {eid:?}"
             );
+            let edge = &ir.edges[eid];
+            let is_primary = edge.source.node == nid;
+            let is_extra = edge.extra_source_nodes.iter().any(|&n| n == nid);
             assert!(
-                ir.edges[eid].source.node == nid,
-                "node {nid:?}.outgoing contains edge {eid:?} whose source is not this node"
+                is_primary || is_extra,
+                "node {nid:?}.outgoing contains edge {eid:?} whose source is not this node \
+                 (and is not in extra_source_nodes either)"
             );
         }
     }
@@ -47,6 +51,12 @@ pub fn validate(ir: &IrGraph) {
             "edge {eid:?}.dest references dead node {:?}",
             edge.dest.node
         );
+        for &extra in &edge.extra_source_nodes {
+            assert!(
+                node_set.contains(&extra),
+                "edge {eid:?}.extra_source_nodes references dead node {extra:?}"
+            );
+        }
     }
 
     // processors / inputs / outputs vectors reference live nodes.
@@ -59,6 +69,19 @@ pub fn validate(ir: &IrGraph) {
     for &nid in &ir.outputs {
         assert!(node_set.contains(&nid), "outputs[] contains dead node {nid:?}");
     }
+
+    // edge_order references live edges and contains every live edge.
+    for &eid in &ir.edge_order {
+        assert!(
+            edge_set.contains(&eid),
+            "edge_order contains dead edge {eid:?}"
+        );
+    }
+    assert_eq!(
+        ir.edge_order.len(),
+        ir.edges.len(),
+        "edge_order must contain every live edge exactly once"
+    );
 }
 
 #[cfg(test)]
@@ -80,7 +103,7 @@ mod tests {
         // Synthesize a dead NodeId by inserting then removing.
         let id = g.nodes.insert_with_key(|id| crate::ir::graph::IrNode {
             id,
-            kind: crate::ir::graph::IrNodeKind::Output,
+            kind: crate::ir::graph::IrNodeKind::Output { ty: None },
             name: format_ident!("dummy"),
             rate: crate::ast::NodeRate::Same,
             latency_samples: 0,

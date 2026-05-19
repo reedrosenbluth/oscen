@@ -12,7 +12,7 @@ use crate::rate_analysis::EdgeKernel;
 use proc_macro2::{Span, TokenStream};
 use slotmap::{new_key_type, SlotMap};
 use std::collections::HashMap;
-use syn::{Ident, Path};
+use syn::{Expr, Ident, Path, Type};
 
 new_key_type! {
     pub struct NodeId;
@@ -31,6 +31,11 @@ pub struct IrGraph {
     /// Internal processor / node-array instances, in topological order
     /// (populated by `lower::topo_sort`).
     pub processors: Vec<NodeId>,
+    /// Edges in canonical source order (populated by `lower::build_edges`).
+    /// This is the deterministic iteration order codegen uses to index
+    /// per-edge resampler fields and buffers. Removing an edge via
+    /// `remove_edge` keeps the surviving edges' relative order.
+    pub edge_order: Vec<EdgeId>,
 }
 
 pub struct IrNode {
@@ -46,10 +51,29 @@ pub struct IrNode {
 }
 
 pub enum IrNodeKind {
-    Input { spec: Option<crate::ast::ParamSpec> },
-    Output,
-    Processor { ty: Option<Path>, ctor: TokenStream },
-    NodeArray { ty: Option<Path>, ctor: TokenStream, len: usize },
+    Input {
+        spec: Option<crate::ast::ParamSpec>,
+        ty: Option<Type>,
+        default: Option<Expr>,
+    },
+    Output {
+        ty: Option<Type>,
+    },
+    Processor {
+        ty: Option<Path>,
+        ctor: TokenStream,
+        /// Raw constructor `syn::Expr`. Preserves Path-vs-Call distinction
+        /// so codegen can emit `Type::new()` for bare paths and pass
+        /// through call expressions unchanged.
+        ctor_expr: Expr,
+    },
+    NodeArray {
+        ty: Option<Path>,
+        ctor: TokenStream,
+        /// Raw constructor `syn::Expr` (same rationale as `Processor`).
+        ctor_expr: Expr,
+        len: usize,
+    },
 }
 
 pub struct EndpointInfo {
@@ -58,6 +82,11 @@ pub struct EndpointInfo {
 
 pub struct IrEdge {
     pub id: EdgeId,
+    /// Primary source endpoint reference. For compound expressions (binary
+    /// ops, calls), this is the *leftmost* root node and a synthetic
+    /// endpoint name (typically the first sub-expression's field, or the
+    /// node's own ident as a fallback). Use `source_expr` for the full
+    /// shape and `extra_source_nodes` for additional referenced nodes.
     pub source: EndpointRef,
     pub dest: EndpointRef,
     pub policy: ConnectionPolicy,
@@ -72,6 +101,12 @@ pub struct IrEdge {
     /// info that `dest: EndpointRef` collapses. Used by codegen to emit
     /// the correct field assignment.
     pub dest_expr: ConnectionExpr,
+    /// Secondary referenced source nodes (for compound expressions like
+    /// `a.x * b.y -> out`, this contains every additional `NodeId`
+    /// referenced by the source expression beyond `source.node`). Empty
+    /// for simple `node.endpoint` sources. Used by dead-node analysis so
+    /// nodes whose values feed an expression are kept alive.
+    pub extra_source_nodes: Vec<NodeId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -90,6 +125,7 @@ impl IrGraph {
             inputs: Vec::new(),
             outputs: Vec::new(),
             processors: Vec::new(),
+            edge_order: Vec::new(),
         }
     }
 
@@ -104,9 +140,15 @@ impl IrGraph {
         if let Some(src_node) = self.nodes.get_mut(edge.source.node) {
             src_node.outgoing.retain(|&e| e != id);
         }
+        for extra in &edge.extra_source_nodes {
+            if let Some(extra_node) = self.nodes.get_mut(*extra) {
+                extra_node.outgoing.retain(|&e| e != id);
+            }
+        }
         if let Some(dst_node) = self.nodes.get_mut(edge.dest.node) {
             dst_node.incoming.retain(|&e| e != id);
         }
+        self.edge_order.retain(|&e| e != id);
     }
 
     /// Remove a node and all incident edges. Also removes the node from
@@ -149,6 +191,7 @@ mod tests {
             kind: IrNodeKind::Processor {
                 ty: Some(parse_quote!(Dummy)),
                 ctor: quote::quote!(Dummy {}),
+                ctor_expr: parse_quote!(Dummy {}),
             },
             name: format_ident!("{}", name),
             rate: NodeRate::Same,
@@ -173,9 +216,11 @@ mod tests {
             span: Span::call_site(),
             source_expr: ConnectionExpr::Ident(format_ident!("dummy")),
             dest_expr: ConnectionExpr::Ident(format_ident!("dummy_dst")),
+            extra_source_nodes: Vec::new(),
         });
         graph.nodes[source].outgoing.push(id);
         graph.nodes[dest].incoming.push(id);
+        graph.edge_order.push(id);
         id
     }
 

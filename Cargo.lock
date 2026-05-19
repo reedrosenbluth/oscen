@@ -4734,6 +4734,7 @@ version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "slotmap",
  "syn 2.0.98",
 ]
 

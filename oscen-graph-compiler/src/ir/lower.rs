@@ -33,10 +33,14 @@ pub fn lower(graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
 
     collect_declarations(&graph_def, &mut ir, &mut name_to_id, diags);
 
+    // Validate per-node rates BEFORE building edges so that the diagnostic
+    // order matches the legacy `analyze()` -> `validate_connections()`
+    // pipeline (rate errors come first, then type-mismatch errors).
+    validate_node_rates(&ir, diags);
+
     infer_endpoint_types(&graph_def, &mut ir, &name_to_id, diags);
     build_edges(&graph_def, &mut ir, &name_to_id, diags);
     analyze_rates(&mut ir, diags);
-    validate_node_rates(&ir, diags);
     refine_kernels(&mut ir);
     topo_sort(&mut ir, diags);
     validate_cross_rate_kinds(&ir, diags);
@@ -65,7 +69,11 @@ fn collect_declarations(
             GraphItem::Input(input) => {
                 let id = ir.nodes.insert_with_key(|id| IrNode {
                     id,
-                    kind: IrNodeKind::Input { spec: input.spec.clone() },
+                    kind: IrNodeKind::Input {
+                        spec: input.spec.clone(),
+                        ty: input.ty.clone(),
+                        default: input.default.clone(),
+                    },
                     name: input.name.clone(),
                     rate: NodeRate::Same,
                     latency_samples: 0,
@@ -85,7 +93,9 @@ fn collect_declarations(
             GraphItem::Output(output) => {
                 let id = ir.nodes.insert_with_key(|id| IrNode {
                     id,
-                    kind: IrNodeKind::Output,
+                    kind: IrNodeKind::Output {
+                        ty: output.ty.clone(),
+                    },
                     name: output.name.clone(),
                     rate: NodeRate::Same,
                     latency_samples: 0,
@@ -131,12 +141,14 @@ fn collect_node_decl(
         IrNodeKind::NodeArray {
             ty: decl.node_type.clone(),
             ctor: decl.constructor.to_token_stream(),
+            ctor_expr: decl.constructor.clone(),
             len,
         }
     } else {
         IrNodeKind::Processor {
             ty: decl.node_type.clone(),
             ctor: decl.constructor.to_token_stream(),
+            ctor_expr: decl.constructor.clone(),
         }
     };
     let id = ir.nodes.insert_with_key(|id| IrNode {
@@ -269,15 +281,35 @@ fn build_edges(
         .collect();
 
     for stmt in stmts {
-        // Resolve source EndpointRef.
-        let src_ref = match resolve_endpoint_ref(&stmt.source, name_to_id) {
-            Some(r) => r,
-            None => {
-                // Can't resolve source — skip; a later lowering step or
-                // Rust's type system will catch it.
-                continue;
-            }
-        };
+        // Resolve source EndpointRef. For compound sources (binary, calls,
+        // literals) fall back to the leftmost root node with a synthetic
+        // endpoint name so the edge still exists in the IR — codegen reads
+        // the full shape from `source_expr`, and dead-node analysis uses
+        // `extra_source_nodes` to cover the other referenced idents.
+        let (src_ref, extra_sources) =
+            match resolve_endpoint_ref(&stmt.source, name_to_id) {
+                Some(r) => (r, Vec::new()),
+                None => {
+                    // Collect every node id referenced by the compound source.
+                    let mut refs = collect_referenced_node_ids(&stmt.source, name_to_id);
+                    refs.dedup();
+                    if refs.is_empty() {
+                        // No node references at all (pure literal source). Skip
+                        // — we can't anchor this edge to a node.
+                        continue;
+                    }
+                    let primary = refs[0];
+                    let extras = refs[1..].to_vec();
+                    let ep_name = ir.nodes[primary].name.clone();
+                    (
+                        EndpointRef {
+                            node: primary,
+                            endpoint: ep_name,
+                        },
+                        extras,
+                    )
+                }
+            };
 
         // Resolve dest EndpointRef.
         let dst_ref = match resolve_endpoint_ref(&stmt.dest, name_to_id) {
@@ -306,6 +338,7 @@ fn build_edges(
         // Insert the edge.
         let src_ref_clone = src_ref.clone();
         let dst_ref_clone = dst_ref.clone();
+        let extras_clone = extra_sources.clone();
         let eid = ir.edges.insert_with_key(|id| IrEdge {
             id,
             source: src_ref_clone,
@@ -316,11 +349,61 @@ fn build_edges(
             span: stmt.span,
             source_expr: stmt.source.clone(),
             dest_expr: stmt.dest.clone(),
+            extra_source_nodes: extras_clone,
         });
 
-        // Update adjacency.
+        // Update adjacency and canonical edge order.
         ir.nodes[src_ref.node].outgoing.push(eid);
+        for &extra in &extra_sources {
+            ir.nodes[extra].outgoing.push(eid);
+        }
         ir.nodes[dst_ref.node].incoming.push(eid);
+        ir.edge_order.push(eid);
+    }
+}
+
+/// Collect every `NodeId` referenced by an expression in left-to-right
+/// traversal order. Used by `build_edges` to anchor edges whose source is a
+/// compound expression (binary, method call, free call). The first id is
+/// promoted to `IrEdge::source.node`; the rest are stored in
+/// `extra_source_nodes` so dead-node analysis can keep them all alive.
+fn collect_referenced_node_ids(
+    expr: &ConnectionExpr,
+    name_to_id: &HashMap<String, NodeId>,
+) -> Vec<NodeId> {
+    let mut out = Vec::new();
+    collect_referenced_node_ids_into(expr, name_to_id, &mut out);
+    out
+}
+
+fn collect_referenced_node_ids_into(
+    expr: &ConnectionExpr,
+    name_to_id: &HashMap<String, NodeId>,
+    out: &mut Vec<NodeId>,
+) {
+    match expr {
+        ConnectionExpr::Ident(i) => {
+            if let Some(&id) = name_to_id.get(&i.to_string()) {
+                out.push(id);
+            }
+        }
+        ConnectionExpr::Field(base, _) => collect_referenced_node_ids_into(base, name_to_id, out),
+        ConnectionExpr::ArrayIndex(base, _) => {
+            collect_referenced_node_ids_into(base, name_to_id, out)
+        }
+        ConnectionExpr::MethodCall(base, _, _) => {
+            collect_referenced_node_ids_into(base, name_to_id, out)
+        }
+        ConnectionExpr::Binary(l, _, r) => {
+            collect_referenced_node_ids_into(l, name_to_id, out);
+            collect_referenced_node_ids_into(r, name_to_id, out);
+        }
+        ConnectionExpr::Call(_, args) => {
+            for a in args {
+                collect_referenced_node_ids_into(a, name_to_id, out);
+            }
+        }
+        ConnectionExpr::Literal(_) => {}
     }
 }
 
@@ -657,9 +740,20 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
     }
     for &nid in &ir.processors {
         for &eid in &ir.nodes[nid].incoming {
-            let src = ir.edges[eid].source.node;
-            if processor_set.contains(&src) && !is_feedback_allowing_node(&ir.nodes[src]) {
-                *in_degree.get_mut(&nid).unwrap() += 1;
+            let edge = &ir.edges[eid];
+            // Primary source contributes if it's a processor and isn't a
+            // feedback-allowing node. Compound-source edges additionally
+            // count every `extra_source_nodes` entry that meets the same
+            // criteria — those are the other nodes the source expression
+            // reads (e.g., `a.x * b.y -> dst` has b as an extra source).
+            let mut count_src = |src: NodeId| {
+                if processor_set.contains(&src) && !is_feedback_allowing_node(&ir.nodes[src]) {
+                    *in_degree.get_mut(&nid).unwrap() += 1;
+                }
+            };
+            count_src(edge.source.node);
+            for &extra in &edge.extra_source_nodes {
+                count_src(extra);
             }
         }
     }
