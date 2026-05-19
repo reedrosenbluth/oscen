@@ -48,3 +48,48 @@ fn duplicate_declaration_accumulates_error() {
         "expected duplicate-declaration error; got: {msgs:?}"
     );
 }
+
+#[test]
+fn linear_chain_lowers_with_typed_edges() {
+    let (ir, diags) = lower_quote(quote! {
+        name: Linear;
+        input stream s;
+        output stream out;
+        connections {
+            s -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags.items);
+    let ir = ir.expect("lower should produce an IrGraph");
+
+    assert_eq!(ir.edges.len(), 1);
+    let edge = ir.edges.values().next().unwrap();
+    let s_node = &ir.nodes[edge.source.node];
+    let out_node = &ir.nodes[edge.dest.node];
+    assert_eq!(s_node.name.to_string(), "s");
+    assert_eq!(out_node.name.to_string(), "out");
+
+    // Inputs always have endpoints populated by collect_declarations.
+    assert_eq!(s_node.endpoints[&edge.source.endpoint].kind,
+               oscen_graph_compiler::ast::EndpointKind::Stream);
+}
+
+#[test]
+fn type_mismatch_accumulates_per_connection() {
+    let (ir, diags) = lower_quote(quote! {
+        name: Mismatch;
+        input stream s1;
+        input stream s2;
+        output value v_out;
+        connections {
+            s1 -> v_out;
+            s2 -> v_out;
+        }
+    });
+    assert!(ir.is_none(), "lower should return None on type errors");
+    let errors: Vec<_> = diags.items.iter()
+        .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
+        .collect();
+    assert_eq!(errors.len(), 2, "expected two type-mismatch errors, got: {:?}",
+        errors.iter().map(|e| e.message.to_string()).collect::<Vec<_>>());
+}
