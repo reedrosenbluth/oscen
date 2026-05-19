@@ -48,8 +48,8 @@ pub struct IrNode {
 pub enum IrNodeKind {
     Input { spec: Option<crate::ast::ParamSpec> },
     Output,
-    Processor { ty: Path, ctor: TokenStream },
-    NodeArray { ty: Path, ctor: TokenStream, len: usize },
+    Processor { ty: Option<Path>, ctor: TokenStream },
+    NodeArray { ty: Option<Path>, ctor: TokenStream, len: usize },
 }
 
 pub struct EndpointInfo {
@@ -143,7 +143,7 @@ mod tests {
         let id = graph.nodes.insert_with_key(|id| IrNode {
             id,
             kind: IrNodeKind::Processor {
-                ty: parse_quote!(Dummy),
+                ty: Some(parse_quote!(Dummy)),
                 ctor: quote::quote!(Dummy {}),
             },
             name: format_ident!("{}", name),
