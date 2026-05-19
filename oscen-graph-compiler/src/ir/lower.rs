@@ -653,6 +653,12 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
 
     while let Some(nid) = queue.pop_front() {
         sorted.push(nid);
+        // Edges OUT of feedback-allowing nodes don't impose ordering — they
+        // were skipped during in-degree calculation, so we must also skip
+        // them here to keep the algorithm symmetric.
+        if is_feedback_allowing_node(&ir.nodes[nid]) {
+            continue;
+        }
         // Clone outgoing to avoid borrow conflict when mutating in_degree.
         let outgoing: Vec<EdgeId> = ir.nodes[nid].outgoing.clone();
         for eid in outgoing {

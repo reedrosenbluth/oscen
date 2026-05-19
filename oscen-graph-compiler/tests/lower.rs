@@ -192,3 +192,37 @@ fn topo_sort_orders_branching_graph() {
         .position(|&id| ir.nodes[id].name.to_string() == "b").unwrap();
     assert!(a_pos < b_pos, "a (upstream of b) should come first in topo order, got a={a_pos} b={b_pos}");
 }
+
+#[test]
+fn non_feedback_cycle_with_extra_delay_input_is_rejected() {
+    // X <-> Y is a non-feedback cycle that must be rejected.
+    // A Delay feeding into X must NOT mask that cycle.
+    // MyDelay's last path segment contains "Delay", triggering the feedback
+    // predicate; Gain nodes are plain non-feedback processors.
+    let (ir, diags) = lower_quote(quote! {
+        name: BadCycle;
+        input stream src;
+        output stream out;
+        node x = Gain::new(0.5);
+        node y = Gain::new(0.5);
+        node d = MyDelay::new(0.1);
+        connections {
+            src -> x.input;
+            x.output -> y.input;
+            y.output -> x.input;
+            d.output -> x.input;
+            x.output -> out;
+        }
+    });
+    // We expect cycle detection to fire because X <-> Y is a non-feedback cycle.
+    // The Delay's edge to x shouldn't mask it.
+    let errors: Vec<String> = diags.items.iter()
+        .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
+        .map(|d| d.message.to_string())
+        .collect();
+    assert!(
+        ir.is_none() && errors.iter().any(|e| e.contains("cycle") || e.contains("Cycle")),
+        "expected cycle detection; got ir.is_some()={} errors={:?}",
+        ir.is_some(), errors
+    );
+}
