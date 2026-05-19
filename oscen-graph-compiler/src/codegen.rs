@@ -995,13 +995,6 @@ impl<'a> CodegenContext<'a> {
                                 }
                             }
 
-                            let dest_array_size = self.get_node_array_size(dest_node);
-                            let source_array_size = if source_is_graph_input {
-                                None // Graph inputs are never arrays
-                            } else {
-                                self.get_node_array_size(source_ident)
-                            };
-
                             // Construct source expression part
                             // For ramped graph inputs, we need to access .current to get the f32 value
                             let source_access = if source_is_graph_input
@@ -1015,10 +1008,7 @@ impl<'a> CodegenContext<'a> {
                                 quote! {}
                             };
 
-                            let shape = crate::ir::graph::classify_fanout(
-                                source_array_size,
-                                dest_array_size,
-                            );
+                            let shape = edge.fanout;
                             let stmt = match shape {
                                 FanoutShape::Scalar => self.emit_scalar_connect(
                                     source_ident,
