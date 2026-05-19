@@ -7,6 +7,7 @@ pub mod ast;
 pub mod codegen;
 pub mod diagnostics;
 pub mod fanout;
+pub mod ir;
 pub mod parse;
 pub mod rate_analysis;
 pub mod type_check;

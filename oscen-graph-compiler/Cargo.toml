@@ -8,3 +8,4 @@ description = "Compiler library for the Oscen `graph!` DSL. Parses, analyses, an
 quote = "1.0.38"
 syn = { version = "2.0.98", features = ["full"] }
 proc-macro2 = "1.0"
+slotmap = "1.0"
