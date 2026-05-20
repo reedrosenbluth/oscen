@@ -1,4 +1,4 @@
-use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, NodeRate};
+use crate::ast::{BinaryOp, ConnectionExpr, ConnectionPolicy, EndpointKind, NodeRate};
 use crate::diagnostics::Diagnostics;
 use crate::ir::graph::{
     EdgeId, EdgeKernel, EventRescale, FanoutShape, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
@@ -843,10 +843,10 @@ impl<'a> CodegenContext<'a> {
                 let l = self.emit_expr(left);
                 let r = self.emit_expr(right);
                 let op_token = match op {
-                    crate::ast::BinaryOp::Add => quote! { + },
-                    crate::ast::BinaryOp::Sub => quote! { - },
-                    crate::ast::BinaryOp::Mul => quote! { * },
-                    crate::ast::BinaryOp::Div => quote! { / },
+                    BinaryOp::Add => quote! { + },
+                    BinaryOp::Sub => quote! { - },
+                    BinaryOp::Mul => quote! { * },
+                    BinaryOp::Div => quote! { / },
                 };
                 quote! { (#l #op_token #r) }
             }
