@@ -8,6 +8,7 @@
 
 use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, GraphDef, GraphItem, NodeRate};
 use crate::diagnostics::Diagnostics;
+use crate::ir::expr::{IrEndpoint, IrExpr, IrExprKind};
 use crate::ir::graph::{
     classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EndpointRef, EventRescale, FanoutShape,
     IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
@@ -213,8 +214,14 @@ fn infer_endpoint_types(
         let mut changed = false;
 
         for stmt in &stmts {
+            // Lower source/dest to IrExpr for type inference.
+            // (Same call lower_expr will make again in build_edges; this is
+            // unavoidable since infer_endpoint_types runs before edges exist.)
+            let ir_source = lower_expr(&stmt.source, name_to_id, ir);
+            let ir_dest_expr = lower_expr(&stmt.dest, name_to_id, ir);
+
             // Infer source kind.
-            let src_kind = endpoint_kind_of(&stmt.source, ir, name_to_id);
+            let src_kind = ir_source.as_ref().and_then(|e| endpoint_kind_of(e, ir));
 
             // If the destination is a node.endpoint, propagate the kind.
             if let Some(src_kind) = src_kind {
@@ -231,9 +238,9 @@ fn infer_endpoint_types(
                 }
             }
 
-            // Symmetrically: if source is a node.endpoint whose kind
-            // is unknown, try to infer it from the dest.
-            let dst_kind = endpoint_kind_of(&stmt.dest, ir, name_to_id);
+            // Symmetric: if source is a node.endpoint whose kind is unknown,
+            // try to infer it from the dest.
+            let dst_kind = ir_dest_expr.as_ref().and_then(|e| endpoint_kind_of(e, ir));
             if let Some(dst_kind) = dst_kind {
                 if let Some((src_id, src_ep)) = resolve_node_endpoint(&stmt.source, name_to_id) {
                     let node = &mut ir.nodes[src_id];
@@ -312,9 +319,23 @@ fn build_edges(
             }
         };
 
+        // Lower to IR forms. We use the AST source/dest to construct typed IR
+        // representations alongside the legacy AST fields (parallel-path).
+        let ir_source = match lower_expr(&stmt.source, name_to_id, ir) {
+            Some(e) => e,
+            None => continue,
+        };
+        let ir_dest = match lower_endpoint(&stmt.dest, name_to_id, ir) {
+            Some(d) => d,
+            None => continue,
+        };
+
         // Type-compatibility check.
-        let src_kind = endpoint_kind_of(&stmt.source, ir, name_to_id);
-        let dst_kind = endpoint_kind_of(&stmt.dest, ir, name_to_id);
+        let src_kind = endpoint_kind_of(&ir_source, ir);
+        let dst_kind = ir.nodes[ir_dest.node]
+            .endpoints
+            .get(&ir_dest.endpoint)
+            .map(|ei| ei.kind);
 
         if let (Some(src), Some(dst)) = (src_kind, dst_kind) {
             if !types_compatible(src, dst) {
@@ -327,17 +348,6 @@ fn build_edges(
                 continue;
             }
         }
-
-        // Lower to IR forms. We use the AST source/dest to construct typed IR
-        // representations alongside the legacy AST fields (parallel-path).
-        let ir_source = match lower_expr(&stmt.source, name_to_id, ir) {
-            Some(e) => e,
-            None => continue,
-        };
-        let ir_dest = match lower_endpoint(&stmt.dest, name_to_id, ir) {
-            Some(d) => d,
-            None => continue,
-        };
 
         // Insert the edge.
         let src_ref_clone = src_ref.clone();
@@ -611,52 +621,19 @@ fn array_size_of(kind: &IrNodeKind) -> Option<usize> {
 // Private helpers
 // ---------------------------------------------------------------------------
 
-/// Infer the `EndpointKind` of an arbitrary `ConnectionExpr`, using the
-/// node endpoint registry in `ir` for `Field` lookups and the `name_to_id`
-/// map for `Ident` lookups against graph input/output nodes.
+/// Infer the `EndpointKind` of an `IrExpr` using the IR's resolved node
+/// registry. This is the single source of truth for endpoint-kind
+/// inference; codegen's `infer_kind` is a thin delegator.
 ///
-/// Ports `TypeContext::infer_type` from `type_check.rs`.
-///
-/// This is the single source of truth for endpoint-kind inference. Both the
-/// lowering pass and `codegen::CodegenContext::infer_kind` delegate here so
-/// cross-rate kernel projection and policy promotion rules stay in sync.
-pub(crate) fn endpoint_kind_of(
-    expr: &ConnectionExpr,
-    ir: &IrGraph,
-    name_to_id: &HashMap<String, NodeId>,
-) -> Option<EndpointKind> {
-    match expr {
-        ConnectionExpr::Ident(ident) => {
-            // Check if it's a known graph input or output node whose
-            // implicit endpoint carries a kind.
-            let id = name_to_id.get(&ident.to_string())?;
-            let node = &ir.nodes[*id];
-            // The implicit endpoint name on an input/output node is the
-            // node's own name (see `input_endpoints` / `output_endpoints`).
-            node.endpoints.get(ident).map(|ei| ei.kind)
-        }
-        ConnectionExpr::ArrayIndex(inner, _) => {
-            // Array indexing preserves the type of the base expression.
-            endpoint_kind_of(inner, ir, name_to_id)
-        }
-        ConnectionExpr::Field(obj, field) => {
-            // Look up node.endpoint — the object must be a simple Ident.
-            if let ConnectionExpr::Ident(node_ident) = &**obj {
-                let id = name_to_id.get(&node_ident.to_string())?;
-                let node = &ir.nodes[*id];
-                node.endpoints.get(field).map(|ei| ei.kind)
-            } else {
-                None
-            }
-        }
-        ConnectionExpr::MethodCall(_, _, _) => {
-            // Method return types aren't known at this stage.
-            None
-        }
-        ConnectionExpr::Binary(left, _op, right) => {
-            let left_kind = endpoint_kind_of(left, ir, name_to_id)?;
-            let right_kind = endpoint_kind_of(right, ir, name_to_id)?;
-            match (left_kind, right_kind) {
+/// Returns `None` for `MethodCall` and `Call` (no type inference for
+/// arbitrary Rust function/method return types).
+pub(crate) fn endpoint_kind_of(expr: &IrExpr, ir: &IrGraph) -> Option<EndpointKind> {
+    match &expr.kind {
+        IrExprKind::Endpoint(ep) => ir.nodes[ep.node].endpoints.get(&ep.endpoint).map(|ei| ei.kind),
+        IrExprKind::Binary { left, right, .. } => {
+            let l = endpoint_kind_of(left, ir)?;
+            let r = endpoint_kind_of(right, ir)?;
+            match (l, r) {
                 (EndpointKind::Stream, EndpointKind::Stream) => Some(EndpointKind::Stream),
                 (EndpointKind::Stream, EndpointKind::Value) => Some(EndpointKind::Stream),
                 (EndpointKind::Value, EndpointKind::Stream) => Some(EndpointKind::Stream),
@@ -664,14 +641,8 @@ pub(crate) fn endpoint_kind_of(
                 (EndpointKind::Event, _) | (_, EndpointKind::Event) => None,
             }
         }
-        ConnectionExpr::Literal(_) => {
-            // Literals are treated as values.
-            Some(EndpointKind::Value)
-        }
-        ConnectionExpr::Call(_, _) => {
-            // Can't infer function return types without more context.
-            None
-        }
+        IrExprKind::Literal(_) => Some(EndpointKind::Value),
+        IrExprKind::MethodCall { .. } | IrExprKind::Call { .. } => None,
     }
 }
 
@@ -915,8 +886,6 @@ fn types_compatible(src: EndpointKind, dst: EndpointKind) -> bool {
 // ---------------------------------------------------------------------------
 // Public lowering API: AST ConnectionExpr → typed IrExpr / IrEndpoint
 // ---------------------------------------------------------------------------
-
-use crate::ir::expr::{IrEndpoint, IrExpr, IrExprKind};
 
 /// Convert an AST `ConnectionExpr` into a typed `IrExpr` with all endpoint
 /// references resolved against `name_to_id`.

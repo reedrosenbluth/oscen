@@ -164,12 +164,12 @@ impl<'a> CodegenContext<'a> {
         max
     }
 
-    /// Infer the endpoint kind of an arbitrary `ConnectionExpr`.
+    /// Infer the endpoint kind of an `IrExpr`.
     ///
     /// Thin facade over [`crate::ir::lower::endpoint_kind_of`], which is the
     /// single source of truth for endpoint-kind inference.
-    fn infer_kind(&self, expr: &ConnectionExpr) -> Option<EndpointKind> {
-        crate::ir::lower::endpoint_kind_of(expr, self.ir, &self.name_to_id)
+    fn infer_kind(&self, expr: &crate::ir::expr::IrExpr) -> Option<EndpointKind> {
+        crate::ir::lower::endpoint_kind_of(expr, self.ir)
     }
 
     fn input_kind(&self, name: &syn::Ident) -> Option<EndpointKind> {
@@ -509,8 +509,11 @@ impl<'a> CodegenContext<'a> {
         // emission later uses `.kernel.upsample(...)` and would fail to compile.
         // Value/event cross-rate edges fall back to the concrete-kernel emitter,
         // which uses `LatchUp`/`LatchDown` (value) or dedicated event drains.
-        let src_kind = self.infer_kind(&edge.source_expr)?;
-        let dst_kind = self.infer_kind(&edge.dest_expr)?;
+        let src_kind = self.infer_kind(&edge.ir_source)?;
+        let dst_kind = self.ir.nodes[edge.ir_dest.node]
+            .endpoints
+            .get(&edge.ir_dest.endpoint)
+            .map(|ei| ei.kind)?;
         if !matches!(
             (src_kind, dst_kind),
             (EndpointKind::Stream, EndpointKind::Stream)
