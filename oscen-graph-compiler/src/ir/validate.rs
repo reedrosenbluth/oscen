@@ -57,6 +57,21 @@ pub fn validate(ir: &IrGraph) {
                 "edge {eid:?}.extra_source_nodes references dead node {extra:?}"
             );
         }
+
+        // Parallel-path check (S1.3 → S1.8): the IR fields and the AST fields
+        // must agree on the resolved root NodeId.
+        if let crate::ir::expr::IrExprKind::Endpoint(ep) = &edge.ir_source.kind {
+            assert_eq!(
+                ep.node, edge.source.node,
+                "ir_source endpoint node ({:?}) disagrees with source.node ({:?}) on edge {:?}",
+                ep.node, edge.source.node, eid
+            );
+        }
+        assert_eq!(
+            edge.ir_dest.node, edge.dest.node,
+            "ir_dest.node ({:?}) disagrees with dest.node ({:?}) on edge {:?}",
+            edge.ir_dest.node, edge.dest.node, eid
+        );
     }
 
     // processors / inputs / outputs vectors reference live nodes.

@@ -166,6 +166,10 @@ pub struct IrEdge {
     /// for simple `node.endpoint` sources. Used by dead-node analysis so
     /// nodes whose values feed an expression are kept alive.
     pub extra_source_nodes: Vec<NodeId>,
+    /// IR-typed source (populated S1.3, becomes canonical at S1.8).
+    pub ir_source: crate::ir::expr::IrExpr,
+    /// IR-typed destination (populated S1.3, becomes canonical at S1.8).
+    pub ir_dest: crate::ir::expr::IrEndpoint,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -281,6 +285,21 @@ mod tests {
             source_expr: ConnectionExpr::Ident(format_ident!("dummy")),
             dest_expr: ConnectionExpr::Ident(format_ident!("dummy_dst")),
             extra_source_nodes: Vec::new(),
+            ir_source: crate::ir::expr::IrExpr {
+                kind: crate::ir::expr::IrExprKind::Endpoint(crate::ir::expr::IrEndpoint {
+                    node: source,
+                    endpoint: format_ident!("out"),
+                    index: None,
+                    span: Span::call_site(),
+                }),
+                span: Span::call_site(),
+            },
+            ir_dest: crate::ir::expr::IrEndpoint {
+                node: dest,
+                endpoint: format_ident!("in"),
+                index: None,
+                span: Span::call_site(),
+            },
         });
         graph.nodes[source].outgoing.push(id);
         graph.nodes[dest].incoming.push(id);

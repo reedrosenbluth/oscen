@@ -143,15 +143,17 @@ mod tests {
     }
 
     fn add_edge(g: &mut IrGraph, src: NodeId, src_ep: &str, dst: NodeId, dst_ep: &str) -> EdgeId {
+        let src_ep_ident = format_ident!("{}", src_ep);
+        let dst_ep_ident = format_ident!("{}", dst_ep);
         let id = g.edges.insert_with_key(|id| IrEdge {
             id,
             source: EndpointRef {
                 node: src,
-                endpoint: format_ident!("{}", src_ep),
+                endpoint: src_ep_ident.clone(),
             },
             dest: EndpointRef {
                 node: dst,
-                endpoint: format_ident!("{}", dst_ep),
+                endpoint: dst_ep_ident.clone(),
             },
             policy: ConnectionPolicy::Default,
             kernel: EdgeKernel::None,
@@ -160,6 +162,21 @@ mod tests {
             source_expr: ConnectionExpr::Ident(format_ident!("dummy")),
             dest_expr: ConnectionExpr::Ident(format_ident!("dummy_dst")),
             extra_source_nodes: Vec::new(),
+            ir_source: crate::ir::expr::IrExpr {
+                kind: crate::ir::expr::IrExprKind::Endpoint(crate::ir::expr::IrEndpoint {
+                    node: src,
+                    endpoint: src_ep_ident,
+                    index: None,
+                    span: Span::call_site(),
+                }),
+                span: Span::call_site(),
+            },
+            ir_dest: crate::ir::expr::IrEndpoint {
+                node: dst,
+                endpoint: dst_ep_ident,
+                index: None,
+                span: Span::call_site(),
+            },
         });
         g.nodes[src].outgoing.push(id);
         g.nodes[dst].incoming.push(id);
