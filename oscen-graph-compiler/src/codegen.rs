@@ -806,6 +806,9 @@ impl<'a> CodegenContext<'a> {
     /// For compound expressions descends into the left/receiver (leftmost-first)
     /// to find the first endpoint's field. Returns `None` for pure
     /// `Call`/`Literal`.
+    ///
+    /// This heuristic will be removed in T9 when `IrEdge` drops the AST fields
+    /// and bare-input edges gain a dedicated IR representation.
     fn extract_endpoint_field<'e>(
         &'e self,
         expr: &'e crate::ir::expr::IrExpr,
@@ -1787,6 +1790,10 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Emit the cross-rate event drain for one edge.
+    ///
+    /// Note: `ConnectionExpr` params are transitional scaffolding for T7 (which
+    /// migrates `connection_expr_to_tokens` to consume `IrExpr`). The IR params
+    /// are used for structural dispatch.
     fn generate_event_drain(
         &self,
         source: &ConnectionExpr,
@@ -1967,6 +1974,10 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Build an `f32`-valued expression for a connection's source.
+    ///
+    /// Note: `ConnectionExpr` params are transitional scaffolding for T7 (which
+    /// migrates `connection_expr_to_tokens` to consume `IrExpr`). The IR params
+    /// are used for structural dispatch.
     fn connection_source_value_expr(
         &self,
         source: &ConnectionExpr,
@@ -2028,6 +2039,10 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Build an assignment `dest <- value` for a connection's dest.
+    ///
+    /// Note: `ConnectionExpr` params are transitional scaffolding for T7 (which
+    /// migrates `connection_expr_to_tokens` to consume `IrExpr`). The IR params
+    /// are used for structural dispatch.
     fn connection_dest_field_assign(
         &self,
         dest: &ConnectionExpr,
