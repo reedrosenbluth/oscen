@@ -898,3 +898,176 @@ fn types_compatible(src: EndpointKind, dst: EndpointKind) -> bool {
             | (EndpointKind::Value, EndpointKind::Stream)
     )
 }
+
+// ---------------------------------------------------------------------------
+// Public lowering API: AST ConnectionExpr → typed IrExpr / IrEndpoint
+// ---------------------------------------------------------------------------
+
+use crate::ir::expr::{IrEndpoint, IrExpr, IrExprKind};
+
+/// Convert an AST `ConnectionExpr` into a typed `IrExpr` with all endpoint
+/// references resolved against `name_to_id`.
+///
+/// Returns `None` if any referenced ident doesn't resolve to a known node.
+/// Callers are responsible for pushing diagnostics on failure.
+///
+/// Spans on the resulting `IrExpr` nodes are derived from the underlying
+/// `syn` nodes: `Ident::span()` for endpoint refs, `Expr::span()` for
+/// literals and method-call args. Compound nodes (`Binary`, `MethodCall`,
+/// `Call`) inherit the span of their leftmost leaf.
+pub fn lower_expr(
+    expr: &ConnectionExpr,
+    name_to_id: &HashMap<String, NodeId>,
+    ir: &IrGraph,
+) -> Option<IrExpr> {
+    match expr {
+        ConnectionExpr::Ident(ident) => {
+            let id = *name_to_id.get(&ident.to_string())?;
+            Some(IrExpr {
+                kind: IrExprKind::Endpoint(IrEndpoint {
+                    node: id,
+                    endpoint: ident.clone(),
+                    index: None,
+                    span: ident.span(),
+                }),
+                span: ident.span(),
+            })
+        }
+        ConnectionExpr::Field(obj, field) => {
+            let (node, index, anchor_span) = resolve_field_base(obj, name_to_id)?;
+            Some(IrExpr {
+                kind: IrExprKind::Endpoint(IrEndpoint {
+                    node,
+                    endpoint: field.clone(),
+                    index,
+                    span: field.span(),
+                }),
+                span: anchor_span,
+            })
+        }
+        ConnectionExpr::ArrayIndex(inner, idx) => {
+            let inner_expr = lower_expr(inner, name_to_id, ir)?;
+            if let IrExprKind::Endpoint(IrEndpoint {
+                node,
+                endpoint,
+                index: None,
+                span,
+            }) = inner_expr.kind
+            {
+                Some(IrExpr {
+                    kind: IrExprKind::Endpoint(IrEndpoint {
+                        node,
+                        endpoint,
+                        index: Some(*idx),
+                        span,
+                    }),
+                    span: inner_expr.span,
+                })
+            } else {
+                None
+            }
+        }
+        ConnectionExpr::Binary(left, op, right) => {
+            let lhs = lower_expr(left, name_to_id, ir)?;
+            let rhs = lower_expr(right, name_to_id, ir)?;
+            let span = lhs.span;
+            Some(IrExpr {
+                kind: IrExprKind::Binary {
+                    left: Box::new(lhs),
+                    op: *op,
+                    right: Box::new(rhs),
+                },
+                span,
+            })
+        }
+        ConnectionExpr::MethodCall(receiver, method, args) => {
+            let recv = lower_expr(receiver, name_to_id, ir)?;
+            let span = recv.span;
+            Some(IrExpr {
+                kind: IrExprKind::MethodCall {
+                    receiver: Box::new(recv),
+                    method: method.clone(),
+                    args: args.clone(),
+                },
+                span,
+            })
+        }
+        ConnectionExpr::Call(func, args) => {
+            let ir_args: Option<Vec<_>> = args
+                .iter()
+                .map(|a| lower_expr(a, name_to_id, ir))
+                .collect();
+            let ir_args = ir_args?;
+            Some(IrExpr {
+                kind: IrExprKind::Call {
+                    function: func.clone(),
+                    args: ir_args,
+                },
+                span: func.span(),
+            })
+        }
+        ConnectionExpr::Literal(lit) => {
+            use syn::spanned::Spanned;
+            let span = lit.span();
+            Some(IrExpr {
+                kind: IrExprKind::Literal(lit.clone()),
+                span,
+            })
+        }
+    }
+}
+
+/// Resolve a Field base (`Ident` or `ArrayIndex(Ident, idx)`) to its
+/// `(node, optional index, anchor span)`.
+fn resolve_field_base(
+    base: &ConnectionExpr,
+    name_to_id: &HashMap<String, NodeId>,
+) -> Option<(NodeId, Option<usize>, Span)> {
+    match base {
+        ConnectionExpr::Ident(i) => {
+            let id = *name_to_id.get(&i.to_string())?;
+            Some((id, None, i.span()))
+        }
+        ConnectionExpr::ArrayIndex(inner, idx) => {
+            if let ConnectionExpr::Ident(i) = inner.as_ref() {
+                let id = *name_to_id.get(&i.to_string())?;
+                Some((id, Some(*idx), i.span()))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Convert an AST `ConnectionExpr` representing a destination (must be
+/// addressable: `out`, `node.field`, or `voices[k].field`) into an
+/// `IrEndpoint`. Returns `None` for any expression shape that isn't
+/// addressable (`Binary`, `Call`, `Literal`, etc.).
+pub fn lower_endpoint(
+    expr: &ConnectionExpr,
+    name_to_id: &HashMap<String, NodeId>,
+    _ir: &IrGraph,
+) -> Option<IrEndpoint> {
+    match expr {
+        ConnectionExpr::Ident(ident) => {
+            let id = *name_to_id.get(&ident.to_string())?;
+            Some(IrEndpoint {
+                node: id,
+                endpoint: ident.clone(),
+                index: None,
+                span: ident.span(),
+            })
+        }
+        ConnectionExpr::Field(obj, field) => {
+            let (node, index, _anchor) = resolve_field_base(obj, name_to_id)?;
+            Some(IrEndpoint {
+                node,
+                endpoint: field.clone(),
+                index,
+                span: field.span(),
+            })
+        }
+        _ => None,
+    }
+}
