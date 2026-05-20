@@ -282,16 +282,27 @@ fn build_edges(
         .collect();
 
     for stmt in stmts {
+        // Lower to IR forms first so the Visitor-based compound-source
+        // tracking can operate on `IrExpr` rather than the raw AST.
+        let ir_source = match lower_expr(&stmt.source, name_to_id, ir) {
+            Some(e) => e,
+            None => continue,
+        };
+        let ir_dest = match lower_endpoint(&stmt.dest, name_to_id, ir) {
+            Some(d) => d,
+            None => continue,
+        };
+
         // Resolve source EndpointRef. For compound sources (binary, calls,
         // literals) fall back to the leftmost root node with a synthetic
         // endpoint name so the edge still exists in the IR — codegen reads
-        // the full shape from `source_expr`, and dead-node analysis uses
+        // the full shape from `ir_source`, and dead-node analysis uses
         // `extra_source_nodes` to cover the other referenced idents.
         let (src_ref, extra_sources) = match resolve_endpoint_ref(&stmt.source, name_to_id) {
             Some(r) => (r, Vec::new()),
             None => {
                 // Collect every node id referenced by the compound source.
-                let mut refs = collect_referenced_node_ids(&stmt.source, name_to_id);
+                let mut refs = collect_referenced_node_ids(&ir_source);
                 refs.dedup();
                 if refs.is_empty() {
                     // No node references at all (pure literal source). Skip
@@ -317,17 +328,6 @@ fn build_edges(
             None => {
                 continue;
             }
-        };
-
-        // Lower to IR forms. We use the AST source/dest to construct typed IR
-        // representations alongside the legacy AST fields (parallel-path).
-        let ir_source = match lower_expr(&stmt.source, name_to_id, ir) {
-            Some(e) => e,
-            None => continue,
-        };
-        let ir_dest = match lower_endpoint(&stmt.dest, name_to_id, ir) {
-            Some(d) => d,
-            None => continue,
         };
 
         // Type-compatibility check.
@@ -378,49 +378,33 @@ fn build_edges(
     }
 }
 
-/// Collect every `NodeId` referenced by an expression in left-to-right
-/// traversal order. Used by `build_edges` to anchor edges whose source is a
-/// compound expression (binary, method call, free call). The first id is
-/// promoted to `IrEdge::source.node`; the rest are stored in
-/// `extra_source_nodes` so dead-node analysis can keep them all alive.
-fn collect_referenced_node_ids(
-    expr: &ConnectionExpr,
-    name_to_id: &HashMap<String, NodeId>,
-) -> Vec<NodeId> {
-    let mut out = Vec::new();
-    collect_referenced_node_ids_into(expr, name_to_id, &mut out);
-    out
+/// Visitor that collects every `NodeId` referenced by an `IrExpr` in
+/// left-to-right order, including duplicates (caller dedups if needed).
+struct CollectEndpoints {
+    ids: Vec<NodeId>,
 }
 
-fn collect_referenced_node_ids_into(
-    expr: &ConnectionExpr,
-    name_to_id: &HashMap<String, NodeId>,
-    out: &mut Vec<NodeId>,
-) {
-    match expr {
-        ConnectionExpr::Ident(i) => {
-            if let Some(&id) = name_to_id.get(&i.to_string()) {
-                out.push(id);
-            }
-        }
-        ConnectionExpr::Field(base, _) => collect_referenced_node_ids_into(base, name_to_id, out),
-        ConnectionExpr::ArrayIndex(base, _) => {
-            collect_referenced_node_ids_into(base, name_to_id, out)
-        }
-        ConnectionExpr::MethodCall(base, _, _) => {
-            collect_referenced_node_ids_into(base, name_to_id, out)
-        }
-        ConnectionExpr::Binary(l, _, r) => {
-            collect_referenced_node_ids_into(l, name_to_id, out);
-            collect_referenced_node_ids_into(r, name_to_id, out);
-        }
-        ConnectionExpr::Call(_, args) => {
-            for a in args {
-                collect_referenced_node_ids_into(a, name_to_id, out);
-            }
-        }
-        ConnectionExpr::Literal(_) => {}
+impl CollectEndpoints {
+    fn new() -> Self {
+        Self { ids: Vec::new() }
     }
+}
+
+impl crate::ir::expr::visit::Visitor for CollectEndpoints {
+    fn visit_endpoint(&mut self, ep: &crate::ir::expr::IrEndpoint) {
+        self.ids.push(ep.node);
+    }
+}
+
+/// Collect every `NodeId` referenced by an `IrExpr` source expression.
+/// Used by `build_edges` to anchor edges whose source is a compound
+/// expression — the first id is promoted to `IrEdge::source.node`, the
+/// rest are stored in `extra_source_nodes`.
+fn collect_referenced_node_ids(expr: &crate::ir::expr::IrExpr) -> Vec<NodeId> {
+    use crate::ir::expr::visit::Visitor;
+    let mut v = CollectEndpoints::new();
+    v.visit_expr(expr);
+    v.ids
 }
 
 // ---------------------------------------------------------------------------
