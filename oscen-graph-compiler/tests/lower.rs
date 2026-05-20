@@ -256,14 +256,15 @@ fn topo_sort_orders_branching_graph() {
 #[test]
 fn non_feedback_cycle_with_extra_delay_input_is_rejected() {
     // X <-> Y is a non-feedback cycle that must be rejected.
-    // A `#[feedback]`-marked node feeding into X must NOT mask that cycle.
+    // A Delay feeding into X must NOT mask that cycle.
+    // MyDelay's last path segment contains "Delay", triggering the feedback
+    // predicate; Gain nodes are plain non-feedback processors.
     let (ir, diags) = lower_quote(quote! {
         name: BadCycle;
         input stream src;
         output stream out;
         node x = Gain::new(0.5);
         node y = Gain::new(0.5);
-        #[feedback]
         node d = MyDelay::new(0.1);
         connections {
             src -> x.input;
@@ -289,73 +290,6 @@ fn non_feedback_cycle_with_extra_delay_input_is_rejected() {
         "expected cycle detection; got ir.is_some()={} errors={:?}",
         ir.is_some(),
         errors
-    );
-}
-
-#[test]
-fn feedback_attr_allows_cycle_on_non_delay_named_node() {
-    // `#[feedback]` on a node whose type name has nothing to do with "Delay"
-    // breaks a cycle for topological sort. Proves feedback opt-in works via
-    // the explicit attribute, not via substring matching on the type name.
-    let (ir, diags) = lower_quote(quote! {
-        name: FbOk;
-        input stream src;
-        output stream out;
-        node g = Gain::new(0.5);
-        #[feedback]
-        node ring = RingBuffer::new(64);
-        connections {
-            src -> g.input;
-            g.output -> ring.input;
-            ring.output -> g.input;
-            g.output -> out;
-        }
-    });
-    let errors: Vec<String> = diags
-        .items
-        .iter()
-        .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
-        .map(|d| d.message.to_string())
-        .collect();
-    assert!(
-        ir.is_some() && errors.is_empty(),
-        "expected feedback-allowed cycle to lower cleanly; got errors={:?}",
-        errors,
-    );
-}
-
-#[test]
-fn delay_named_node_without_feedback_attr_is_a_cycle() {
-    // A node whose type name is literally `Delay` but has no `#[feedback]`
-    // attribute does NOT participate in feedback. Proves the old substring
-    // heuristic (`name.contains("Delay")`) is gone — only the attribute counts.
-    let (ir, diags) = lower_quote(quote! {
-        name: DelayNoAttr;
-        input stream src;
-        output stream out;
-        node g = Gain::new(0.5);
-        node d = Delay::new(0.1);
-        connections {
-            src -> g.input;
-            g.output -> d.input;
-            d.output -> g.input;
-            g.output -> out;
-        }
-    });
-    let errors: Vec<String> = diags
-        .items
-        .iter()
-        .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
-        .map(|d| d.message.to_string())
-        .collect();
-    assert!(
-        ir.is_none()
-            && errors
-                .iter()
-                .any(|e| e.contains("cycle") || e.contains("Cycle")),
-        "expected cycle detection on an unannotated `Delay`; got ir.is_some()={} errors={:?}",
-        ir.is_some(),
-        errors,
     );
 }
 

@@ -64,9 +64,6 @@ pub struct NodeDecl {
     pub node_type: Option<syn::Path>,
     pub array_size: Option<usize>, // For Voice[4] syntax
     pub rate: NodeRate,
-    /// True if `#[feedback]` was present before the node name. Marks nodes
-    /// that break feedback cycles for topological sort (e.g., delay lines).
-    pub allows_feedback: bool,
 }
 
 /// Connection statement

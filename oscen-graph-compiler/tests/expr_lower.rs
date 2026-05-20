@@ -27,7 +27,6 @@ fn mk_graph_with_node(name: &str) -> (IrGraph, HashMap<String, NodeId>, NodeId) 
         endpoints: Default::default(),
         incoming: Vec::new(),
         outgoing: Vec::new(),
-        allows_feedback: false,
     });
     let mut map = HashMap::new();
     map.insert(name.to_string(), id);
@@ -107,7 +106,6 @@ fn lower_binary_recurses_on_both_sides() {
         endpoints: Default::default(),
         incoming: Vec::new(),
         outgoing: Vec::new(),
-        allows_feedback: false,
     });
     map.insert("b".to_string(), b_id);
 
