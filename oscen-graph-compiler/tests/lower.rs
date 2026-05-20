@@ -75,14 +75,18 @@ fn linear_chain_lowers_with_typed_edges() {
 
     assert_eq!(ir.edges.len(), 1);
     let edge = ir.edges.values().next().unwrap();
-    let s_node = &ir.nodes[edge.source.node];
+    let src_ep = match &edge.source.kind {
+        oscen_graph_compiler::ir::IrExprKind::Endpoint(ep) => ep,
+        _ => panic!("expected Endpoint source"),
+    };
+    let s_node = &ir.nodes[src_ep.node];
     let out_node = &ir.nodes[edge.dest.node];
     assert_eq!(s_node.name.to_string(), "s");
     assert_eq!(out_node.name.to_string(), "out");
 
     // Inputs always have endpoints populated by collect_declarations.
     assert_eq!(
-        s_node.endpoints[&edge.source.endpoint].kind,
+        s_node.endpoints[&src_ep.endpoint].kind,
         oscen_graph_compiler::ast::EndpointKind::Stream
     );
 }
@@ -171,7 +175,14 @@ fn cross_rate_edge_picks_correct_kernel() {
     let cross_edges: Vec<_> = ir
         .edges
         .values()
-        .filter(|e| ir.nodes[e.source.node].name == "osc" && ir.nodes[e.dest.node].name == "out")
+        .filter(|e| {
+            let src_name = if let oscen_graph_compiler::ir::IrExprKind::Endpoint(ep) = &e.source.kind {
+                ir.nodes[ep.node].name.to_string()
+            } else {
+                String::new()
+            };
+            src_name == "osc" && ir.nodes[e.dest.node].name == "out"
+        })
         .collect();
     assert_eq!(cross_edges.len(), 1);
     let kernel = &cross_edges[0].kernel;

@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, ConnectionExpr, ConnectionPolicy, EndpointKind, NodeRate};
+use crate::ast::{BinaryOp, ConnectionPolicy, EndpointKind, NodeRate};
 use crate::diagnostics::Diagnostics;
 use crate::ir::graph::{
     EdgeId, EdgeKernel, EventRescale, FanoutShape, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
@@ -471,31 +471,32 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
-    /// Project the EndpointAt marker token for a connection-expression endpoint.
+    /// Project the EndpointAt marker token for an IR endpoint.
     /// Returns `Some((<NodeTypePath>, <NodeTypeName__field__Ep marker path>))`
-    /// when the expression is `node.field` (or `node[i].field`) AND the node
-    /// has a recorded `node_type` whose path is multi-segment. Returns `None`
-    /// otherwise.
-    fn endpoint_marker_tokens(&self, expr: &ConnectionExpr) -> Option<(TokenStream, TokenStream)> {
-        let (node_name, field) = match expr {
-            ConnectionExpr::Field(base, field) => match &**base {
-                ConnectionExpr::Ident(n) => (n.clone(), field.clone()),
-                ConnectionExpr::ArrayIndex(inner, _) => {
-                    if let ConnectionExpr::Ident(n) = &**inner {
-                        (n.clone(), field.clone())
-                    } else {
-                        return None;
-                    }
-                }
-                _ => return None,
-            },
-            _ => return None,
-        };
-        let node = self.find_node_by_ident(&node_name)?;
+    /// when the endpoint's node has a recorded `node_type` whose path is
+    /// multi-segment. Returns `None` otherwise.
+    fn endpoint_marker_tokens(
+        &self,
+        ep: &crate::ir::expr::IrEndpoint,
+    ) -> Option<(TokenStream, TokenStream)> {
+        let node = &self.ir.nodes[ep.node];
         let path = self.node_type_path(node)?;
         let assoc_ident =
-            syn::Ident::new(&format!("{}__Ep", field), proc_macro2::Span::call_site());
+            syn::Ident::new(&format!("{}__Ep", ep.endpoint), proc_macro2::Span::call_site());
         Some((quote! { #path }, quote! { <#path>::#assoc_ident }))
+    }
+
+    /// Extract the `IrEndpoint` from an `IrExpr`, if the expression is a
+    /// plain `Endpoint` variant. Returns `None` for compound expressions
+    /// (Binary, MethodCall, Call, Literal).
+    fn ir_expr_as_endpoint(
+        expr: &crate::ir::expr::IrExpr,
+    ) -> Option<&crate::ir::expr::IrEndpoint> {
+        if let crate::ir::expr::IrExprKind::Endpoint(ep) = &expr.kind {
+            Some(ep)
+        } else {
+            None
+        }
     }
 
     /// Emit the `<() as CrossRateKernel<SrcKind, DstKind, Policy, N, Dir>>::State`
@@ -509,10 +510,10 @@ impl<'a> CodegenContext<'a> {
         // emission later uses `.kernel.upsample(...)` and would fail to compile.
         // Value/event cross-rate edges fall back to the concrete-kernel emitter,
         // which uses `LatchUp`/`LatchDown` (value) or dedicated event drains.
-        let src_kind = self.infer_kind(&edge.ir_source)?;
-        let dst_kind = self.ir.nodes[edge.ir_dest.node]
+        let src_kind = self.infer_kind(&edge.source)?;
+        let dst_kind = self.ir.nodes[edge.dest.node]
             .endpoints
-            .get(&edge.ir_dest.endpoint)
+            .get(&edge.dest.endpoint)
             .map(|ei| ei.kind)?;
         if !matches!(
             (src_kind, dst_kind),
@@ -520,8 +521,9 @@ impl<'a> CodegenContext<'a> {
         ) {
             return None;
         }
-        let (src_path, src_marker) = self.endpoint_marker_tokens(&edge.source_expr)?;
-        let (dst_path, dst_marker) = self.endpoint_marker_tokens(&edge.dest_expr)?;
+        let src_ep = Self::ir_expr_as_endpoint(&edge.source)?;
+        let (src_path, src_marker) = self.endpoint_marker_tokens(src_ep)?;
+        let (dst_path, dst_marker) = self.endpoint_marker_tokens(&edge.dest)?;
         let (factor, dir, policy) = match edge.kernel {
             EdgeKernel::Up { factor, kind } => (
                 factor,
@@ -564,31 +566,21 @@ impl<'a> CodegenContext<'a> {
                 ),
                 EdgeKernel::None | EdgeKernel::Event { .. } => continue,
             };
-            let (src_path, src_marker) = match self.endpoint_marker_tokens(&edge.source_expr) {
+            let src_ep = match Self::ir_expr_as_endpoint(&edge.source) {
+                Some(ep) => ep,
+                None => continue,
+            };
+            let (src_path, src_marker) = match self.endpoint_marker_tokens(src_ep) {
                 Some(t) => t,
                 None => continue,
             };
-            let (dst_path, dst_marker) = match self.endpoint_marker_tokens(&edge.dest_expr) {
+            let (dst_path, dst_marker) = match self.endpoint_marker_tokens(&edge.dest) {
                 Some(t) => t,
                 None => continue,
             };
-            // Use the source ident's span so trait-resolution errors point at
-            // the user's connection.
-            let span = match &edge.source_expr {
-                ConnectionExpr::Ident(i) => i.span(),
-                ConnectionExpr::Field(base, _) => match &**base {
-                    ConnectionExpr::Ident(i) => i.span(),
-                    ConnectionExpr::ArrayIndex(inner, _) => {
-                        if let ConnectionExpr::Ident(i) = &**inner {
-                            i.span()
-                        } else {
-                            proc_macro2::Span::call_site()
-                        }
-                    }
-                    _ => proc_macro2::Span::call_site(),
-                },
-                _ => proc_macro2::Span::call_site(),
-            };
+            // Use the source expression's span so trait-resolution errors point
+            // at the user's connection.
+            let span = edge.source.span;
             let assertion = quote::quote_spanned! { span =>
                 #[allow(non_snake_case)]
                 const _: fn() = || {
@@ -979,8 +971,8 @@ impl<'a> CodegenContext<'a> {
             if !keep(&edge.kernel) {
                 continue;
             }
-            let ir_source = &edge.ir_source;
-            let ir_dest = &edge.ir_dest;
+            let ir_source = &edge.source;
+            let ir_dest = &edge.dest;
             let dest_node = &self.ir.nodes[ir_dest.node].name;
             let dest_field = &ir_dest.endpoint;
 
@@ -1165,8 +1157,8 @@ impl<'a> CodegenContext<'a> {
             if !keep(&edge.kernel) {
                 continue;
             }
-            let ir_source = &edge.ir_source;
-            let ir_dest = &edge.ir_dest;
+            let ir_source = &edge.source;
+            let ir_dest = &edge.dest;
             let dest_ident = &self.ir.nodes[ir_dest.node].name;
             if let Some(output_kind) = self.output_kind(dest_ident) {
                 let source_node = self.extract_root_node(ir_source);
@@ -1543,9 +1535,9 @@ impl<'a> CodegenContext<'a> {
                 };
 
                 if let FanoutShape::Parallel { n } = edge.fanout {
-                    let source_ident = self.extract_root_node(&edge.ir_source)
+                    let source_ident = self.extract_root_node(&edge.source)
                         .expect("Parallel edge has array root");
-                    let source_field = self.extract_endpoint_field(&edge.ir_source)
+                    let source_field = self.extract_endpoint_field(&edge.source)
                         .expect("Parallel edge has field access");
                     up_decls.push(quote! {
                         let mut #buf: [[f32; #factor_us]; #n] = [[0.0; #factor_us]; #n];
@@ -1564,7 +1556,7 @@ impl<'a> CodegenContext<'a> {
                     });
                 } else {
                     let src_value =
-                        self.connection_source_value_expr(&edge.ir_source);
+                        self.connection_source_value_expr(&edge.source);
                     up_decls.push(quote! {
                         let mut #buf: [f32; #factor_us] = [0.0; #factor_us];
                         {
@@ -1606,8 +1598,8 @@ impl<'a> CodegenContext<'a> {
             } = edge.kernel
             {
                 let drain = self.generate_event_drain(
-                    &edge.ir_source,
-                    &edge.ir_dest,
+                    &edge.source,
+                    &edge.dest,
                     EventRescale::Multiply(n),
                 );
                 event_outer_to_inner_drains.push(drain);
@@ -1622,8 +1614,8 @@ impl<'a> CodegenContext<'a> {
             } = edge.kernel
             {
                 let drain = self.generate_event_drain(
-                    &edge.ir_source,
-                    &edge.ir_dest,
+                    &edge.source,
+                    &edge.dest,
                     EventRescale::Divide(n),
                 );
                 event_inner_to_outer_drains.push(drain);
@@ -1642,8 +1634,8 @@ impl<'a> CodegenContext<'a> {
                 let buf = up_buf_name(idx);
 
                 if let FanoutShape::Parallel { n } = edge.fanout {
-                    let dest_node = &self.ir.nodes[edge.ir_dest.node].name;
-                    let dest_field = &edge.ir_dest.endpoint;
+                    let dest_node = &self.ir.nodes[edge.dest.node].name;
+                    let dest_field = &edge.dest.endpoint;
                     inner_writes.push(quote! {
                         for __k in 0..#n {
                             let __dst_val: f32 = #buf[__k][__inner];
@@ -1655,7 +1647,7 @@ impl<'a> CodegenContext<'a> {
                     });
                 } else {
                     let dest_assign = self.connection_dest_field_assign(
-                        &edge.ir_dest,
+                        &edge.dest,
                         &quote! { #buf[__inner] },
                     );
                     inner_writes.push(dest_assign);
@@ -1677,9 +1669,9 @@ impl<'a> CodegenContext<'a> {
                 let buf = down_buf_name(idx);
 
                 if let FanoutShape::Parallel { n } = edge.fanout {
-                    let source_ident = self.extract_root_node(&edge.ir_source)
+                    let source_ident = self.extract_root_node(&edge.source)
                         .expect("Parallel edge has array root");
-                    let source_field = self.extract_endpoint_field(&edge.ir_source)
+                    let source_field = self.extract_endpoint_field(&edge.source)
                         .expect("Parallel edge has field access");
                     down_captures.push(quote! {
                         for __k in 0..#n {
@@ -1693,7 +1685,7 @@ impl<'a> CodegenContext<'a> {
                     });
                 } else {
                     let src_value =
-                        self.connection_source_value_expr(&edge.ir_source);
+                        self.connection_source_value_expr(&edge.source);
                     down_captures.push(quote! {
                         #buf[__inner] = #src_value;
                     });
@@ -1715,8 +1707,8 @@ impl<'a> CodegenContext<'a> {
                 };
 
                 if let FanoutShape::Parallel { n } = edge.fanout {
-                    let dest_node = &self.ir.nodes[edge.ir_dest.node].name;
-                    let dest_field = &edge.ir_dest.endpoint;
+                    let dest_node = &self.ir.nodes[edge.dest.node].name;
+                    let dest_field = &edge.dest.endpoint;
                     down_finalizes.push(quote! {
                         for __k in 0..#n {
                             let __dst_val: f32 = ::oscen::resample::StreamDownsampler::downsample(
@@ -1731,7 +1723,7 @@ impl<'a> CodegenContext<'a> {
                     });
                 } else {
                     let dest_assign = self.connection_dest_field_assign(
-                        &edge.ir_dest,
+                        &edge.dest,
                         &quote! {
                             ::oscen::resample::StreamDownsampler::downsample(
                                 &mut self.#field #access,
@@ -1922,10 +1914,9 @@ impl<'a> CodegenContext<'a> {
                     }
             );
             if is_inner_produced {
-                if let Some(dst) = root_node_name(&edge.dest_expr) {
-                    if same_rate(&dst) {
-                        tainted.insert(dst);
-                    }
+                let dst_name = self.ir.nodes[edge.dest.node].name.to_string();
+                if same_rate(&dst_name) {
+                    tainted.insert(dst_name);
                 }
             }
         }
@@ -1939,8 +1930,8 @@ impl<'a> CodegenContext<'a> {
                     continue;
                 }
                 let (Some(src), Some(dst)) = (
-                    root_node_name(&edge.source_expr),
-                    root_node_name(&edge.dest_expr),
+                    root_node_name(&edge.source, self.ir),
+                    Some(self.ir.nodes[edge.dest.node].name.to_string()),
                 ) else {
                     continue;
                 };
@@ -1957,7 +1948,7 @@ impl<'a> CodegenContext<'a> {
         // Diamond detection.
         for (_, edge) in self.edges() {
             if let EdgeKernel::Up { .. } = edge.kernel {
-                if let Some(src) = root_node_name(&edge.source_expr) {
+                if let Some(src) = root_node_name(&edge.source, self.ir) {
                     if tainted.contains(&src) {
                         return Err(syn::Error::new(
                             edge.span,
@@ -2686,19 +2677,16 @@ impl<'a> CodegenContext<'a> {
     }
 }
 
-/// Extract the root node name from a connection expression (the leftmost identifier).
-///
-/// Mirrors `rate_analysis::root_node_name` for parity with the legacy
-/// codegen's `compute_post_inner_same_nodes` lookups.
-fn root_node_name(expr: &ConnectionExpr) -> Option<String> {
-    match expr {
-        ConnectionExpr::Ident(i) => Some(i.to_string()),
-        ConnectionExpr::Field(inner, _) => root_node_name(inner),
-        ConnectionExpr::ArrayIndex(inner, _) => root_node_name(inner),
-        ConnectionExpr::MethodCall(inner, _, _) => root_node_name(inner),
-        ConnectionExpr::Binary(_, _, _)
-        | ConnectionExpr::Literal(_)
-        | ConnectionExpr::Call(_, _) => None,
+/// Extract the root node name from an IR expression (the leftmost node's name
+/// as a String). Walks through Binary/MethodCall to find the leftmost
+/// Endpoint variant. Returns None for Call/Literal.
+fn root_node_name(expr: &crate::ir::expr::IrExpr, ir: &IrGraph) -> Option<String> {
+    use crate::ir::expr::IrExprKind;
+    match &expr.kind {
+        IrExprKind::Endpoint(ep) => Some(ir.nodes[ep.node].name.to_string()),
+        IrExprKind::Binary { left, .. } => root_node_name(left, ir),
+        IrExprKind::MethodCall { receiver, .. } => root_node_name(receiver, ir),
+        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
     }
 }
 

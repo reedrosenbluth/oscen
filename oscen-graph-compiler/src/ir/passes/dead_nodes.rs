@@ -7,6 +7,18 @@
 use crate::ir::graph::{IrGraph, IrNodeKind, NodeId};
 use std::collections::{HashSet, VecDeque};
 
+/// Extract the primary (leftmost) `NodeId` from an `IrExpr`.
+/// Returns `None` for pure `Call`/`Literal` roots with no endpoint reference.
+fn primary_source_node_in_expr(expr: &crate::ir::expr::IrExpr) -> Option<NodeId> {
+    use crate::ir::expr::IrExprKind;
+    match &expr.kind {
+        IrExprKind::Endpoint(ep) => Some(ep.node),
+        IrExprKind::Binary { left, .. } => primary_source_node_in_expr(left),
+        IrExprKind::MethodCall { receiver, .. } => primary_source_node_in_expr(receiver),
+        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
+    }
+}
+
 pub fn run(ir: &mut IrGraph) {
     // Conservative guard: if a graph has no declared outputs, leave every
     // node intact. Sink-less graphs are typically test fixtures or graphs
@@ -31,7 +43,11 @@ pub fn run(ir: &mut IrGraph) {
         let incoming = ir.nodes[id].incoming.to_vec();
         for eid in incoming {
             let edge = &ir.edges[eid];
-            queue.push_back(edge.source.node);
+            // Push the primary source node (leftmost endpoint in the IrExpr).
+            if let Some(primary) = primary_source_node_in_expr(&edge.source) {
+                queue.push_back(primary);
+            }
+            // Push any extra source nodes (for compound exprs like a.x * b.y).
             for &extra in &edge.extra_source_nodes {
                 queue.push_back(extra);
             }
@@ -61,9 +77,9 @@ pub fn run(ir: &mut IrGraph) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, NodeRate};
+    use crate::ast::{ConnectionPolicy, EndpointKind, NodeRate};
     use crate::ir::graph::{
-        EdgeId, EdgeKernel, EndpointInfo, EndpointRef, FanoutShape, IrEdge, IrNode, IrNodeKind,
+        EdgeId, EdgeKernel, EndpointInfo, FanoutShape, IrEdge, IrNode, IrNodeKind,
     };
     use proc_macro2::Span;
     use quote::format_ident;
@@ -147,22 +163,7 @@ mod tests {
         let dst_ep_ident = format_ident!("{}", dst_ep);
         let id = g.edges.insert_with_key(|id| IrEdge {
             id,
-            source: EndpointRef {
-                node: src,
-                endpoint: src_ep_ident.clone(),
-            },
-            dest: EndpointRef {
-                node: dst,
-                endpoint: dst_ep_ident.clone(),
-            },
-            policy: ConnectionPolicy::Default,
-            kernel: EdgeKernel::None,
-            fanout: FanoutShape::Scalar,
-            span: Span::call_site(),
-            source_expr: ConnectionExpr::Ident(format_ident!("dummy")),
-            dest_expr: ConnectionExpr::Ident(format_ident!("dummy_dst")),
-            extra_source_nodes: Vec::new(),
-            ir_source: crate::ir::expr::IrExpr {
+            source: crate::ir::expr::IrExpr {
                 kind: crate::ir::expr::IrExprKind::Endpoint(crate::ir::expr::IrEndpoint {
                     node: src,
                     endpoint: src_ep_ident,
@@ -171,12 +172,17 @@ mod tests {
                 }),
                 span: Span::call_site(),
             },
-            ir_dest: crate::ir::expr::IrEndpoint {
+            dest: crate::ir::expr::IrEndpoint {
                 node: dst,
                 endpoint: dst_ep_ident,
                 index: None,
                 span: Span::call_site(),
             },
+            policy: ConnectionPolicy::Default,
+            kernel: EdgeKernel::None,
+            fanout: FanoutShape::Scalar,
+            span: Span::call_site(),
+            extra_source_nodes: Vec::new(),
         });
         g.nodes[src].outgoing.push(id);
         g.nodes[dst].incoming.push(id);

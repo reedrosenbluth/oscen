@@ -6,7 +6,7 @@
 //! `remove_node` / `remove_edge`, which maintain adjacency, topological
 //! order, and reference-validity invariants.
 
-use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, NodeRate};
+use crate::ast::{ConnectionPolicy, EndpointKind, NodeRate};
 use proc_macro2::Span;
 use slotmap::{new_key_type, SlotMap};
 use std::collections::HashMap;
@@ -141,42 +141,39 @@ pub struct EndpointInfo {
 
 pub struct IrEdge {
     pub id: EdgeId,
-    /// Primary source endpoint reference. For compound expressions (binary
-    /// ops, calls), this is the *leftmost* root node and a synthetic
-    /// endpoint name (typically the first sub-expression's field, or the
-    /// node's own ident as a fallback). Use `source_expr` for the full
-    /// shape and `extra_source_nodes` for additional referenced nodes.
-    pub source: EndpointRef,
-    pub dest: EndpointRef,
+    /// Resolved source expression. For simple `node.field` connections this
+    /// is `IrExprKind::Endpoint`; for compound expressions (binary ops,
+    /// method calls) it is the structured `IrExpr` tree. The primary
+    /// referenced node is the leftmost `Endpoint` leaf; additional
+    /// referenced nodes are cached in `extra_source_nodes`.
+    pub source: crate::ir::expr::IrExpr,
+    /// Resolved destination endpoint (addressable: `out`, `node.field`,
+    /// or `voices[k].field`).
+    pub dest: crate::ir::expr::IrEndpoint,
     pub policy: ConnectionPolicy,
     pub kernel: EdgeKernel,
     pub fanout: FanoutShape,
     pub span: Span,
-    /// Raw AST source expression. Phase 3 doesn't lift this to an
-    /// IR-native `IrExpr`; codegen continues to consume `ConnectionExpr`
-    /// as today. The seam is documented in the design spec.
-    pub source_expr: ConnectionExpr,
-    /// Raw AST destination expression. Preserves array indices and other
-    /// info that `dest: EndpointRef` collapses. Used by codegen to emit
-    /// the correct field assignment.
-    pub dest_expr: ConnectionExpr,
     /// Secondary referenced source nodes (for compound expressions like
     /// `a.x * b.y -> out`, this contains every additional `NodeId`
-    /// referenced by the source expression beyond `source.node`). Empty
-    /// for simple `node.endpoint` sources. Used by dead-node analysis so
+    /// referenced by the source expression beyond the primary). Empty for
+    /// simple `node.endpoint` sources. Used by dead-node analysis so
     /// nodes whose values feed an expression are kept alive.
     pub extra_source_nodes: Vec<NodeId>,
-    /// IR-typed source (populated S1.3, becomes canonical at S1.8).
-    pub ir_source: crate::ir::expr::IrExpr,
-    /// IR-typed destination (populated S1.3, becomes canonical at S1.8).
-    pub ir_dest: crate::ir::expr::IrEndpoint,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct EndpointRef {
-    pub node: NodeId,
-    pub endpoint: Ident,
+/// Extract the primary source `NodeId` from an `IrExpr` by finding the
+/// leftmost `Endpoint` leaf. Returns `None` for `Call`/`Literal` roots.
+fn primary_source_node(expr: &crate::ir::expr::IrExpr) -> Option<NodeId> {
+    use crate::ir::expr::IrExprKind;
+    match &expr.kind {
+        IrExprKind::Endpoint(ep) => Some(ep.node),
+        IrExprKind::Binary { left, .. } => primary_source_node(left),
+        IrExprKind::MethodCall { receiver, .. } => primary_source_node(receiver),
+        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
+    }
 }
+
 
 impl IrGraph {
     pub fn new(name: Ident, nih_params: bool) -> Self {
@@ -200,9 +197,13 @@ impl IrGraph {
             debug_assert!(false, "remove_edge on unknown EdgeId");
             return;
         };
-        if let Some(src_node) = self.nodes.get_mut(edge.source.node) {
-            src_node.outgoing.retain(|&e| e != id);
+        // Clean up the primary source node's outgoing list.
+        if let Some(primary) = primary_source_node(&edge.source) {
+            if let Some(src_node) = self.nodes.get_mut(primary) {
+                src_node.outgoing.retain(|&e| e != id);
+            }
         }
+        // Clean up extra source nodes' outgoing lists.
         for extra in &edge.extra_source_nodes {
             if let Some(extra_node) = self.nodes.get_mut(*extra) {
                 extra_node.outgoing.retain(|&e| e != id);
@@ -270,22 +271,7 @@ mod tests {
     fn mk_edge(graph: &mut IrGraph, source: NodeId, dest: NodeId) -> EdgeId {
         let id = graph.edges.insert_with_key(|id| IrEdge {
             id,
-            source: EndpointRef {
-                node: source,
-                endpoint: format_ident!("out"),
-            },
-            dest: EndpointRef {
-                node: dest,
-                endpoint: format_ident!("in"),
-            },
-            policy: ConnectionPolicy::Default,
-            kernel: EdgeKernel::None,
-            fanout: FanoutShape::Scalar,
-            span: Span::call_site(),
-            source_expr: ConnectionExpr::Ident(format_ident!("dummy")),
-            dest_expr: ConnectionExpr::Ident(format_ident!("dummy_dst")),
-            extra_source_nodes: Vec::new(),
-            ir_source: crate::ir::expr::IrExpr {
+            source: crate::ir::expr::IrExpr {
                 kind: crate::ir::expr::IrExprKind::Endpoint(crate::ir::expr::IrEndpoint {
                     node: source,
                     endpoint: format_ident!("out"),
@@ -294,12 +280,17 @@ mod tests {
                 }),
                 span: Span::call_site(),
             },
-            ir_dest: crate::ir::expr::IrEndpoint {
+            dest: crate::ir::expr::IrEndpoint {
                 node: dest,
                 endpoint: format_ident!("in"),
                 index: None,
                 span: Span::call_site(),
             },
+            policy: ConnectionPolicy::Default,
+            kernel: EdgeKernel::None,
+            fanout: FanoutShape::Scalar,
+            span: Span::call_site(),
+            extra_source_nodes: Vec::new(),
         });
         graph.nodes[source].outgoing.push(id);
         graph.nodes[dest].incoming.push(id);

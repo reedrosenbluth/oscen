@@ -7,6 +7,41 @@
 use crate::ir::graph::{EdgeId, IrGraph, NodeId};
 use std::collections::HashSet;
 
+/// Extract the primary (leftmost) `NodeId` from an `IrExpr`.
+fn primary_source_node_of_expr(expr: &crate::ir::expr::IrExpr) -> Option<NodeId> {
+    use crate::ir::expr::IrExprKind;
+    match &expr.kind {
+        IrExprKind::Endpoint(ep) => Some(ep.node),
+        IrExprKind::Binary { left, .. } => primary_source_node_of_expr(left),
+        IrExprKind::MethodCall { receiver, .. } => primary_source_node_of_expr(receiver),
+        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
+    }
+}
+
+/// Collect all `NodeId`s referenced by an `IrExpr` source expression.
+fn collect_source_node_ids_for_validate(expr: &crate::ir::expr::IrExpr) -> Vec<NodeId> {
+    use crate::ir::expr::IrExprKind;
+    let mut ids = Vec::new();
+    fn walk(expr: &crate::ir::expr::IrExpr, ids: &mut Vec<NodeId>) {
+        match &expr.kind {
+            IrExprKind::Endpoint(ep) => ids.push(ep.node),
+            IrExprKind::Binary { left, right, .. } => {
+                walk(left, ids);
+                walk(right, ids);
+            }
+            IrExprKind::MethodCall { receiver, .. } => walk(receiver, ids),
+            IrExprKind::Call { function: _, args } => {
+                for arg in args {
+                    walk(arg, ids);
+                }
+            }
+            IrExprKind::Literal(_) => {}
+        }
+    }
+    walk(expr, &mut ids);
+    ids
+}
+
 pub fn validate(ir: &IrGraph) {
     let edge_set: HashSet<EdgeId> = ir.edges.keys().collect();
 
@@ -28,7 +63,7 @@ pub fn validate(ir: &IrGraph) {
                 "node {nid:?}.outgoing contains stale edge {eid:?}"
             );
             let edge = &ir.edges[eid];
-            let is_primary = edge.source.node == nid;
+            let is_primary = primary_source_node_of_expr(&edge.source) == Some(nid);
             let is_extra = edge.extra_source_nodes.contains(&nid);
             assert!(
                 is_primary || is_extra,
@@ -41,11 +76,14 @@ pub fn validate(ir: &IrGraph) {
     // Edges reference live nodes.
     let node_set: HashSet<NodeId> = ir.nodes.keys().collect();
     for (eid, edge) in &ir.edges {
-        assert!(
-            node_set.contains(&edge.source.node),
-            "edge {eid:?}.source references dead node {:?}",
-            edge.source.node
-        );
+        // Check that every NodeId referenced by the source IrExpr is live.
+        let source_refs = collect_source_node_ids_for_validate(&edge.source);
+        for src_nid in &source_refs {
+            assert!(
+                node_set.contains(src_nid),
+                "edge {eid:?}.source references dead node {src_nid:?}"
+            );
+        }
         assert!(
             node_set.contains(&edge.dest.node),
             "edge {eid:?}.dest references dead node {:?}",
@@ -57,21 +95,6 @@ pub fn validate(ir: &IrGraph) {
                 "edge {eid:?}.extra_source_nodes references dead node {extra:?}"
             );
         }
-
-        // Parallel-path check (S1.3 → S1.8): the IR fields and the AST fields
-        // must agree on the resolved root NodeId.
-        if let crate::ir::expr::IrExprKind::Endpoint(ep) = &edge.ir_source.kind {
-            assert_eq!(
-                ep.node, edge.source.node,
-                "ir_source endpoint node ({:?}) disagrees with source.node ({:?}) on edge {:?}",
-                ep.node, edge.source.node, eid
-            );
-        }
-        assert_eq!(
-            edge.ir_dest.node, edge.dest.node,
-            "ir_dest.node ({:?}) disagrees with dest.node ({:?}) on edge {:?}",
-            edge.ir_dest.node, edge.dest.node, eid
-        );
     }
 
     // processors / inputs / outputs vectors reference live nodes.

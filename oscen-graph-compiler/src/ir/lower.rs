@@ -10,7 +10,7 @@ use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, GraphDef, Graph
 use crate::diagnostics::Diagnostics;
 use crate::ir::expr::{IrEndpoint, IrExpr, IrExprKind};
 use crate::ir::graph::{
-    classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EndpointRef, EventRescale, FanoutShape,
+    classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EventRescale, FanoutShape,
     IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
 };
 use proc_macro2::Span;
@@ -282,8 +282,7 @@ fn build_edges(
         .collect();
 
     for stmt in stmts {
-        // Lower to IR forms first so the Visitor-based compound-source
-        // tracking can operate on `IrExpr` rather than the raw AST.
+        // Lower to IR forms.
         let ir_source = match lower_expr(&stmt.source, name_to_id, ir) {
             Some(e) => e,
             None => continue,
@@ -291,43 +290,6 @@ fn build_edges(
         let ir_dest = match lower_endpoint(&stmt.dest, name_to_id, ir) {
             Some(d) => d,
             None => continue,
-        };
-
-        // Resolve source EndpointRef. For compound sources (binary, calls,
-        // literals) fall back to the leftmost root node with a synthetic
-        // endpoint name so the edge still exists in the IR — codegen reads
-        // the full shape from `ir_source`, and dead-node analysis uses
-        // `extra_source_nodes` to cover the other referenced idents.
-        let (src_ref, extra_sources) = match resolve_endpoint_ref(&stmt.source, name_to_id) {
-            Some(r) => (r, Vec::new()),
-            None => {
-                // Collect every node id referenced by the compound source.
-                let mut refs = collect_referenced_node_ids(&ir_source);
-                refs.dedup();
-                if refs.is_empty() {
-                    // No node references at all (pure literal source). Skip
-                    // — we can't anchor this edge to a node.
-                    continue;
-                }
-                let primary = refs[0];
-                let extras = refs[1..].to_vec();
-                let ep_name = ir.nodes[primary].name.clone();
-                (
-                    EndpointRef {
-                        node: primary,
-                        endpoint: ep_name,
-                    },
-                    extras,
-                )
-            }
-        };
-
-        // Resolve dest EndpointRef.
-        let dst_ref = match resolve_endpoint_ref(&stmt.dest, name_to_id) {
-            Some(r) => r,
-            None => {
-                continue;
-            }
         };
 
         // Type-compatibility check.
@@ -349,31 +311,35 @@ fn build_edges(
             }
         }
 
+        // Compute primary source NodeId and extras from the IR source.
+        let mut refs = collect_referenced_node_ids(&ir_source);
+        refs.dedup();
+        let primary_src = match refs.first() {
+            Some(&id) => id,
+            None => continue, // Pure-literal source with no node references; skip.
+        };
+        let extra_sources: Vec<NodeId> = refs.into_iter().skip(1).collect();
+
         // Insert the edge.
-        let src_ref_clone = src_ref.clone();
-        let dst_ref_clone = dst_ref.clone();
-        let extras_clone = extra_sources.clone();
+        let dest_node = ir_dest.node;
+        let extra_sources_clone = extra_sources.clone();
         let eid = ir.edges.insert_with_key(|id| IrEdge {
             id,
-            source: src_ref_clone,
-            dest: dst_ref_clone,
+            source: ir_source,
+            dest: ir_dest,
             policy: stmt.policy,
             kernel: EdgeKernel::None,
             fanout: FanoutShape::Scalar,
             span: stmt.span,
-            source_expr: stmt.source.clone(),
-            dest_expr: stmt.dest.clone(),
-            extra_source_nodes: extras_clone,
-            ir_source,
-            ir_dest,
+            extra_source_nodes: extra_sources_clone,
         });
 
         // Update adjacency and canonical edge order.
-        ir.nodes[src_ref.node].outgoing.push(eid);
+        ir.nodes[primary_src].outgoing.push(eid);
         for &extra in &extra_sources {
             ir.nodes[extra].outgoing.push(eid);
         }
-        ir.nodes[dst_ref.node].incoming.push(eid);
+        ir.nodes[dest_node].incoming.push(eid);
         ir.edge_order.push(eid);
     }
 }
@@ -407,6 +373,18 @@ fn collect_referenced_node_ids(expr: &crate::ir::expr::IrExpr) -> Vec<NodeId> {
     v.ids
 }
 
+/// Extract the primary (leftmost) `NodeId` from an `IrExpr`.
+/// Returns `None` for `Call`/`Literal` roots with no endpoint reference.
+fn primary_node_of_expr(expr: &crate::ir::expr::IrExpr) -> Option<NodeId> {
+    use crate::ir::expr::IrExprKind;
+    match &expr.kind {
+        IrExprKind::Endpoint(ep) => Some(ep.node),
+        IrExprKind::Binary { left, .. } => primary_node_of_expr(left),
+        IrExprKind::MethodCall { receiver, .. } => primary_node_of_expr(receiver),
+        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Step 4: Rate analysis
 // ---------------------------------------------------------------------------
@@ -428,7 +406,11 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
     for eid in edge_ids {
         let (src_node_id, dst_node_id, policy, span) = {
             let edge = &ir.edges[eid];
-            (edge.source.node, edge.dest.node, edge.policy, edge.span)
+            let src_node_id = match primary_node_of_expr(&edge.source) {
+                Some(id) => id,
+                None => continue, // Pure-literal source; no rate to check.
+            };
+            (src_node_id, edge.dest.node, edge.policy, edge.span)
         };
 
         let source_rate = ir.nodes[src_node_id].rate;
@@ -504,18 +486,20 @@ fn refine_kernels(ir: &mut IrGraph) {
     let edge_ids: Vec<_> = ir.edges.keys().collect();
 
     for eid in edge_ids {
-        let (src_node_id, dst_node_id, src_ep, dst_ep) = {
+        let (src_node_id, dst_node_id, src_kind, dst_kind) = {
             let edge = &ir.edges[eid];
-            (
-                edge.source.node,
-                edge.dest.node,
-                edge.source.endpoint.clone(),
-                edge.dest.endpoint.clone(),
-            )
+            let src_node_id = match primary_node_of_expr(&edge.source) {
+                Some(id) => id,
+                None => continue,
+            };
+            let dst_node_id = edge.dest.node;
+            let src_kind = endpoint_kind_of(&edge.source, ir);
+            let dst_kind = ir.nodes[dst_node_id]
+                .endpoints
+                .get(&edge.dest.endpoint)
+                .map(|e| e.kind);
+            (src_node_id, dst_node_id, src_kind, dst_kind)
         };
-
-        let src_kind = ir.nodes[src_node_id].endpoints.get(&src_ep).map(|e| e.kind);
-        let dst_kind = ir.nodes[dst_node_id].endpoints.get(&dst_ep).map(|e| e.kind);
 
         let is_event_edge = matches!(src_kind, Some(EndpointKind::Event))
             || matches!(dst_kind, Some(EndpointKind::Event));
@@ -671,18 +655,6 @@ fn resolve_node_endpoint(
     }
 }
 
-/// Resolve a `ConnectionExpr` to an `EndpointRef` (NodeId + endpoint Ident).
-///
-/// For plain idents (graph inputs/outputs), the endpoint name is the ident
-/// itself — matching how `input_endpoints` / `output_endpoints` store them.
-/// For field exprs (`osc.frequency`), the endpoint is the field name.
-fn resolve_endpoint_ref(
-    expr: &ConnectionExpr,
-    name_to_id: &HashMap<String, NodeId>,
-) -> Option<EndpointRef> {
-    resolve_node_endpoint(expr, name_to_id).map(|(node, endpoint)| EndpointRef { node, endpoint })
-}
-
 // ---------------------------------------------------------------------------
 // Step 6: Topological sort
 // ---------------------------------------------------------------------------
@@ -719,7 +691,9 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
                     *in_degree.get_mut(&nid).unwrap() += 1;
                 }
             };
-            count_src(edge.source.node);
+            if let Some(primary) = primary_node_of_expr(&edge.source) {
+                count_src(primary);
+            }
             for &extra in &edge.extra_source_nodes {
                 count_src(extra);
             }
@@ -804,10 +778,7 @@ fn validate_cross_rate_kinds(ir: &IrGraph, diags: &mut Diagnostics) {
             continue;
         }
 
-        let src_kind = ir.nodes[edge.source.node]
-            .endpoints
-            .get(&edge.source.endpoint)
-            .map(|e| e.kind);
+        let src_kind = endpoint_kind_of(&edge.source, ir);
         let dst_kind = ir.nodes[edge.dest.node]
             .endpoints
             .get(&edge.dest.endpoint)
