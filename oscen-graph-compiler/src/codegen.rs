@@ -768,35 +768,63 @@ impl<'a> CodegenContext<'a> {
     }
 
     // ========== Static Graph Generation ==========
-    /// Extract the root node identifier from a connection expression
-    /// For example: osc.output -> "osc", filter.cutoff -> "filter"
-    fn extract_root_node(expr: &ConnectionExpr) -> Option<&syn::Ident> {
-        match expr {
-            ConnectionExpr::Ident(ident) => Some(ident),
-            ConnectionExpr::Field(base, _) => Self::extract_root_node(base),
-            ConnectionExpr::MethodCall(base, _, _) => Self::extract_root_node(base),
-            ConnectionExpr::ArrayIndex(base, _) => Self::extract_root_node(base),
-            ConnectionExpr::Binary(left, _, _) => Self::extract_root_node(left),
-            ConnectionExpr::Literal(_) | ConnectionExpr::Call(_, _) => None,
+    /// Extract the syn::Ident of the node referenced by a source expression.
+    ///
+    /// For a direct endpoint reference (`IrExprKind::Endpoint`) returns the
+    /// node ident from the IR node table. For compound expressions (binary,
+    /// method-call), descends into the left/receiver sub-expression to find
+    /// the leftmost endpoint — preserving the pre-IR behaviour of the old
+    /// `ConnectionExpr`-based helper. Returns `None` only for pure
+    /// `Call` or `Literal` roots that contain no endpoint reference.
+    fn extract_root_node<'e>(
+        &'e self,
+        expr: &'e crate::ir::expr::IrExpr,
+    ) -> Option<&'e syn::Ident> {
+        use crate::ir::expr::IrExprKind;
+        match &expr.kind {
+            IrExprKind::Endpoint(ep) => Some(&self.ir.nodes[ep.node].name),
+            IrExprKind::Binary { left, .. } => self.extract_root_node(left),
+            IrExprKind::MethodCall { receiver, .. } => self.extract_root_node(receiver),
+            IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
         }
     }
 
     /// True iff the expression is a pure endpoint reference (no arithmetic,
     /// no function or method calls).
-    fn is_simple_endpoint_source(expr: &ConnectionExpr) -> bool {
-        match expr {
-            ConnectionExpr::Ident(_) => true,
-            ConnectionExpr::Field(base, _) => Self::is_simple_endpoint_source(base),
-            ConnectionExpr::ArrayIndex(base, _) => Self::is_simple_endpoint_source(base),
-            _ => false,
-        }
+    fn is_simple_endpoint_source(expr: &crate::ir::expr::IrExpr) -> bool {
+        matches!(expr.kind, crate::ir::expr::IrExprKind::Endpoint(_))
     }
 
-    /// Extract the endpoint field name from a simple field-access expression.
-    fn extract_endpoint_field(expr: &ConnectionExpr) -> Option<&syn::Ident> {
-        match expr {
-            ConnectionExpr::Field(_, field) => Some(field),
-            _ => None,
+    /// Extract the endpoint field name from a source expression.
+    ///
+    /// For a direct endpoint reference returns the field ident, **unless** the
+    /// endpoint was lowered from a bare `ConnectionExpr::Ident` (i.e. a graph
+    /// input accessed without a dot-field selector). In that case the endpoint
+    /// name equals the node name and this returns `None` to preserve the
+    /// pre-IR behaviour: `extract_endpoint_field(Ident(x)) == None`.
+    ///
+    /// For compound expressions descends into the left/receiver (leftmost-first)
+    /// to find the first endpoint's field. Returns `None` for pure
+    /// `Call`/`Literal`.
+    fn extract_endpoint_field<'e>(
+        &'e self,
+        expr: &'e crate::ir::expr::IrExpr,
+    ) -> Option<&'e syn::Ident> {
+        use crate::ir::expr::IrExprKind;
+        match &expr.kind {
+            IrExprKind::Endpoint(ep) => {
+                // A bare `Ident` reference (graph input accessed without a field
+                // selector) has endpoint == node.name. Treat that as "no field".
+                let node_name = &self.ir.nodes[ep.node].name;
+                if *node_name == ep.endpoint {
+                    None
+                } else {
+                    Some(&ep.endpoint)
+                }
+            }
+            IrExprKind::Binary { left, .. } => self.extract_endpoint_field(left),
+            IrExprKind::MethodCall { receiver, .. } => self.extract_endpoint_field(receiver),
+            IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
         }
     }
 
@@ -938,112 +966,110 @@ impl<'a> CodegenContext<'a> {
                 continue;
             }
             let source = &edge.source_expr;
-            let dest = &edge.dest_expr;
-            if let Some(dest_node) = Self::extract_root_node(dest) {
-                if dest_node == node_name {
-                    // Compound sources (arithmetic, function/method calls) don't have
-                    // a single root endpoint. Evaluate them as f32 and route via
-                    // ConnectEndpoints<f32, _>.
-                    if !Self::is_simple_endpoint_source(source) {
-                        if let Some(dest_field) = Self::extract_endpoint_field(dest) {
-                            let src_tokens = self.connection_expr_to_tokens(source);
-                            if let Some(dest_size) = self.get_node_array_size(dest_node) {
-                                assignments.push(quote! {
-                                    {
-                                        let __src: f32 = #src_tokens;
-                                        for i in 0..#dest_size {
-                                            <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                                &__src,
-                                                &mut self.#dest_node[i].#dest_field,
-                                            );
-                                        }
-                                    }
-                                });
-                            } else {
-                                assignments.push(quote! {
-                                    <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                        &(#src_tokens),
-                                        &mut self.#dest_node.#dest_field,
-                                    );
-                                });
+            let ir_source = &edge.ir_source;
+            let ir_dest = &edge.ir_dest;
+            let dest_node = &self.ir.nodes[ir_dest.node].name;
+            let dest_field = &ir_dest.endpoint;
+
+            if dest_node != node_name {
+                continue;
+            }
+
+            // Compound sources (arithmetic, function/method calls) don't have
+            // a single root endpoint. Evaluate them as f32 and route via
+            // ConnectEndpoints<f32, _>.
+            if !Self::is_simple_endpoint_source(ir_source) {
+                let src_tokens = self.connection_expr_to_tokens(source);
+                if let Some(dest_size) = self.get_node_array_size(dest_node) {
+                    assignments.push(quote! {
+                        {
+                            let __src: f32 = #src_tokens;
+                            for i in 0..#dest_size {
+                                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                    &__src,
+                                    &mut self.#dest_node[i].#dest_field,
+                                );
                             }
+                        }
+                    });
+                } else {
+                    assignments.push(quote! {
+                        <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                            &(#src_tokens),
+                            &mut self.#dest_node.#dest_field,
+                        );
+                    });
+                }
+                continue;
+            }
+
+            // This connection feeds into the current node
+            if let Some(source_ident) = self.extract_root_node(ir_source) {
+                let source_field = self.extract_endpoint_field(ir_source);
+
+                // Check if source is a graph input (not a node)
+                let source_is_graph_input = self.is_input(source_ident);
+
+                // Skip voice array marker connections
+                if let Some(field) = source_field {
+                    if *field == "voices" {
+                        if let Some(dest_array_size) = self.get_node_array_size(dest_node) {
+                            assignments.push(quote! {
+                                for i in 0..#dest_array_size {
+                                    <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                        &self.#source_ident.voices[i],
+                                        &mut self.#dest_node[i].#dest_field
+                                    );
+                                }
+                            });
                         }
                         continue;
                     }
-
-                    // This connection feeds into the current node
-                    if let Some(source_ident) = Self::extract_root_node(source) {
-                        let source_field = Self::extract_endpoint_field(source);
-
-                        if let Some(dest_field) = Self::extract_endpoint_field(dest) {
-                            // Check if source is a graph input (not a node)
-                            let source_is_graph_input = self.is_input(source_ident);
-
-                            // Skip voice array marker connections
-                            if let Some(field) = source_field {
-                                if *field == "voices" {
-                                    if let Some(dest_array_size) =
-                                        self.get_node_array_size(dest_node)
-                                    {
-                                        assignments.push(quote! {
-                                            for i in 0..#dest_array_size {
-                                                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                                    &self.#source_ident.voices[i],
-                                                    &mut self.#dest_node[i].#dest_field
-                                                );
-                                            }
-                                        });
-                                    }
-                                    continue;
-                                }
-                            }
-
-                            // Construct source expression part
-                            // For ramped graph inputs, we need to access .current to get the f32 value
-                            let source_access = if source_is_graph_input
-                                && source_field.is_none()
-                                && self.is_ramped_input(source_ident).is_some()
-                            {
-                                quote! { .current }
-                            } else if let Some(field) = source_field {
-                                quote! { .#field }
-                            } else {
-                                quote! {}
-                            };
-
-                            let shape = edge.fanout;
-                            let stmt = match shape {
-                                FanoutShape::Scalar => self.emit_scalar_connect(
-                                    source_ident,
-                                    &source_access,
-                                    dest_node,
-                                    dest_field,
-                                ),
-                                FanoutShape::Parallel { n } => self.emit_parallel_connect(
-                                    source_ident,
-                                    &source_access,
-                                    dest_node,
-                                    dest_field,
-                                    n,
-                                ),
-                                FanoutShape::Broadcast { n } => self.emit_broadcast_connect(
-                                    source_ident,
-                                    &source_access,
-                                    dest_node,
-                                    dest_field,
-                                    n,
-                                ),
-                                FanoutShape::FanIn { n: _ } => self.emit_fanin_connect(
-                                    source_ident,
-                                    source_field,
-                                    dest_node,
-                                    dest_field,
-                                ),
-                            };
-                            assignments.push(stmt);
-                        }
-                    }
                 }
+
+                // Construct source expression part
+                // For ramped graph inputs, we need to access .current to get the f32 value
+                let source_access = if source_is_graph_input
+                    && source_field.is_none()
+                    && self.is_ramped_input(source_ident).is_some()
+                {
+                    quote! { .current }
+                } else if let Some(field) = source_field {
+                    quote! { .#field }
+                } else {
+                    quote! {}
+                };
+
+                let shape = edge.fanout;
+                let stmt = match shape {
+                    FanoutShape::Scalar => self.emit_scalar_connect(
+                        source_ident,
+                        &source_access,
+                        dest_node,
+                        dest_field,
+                    ),
+                    FanoutShape::Parallel { n } => self.emit_parallel_connect(
+                        source_ident,
+                        &source_access,
+                        dest_node,
+                        dest_field,
+                        n,
+                    ),
+                    FanoutShape::Broadcast { n } => self.emit_broadcast_connect(
+                        source_ident,
+                        &source_access,
+                        dest_node,
+                        dest_field,
+                        n,
+                    ),
+                    FanoutShape::FanIn { n: _ } => self.emit_fanin_connect(
+                        source_ident,
+                        source_field,
+                        dest_node,
+                        dest_field,
+                    ),
+                };
+                assignments.push(stmt);
             }
         }
 
@@ -1127,59 +1153,65 @@ impl<'a> CodegenContext<'a> {
                 continue;
             }
             let source = &edge.source_expr;
-            let dest = &edge.dest_expr;
-            if let Some(dest_ident) = Self::extract_root_node(dest) {
-                if let Some(output_kind) = self.output_kind(dest_ident) {
-                    let source_node = Self::extract_root_node(source);
-                    let source_field = Self::extract_endpoint_field(source);
-                    let is_simple_source = source_node.is_some() && source_field.is_some();
+            let ir_source = &edge.ir_source;
+            let ir_dest = &edge.ir_dest;
+            let dest_ident = &self.ir.nodes[ir_dest.node].name;
+            if let Some(output_kind) = self.output_kind(dest_ident) {
+                let source_node = self.extract_root_node(ir_source);
+                let source_field = self.extract_endpoint_field(ir_source);
+                // Treat as "simple" only for a plain `node.field` endpoint
+                // reference. Compound expressions (Binary, MethodCall) and bare
+                // ident refs (graph inputs accessed without a dot-selector) are
+                // not simple: the old code returned `None` for
+                // `extract_endpoint_field(Ident(_))` so the `is_some() &&
+                // is_some()` check was false for them too.
+                let is_simple_source =
+                    Self::is_simple_endpoint_source(ir_source) && source_field.is_some();
 
-                    match output_kind {
-                        EndpointKind::Stream | EndpointKind::Value => {
-                            if is_simple_source {
-                                let source_node = source_node.unwrap();
-                                let source_field = source_field.unwrap();
-                                if let Some(_src_array_size) = self.get_node_array_size(source_node)
-                                {
-                                    out.push(quote! {
-                                        self.#dest_ident = self.#source_node.iter().map(|n| n.#source_field).sum();
-                                    });
-                                } else {
-                                    out.push(quote! {
-                                        <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                            &self.#source_node.#source_field,
-                                            &mut self.#dest_ident
-                                        );
-                                    });
-                                }
-                            } else {
-                                let source_tokens = self.connection_expr_to_tokens(source);
+                match output_kind {
+                    EndpointKind::Stream | EndpointKind::Value => {
+                        if is_simple_source {
+                            let source_node = source_node.unwrap();
+                            let source_field = source_field.unwrap();
+                            if let Some(_src_array_size) = self.get_node_array_size(source_node) {
                                 out.push(quote! {
-                                    self.#dest_ident = #source_tokens;
+                                    self.#dest_ident = self.#source_node.iter().map(|n| n.#source_field).sum();
+                                });
+                            } else {
+                                out.push(quote! {
+                                    <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                        &self.#source_node.#source_field,
+                                        &mut self.#dest_ident
+                                    );
                                 });
                             }
+                        } else {
+                            let source_tokens = self.connection_expr_to_tokens(source);
+                            out.push(quote! {
+                                self.#dest_ident = #source_tokens;
+                            });
                         }
-                        EndpointKind::Event => {
-                            if is_simple_source {
-                                let source_node = source_node.unwrap();
-                                let source_field = source_field.unwrap();
-                                if let Some(array_size) = self.get_node_array_size(source_node) {
-                                    out.push(quote! {
-                                        self.#dest_ident.clear();
-                                        for i in 0..#array_size {
-                                            for event in self.#source_node[i].#source_field.iter() {
-                                                let _ = self.#dest_ident.try_push(event.clone());
-                                            }
+                    }
+                    EndpointKind::Event => {
+                        if is_simple_source {
+                            let source_node = source_node.unwrap();
+                            let source_field = source_field.unwrap();
+                            if let Some(array_size) = self.get_node_array_size(source_node) {
+                                out.push(quote! {
+                                    self.#dest_ident.clear();
+                                    for i in 0..#array_size {
+                                        for event in self.#source_node[i].#source_field.iter() {
+                                            let _ = self.#dest_ident.try_push(event.clone());
                                         }
-                                    });
-                                } else {
-                                    out.push(quote! {
-                                        <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                            &self.#source_node.#source_field,
-                                            &mut self.#dest_ident
-                                        );
-                                    });
-                                }
+                                    }
+                                });
+                            } else {
+                                out.push(quote! {
+                                    <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                        &self.#source_node.#source_field,
+                                        &mut self.#dest_ident
+                                    );
+                                });
                             }
                         }
                     }
@@ -1499,9 +1531,9 @@ impl<'a> CodegenContext<'a> {
                 };
 
                 if let FanoutShape::Parallel { n } = edge.fanout {
-                    let source_ident = Self::extract_root_node(&edge.source_expr)
+                    let source_ident = self.extract_root_node(&edge.ir_source)
                         .expect("Parallel edge has array root");
-                    let source_field = Self::extract_endpoint_field(&edge.source_expr)
+                    let source_field = self.extract_endpoint_field(&edge.ir_source)
                         .expect("Parallel edge has field access");
                     up_decls.push(quote! {
                         let mut #buf: [[f32; #factor_us]; #n] = [[0.0; #factor_us]; #n];
@@ -1519,7 +1551,8 @@ impl<'a> CodegenContext<'a> {
                         }
                     });
                 } else {
-                    let src_value = self.connection_source_value_expr(&edge.source_expr);
+                    let src_value =
+                        self.connection_source_value_expr(&edge.source_expr, &edge.ir_source);
                     up_decls.push(quote! {
                         let mut #buf: [f32; #factor_us] = [0.0; #factor_us];
                         {
@@ -1563,6 +1596,8 @@ impl<'a> CodegenContext<'a> {
                 let drain = self.generate_event_drain(
                     &edge.source_expr,
                     &edge.dest_expr,
+                    &edge.ir_source,
+                    &edge.ir_dest,
                     EventRescale::Multiply(n),
                 );
                 event_outer_to_inner_drains.push(drain);
@@ -1579,6 +1614,8 @@ impl<'a> CodegenContext<'a> {
                 let drain = self.generate_event_drain(
                     &edge.source_expr,
                     &edge.dest_expr,
+                    &edge.ir_source,
+                    &edge.ir_dest,
                     EventRescale::Divide(n),
                 );
                 event_inner_to_outer_drains.push(drain);
@@ -1597,10 +1634,8 @@ impl<'a> CodegenContext<'a> {
                 let buf = up_buf_name(idx);
 
                 if let FanoutShape::Parallel { n } = edge.fanout {
-                    let dest_node = Self::extract_root_node(&edge.dest_expr)
-                        .expect("Parallel edge has array root");
-                    let dest_field = Self::extract_endpoint_field(&edge.dest_expr)
-                        .expect("Parallel edge has field access");
+                    let dest_node = &self.ir.nodes[edge.ir_dest.node].name;
+                    let dest_field = &edge.ir_dest.endpoint;
                     inner_writes.push(quote! {
                         for __k in 0..#n {
                             let __dst_val: f32 = #buf[__k][__inner];
@@ -1611,8 +1646,11 @@ impl<'a> CodegenContext<'a> {
                         }
                     });
                 } else {
-                    let dest_assign = self
-                        .connection_dest_field_assign(&edge.dest_expr, &quote! { #buf[__inner] });
+                    let dest_assign = self.connection_dest_field_assign(
+                        &edge.dest_expr,
+                        &edge.ir_dest,
+                        &quote! { #buf[__inner] },
+                    );
                     inner_writes.push(dest_assign);
                 }
             }
@@ -1632,9 +1670,9 @@ impl<'a> CodegenContext<'a> {
                 let buf = down_buf_name(idx);
 
                 if let FanoutShape::Parallel { n } = edge.fanout {
-                    let source_ident = Self::extract_root_node(&edge.source_expr)
+                    let source_ident = self.extract_root_node(&edge.ir_source)
                         .expect("Parallel edge has array root");
-                    let source_field = Self::extract_endpoint_field(&edge.source_expr)
+                    let source_field = self.extract_endpoint_field(&edge.ir_source)
                         .expect("Parallel edge has field access");
                     down_captures.push(quote! {
                         for __k in 0..#n {
@@ -1647,7 +1685,8 @@ impl<'a> CodegenContext<'a> {
                         }
                     });
                 } else {
-                    let src_value = self.connection_source_value_expr(&edge.source_expr);
+                    let src_value =
+                        self.connection_source_value_expr(&edge.source_expr, &edge.ir_source);
                     down_captures.push(quote! {
                         #buf[__inner] = #src_value;
                     });
@@ -1669,10 +1708,8 @@ impl<'a> CodegenContext<'a> {
                 };
 
                 if let FanoutShape::Parallel { n } = edge.fanout {
-                    let dest_node = Self::extract_root_node(&edge.dest_expr)
-                        .expect("Parallel edge has array root");
-                    let dest_field = Self::extract_endpoint_field(&edge.dest_expr)
-                        .expect("Parallel edge has field access");
+                    let dest_node = &self.ir.nodes[edge.ir_dest.node].name;
+                    let dest_field = &edge.ir_dest.endpoint;
                     down_finalizes.push(quote! {
                         for __k in 0..#n {
                             let __dst_val: f32 = ::oscen::resample::StreamDownsampler::downsample(
@@ -1688,6 +1725,7 @@ impl<'a> CodegenContext<'a> {
                 } else {
                     let dest_assign = self.connection_dest_field_assign(
                         &edge.dest_expr,
+                        &edge.ir_dest,
                         &quote! {
                             ::oscen::resample::StreamDownsampler::downsample(
                                 &mut self.#field #access,
@@ -1753,6 +1791,8 @@ impl<'a> CodegenContext<'a> {
         &self,
         source: &ConnectionExpr,
         dest: &ConnectionExpr,
+        ir_source: &crate::ir::expr::IrExpr,
+        ir_dest: &crate::ir::expr::IrEndpoint,
         rescale: EventRescale,
     ) -> TokenStream {
         let transform = match rescale {
@@ -1765,14 +1805,11 @@ impl<'a> CodegenContext<'a> {
             EventRescale::None => quote! {},
         };
 
-        let src_size = match Self::extract_root_node(source) {
+        let src_size = match self.extract_root_node(ir_source) {
             Some(ident) => self.get_node_array_size(ident),
             None => None,
         };
-        let dst_size = match Self::extract_root_node(dest) {
-            Some(ident) => self.get_node_array_size(ident),
-            None => None,
-        };
+        let dst_size = self.get_node_array_size(&self.ir.nodes[ir_dest.node].name);
         let src_field_access = matches!(source, ConnectionExpr::Field(base, _)
             if matches!(**base, ConnectionExpr::Ident(_)));
         let dst_field_access = matches!(dest, ConnectionExpr::Field(base, _)
@@ -1780,8 +1817,8 @@ impl<'a> CodegenContext<'a> {
 
         // Broadcast: scalar source → array dest field.
         if let (None, Some(n), true) = (src_size, dst_size, dst_field_access) {
-            let dest_node = Self::extract_root_node(dest).expect("checked");
-            let dest_field = Self::extract_endpoint_field(dest).expect("Field has field");
+            let dest_node = &self.ir.nodes[ir_dest.node].name;
+            let dest_field = &ir_dest.endpoint;
             let source_tokens = self.connection_expr_to_tokens(source);
             return quote! {
                 {
@@ -1801,8 +1838,8 @@ impl<'a> CodegenContext<'a> {
 
         // FanIn: array source field → scalar dest.
         if let (Some(n), None, true) = (src_size, dst_size, src_field_access) {
-            let source_ident = Self::extract_root_node(source).expect("checked");
-            let source_field = Self::extract_endpoint_field(source).expect("Field has field");
+            let source_ident = self.extract_root_node(ir_source).expect("checked");
+            let source_field = self.extract_endpoint_field(ir_source).expect("Field has field");
             let dest_tokens = self.connection_expr_to_tokens(dest);
             return quote! {
                 {
@@ -1823,10 +1860,10 @@ impl<'a> CodegenContext<'a> {
             (src_size, dst_size, src_field_access, dst_field_access)
         {
             let n = ns.min(nd);
-            let source_ident = Self::extract_root_node(source).expect("checked");
-            let source_field = Self::extract_endpoint_field(source).expect("Field has field");
-            let dest_node = Self::extract_root_node(dest).expect("checked");
-            let dest_field = Self::extract_endpoint_field(dest).expect("Field has field");
+            let source_ident = self.extract_root_node(ir_source).expect("checked");
+            let source_field = self.extract_endpoint_field(ir_source).expect("Field has field");
+            let dest_node = &self.ir.nodes[ir_dest.node].name;
+            let dest_field = &ir_dest.endpoint;
             return quote! {
                 {
                     for __k in 0..#n {
@@ -1930,15 +1967,19 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Build an `f32`-valued expression for a connection's source.
-    fn connection_source_value_expr(&self, source: &ConnectionExpr) -> TokenStream {
+    fn connection_source_value_expr(
+        &self,
+        source: &ConnectionExpr,
+        ir_source: &crate::ir::expr::IrExpr,
+    ) -> TokenStream {
         // Compound or non-trivial sources.
-        if !Self::is_simple_endpoint_source(source) {
+        if !Self::is_simple_endpoint_source(ir_source) {
             let toks = self.connection_expr_to_tokens(source);
             return quote! { (#toks) as f32 };
         }
 
         // FanIn sum: source is `<array_node>.<field>` with no explicit index.
-        let src_array_size = match Self::extract_root_node(source) {
+        let src_array_size = match self.extract_root_node(ir_source) {
             Some(ident) => self.get_node_array_size(ident),
             None => None,
         };
@@ -1946,9 +1987,9 @@ impl<'a> CodegenContext<'a> {
             if matches!(**base, ConnectionExpr::Ident(_)));
 
         if let (Some(n), true) = (src_array_size, source_is_field_access) {
-            let source_ident = Self::extract_root_node(source).expect("checked above");
+            let source_ident = self.extract_root_node(ir_source).expect("checked above");
             let source_field =
-                Self::extract_endpoint_field(source).expect("Field variant has a field");
+                self.extract_endpoint_field(ir_source).expect("Field variant has a field");
             return quote! {
                 {
                     let mut __sum: f32 = 0.0;
@@ -1990,26 +2031,23 @@ impl<'a> CodegenContext<'a> {
     fn connection_dest_field_assign(
         &self,
         dest: &ConnectionExpr,
+        ir_dest: &crate::ir::expr::IrEndpoint,
         value: &TokenStream,
     ) -> TokenStream {
+        let dest_node = &self.ir.nodes[ir_dest.node].name;
+        let dest_field = &ir_dest.endpoint;
+
         // Graph output (Ident only, no field): direct assignment.
-        if let Some(dest_ident) = Self::extract_root_node(dest) {
-            if self.is_output(dest_ident) && matches!(dest, ConnectionExpr::Ident(_)) {
-                return quote! { self.#dest_ident = #value; };
-            }
+        if self.is_output(dest_node) && matches!(dest, ConnectionExpr::Ident(_)) {
+            return quote! { self.#dest_node = #value; };
         }
 
-        let dest_array_size = match Self::extract_root_node(dest) {
-            Some(ident) => self.get_node_array_size(ident),
-            None => None,
-        };
+        let dest_array_size = self.get_node_array_size(dest_node);
         let dest_is_field_access = matches!(dest, ConnectionExpr::Field(base, _)
             if matches!(**base, ConnectionExpr::Ident(_)));
 
         if let (Some(n), true) = (dest_array_size, dest_is_field_access) {
             // Broadcast write: dest is `<array_node>.<field>`.
-            let dest_node = Self::extract_root_node(dest).expect("checked above");
-            let dest_field = Self::extract_endpoint_field(dest).expect("Field variant has a field");
             return quote! {
                 {
                     let __dst_val: f32 = #value;
