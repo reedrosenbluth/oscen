@@ -5,11 +5,13 @@
 //! mutate the graph through the disciplined API on `IrGraph` (see
 //! `graph::IrGraph::remove_node` / `remove_edge`).
 
+pub mod expr;
 pub mod graph;
 pub mod lower;
 pub mod passes;
 pub mod validate;
 
+pub use expr::{IrEndpoint, IrExpr, IrExprKind};
 pub use graph::{
     classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EndpointRef, EventRescale, FanoutShape,
     IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
