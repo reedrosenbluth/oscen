@@ -9,6 +9,7 @@
 use crate::ast::BinaryOp;
 use crate::ir::graph::NodeId;
 use proc_macro2::Span;
+use quote::ToTokens;
 use syn::Ident;
 
 pub mod visit;
@@ -96,7 +97,10 @@ impl std::fmt::Debug for IrExprKind {
                 .field("function", function)
                 .field("args", args)
                 .finish(),
-            IrExprKind::Literal(_) => f.debug_tuple("Literal").field(&"<syn::Expr>").finish(),
+            IrExprKind::Literal(expr) => f
+                .debug_tuple("Literal")
+                .field(&expr.to_token_stream().to_string())
+                .finish(),
         }
     }
 }
