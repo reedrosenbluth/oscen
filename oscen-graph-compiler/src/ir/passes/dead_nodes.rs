@@ -5,19 +5,8 @@
 //! parity for `RemoveUnusedNodes`.
 
 use crate::ir::graph::{IrGraph, IrNodeKind, NodeId};
+use crate::ir::expr::primary_node;
 use std::collections::{HashSet, VecDeque};
-
-/// Extract the primary (leftmost) `NodeId` from an `IrExpr`.
-/// Returns `None` for pure `Call`/`Literal` roots with no endpoint reference.
-fn primary_source_node_in_expr(expr: &crate::ir::expr::IrExpr) -> Option<NodeId> {
-    use crate::ir::expr::IrExprKind;
-    match &expr.kind {
-        IrExprKind::Endpoint(ep) => Some(ep.node),
-        IrExprKind::Binary { left, .. } => primary_source_node_in_expr(left),
-        IrExprKind::MethodCall { receiver, .. } => primary_source_node_in_expr(receiver),
-        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
-    }
-}
 
 pub fn run(ir: &mut IrGraph) {
     // Conservative guard: if a graph has no declared outputs, leave every
@@ -44,7 +33,7 @@ pub fn run(ir: &mut IrGraph) {
         for eid in incoming {
             let edge = &ir.edges[eid];
             // Push the primary source node (leftmost endpoint in the IrExpr).
-            if let Some(primary) = primary_source_node_in_expr(&edge.source) {
+            if let Some(primary) = primary_node(&edge.source) {
                 queue.push_back(primary);
             }
             // Push any extra source nodes (for compound exprs like a.x * b.y).

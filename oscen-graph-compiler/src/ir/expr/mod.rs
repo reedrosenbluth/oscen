@@ -104,3 +104,15 @@ impl std::fmt::Debug for IrExprKind {
         }
     }
 }
+
+/// Walk an `IrExpr` to find the leftmost endpoint's `NodeId`. Descends through
+/// `Binary` (left) and `MethodCall` (receiver). Returns `None` for `Call` and
+/// `Literal` (no leftmost node reference).
+pub(crate) fn primary_node(expr: &IrExpr) -> Option<NodeId> {
+    match &expr.kind {
+        IrExprKind::Endpoint(ep) => Some(ep.node),
+        IrExprKind::Binary { left, .. } => primary_node(left),
+        IrExprKind::MethodCall { receiver, .. } => primary_node(receiver),
+        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
+    }
+}

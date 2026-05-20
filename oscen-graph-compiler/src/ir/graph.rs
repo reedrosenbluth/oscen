@@ -162,17 +162,6 @@ pub struct IrEdge {
     pub extra_source_nodes: Vec<NodeId>,
 }
 
-/// Extract the primary source `NodeId` from an `IrExpr` by finding the
-/// leftmost `Endpoint` leaf. Returns `None` for `Call`/`Literal` roots.
-fn primary_source_node(expr: &crate::ir::expr::IrExpr) -> Option<NodeId> {
-    use crate::ir::expr::IrExprKind;
-    match &expr.kind {
-        IrExprKind::Endpoint(ep) => Some(ep.node),
-        IrExprKind::Binary { left, .. } => primary_source_node(left),
-        IrExprKind::MethodCall { receiver, .. } => primary_source_node(receiver),
-        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
-    }
-}
 
 
 impl IrGraph {
@@ -198,7 +187,7 @@ impl IrGraph {
             return;
         };
         // Clean up the primary source node's outgoing list.
-        if let Some(primary) = primary_source_node(&edge.source) {
+        if let Some(primary) = crate::ir::expr::primary_node(&edge.source) {
             if let Some(src_node) = self.nodes.get_mut(primary) {
                 src_node.outgoing.retain(|&e| e != id);
             }

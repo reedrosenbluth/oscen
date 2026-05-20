@@ -5,18 +5,8 @@
 //! `cfg(debug_assertions)`. Zero release-build cost.
 
 use crate::ir::graph::{EdgeId, IrGraph, NodeId};
+use crate::ir::expr::primary_node;
 use std::collections::HashSet;
-
-/// Extract the primary (leftmost) `NodeId` from an `IrExpr`.
-fn primary_source_node_of_expr(expr: &crate::ir::expr::IrExpr) -> Option<NodeId> {
-    use crate::ir::expr::IrExprKind;
-    match &expr.kind {
-        IrExprKind::Endpoint(ep) => Some(ep.node),
-        IrExprKind::Binary { left, .. } => primary_source_node_of_expr(left),
-        IrExprKind::MethodCall { receiver, .. } => primary_source_node_of_expr(receiver),
-        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
-    }
-}
 
 /// Collect all `NodeId`s referenced by an `IrExpr` source expression.
 fn collect_source_node_ids_for_validate(expr: &crate::ir::expr::IrExpr) -> Vec<NodeId> {
@@ -63,7 +53,7 @@ pub fn validate(ir: &IrGraph) {
                 "node {nid:?}.outgoing contains stale edge {eid:?}"
             );
             let edge = &ir.edges[eid];
-            let is_primary = primary_source_node_of_expr(&edge.source) == Some(nid);
+            let is_primary = primary_node(&edge.source) == Some(nid);
             let is_extra = edge.extra_source_nodes.contains(&nid);
             assert!(
                 is_primary || is_extra,

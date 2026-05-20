@@ -8,7 +8,7 @@
 
 use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, GraphDef, GraphItem, NodeRate};
 use crate::diagnostics::Diagnostics;
-use crate::ir::expr::{IrEndpoint, IrExpr, IrExprKind};
+use crate::ir::expr::{IrEndpoint, IrExpr, IrExprKind, primary_node};
 use crate::ir::graph::{
     classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EventRescale, FanoutShape,
     IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
@@ -373,17 +373,6 @@ fn collect_referenced_node_ids(expr: &crate::ir::expr::IrExpr) -> Vec<NodeId> {
     v.ids
 }
 
-/// Extract the primary (leftmost) `NodeId` from an `IrExpr`.
-/// Returns `None` for `Call`/`Literal` roots with no endpoint reference.
-fn primary_node_of_expr(expr: &crate::ir::expr::IrExpr) -> Option<NodeId> {
-    use crate::ir::expr::IrExprKind;
-    match &expr.kind {
-        IrExprKind::Endpoint(ep) => Some(ep.node),
-        IrExprKind::Binary { left, .. } => primary_node_of_expr(left),
-        IrExprKind::MethodCall { receiver, .. } => primary_node_of_expr(receiver),
-        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Step 4: Rate analysis
@@ -406,7 +395,7 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
     for eid in edge_ids {
         let (src_node_id, dst_node_id, policy, span) = {
             let edge = &ir.edges[eid];
-            let src_node_id = match primary_node_of_expr(&edge.source) {
+            let src_node_id = match primary_node(&edge.source) {
                 Some(id) => id,
                 None => continue, // Pure-literal source; no rate to check.
             };
@@ -488,7 +477,7 @@ fn refine_kernels(ir: &mut IrGraph) {
     for eid in edge_ids {
         let (src_node_id, dst_node_id, src_kind, dst_kind) = {
             let edge = &ir.edges[eid];
-            let src_node_id = match primary_node_of_expr(&edge.source) {
+            let src_node_id = match primary_node(&edge.source) {
                 Some(id) => id,
                 None => continue,
             };
@@ -691,7 +680,7 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
                     *in_degree.get_mut(&nid).unwrap() += 1;
                 }
             };
-            if let Some(primary) = primary_node_of_expr(&edge.source) {
+            if let Some(primary) = primary_node(&edge.source) {
                 count_src(primary);
             }
             for &extra in &edge.extra_source_nodes {
