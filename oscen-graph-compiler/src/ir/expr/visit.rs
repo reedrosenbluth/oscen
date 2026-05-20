@@ -70,14 +70,14 @@ mod tests {
     use quote::format_ident;
     use slotmap::KeyData;
 
-    fn dummy_node_id(n: u64) -> NodeId {
-        NodeId::from(KeyData::from_ffi(n))
+    fn dummy_node_id() -> NodeId {
+        NodeId::from(KeyData::from_ffi(1))
     }
 
     fn endpoint(name: &str) -> IrExpr {
         IrExpr {
             kind: IrExprKind::Endpoint(IrEndpoint {
-                node: dummy_node_id(1),
+                node: dummy_node_id(),
                 endpoint: format_ident!("{}", name),
                 index: None,
                 span: Span::call_site(),
@@ -131,5 +131,20 @@ mod tests {
         let mut counter = Counter(0);
         counter.visit_expr(&expr);
         assert_eq!(counter.0, 0);
+    }
+
+    #[test]
+    fn walk_expr_visits_method_call_receiver_but_not_args() {
+        let expr = IrExpr {
+            kind: IrExprKind::MethodCall {
+                receiver: Box::new(endpoint("x")),
+                method: format_ident!("tanh"),
+                args: vec![], // MethodCall args are opaque syn::Expr; visitor doesn't recurse into them
+            },
+            span: Span::call_site(),
+        };
+        let mut counter = Counter(0);
+        counter.visit_expr(&expr);
+        assert_eq!(counter.0, 1, "receiver should be visited");
     }
 }
