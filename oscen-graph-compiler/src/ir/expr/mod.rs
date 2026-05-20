@@ -16,12 +16,17 @@ pub mod visit;
 
 /// Resolved endpoint reference. The optional `index` is `Some(k)` for array
 /// indexed references like `voices[k].field`, `None` for scalar nodes.
+///
+/// `bare` is true when this endpoint was lowered from a `ConnectionExpr::Ident`
+/// (a graph input/output referenced without a field selector). Emission uses
+/// `self.<node>` for these instead of `self.<node>.<endpoint>`.
 #[derive(Clone, Debug)]
 pub struct IrEndpoint {
     pub node: NodeId,
     pub endpoint: Ident,
     pub index: Option<usize>,
     pub span: Span,
+    pub bare: bool,
 }
 
 /// Span-bearing wrapper. Span lives uniformly here so the kind enum stays

@@ -233,14 +233,12 @@ impl<'a> CodegenContext<'a> {
         }
 
         // Ramped graph value input: read .current directly.
-        // In IR, a bare-ident reference has endpoint == node_name.
         if let crate::ir::expr::IrExprKind::Endpoint(ep) = &source.kind {
-            let node_name = &self.ir.nodes[ep.node].name;
-            if *node_name == ep.endpoint
-                && self.is_input(node_name)
-                && self.is_ramped_input(node_name).is_some()
-            {
-                return quote! { self.#node_name.current };
+            if ep.bare {
+                let node_name = &self.ir.nodes[ep.node].name;
+                if self.is_input(node_name) && self.is_ramped_input(node_name).is_some() {
+                    return quote! { self.#node_name.current };
+                }
             }
         }
 

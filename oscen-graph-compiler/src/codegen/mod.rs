@@ -311,17 +311,11 @@ impl<'a> CodegenContext<'a> {
     /// Extract the endpoint field name from a source expression.
     ///
     /// For a direct endpoint reference returns the field ident, **unless** the
-    /// endpoint was lowered from a bare `ConnectionExpr::Ident` (i.e. a graph
-    /// input accessed without a dot-field selector). In that case the endpoint
-    /// name equals the node name and this returns `None` to preserve the
-    /// pre-IR behaviour: `extract_endpoint_field(Ident(x)) == None`.
-    ///
+    /// endpoint was lowered from a bare `ConnectionExpr::Ident` (graph input
+    /// accessed without a dot-field selector), in which case returns `None`.
     /// For compound expressions descends into the left/receiver (leftmost-first)
     /// to find the first endpoint's field. Returns `None` for pure
     /// `Call`/`Literal`.
-    ///
-    /// This heuristic will be removed in T9 when `IrEdge` drops the AST fields
-    /// and bare-input edges gain a dedicated IR representation.
     fn extract_endpoint_field<'e>(
         &'e self,
         expr: &'e crate::ir::expr::IrExpr,
@@ -329,10 +323,7 @@ impl<'a> CodegenContext<'a> {
         use crate::ir::expr::IrExprKind;
         match &expr.kind {
             IrExprKind::Endpoint(ep) => {
-                // A bare `Ident` reference (graph input accessed without a field
-                // selector) has endpoint == node.name. Treat that as "no field".
-                let node_name = &self.ir.nodes[ep.node].name;
-                if *node_name == ep.endpoint {
+                if ep.bare {
                     None
                 } else {
                     Some(&ep.endpoint)
@@ -376,19 +367,15 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Emit tokens for an `IrEndpoint` reference (`self.osc.output` or
-    /// `self.voices[3].output`). For graph-level input/output nodes whose
-    /// endpoint name matches the node name (bare-ident case), emits just
-    /// `self.<name>` to match the legacy `ConnectionExpr::Ident` emission.
+    /// `self.voices[3].output`). For bare-ident references (graph input/output
+    /// nodes lowered from `ConnectionExpr::Ident`), emits just `self.<name>`.
     fn emit_endpoint(&self, ep: &crate::ir::expr::IrEndpoint) -> TokenStream {
         let node_name = &self.ir.nodes[ep.node].name;
         let endpoint_name = &ep.endpoint;
         match ep.index {
             Some(idx) => quote! { self.#node_name[#idx].#endpoint_name },
             None => {
-                // For bare-ident references (graph input/output nodes whose
-                // endpoint name equals the node name), emit just self.<name>
-                // — matches the legacy ConnectionExpr::Ident emission.
-                if *node_name == *endpoint_name {
+                if ep.bare {
                     quote! { self.#node_name }
                 } else {
                     quote! { self.#node_name.#endpoint_name }

@@ -855,6 +855,7 @@ pub fn lower_expr(
                     endpoint: ident.clone(),
                     index: None,
                     span: ident.span(),
+                    bare: true,
                 }),
                 span: ident.span(),
             })
@@ -867,6 +868,7 @@ pub fn lower_expr(
                     endpoint: field.clone(),
                     index,
                     span: field.span(),
+                    bare: false,
                 }),
                 span: anchor_span,
             })
@@ -878,6 +880,7 @@ pub fn lower_expr(
                 endpoint,
                 index: None,
                 span,
+                bare,
             }) = inner_expr.kind
             {
                 Some(IrExpr {
@@ -886,6 +889,7 @@ pub fn lower_expr(
                         endpoint,
                         index: Some(*idx),
                         span,
+                        bare,
                     }),
                     span: inner_expr.span,
                 })
@@ -983,6 +987,7 @@ pub fn lower_endpoint(
                 endpoint: ident.clone(),
                 index: None,
                 span: ident.span(),
+                bare: true,
             })
         }
         ConnectionExpr::Field(obj, field) => {
@@ -992,6 +997,7 @@ pub fn lower_endpoint(
                 endpoint: field.clone(),
                 index,
                 span: field.span(),
+                bare: false,
             })
         }
         _ => None,

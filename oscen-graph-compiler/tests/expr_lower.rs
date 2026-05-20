@@ -43,6 +43,7 @@ fn lower_ident_resolves_to_endpoint() {
             assert_eq!(ep.node, id);
             assert_eq!(ep.endpoint.to_string(), "cutoff");
             assert_eq!(ep.index, None);
+            assert!(ep.bare, "bare ident lowering must set bare=true");
         }
         other => panic!("expected Endpoint, got {:?}", other),
     }
@@ -61,6 +62,7 @@ fn lower_field_access_resolves_to_endpoint() {
             assert_eq!(ep.node, id);
             assert_eq!(ep.endpoint.to_string(), "output");
             assert_eq!(ep.index, None);
+            assert!(!ep.bare, "field-access lowering must set bare=false");
         }
         other => panic!("expected Endpoint, got {:?}", other),
     }

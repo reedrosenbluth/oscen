@@ -81,6 +81,7 @@ mod tests {
                 endpoint: format_ident!("{}", name),
                 index: None,
                 span: Span::call_site(),
+                bare: false,
             }),
             span: Span::call_site(),
         }
