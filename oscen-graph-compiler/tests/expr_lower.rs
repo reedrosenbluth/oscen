@@ -4,7 +4,7 @@
 //! Expr::span()); compound nodes inherit the span of their leftmost leaf.
 
 use oscen_graph_compiler::ast::{BinaryOp, ConnectionExpr};
-use oscen_graph_compiler::ir::expr::{IrExpr, IrExprKind};
+use oscen_graph_compiler::ir::expr::IrExprKind;
 use oscen_graph_compiler::ir::graph::{IrGraph, IrNode, IrNodeKind, NodeId};
 use oscen_graph_compiler::ir::lower;
 use proc_macro2::Span;

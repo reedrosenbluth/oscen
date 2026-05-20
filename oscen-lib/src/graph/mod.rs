@@ -7,7 +7,7 @@ pub mod types;
 pub use audio_input::AudioInput;
 pub use static_context::ConnectEndpoints;
 pub use topology::TopologyError;
-pub use traits::SignalProcessor;
+pub use traits::{AllowsFeedback, SignalProcessor};
 pub use types::{
     EndpointDescriptor, EndpointDirection, EndpointType, EventInput, EventInstance, EventObject,
     EventOutput, EventPayload, StaticEventQueue, StreamInput, StreamOutput, ValueInput,

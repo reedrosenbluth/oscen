@@ -4,8 +4,8 @@
 //! they take the few inputs they need and return token streams or idents.
 
 use crate::ast::ConnectionPolicy;
-use crate::ir::graph::EdgeKernel;
 use crate::ir::expr::{IrExpr, IrExprKind};
+use crate::ir::graph::EdgeKernel;
 use crate::ir::graph::{EventRescale, IrGraph};
 use proc_macro2::TokenStream;
 use quote::quote;

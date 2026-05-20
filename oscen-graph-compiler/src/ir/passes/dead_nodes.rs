@@ -4,8 +4,8 @@
 //! reach any graph output. Reverse BFS from outputs, O(V + E). Cmajor
 //! parity for `RemoveUnusedNodes`.
 
-use crate::ir::graph::{IrGraph, IrNodeKind, NodeId};
 use crate::ir::expr::primary_node;
+use crate::ir::graph::{IrGraph, IrNodeKind, NodeId};
 use std::collections::{HashSet, VecDeque};
 
 pub fn run(ir: &mut IrGraph) {
@@ -174,6 +174,7 @@ mod tests {
             fanout: FanoutShape::Scalar,
             span: Span::call_site(),
             extra_source_nodes: Vec::new(),
+            is_feedback: false,
         });
         g.nodes[src].outgoing.push(id);
         g.nodes[dst].incoming.push(id);

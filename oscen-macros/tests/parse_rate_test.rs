@@ -63,3 +63,9 @@ fn multi_parse_error_in_connection_block_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/multi_parse_error_in_connection_block.rs");
 }
+
+#[test]
+fn feedback_marker_missing_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/feedback_marker_missing.rs");
+}

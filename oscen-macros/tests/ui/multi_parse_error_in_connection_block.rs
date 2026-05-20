@@ -9,7 +9,7 @@ graph! {
     output stream out;
 
     connections {
-        s1 ~> out;
+        s1 => out;
         s2 -> out;
         s3 -> ;
     }

@@ -29,7 +29,10 @@ fn compare_snapshot(name: &str, actual: String) {
 
     if !path.exists() {
         fs::write(&path, &actual).expect("write initial snapshot");
-        panic!("snapshot {:?} did not exist; created. Re-run to confirm.", path);
+        panic!(
+            "snapshot {:?} did not exist; created. Re-run to confirm.",
+            path
+        );
     }
 
     let expected = fs::read_to_string(&path).expect("read snapshot");

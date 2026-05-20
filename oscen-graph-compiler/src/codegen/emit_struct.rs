@@ -11,9 +11,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Expr;
 
-use super::helpers::{
-    kernel_down_type, kernel_up_type, policy_marker_path, resampler_field_name,
-};
+use super::helpers::{kernel_down_type, kernel_up_type, policy_marker_path, resampler_field_name};
 use super::CodegenContext;
 
 impl<'a> CodegenContext<'a> {
@@ -216,6 +214,41 @@ impl<'a> CodegenContext<'a> {
             #(#output_fields,)*
             #(#node_fields),*
         }
+    }
+
+    /// Emit a const-time `T: ::oscen::AllowsFeedback` bound assertion for the
+    /// source's primary node on every feedback edge in the IR (the outgoing
+    /// leg of an inline-delay `-> [N] ->` / `-> [name] ->` expansion).
+    ///
+    /// A user-defined source type that doesn't impl `AllowsFeedback` fails
+    /// to compile, with the error span pointing at the connection
+    /// statement.
+    pub(super) fn generate_feedback_assertions(&self) -> Vec<TokenStream> {
+        let mut out = Vec::new();
+        for edge in self.ir.edges.values() {
+            if !edge.is_feedback {
+                continue;
+            }
+            let Some(primary) = crate::ir::expr::primary_node(&edge.source) else {
+                continue;
+            };
+            let node = &self.ir.nodes[primary];
+            let path = match &node.kind {
+                IrNodeKind::Processor { ty: Some(p), .. }
+                | IrNodeKind::NodeArray { ty: Some(p), .. } => p,
+                _ => continue,
+            };
+            let span = edge.span;
+            let assertion = quote::quote_spanned! { span =>
+                #[allow(non_snake_case)]
+                const _: fn() = || {
+                    fn _assert_allows_feedback<T: ::oscen::graph::AllowsFeedback>() {}
+                    _assert_allows_feedback::<#path>();
+                };
+            };
+            out.push(assertion);
+        }
+        out
     }
 
     /// Emit a `quote_spanned!`-spanned const-time trait-bound assertion per

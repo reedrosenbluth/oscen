@@ -909,7 +909,8 @@ fn parse_connection_policy(input: ParseStream) -> Result<ConnectionPolicy> {
 }
 
 /// Parse the body of a connection statement (everything after an
-/// optional `connection` keyword): `[<policy>] <source> -> <dest>;`.
+/// optional `connection` keyword): `[<policy>] <source> -> <dest>;`
+/// or `[<policy>] <source> -> [N] -> <dest>;` (inline delay).
 /// Shared between `Parse for ConnectionStmt` (which consumes
 /// `connection` first) and `parse_connection_block_with_diags` (which
 /// uses it on per-statement chunks inside `connection {}` /
@@ -918,9 +919,34 @@ fn parse_connection_stmt_body(input: ParseStream) -> Result<ConnectionStmt> {
     let policy = parse_connection_policy(input)?;
     let source = parse_connection_expr(input)?;
 
-    // Parse -> as two separate tokens: - and >
+    // First arrow — always `->` (the `~>` form has been removed).
     input.parse::<Token![-]>()?;
     input.parse::<Token![>]>()?;
+
+    // Optional inline-delay bracket: `-> [N] ->` or `-> [name] ->`.
+    let via = if input.peek(token::Bracket) {
+        let content;
+        let _brackets = bracketed!(content in input);
+        let via = if content.peek(syn::LitInt) {
+            let lit: syn::LitInt = content.parse()?;
+            let span = lit.span();
+            crate::ast::DelayVia::Samples { value: lit, span }
+        } else if content.peek(Ident) {
+            let name: Ident = content.parse()?;
+            crate::ast::DelayVia::Node { name }
+        } else {
+            return Err(content.error("expected integer literal or identifier inside `[ ]`"));
+        };
+        if !content.is_empty() {
+            return Err(content.error("unexpected tokens after delay spec"));
+        }
+        // Require the second `->`.
+        input.parse::<Token![-]>()?;
+        input.parse::<Token![>]>()?;
+        Some(via)
+    } else {
+        None
+    };
 
     let dest = parse_connection_expr(input)?;
     input.parse::<Token![;]>()?;
@@ -935,6 +961,7 @@ fn parse_connection_stmt_body(input: ParseStream) -> Result<ConnectionStmt> {
         dest,
         policy,
         span,
+        via,
     })
 }
 

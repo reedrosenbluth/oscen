@@ -8,10 +8,10 @@
 
 use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, GraphDef, GraphItem, NodeRate};
 use crate::diagnostics::Diagnostics;
-use crate::ir::expr::{IrEndpoint, IrExpr, IrExprKind, primary_node};
+use crate::ir::expr::{primary_node, IrEndpoint, IrExpr, IrExprKind};
 use crate::ir::graph::{
-    classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EventRescale, FanoutShape,
-    IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
+    classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EventRescale, FanoutShape, IrEdge, IrGraph,
+    IrNode, IrNodeKind, NodeId,
 };
 use proc_macro2::Span;
 use std::collections::HashMap;
@@ -170,6 +170,43 @@ fn collect_node_decl(
     }
 }
 
+/// Build the endpoint map for a synthesised `::oscen::Delay` node.
+///
+/// Mirrors the actual Delay endpoint descriptors from `oscen-lib/src/delay/mod.rs`:
+/// - `input`         → Stream
+/// - `output`        → Stream
+/// - `delay_samples` → Value
+/// - `feedback`      → Value
+fn synth_delay_endpoints(span: proc_macro2::Span) -> HashMap<Ident, EndpointInfo> {
+    use crate::ast::EndpointKind;
+    let mut m = HashMap::new();
+    m.insert(
+        Ident::new("input", span),
+        EndpointInfo {
+            kind: EndpointKind::Stream,
+        },
+    );
+    m.insert(
+        Ident::new("output", span),
+        EndpointInfo {
+            kind: EndpointKind::Stream,
+        },
+    );
+    m.insert(
+        Ident::new("delay_samples", span),
+        EndpointInfo {
+            kind: EndpointKind::Value,
+        },
+    );
+    m.insert(
+        Ident::new("feedback", span),
+        EndpointInfo {
+            kind: EndpointKind::Value,
+        },
+    );
+    m
+}
+
 fn input_endpoints(input: &crate::ast::InputDecl) -> HashMap<Ident, EndpointInfo> {
     let mut m = HashMap::new();
     // The "name" of the implicit endpoint on an input/output decl is
@@ -262,7 +299,15 @@ fn infer_endpoint_types(
     }
 }
 
-/// Step 3: Construct one IrEdge per connection statement.
+/// Step 3: Construct one or two `IrEdge`s per connection statement.
+///
+/// - `src -> dst` (no via): one edge, `is_feedback: false`.
+/// - `src -> [name] -> dst` (Node via): two edges through the declared node —
+///   `src → via.input` (non-feedback) and `via.output → dst` (feedback).
+/// - `src -> [N] -> dst` (Samples via): synthesises an anonymous `::oscen::Delay`
+///   node with N samples, then emits two edges through it —
+///   `src → synth.input` (non-feedback) and `synth.output → dst` (feedback).
+///
 /// Validates type compatibility (source kind vs dest kind).
 /// Pushes type-mismatch errors into diags WITHOUT bailing.
 fn build_edges(
@@ -280,6 +325,9 @@ fn build_edges(
             _ => vec![],
         })
         .collect();
+
+    let mut synth_counter: u32 = 0;
+    let mut via_used_nodes: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
 
     for stmt in stmts {
         // Lower to IR forms.
@@ -311,37 +359,209 @@ fn build_edges(
             }
         }
 
-        // Compute primary source NodeId and extras from the IR source.
-        let mut refs = collect_referenced_node_ids(&ir_source);
-        refs.dedup();
-        let primary_src = match refs.first() {
-            Some(&id) => id,
-            None => continue, // Pure-literal source with no node references; skip.
-        };
-        let extra_sources: Vec<NodeId> = refs.into_iter().skip(1).collect();
+        match stmt.via {
+            // -----------------------------------------------------------------
+            // No via: single edge, not a feedback edge.
+            // -----------------------------------------------------------------
+            None => {
+                insert_edge(
+                    ir,
+                    ir_source,
+                    ir_dest,
+                    stmt.policy,
+                    stmt.span,
+                    /*is_feedback=*/ false,
+                );
+            }
 
-        // Insert the edge.
-        let dest_node = ir_dest.node;
-        let extra_sources_clone = extra_sources.clone();
-        let eid = ir.edges.insert_with_key(|id| IrEdge {
-            id,
-            source: ir_source,
-            dest: ir_dest,
-            policy: stmt.policy,
-            kernel: EdgeKernel::None,
-            fanout: FanoutShape::Scalar,
-            span: stmt.span,
-            extra_source_nodes: extra_sources_clone,
-        });
+            // -----------------------------------------------------------------
+            // Node via: expand `src -> [name] -> dst` into two edges:
+            //   Edge 1: src   → via.input   (non-feedback)
+            //   Edge 2: via.output → dst    (feedback)
+            // -----------------------------------------------------------------
+            Some(crate::ast::DelayVia::Node { name }) => {
+                let via_id = match name_to_id.get(&name.to_string()) {
+                    Some(&id) => id,
+                    None => {
+                        diags.push_error(syn::Error::new(
+                            name.span(),
+                            format!("unknown node `{}` in delay-route bracket", name),
+                        ));
+                        continue;
+                    }
+                };
 
-        // Update adjacency and canonical edge order.
-        ir.nodes[primary_src].outgoing.push(eid);
-        for &extra in &extra_sources {
-            ir.nodes[extra].outgoing.push(eid);
+                if !via_used_nodes.insert(via_id) {
+                    diags.push_error(syn::Error::new(
+                        name.span(),
+                        format!(
+                            "node `{}` is already wired by another `[{}]` reference",
+                            name, name
+                        ),
+                    ));
+                    continue;
+                }
+
+                // Edge 1: src → via.input
+                let via_input = IrEndpoint {
+                    node: via_id,
+                    endpoint: Ident::new("input", name.span()),
+                    index: None,
+                    span: name.span(),
+                    bare: false,
+                };
+                insert_edge(
+                    ir,
+                    ir_source,
+                    via_input,
+                    stmt.policy,
+                    stmt.span,
+                    /*is_feedback=*/ false,
+                );
+
+                // Edge 2: via.output → dst  (feedback — breaks the cycle)
+                let via_output_expr = IrExpr {
+                    kind: IrExprKind::Endpoint(IrEndpoint {
+                        node: via_id,
+                        endpoint: Ident::new("output", name.span()),
+                        index: None,
+                        span: name.span(),
+                        bare: false,
+                    }),
+                    span: name.span(),
+                };
+                insert_edge(
+                    ir,
+                    via_output_expr,
+                    ir_dest,
+                    stmt.policy,
+                    stmt.span,
+                    /*is_feedback=*/ true,
+                );
+            }
+
+            // -----------------------------------------------------------------
+            // Samples via: synthesise an anonymous ::oscen::Delay node with N
+            // samples and expand into two edges through it:
+            //   Edge 1: src        → synth.input   (non-feedback)
+            //   Edge 2: synth.output → dst          (feedback — breaks the cycle)
+            // -----------------------------------------------------------------
+            Some(crate::ast::DelayVia::Samples { value, span }) => {
+                // Parse the literal sample count.
+                let n: u32 = match value.base10_parse::<u32>() {
+                    Ok(n) => n,
+                    Err(err) => {
+                        diags.push_error(err);
+                        continue;
+                    }
+                };
+
+                // Unique synthetic name for this inline delay.
+                let synth_name = Ident::new(&format!("__inline_delay_{}", synth_counter), span);
+                synth_counter += 1;
+
+                // Build the constructor expression: ::oscen::Delay::new(N as f32, 0.0)
+                let n_lit = proc_macro2::Literal::u32_unsuffixed(n);
+                let ctor_expr: syn::Expr =
+                    syn::parse_quote!(::oscen::Delay::new(#n_lit as f32, 0.0));
+                let ty: syn::Path = syn::parse_quote!(::oscen::Delay);
+
+                let synth_id = ir.nodes.insert_with_key(|id| IrNode {
+                    id,
+                    kind: IrNodeKind::Processor {
+                        ty: Some(ty),
+                        ctor_expr,
+                    },
+                    name: synth_name,
+                    rate: crate::ast::NodeRate::Same,
+                    latency_samples: 0,
+                    span,
+                    endpoints: synth_delay_endpoints(span),
+                    incoming: Vec::new(),
+                    outgoing: Vec::new(),
+                });
+                ir.processors.push(synth_id);
+
+                // Edge 1: src → synth.input  (non-feedback)
+                let synth_input = IrEndpoint {
+                    node: synth_id,
+                    endpoint: Ident::new("input", span),
+                    index: None,
+                    span,
+                    bare: false,
+                };
+                insert_edge(
+                    ir,
+                    ir_source,
+                    synth_input,
+                    stmt.policy,
+                    stmt.span,
+                    /*is_feedback=*/ false,
+                );
+
+                // Edge 2: synth.output → dst  (feedback — breaks the cycle)
+                let synth_output_expr = IrExpr {
+                    kind: IrExprKind::Endpoint(IrEndpoint {
+                        node: synth_id,
+                        endpoint: Ident::new("output", span),
+                        index: None,
+                        span,
+                        bare: false,
+                    }),
+                    span,
+                };
+                insert_edge(
+                    ir,
+                    synth_output_expr,
+                    ir_dest,
+                    stmt.policy,
+                    stmt.span,
+                    /*is_feedback=*/ true,
+                );
+            }
         }
-        ir.nodes[dest_node].incoming.push(eid);
-        ir.edge_order.push(eid);
     }
+}
+
+/// Insert one `IrEdge` into `ir`, updating adjacency lists and edge order.
+fn insert_edge(
+    ir: &mut IrGraph,
+    source: IrExpr,
+    dest: IrEndpoint,
+    policy: ConnectionPolicy,
+    span: proc_macro2::Span,
+    is_feedback: bool,
+) {
+    // Compute primary source NodeId and extras from the IR source.
+    let mut refs = collect_referenced_node_ids(&source);
+    refs.dedup();
+    let primary_src = match refs.first() {
+        Some(&id) => id,
+        None => return, // Pure-literal source with no node references; skip.
+    };
+    let extra_sources: Vec<NodeId> = refs.into_iter().skip(1).collect();
+
+    let dest_node = dest.node;
+    let extra_sources_clone = extra_sources.clone();
+    let eid = ir.edges.insert_with_key(|id| IrEdge {
+        id,
+        source,
+        dest,
+        policy,
+        kernel: EdgeKernel::None,
+        fanout: FanoutShape::Scalar,
+        span,
+        extra_source_nodes: extra_sources_clone,
+        is_feedback,
+    });
+
+    // Update adjacency and canonical edge order.
+    ir.nodes[primary_src].outgoing.push(eid);
+    for &extra in &extra_sources {
+        ir.nodes[extra].outgoing.push(eid);
+    }
+    ir.nodes[dest_node].incoming.push(eid);
+    ir.edge_order.push(eid);
 }
 
 /// Visitor that collects every `NodeId` referenced by an `IrExpr` in
@@ -372,7 +592,6 @@ fn collect_referenced_node_ids(expr: &crate::ir::expr::IrExpr) -> Vec<NodeId> {
     v.visit_expr(expr);
     v.ids
 }
-
 
 // ---------------------------------------------------------------------------
 // Step 4: Rate analysis
@@ -586,7 +805,10 @@ fn array_size_of(kind: &IrNodeKind) -> Option<usize> {
 /// arbitrary Rust function/method return types).
 pub(crate) fn endpoint_kind_of(expr: &IrExpr, ir: &IrGraph) -> Option<EndpointKind> {
     match &expr.kind {
-        IrExprKind::Endpoint(ep) => ir.nodes[ep.node].endpoints.get(&ep.endpoint).map(|ei| ei.kind),
+        IrExprKind::Endpoint(ep) => ir.nodes[ep.node]
+            .endpoints
+            .get(&ep.endpoint)
+            .map(|ei| ei.kind),
         IrExprKind::Binary { left, right, .. } => {
             let l = endpoint_kind_of(left, ir)?;
             let r = endpoint_kind_of(right, ir)?;
@@ -651,18 +873,19 @@ fn resolve_node_endpoint(
 /// Step 6: Sort `ir.processors` into topological (dependency) order using
 /// Kahn's algorithm.
 ///
-/// Feedback-allowing nodes (identified by `is_feedback_allowing_node`) have
-/// their incoming edges excluded from the in-degree count so they don't
-/// create false cycles. Emits a "non-feedback cycle" error into `diags` if
-/// the graph is cyclic after removing feedback edges.
+/// Edges marked as feedback (`edge.is_feedback`, set on the outgoing leg of
+/// an inline-delay `-> [N] ->` / `-> [name] ->` expansion) are excluded
+/// from both in-degree counting and outgoing propagation so a cycle closed
+/// by such an edge does not appear as a real cycle. Emits a "non-feedback
+/// cycle" error into `diags` if the graph is cyclic after removing feedback
+/// edges.
 fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
     use std::collections::{HashMap, VecDeque};
 
-    // Build a set of processor NodeIds for fast membership test.
     let processor_set: std::collections::HashSet<NodeId> = ir.processors.iter().copied().collect();
 
-    // Compute in-degree for each processor from edges whose source is also
-    // a processor, skipping edges from feedback-allowing sources.
+    // Compute in-degree for each processor from non-feedback edges whose
+    // source is also a processor. Feedback edges are skipped entirely.
     let mut in_degree: HashMap<NodeId, usize> = HashMap::new();
     for &nid in &ir.processors {
         in_degree.insert(nid, 0);
@@ -670,13 +893,11 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
     for &nid in &ir.processors {
         for &eid in &ir.nodes[nid].incoming {
             let edge = &ir.edges[eid];
-            // Primary source contributes if it's a processor and isn't a
-            // feedback-allowing node. Compound-source edges additionally
-            // count every `extra_source_nodes` entry that meets the same
-            // criteria — those are the other nodes the source expression
-            // reads (e.g., `a.x * b.y -> dst` has b as an extra source).
+            if edge.is_feedback {
+                continue;
+            }
             let mut count_src = |src: NodeId| {
-                if processor_set.contains(&src) && !is_feedback_allowing_node(&ir.nodes[src]) {
+                if processor_set.contains(&src) {
                     *in_degree.get_mut(&nid).unwrap() += 1;
                 }
             };
@@ -689,7 +910,6 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
         }
     }
 
-    // Seed the queue with all zero-in-degree nodes.
     let mut queue: VecDeque<NodeId> = in_degree
         .iter()
         .filter(|(_, &d)| d == 0)
@@ -699,16 +919,17 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
 
     while let Some(nid) = queue.pop_front() {
         sorted.push(nid);
-        // Edges OUT of feedback-allowing nodes don't impose ordering — they
-        // were skipped during in-degree calculation, so we must also skip
-        // them here to keep the algorithm symmetric.
-        if is_feedback_allowing_node(&ir.nodes[nid]) {
-            continue;
-        }
-        // Clone outgoing to avoid borrow conflict when mutating in_degree.
+        // Outgoing feedback edges don't impose ordering, mirroring the
+        // in-degree pass above. (Edges OUT of this node that are feedback
+        // edges contribute zero to anybody's in-degree, so they're never
+        // decremented.)
         let outgoing: Vec<EdgeId> = ir.nodes[nid].outgoing.clone();
         for eid in outgoing {
-            let dst = ir.edges[eid].dest.node;
+            let edge = &ir.edges[eid];
+            if edge.is_feedback {
+                continue;
+            }
+            let dst = edge.dest.node;
             if let Some(d) = in_degree.get_mut(&dst) {
                 if *d > 0 {
                     *d -= 1;
@@ -723,29 +944,11 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
     if sorted.len() != ir.processors.len() {
         diags.push_error(syn::Error::new(
             proc_macro2::Span::call_site(),
-            "graph contains a non-feedback cycle",
+            "graph contains a non-feedback cycle (use `-> [N] ->` to insert a delay buffer, or `-> [delay_node] ->` to route through a declared Delay node)",
         ));
         return;
     }
     ir.processors = sorted;
-}
-
-/// Return `true` if `node` is a feedback-allowing node (e.g., a delay line).
-///
-/// Uses the same string-match heuristic as `codegen::is_feedback_allowing_node`
-/// (line ~887): the last path segment of the node's type must contain "Delay".
-/// Replacing this with a marker-trait approach is tracked separately.
-fn is_feedback_allowing_node(node: &IrNode) -> bool {
-    match &node.kind {
-        IrNodeKind::Processor { ty: Some(path), .. }
-        | IrNodeKind::NodeArray { ty: Some(path), .. } => {
-            if let Some(seg) = path.segments.last() {
-                return seg.ident.to_string().contains("Delay");
-            }
-            false
-        }
-        _ => false,
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -841,6 +1044,7 @@ fn types_compatible(src: EndpointKind, dst: EndpointKind) -> bool {
 /// `syn` nodes: `Ident::span()` for endpoint refs, `Expr::span()` for
 /// literals and method-call args. Compound nodes (`Binary`, `MethodCall`,
 /// `Call`) inherit the span of their leftmost leaf.
+#[allow(clippy::only_used_in_recursion)] // `ir` reserved for future endpoint validation
 pub fn lower_expr(
     expr: &ConnectionExpr,
     name_to_id: &HashMap<String, NodeId>,
@@ -923,10 +1127,8 @@ pub fn lower_expr(
             })
         }
         ConnectionExpr::Call(func, args) => {
-            let ir_args: Option<Vec<_>> = args
-                .iter()
-                .map(|a| lower_expr(a, name_to_id, ir))
-                .collect();
+            let ir_args: Option<Vec<_>> =
+                args.iter().map(|a| lower_expr(a, name_to_id, ir)).collect();
             let ir_args = ir_args?;
             Some(IrExpr {
                 kind: IrExprKind::Call {

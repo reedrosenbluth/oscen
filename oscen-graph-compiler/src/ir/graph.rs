@@ -160,9 +160,12 @@ pub struct IrEdge {
     /// simple `node.endpoint` sources. Used by dead-node analysis so
     /// nodes whose values feed an expression are kept alive.
     pub extra_source_nodes: Vec<NodeId>,
+    /// True for the outgoing leg of an inline-delay edge (`-> [N] ->` or
+    /// `-> [name] ->`). Feedback edges are skipped during topological
+    /// ordering and trigger emission of an `AllowsFeedback` static-bound
+    /// check on the source's primary node type.
+    pub is_feedback: bool,
 }
-
-
 
 impl IrGraph {
     pub fn new(name: Ident, nih_params: bool) -> Self {
@@ -282,6 +285,7 @@ mod tests {
             fanout: FanoutShape::Scalar,
             span: Span::call_site(),
             extra_source_nodes: Vec::new(),
+            is_feedback: false,
         });
         graph.nodes[source].outgoing.push(id);
         graph.nodes[dest].incoming.push(id);

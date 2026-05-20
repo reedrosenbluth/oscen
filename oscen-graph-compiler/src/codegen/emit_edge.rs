@@ -107,9 +107,8 @@ impl<'a> CodegenContext<'a> {
         let dest_node_name = &self.ir.nodes[dest.node].name;
         let dst_size = self.get_node_array_size(dest_node_name);
         // src_field_access: source is a plain `node.field` endpoint (not bare-ident, not compound).
-        let src_field_access =
-            Self::is_simple_endpoint_source(source)
-                && self.extract_endpoint_field(source).is_some();
+        let src_field_access = Self::is_simple_endpoint_source(source)
+            && self.extract_endpoint_field(source).is_some();
         // dst_field_access: dest has a separate endpoint field (not bare-ident graph output).
         let dst_field_access = *dest_node_name != dest.endpoint;
 
@@ -137,7 +136,9 @@ impl<'a> CodegenContext<'a> {
         // FanIn: array source field → scalar dest.
         if let (Some(n), None, true) = (src_size, dst_size, src_field_access) {
             let source_ident = self.extract_root_node(source).expect("checked");
-            let source_field = self.extract_endpoint_field(source).expect("Field has field");
+            let source_field = self
+                .extract_endpoint_field(source)
+                .expect("Field has field");
             let dest_tokens = self.emit_endpoint(dest);
             return quote! {
                 {
@@ -159,7 +160,9 @@ impl<'a> CodegenContext<'a> {
         {
             let n = ns.min(nd);
             let source_ident = self.extract_root_node(source).expect("checked");
-            let source_field = self.extract_endpoint_field(source).expect("Field has field");
+            let source_field = self
+                .extract_endpoint_field(source)
+                .expect("Field has field");
             let dest_node = dest_node_name;
             let dest_field = &dest.endpoint;
             return quote! {
@@ -208,14 +211,14 @@ impl<'a> CodegenContext<'a> {
             None => None,
         };
         // source_is_field_access: simple endpoint where endpoint != node_name (not bare-ident).
-        let source_is_field_access =
-            Self::is_simple_endpoint_source(source)
-                && self.extract_endpoint_field(source).is_some();
+        let source_is_field_access = Self::is_simple_endpoint_source(source)
+            && self.extract_endpoint_field(source).is_some();
 
         if let (Some(n), true) = (src_array_size, source_is_field_access) {
             let source_ident = self.extract_root_node(source).expect("checked above");
-            let source_field =
-                self.extract_endpoint_field(source).expect("Field variant has a field");
+            let source_field = self
+                .extract_endpoint_field(source)
+                .expect("Field variant has a field");
             return quote! {
                 {
                     let mut __sum: f32 = 0.0;

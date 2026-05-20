@@ -68,10 +68,7 @@ pub enum IrExprKind {
 
     /// `tanh(x)`, `clamp(x, 0.0, 1.0)`. Args are `IrExpr` because they can
     /// reference endpoints (`tanh(osc.output)`).
-    Call {
-        function: Ident,
-        args: Vec<IrExpr>,
-    },
+    Call { function: Ident, args: Vec<IrExpr> },
 
     /// `0.5`, `2.0 * PI` — opaque Rust that references no endpoint.
     Literal(syn::Expr),

@@ -10,8 +10,8 @@ use quote::quote;
 use std::collections::HashSet;
 use syn::Result;
 
-use super::CodegenContext;
 use super::helpers::{down_buf_name, is_same_rate_kernel, resampler_field_name, up_buf_name};
+use super::CodegenContext;
 
 impl<'a> CodegenContext<'a> {
     // ========== Block Processing Methods ==========
@@ -180,9 +180,7 @@ impl<'a> CodegenContext<'a> {
     /// Partition nodes into (pre_inner_outer, post_inner_outer, inner) buckets.
     ///
     /// Returns `(pre_inner_outer_names, post_inner_outer_names, inner_node_names)`.
-    fn bucket_nodes_by_phase(
-        &self,
-    ) -> Result<(Vec<syn::Ident>, Vec<syn::Ident>, Vec<syn::Ident>)> {
+    fn bucket_nodes_by_phase(&self) -> Result<(Vec<syn::Ident>, Vec<syn::Ident>, Vec<syn::Ident>)> {
         let sorted_nodes: Vec<syn::Ident> = self.nodes().map(|n| n.name.clone()).collect();
 
         let outer_node_names: Vec<syn::Ident> = sorted_nodes
@@ -209,7 +207,11 @@ impl<'a> CodegenContext<'a> {
             .cloned()
             .collect();
 
-        Ok((pre_inner_outer_names, post_inner_outer_names, inner_node_names))
+        Ok((
+            pre_inner_outer_names,
+            post_inner_outer_names,
+            inner_node_names,
+        ))
     }
 
     // ========== Per-bucket emitters ==========
@@ -370,7 +372,10 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Step 6a: `process_event_inputs()` calls for inner-rate nodes (once per outer tick).
-    fn emit_all_inner_event_input_calls(&self, inner_node_names: &[syn::Ident]) -> Vec<TokenStream> {
+    fn emit_all_inner_event_input_calls(
+        &self,
+        inner_node_names: &[syn::Ident],
+    ) -> Vec<TokenStream> {
         inner_node_names
             .iter()
             .map(|n| self.emit_node_process_event_inputs(n))
@@ -397,10 +402,8 @@ impl<'a> CodegenContext<'a> {
                         }
                     });
                 } else {
-                    let dest_assign = self.connection_dest_field_assign(
-                        &edge.dest,
-                        &quote! { #buf[__inner] },
-                    );
+                    let dest_assign =
+                        self.connection_dest_field_assign(&edge.dest, &quote! { #buf[__inner] });
                     writes.push(dest_assign);
                 }
             }

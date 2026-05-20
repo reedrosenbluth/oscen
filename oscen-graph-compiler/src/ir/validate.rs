@@ -4,8 +4,8 @@
 //! Called inside `lower()` and after every pass under
 //! `cfg(debug_assertions)`. Zero release-build cost.
 
-use crate::ir::graph::{EdgeId, IrGraph, NodeId};
 use crate::ir::expr::primary_node;
+use crate::ir::graph::{EdgeId, IrGraph, NodeId};
 use std::collections::HashSet;
 
 /// Collect all `NodeId`s referenced by an `IrExpr` source expression.

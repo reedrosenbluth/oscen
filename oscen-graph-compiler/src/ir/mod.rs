@@ -13,6 +13,6 @@ pub mod validate;
 
 pub use expr::{IrEndpoint, IrExpr, IrExprKind};
 pub use graph::{
-    classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EventRescale, FanoutShape,
-    IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
+    classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EventRescale, FanoutShape, IrEdge, IrGraph,
+    IrNode, IrNodeKind, NodeId,
 };

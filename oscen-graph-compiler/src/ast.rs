@@ -73,6 +73,25 @@ pub struct ConnectionStmt {
     pub dest: ConnectionExpr,
     pub policy: ConnectionPolicy,
     pub span: proc_macro2::Span,
+    /// `Some(...)` when the user wrote `src -> [ ... ] -> dst`. Carries
+    /// either a literal sample count (compiler synthesizes a hidden
+    /// `Delay::new(N, 0.0)`) or a reference to a declared node (must impl
+    /// `oscen::graph::AllowsFeedback`). The edge implicitly closes a
+    /// feedback cycle: topo sort skips the outgoing leg of the via.
+    pub via: Option<DelayVia>,
+}
+
+/// Discriminator for the contents of a `-> [ ... ] ->` bracket.
+#[derive(Clone)]
+pub enum DelayVia {
+    /// `[N]` — compiler synthesizes an anonymous Delay node with N samples.
+    Samples {
+        value: syn::LitInt,
+        span: proc_macro2::Span,
+    },
+    /// `[name]` — edge is routed through a previously declared node.
+    /// Codegen emits an `AllowsFeedback` bound on the node's type.
+    Node { name: syn::Ident },
 }
 
 /// Connection expression (can be endpoint, arithmetic, etc.)

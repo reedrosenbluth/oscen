@@ -8,8 +8,8 @@ use quote::quote;
 use std::collections::HashSet;
 use syn::Result;
 
-use super::CodegenContext;
 use super::helpers::root_node_name;
+use super::CodegenContext;
 
 impl<'a> CodegenContext<'a> {
     /// Generate connection assignments for a specific node.
@@ -132,12 +132,9 @@ impl<'a> CodegenContext<'a> {
                         dest_field,
                         n,
                     ),
-                    FanoutShape::FanIn { n: _ } => self.emit_fanin_connect(
-                        source_ident,
-                        source_field,
-                        dest_node,
-                        dest_field,
-                    ),
+                    FanoutShape::FanIn { n: _ } => {
+                        self.emit_fanin_connect(source_ident, source_field, dest_node, dest_field)
+                    }
                 };
                 assignments.push(stmt);
             }
@@ -194,10 +191,7 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Emit assignments for connections that target graph outputs.
-    pub(super) fn generate_graph_output_assignments_filtered<F>(
-        &self,
-        keep: F,
-    ) -> Vec<TokenStream>
+    pub(super) fn generate_graph_output_assignments_filtered<F>(&self, keep: F) -> Vec<TokenStream>
     where
         F: Fn(&EdgeKernel) -> bool,
     {

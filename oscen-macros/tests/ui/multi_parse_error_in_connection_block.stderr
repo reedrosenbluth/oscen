@@ -1,7 +1,7 @@
 error: expected `-`
   --> tests/ui/multi_parse_error_in_connection_block.rs:12:12
    |
-12 |         s1 ~> out;
+12 |         s1 => out;
    |            ^
 
 error: expected identifier

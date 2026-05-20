@@ -67,8 +67,4 @@ impl SignalProcessor for FmOperator {
         self.phase += phase_inc;
         self.phase = self.phase.fract();
     }
-
-    fn allows_feedback(&self) -> bool {
-        true
-    }
 }

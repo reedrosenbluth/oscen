@@ -1,8 +1,6 @@
 use crate::ast::{BinaryOp, EndpointKind, NodeRate};
 use crate::diagnostics::Diagnostics;
-use crate::ir::graph::{
-    EdgeId, EdgeKernel, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
-};
+use crate::ir::graph::{EdgeId, EdgeKernel, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId};
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::collections::HashMap;
@@ -11,10 +9,10 @@ use syn::{Expr, Result};
 mod helpers;
 use helpers::*;
 
-mod emit_struct;
 mod emit_edge;
-mod emit_node;
 mod emit_frame;
+mod emit_node;
+mod emit_struct;
 
 pub fn generate(ir: &IrGraph) -> std::result::Result<TokenStream, Diagnostics> {
     // lower() has already run analysis + validation. Codegen consumes the
@@ -213,17 +211,17 @@ impl<'a> CodegenContext<'a> {
     ) -> Option<(TokenStream, TokenStream)> {
         let node = &self.ir.nodes[ep.node];
         let path = self.node_type_path(node)?;
-        let assoc_ident =
-            syn::Ident::new(&format!("{}__Ep", ep.endpoint), proc_macro2::Span::call_site());
+        let assoc_ident = syn::Ident::new(
+            &format!("{}__Ep", ep.endpoint),
+            proc_macro2::Span::call_site(),
+        );
         Some((quote! { #path }, quote! { <#path>::#assoc_ident }))
     }
 
     /// Extract the `IrEndpoint` from an `IrExpr`, if the expression is a
     /// plain `Endpoint` variant. Returns `None` for compound expressions
     /// (Binary, MethodCall, Call, Literal).
-    fn ir_expr_as_endpoint(
-        expr: &crate::ir::expr::IrExpr,
-    ) -> Option<&crate::ir::expr::IrEndpoint> {
+    fn ir_expr_as_endpoint(expr: &crate::ir::expr::IrExpr) -> Option<&crate::ir::expr::IrEndpoint> {
         if let crate::ir::expr::IrExprKind::Endpoint(ep) = &expr.kind {
             Some(ep)
         } else {
@@ -354,7 +352,11 @@ impl<'a> CodegenContext<'a> {
                 };
                 quote! { (#l #op_token #r) }
             }
-            IrExprKind::MethodCall { receiver, method, args } => {
+            IrExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
                 let recv = self.emit_expr(receiver);
                 quote! { #recv.#method(#(#args),*) }
             }
@@ -1049,6 +1051,7 @@ impl<'a> CodegenContext<'a> {
         let resampler_inits = self.generate_resampler_inits();
 
         let kind_assertions = self.generate_kind_assertions();
+        let feedback_assertions = self.generate_feedback_assertions();
 
         // For compile-time graphs, generate a static process() method
         let process_method = self.generate_static_process()?;
@@ -1083,6 +1086,8 @@ impl<'a> CodegenContext<'a> {
 
         Ok(quote! {
             #(#kind_assertions)*
+
+            #(#feedback_assertions)*
 
             #[allow(dead_code)]
             #[derive(Debug)]

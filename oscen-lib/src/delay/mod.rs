@@ -1,4 +1,4 @@
-use crate::graph::{SignalProcessor, StreamInput, StreamOutput, ValueInput};
+use crate::graph::{AllowsFeedback, SignalProcessor, StreamInput, StreamOutput, ValueInput};
 use crate::ring_buffer::RingBuffer;
 use oscen_macros::Node;
 
@@ -67,10 +67,6 @@ impl SignalProcessor for Delay {
         self.buffer = RingBuffer::new(buffer_size);
     }
 
-    fn allows_feedback(&self) -> bool {
-        true // Delay nodes can break feedback cycles
-    }
-
     #[inline(always)]
     fn process(&mut self) {
         // Update parameters
@@ -84,3 +80,5 @@ impl SignalProcessor for Delay {
         *self.output = delayed;
     }
 }
+
+impl AllowsFeedback for Delay {}

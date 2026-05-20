@@ -176,11 +176,12 @@ fn cross_rate_edge_picks_correct_kernel() {
         .edges
         .values()
         .filter(|e| {
-            let src_name = if let oscen_graph_compiler::ir::IrExprKind::Endpoint(ep) = &e.source.kind {
-                ir.nodes[ep.node].name.to_string()
-            } else {
-                String::new()
-            };
+            let src_name =
+                if let oscen_graph_compiler::ir::IrExprKind::Endpoint(ep) = &e.source.kind {
+                    ir.nodes[ep.node].name.to_string()
+                } else {
+                    String::new()
+                };
             src_name == "osc" && ir.nodes[e.dest.node].name == "out"
         })
         .collect();
@@ -256,16 +257,15 @@ fn topo_sort_orders_branching_graph() {
 #[test]
 fn non_feedback_cycle_with_extra_delay_input_is_rejected() {
     // X <-> Y is a non-feedback cycle that must be rejected.
-    // A Delay feeding into X must NOT mask that cycle.
-    // MyDelay's last path segment contains "Delay", triggering the feedback
-    // predicate; Gain nodes are plain non-feedback processors.
+    // A `Delay` feeding into X (but not part of the X<->Y cycle) must NOT
+    // mask the cycle.
     let (ir, diags) = lower_quote(quote! {
         name: BadCycle;
         input stream src;
         output stream out;
         node x = Gain::new(0.5);
         node y = Gain::new(0.5);
-        node d = MyDelay::new(0.1);
+        node d = Delay::new(0.1);
         connections {
             src -> x.input;
             x.output -> y.input;
@@ -274,8 +274,6 @@ fn non_feedback_cycle_with_extra_delay_input_is_rejected() {
             x.output -> out;
         }
     });
-    // We expect cycle detection to fire because X <-> Y is a non-feedback cycle.
-    // The Delay's edge to x shouldn't mask it.
     let errors: Vec<String> = diags
         .items
         .iter()
@@ -290,6 +288,74 @@ fn non_feedback_cycle_with_extra_delay_input_is_rejected() {
         "expected cycle detection; got ir.is_some()={} errors={:?}",
         ir.is_some(),
         errors
+    );
+}
+
+#[test]
+fn feedback_arrow_breaks_cycle() {
+    // A cycle closed by a `-> [1] ->` edge lowers successfully — topo sort
+    // skips the synth-delay's outgoing leg. Choice of node type at the source
+    // is irrelevant; this
+    // test deliberately uses `Gain` (no AllowsFeedback impl) because that
+    // check is enforced at codegen time, not during lowering.
+    let (ir, diags) = lower_quote(quote! {
+        name: ArrowCycle;
+        input stream src;
+        output stream out;
+        node g = Gain::new(0.5);
+        node h = Gain::new(0.5);
+        connections {
+            src -> g.input;
+            g.output -> h.input;
+            h.output -> [1] -> g.input;
+            g.output -> out;
+        }
+    });
+    let errors: Vec<String> = diags
+        .items
+        .iter()
+        .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
+        .map(|d| d.message.to_string())
+        .collect();
+    assert!(
+        ir.is_some() && errors.is_empty(),
+        "expected inline-delay-broken cycle to lower cleanly; got errors={:?}",
+        errors,
+    );
+}
+
+#[test]
+fn plain_arrow_cycle_is_rejected() {
+    // A cycle closed only by `->` edges is a non-feedback cycle. The
+    // identity / type of the nodes doesn't matter — even using a node named
+    // `Delay`, without `-> [...] ->` syntax the cycle is rejected.
+    let (ir, diags) = lower_quote(quote! {
+        name: PlainArrowCycle;
+        input stream src;
+        output stream out;
+        node g = Gain::new(0.5);
+        node d = Delay::new(0.1);
+        connections {
+            src -> g.input;
+            g.output -> d.input;
+            d.output -> g.input;
+            g.output -> out;
+        }
+    });
+    let errors: Vec<String> = diags
+        .items
+        .iter()
+        .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
+        .map(|d| d.message.to_string())
+        .collect();
+    assert!(
+        ir.is_none()
+            && errors
+                .iter()
+                .any(|e| e.contains("cycle") || e.contains("Cycle")),
+        "expected cycle detection on `->`-only cycle; got ir.is_some()={} errors={:?}",
+        ir.is_some(),
+        errors,
     );
 }
 
@@ -331,6 +397,236 @@ fn unconnected_down_node_produces_undersampling_error() {
         msgs.iter()
             .any(|m| m.to_lowercase().contains("undersampling")),
         "expected undersampling error; got: {:?}",
+        msgs
+    );
+}
+
+#[test]
+fn feedback_arrow_lowers_with_is_feedback_set() {
+    // Sanity check: the parser/lower pipeline carries the inline-delay flag
+    // onto the resulting IrEdge.
+    let (ir, diags) = lower_quote(quote! {
+        name: ArrowFlag;
+        input stream src;
+        output stream out;
+        node g = Gain::new(0.5);
+        node d = Delay::new(0.1);
+        connections {
+            src -> g.input;
+            g.output -> d.input;
+            d.output -> [1] -> g.input;
+            g.output -> out;
+        }
+    });
+    let errors: Vec<String> = diags
+        .items
+        .iter()
+        .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
+        .map(|d| d.message.to_string())
+        .collect();
+    let ir = ir.unwrap_or_else(|| panic!("expected lower to succeed; errors={:?}", errors));
+    let feedback_edges = ir.edges.values().filter(|e| e.is_feedback).count();
+    assert_eq!(
+        feedback_edges, 1,
+        "expected exactly one feedback edge from inline-delay, got {}",
+        feedback_edges,
+    );
+}
+
+#[test]
+fn inline_node_via_creates_two_edges_through_declared_delay() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        node a = oscen::Gain::new(1.0);
+        node d = oscen::Delay::new(11025.0, 0.0);
+        node b = oscen::Gain::new(1.0);
+        connections {
+            a.output -> b.input;
+            b.output -> [d] -> a.input;
+        }
+    });
+    let errors: Vec<String> = diags
+        .items
+        .iter()
+        .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
+        .map(|d| d.message.to_string())
+        .collect();
+    let ir = ir.unwrap_or_else(|| panic!("lower failed: {:?}", errors));
+
+    let d_id = ir
+        .nodes
+        .iter()
+        .find(|(_, n)| n.name == "d")
+        .map(|(id, _)| id)
+        .expect("node d");
+
+    assert_eq!(
+        ir.edges.len(),
+        3,
+        "expected 3 edges; got {}",
+        ir.edges.len()
+    );
+
+    let through_d_in = ir.edges.values().filter(|e| e.dest.node == d_id).count();
+    let through_d_out = ir.edges.values().filter(|e| {
+        matches!(&e.source.kind, oscen_graph_compiler::ir::IrExprKind::Endpoint(ep) if ep.node == d_id)
+    }).count();
+    assert_eq!(through_d_in, 1, "exactly one edge should enter d.input");
+    assert_eq!(through_d_out, 1, "exactly one edge should leave d.output");
+
+    let outgoing_is_feedback = ir.edges.values().any(|e| {
+        e.is_feedback
+            && matches!(&e.source.kind, oscen_graph_compiler::ir::IrExprKind::Endpoint(ep) if ep.node == d_id)
+    });
+    assert!(
+        outgoing_is_feedback,
+        "the d.output -> a.input edge should be marked is_feedback"
+    );
+
+    // The other two edges should NOT be marked is_feedback.
+    let feedback_count = ir.edges.values().filter(|e| e.is_feedback).count();
+    assert_eq!(feedback_count, 1, "exactly one feedback edge total");
+}
+
+#[test]
+fn inline_literal_via_synthesizes_delay_node() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        connections {
+            a.output -> b.input;
+            b.output -> [128] -> a.input;
+        }
+    });
+    let errors: Vec<String> = diags
+        .items
+        .iter()
+        .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
+        .map(|d| d.message.to_string())
+        .collect();
+    let ir = ir.unwrap_or_else(|| panic!("lower failed: {:?}", errors));
+
+    // Exactly one synthetic Delay should be inserted. Detect by name prefix.
+    let synth_count = ir
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.name.to_string().starts_with("__inline_delay_"))
+        .count();
+    assert_eq!(
+        synth_count, 1,
+        "expected one synthetic delay; got {}",
+        synth_count
+    );
+
+    let (synth_id, synth_node) = ir
+        .nodes
+        .iter()
+        .find(|(_, n)| n.name.to_string().starts_with("__inline_delay_"))
+        .expect("synth delay node");
+    match &synth_node.kind {
+        oscen_graph_compiler::ir::graph::IrNodeKind::Processor { ctor_expr, .. } => {
+            let ctor_str = quote!(#ctor_expr).to_string();
+            assert!(
+                ctor_str.contains("Delay") && ctor_str.contains("128"),
+                "expected ctor referencing Delay and 128 samples; got `{}`",
+                ctor_str
+            );
+        }
+        _ => panic!("synth node should be Processor kind"),
+    }
+
+    // Total edges: a->b, b->synth (normal), synth->a (feedback) = 3.
+    assert_eq!(
+        ir.edges.len(),
+        3,
+        "expected 3 edges; got {}",
+        ir.edges.len()
+    );
+    let feedback_count = ir.edges.values().filter(|e| e.is_feedback).count();
+    assert_eq!(feedback_count, 1);
+
+    let fb_edge = ir.edges.values().find(|e| e.is_feedback).unwrap();
+    match &fb_edge.source.kind {
+        oscen_graph_compiler::ir::IrExprKind::Endpoint(ep) => {
+            assert_eq!(
+                ep.node, synth_id,
+                "feedback edge should leave the synth node"
+            );
+            assert_eq!(ep.endpoint.to_string(), "output");
+        }
+        _ => panic!("feedback edge source should be a simple Endpoint"),
+    }
+}
+
+#[test]
+fn inline_node_via_undeclared_errors() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        connections {
+            a.output -> b.input;
+            b.output -> [nonexistent] -> a.input;
+        }
+    });
+    let msgs: Vec<_> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        ir.is_none(),
+        "expected lower to fail on undeclared via node; got Some(ir)"
+    );
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("unknown node") && m.contains("nonexistent")),
+        "expected `unknown node ... nonexistent` error; got: {:?}",
+        msgs
+    );
+}
+
+#[test]
+fn inline_node_via_double_use_errors() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        node c = oscen::Gain::new(1.0);
+        node d = oscen::Delay::new(0.0, 0.0);
+        connections {
+            a.output -> [d] -> b.input;
+            b.output -> [d] -> c.input;
+        }
+    });
+    let msgs: Vec<_> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        ir.is_none(),
+        "expected lower to fail on double-use of via node; got Some(ir)"
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("already wired")),
+        "expected `already wired` error; got: {:?}",
+        msgs
+    );
+}
+
+#[test]
+fn plain_arrow_cycle_diagnostic_mentions_bracket_syntax() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        connections {
+            a.output -> b.input;
+            b.output -> a.input;
+        }
+    });
+    let msgs: Vec<_> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        ir.is_none(),
+        "expected lower to fail on non-feedback cycle; got Some(ir)"
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("-> [")),
+        "expected cycle diagnostic to suggest bracket syntax; got: {:?}",
         msgs
     );
 }
