@@ -332,35 +332,11 @@ fn build_edges(
         // representations alongside the legacy AST fields (parallel-path).
         let ir_source = match lower_expr(&stmt.source, name_to_id, ir) {
             Some(e) => e,
-            None => {
-                // Source doesn't resolve — but if src_ref already resolved
-                // (compound source fallback), construct a synthetic IrExpr
-                // pointing at the primary node so the edge still gets an IR
-                // representation. The validator only checks the leaf node IDs
-                // agree, which they will.
-                crate::ir::expr::IrExpr {
-                    kind: crate::ir::expr::IrExprKind::Endpoint(crate::ir::expr::IrEndpoint {
-                        node: src_ref.node,
-                        endpoint: src_ref.endpoint.clone(),
-                        index: None,
-                        span: stmt.span,
-                    }),
-                    span: stmt.span,
-                }
-            }
+            None => continue,
         };
         let ir_dest = match lower_endpoint(&stmt.dest, name_to_id, ir) {
             Some(d) => d,
-            None => {
-                // Same fallback for compound dests (shouldn't happen since
-                // resolve_endpoint_ref already returned dst_ref).
-                crate::ir::expr::IrEndpoint {
-                    node: dst_ref.node,
-                    endpoint: dst_ref.endpoint.clone(),
-                    index: None,
-                    span: stmt.span,
-                }
-            }
+            None => continue,
         };
 
         // Insert the edge.
