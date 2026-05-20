@@ -971,10 +971,10 @@ impl<'a> CodegenContext<'a> {
             if !keep(&edge.kernel) {
                 continue;
             }
-            let ir_source = &edge.source;
-            let ir_dest = &edge.dest;
-            let dest_node = &self.ir.nodes[ir_dest.node].name;
-            let dest_field = &ir_dest.endpoint;
+            let source = &edge.source;
+            let dest = &edge.dest;
+            let dest_node = &self.ir.nodes[dest.node].name;
+            let dest_field = &dest.endpoint;
 
             if dest_node != node_name {
                 continue;
@@ -983,8 +983,8 @@ impl<'a> CodegenContext<'a> {
             // Compound sources (arithmetic, function/method calls) don't have
             // a single root endpoint. Evaluate them as f32 and route via
             // ConnectEndpoints<f32, _>.
-            if !Self::is_simple_endpoint_source(ir_source) {
-                let src_tokens = self.emit_expr(ir_source);
+            if !Self::is_simple_endpoint_source(source) {
+                let src_tokens = self.emit_expr(source);
                 if let Some(dest_size) = self.get_node_array_size(dest_node) {
                     assignments.push(quote! {
                         {
@@ -1009,8 +1009,8 @@ impl<'a> CodegenContext<'a> {
             }
 
             // This connection feeds into the current node
-            if let Some(source_ident) = self.extract_root_node(ir_source) {
-                let source_field = self.extract_endpoint_field(ir_source);
+            if let Some(source_ident) = self.extract_root_node(source) {
+                let source_field = self.extract_endpoint_field(source);
 
                 // Check if source is a graph input (not a node)
                 let source_is_graph_input = self.is_input(source_ident);
@@ -1157,12 +1157,12 @@ impl<'a> CodegenContext<'a> {
             if !keep(&edge.kernel) {
                 continue;
             }
-            let ir_source = &edge.source;
-            let ir_dest = &edge.dest;
-            let dest_ident = &self.ir.nodes[ir_dest.node].name;
+            let source = &edge.source;
+            let dest = &edge.dest;
+            let dest_ident = &self.ir.nodes[dest.node].name;
             if let Some(output_kind) = self.output_kind(dest_ident) {
-                let source_node = self.extract_root_node(ir_source);
-                let source_field = self.extract_endpoint_field(ir_source);
+                let source_node = self.extract_root_node(source);
+                let source_field = self.extract_endpoint_field(source);
                 // Treat as "simple" only for a plain `node.field` endpoint
                 // reference. Compound expressions (Binary, MethodCall) and bare
                 // ident refs (graph inputs accessed without a dot-selector) are
@@ -1170,7 +1170,7 @@ impl<'a> CodegenContext<'a> {
                 // `extract_endpoint_field(Ident(_))` so the `is_some() &&
                 // is_some()` check was false for them too.
                 let is_simple_source =
-                    Self::is_simple_endpoint_source(ir_source) && source_field.is_some();
+                    Self::is_simple_endpoint_source(source) && source_field.is_some();
 
                 match output_kind {
                     EndpointKind::Stream | EndpointKind::Value => {
@@ -1190,7 +1190,7 @@ impl<'a> CodegenContext<'a> {
                                 });
                             }
                         } else {
-                            let source_tokens = self.emit_expr(ir_source);
+                            let source_tokens = self.emit_expr(source);
                             out.push(quote! {
                                 self.#dest_ident = #source_tokens;
                             });
@@ -1787,8 +1787,8 @@ impl<'a> CodegenContext<'a> {
     /// Emit the cross-rate event drain for one edge.
     fn generate_event_drain(
         &self,
-        ir_source: &crate::ir::expr::IrExpr,
-        ir_dest: &crate::ir::expr::IrEndpoint,
+        source: &crate::ir::expr::IrExpr,
+        dest: &crate::ir::expr::IrEndpoint,
         rescale: EventRescale,
     ) -> TokenStream {
         let transform = match rescale {
@@ -1801,24 +1801,24 @@ impl<'a> CodegenContext<'a> {
             EventRescale::None => quote! {},
         };
 
-        let src_size = match self.extract_root_node(ir_source) {
+        let src_size = match self.extract_root_node(source) {
             Some(ident) => self.get_node_array_size(ident),
             None => None,
         };
-        let dest_node_name = &self.ir.nodes[ir_dest.node].name;
+        let dest_node_name = &self.ir.nodes[dest.node].name;
         let dst_size = self.get_node_array_size(dest_node_name);
         // src_field_access: source is a plain `node.field` endpoint (not bare-ident, not compound).
         let src_field_access =
-            Self::is_simple_endpoint_source(ir_source)
-                && self.extract_endpoint_field(ir_source).is_some();
+            Self::is_simple_endpoint_source(source)
+                && self.extract_endpoint_field(source).is_some();
         // dst_field_access: dest has a separate endpoint field (not bare-ident graph output).
-        let dst_field_access = *dest_node_name != ir_dest.endpoint;
+        let dst_field_access = *dest_node_name != dest.endpoint;
 
         // Broadcast: scalar source → array dest field.
         if let (None, Some(n), true) = (src_size, dst_size, dst_field_access) {
             let dest_node = dest_node_name;
-            let dest_field = &ir_dest.endpoint;
-            let source_tokens = self.emit_expr(ir_source);
+            let dest_field = &dest.endpoint;
+            let source_tokens = self.emit_expr(source);
             return quote! {
                 {
                     for __k in 0..#n {
@@ -1837,9 +1837,9 @@ impl<'a> CodegenContext<'a> {
 
         // FanIn: array source field → scalar dest.
         if let (Some(n), None, true) = (src_size, dst_size, src_field_access) {
-            let source_ident = self.extract_root_node(ir_source).expect("checked");
-            let source_field = self.extract_endpoint_field(ir_source).expect("Field has field");
-            let dest_tokens = self.emit_endpoint(ir_dest);
+            let source_ident = self.extract_root_node(source).expect("checked");
+            let source_field = self.extract_endpoint_field(source).expect("Field has field");
+            let dest_tokens = self.emit_endpoint(dest);
             return quote! {
                 {
                     #dest_tokens.clear();
@@ -1859,10 +1859,10 @@ impl<'a> CodegenContext<'a> {
             (src_size, dst_size, src_field_access, dst_field_access)
         {
             let n = ns.min(nd);
-            let source_ident = self.extract_root_node(ir_source).expect("checked");
-            let source_field = self.extract_endpoint_field(ir_source).expect("Field has field");
+            let source_ident = self.extract_root_node(source).expect("checked");
+            let source_field = self.extract_endpoint_field(source).expect("Field has field");
             let dest_node = dest_node_name;
-            let dest_field = &ir_dest.endpoint;
+            let dest_field = &dest.endpoint;
             return quote! {
                 {
                     for __k in 0..#n {
@@ -1878,8 +1878,8 @@ impl<'a> CodegenContext<'a> {
         }
 
         // Scalar (or indexed access on either side): single drain.
-        let source_tokens = self.emit_expr(ir_source);
-        let dest_tokens = self.emit_endpoint(ir_dest);
+        let source_tokens = self.emit_expr(source);
+        let dest_tokens = self.emit_endpoint(dest);
         quote! {
             {
                 #dest_tokens.clear();
@@ -1967,28 +1967,28 @@ impl<'a> CodegenContext<'a> {
     /// Build an `f32`-valued expression for a connection's source.
     fn connection_source_value_expr(
         &self,
-        ir_source: &crate::ir::expr::IrExpr,
+        source: &crate::ir::expr::IrExpr,
     ) -> TokenStream {
         // Compound or non-trivial sources.
-        if !Self::is_simple_endpoint_source(ir_source) {
-            let toks = self.emit_expr(ir_source);
+        if !Self::is_simple_endpoint_source(source) {
+            let toks = self.emit_expr(source);
             return quote! { (#toks) as f32 };
         }
 
         // FanIn sum: source is `<array_node>.<field>` with no explicit index.
-        let src_array_size = match self.extract_root_node(ir_source) {
+        let src_array_size = match self.extract_root_node(source) {
             Some(ident) => self.get_node_array_size(ident),
             None => None,
         };
         // source_is_field_access: simple endpoint where endpoint != node_name (not bare-ident).
         let source_is_field_access =
-            Self::is_simple_endpoint_source(ir_source)
-                && self.extract_endpoint_field(ir_source).is_some();
+            Self::is_simple_endpoint_source(source)
+                && self.extract_endpoint_field(source).is_some();
 
         if let (Some(n), true) = (src_array_size, source_is_field_access) {
-            let source_ident = self.extract_root_node(ir_source).expect("checked above");
+            let source_ident = self.extract_root_node(source).expect("checked above");
             let source_field =
-                self.extract_endpoint_field(ir_source).expect("Field variant has a field");
+                self.extract_endpoint_field(source).expect("Field variant has a field");
             return quote! {
                 {
                     let mut __sum: f32 = 0.0;
@@ -2007,7 +2007,7 @@ impl<'a> CodegenContext<'a> {
 
         // Ramped graph value input: read .current directly.
         // In IR, a bare-ident reference has endpoint == node_name.
-        if let crate::ir::expr::IrExprKind::Endpoint(ep) = &ir_source.kind {
+        if let crate::ir::expr::IrExprKind::Endpoint(ep) = &source.kind {
             let node_name = &self.ir.nodes[ep.node].name;
             if *node_name == ep.endpoint
                 && self.is_input(node_name)
@@ -2018,7 +2018,7 @@ impl<'a> CodegenContext<'a> {
         }
 
         // Simple scalar endpoint source.
-        let toks = self.emit_expr(ir_source);
+        let toks = self.emit_expr(source);
         quote! {
             {
                 let mut __src: f32 = 0.0;
@@ -2034,11 +2034,11 @@ impl<'a> CodegenContext<'a> {
     /// Build an assignment `dest <- value` for a connection's dest.
     fn connection_dest_field_assign(
         &self,
-        ir_dest: &crate::ir::expr::IrEndpoint,
+        dest: &crate::ir::expr::IrEndpoint,
         value: &TokenStream,
     ) -> TokenStream {
-        let dest_node = &self.ir.nodes[ir_dest.node].name;
-        let dest_field = &ir_dest.endpoint;
+        let dest_node = &self.ir.nodes[dest.node].name;
+        let dest_field = &dest.endpoint;
 
         // Graph output (bare-ident, no separate field): direct assignment.
         // In IR, bare-ident has endpoint == node_name.
@@ -2048,7 +2048,7 @@ impl<'a> CodegenContext<'a> {
 
         let dest_array_size = self.get_node_array_size(dest_node);
         // dest_is_field_access: non-bare-ident endpoint on a scalar node.
-        let dest_is_field_access = *dest_node != *dest_field && ir_dest.index.is_none();
+        let dest_is_field_access = *dest_node != *dest_field && dest.index.is_none();
 
         if let (Some(n), true) = (dest_array_size, dest_is_field_access) {
             // Broadcast write: dest is `<array_node>.<field>`.
@@ -2066,7 +2066,7 @@ impl<'a> CodegenContext<'a> {
         }
 
         // Scalar dest (or indexed array element): single ConnectEndpoints write.
-        let dest_toks = self.emit_endpoint(ir_dest);
+        let dest_toks = self.emit_endpoint(dest);
         quote! {
             {
                 let __dst_val: f32 = #value;
