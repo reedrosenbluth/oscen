@@ -270,6 +270,17 @@ impl Parse for GraphItem {
             return Ok(GraphItem::Name(name));
         }
 
+        // `#[feedback]` or other node attributes preceding a top-level
+        // `node X = ...;` declaration. Attributes are only valid on `node`
+        // items; anything else is rejected by `kw::node` parse below.
+        if input.peek(Token![#]) {
+            let allows_feedback = parse_node_attrs(input)?;
+            input.parse::<kw::node>()?;
+            let mut decl = parse_node_decl_body(input)?;
+            decl.allows_feedback = decl.allows_feedback || allows_feedback;
+            return Ok(GraphItem::Node(decl));
+        }
+
         let lookahead = input.lookahead1();
 
         if lookahead.peek(kw::nih_params) {
@@ -659,11 +670,12 @@ impl Parse for OutputDecl {
 }
 
 /// Parse the body of a node declaration (everything after the `node`
-/// keyword): `<name> = <constructor> [* N | / N];`. Shared between
-/// `Parse for NodeDecl` (which consumes `node` first) and
+/// keyword): `[#[feedback]] <name> = <constructor> [* N | / N];`. Shared
+/// between `Parse for NodeDecl` (which consumes `node` first) and
 /// `parse_node_block_with_diags` (which uses it on per-statement
 /// chunks inside `node {}` / `nodes {}` block contents).
 fn parse_node_decl_body(input: ParseStream) -> Result<NodeDecl> {
+    let allows_feedback = parse_node_attrs(input)?;
     let name = input.parse()?;
     input.parse::<Token![=]>()?;
     let (constructor, extracted_type) = parse_constructor_with_type(input)?;
@@ -692,7 +704,34 @@ fn parse_node_decl_body(input: ParseStream) -> Result<NodeDecl> {
         node_type,
         array_size,
         rate,
+        allows_feedback,
     })
+}
+
+/// Parse zero or more outer attributes on a node declaration. Currently
+/// only `#[feedback]` is recognised; any other attribute produces an error.
+/// Returns `true` if `#[feedback]` appeared at least once.
+fn parse_node_attrs(input: ParseStream) -> Result<bool> {
+    let mut allows_feedback = false;
+    while input.peek(Token![#]) {
+        let attrs = syn::Attribute::parse_outer(input)?;
+        for attr in attrs {
+            if !attr.path().is_ident("feedback") {
+                return Err(syn::Error::new_spanned(
+                    attr.path(),
+                    "unknown node attribute; only `#[feedback]` is supported",
+                ));
+            }
+            if !matches!(attr.meta, syn::Meta::Path(_)) {
+                return Err(syn::Error::new_spanned(
+                    &attr.meta,
+                    "`#[feedback]` does not take arguments",
+                ));
+            }
+            allows_feedback = true;
+        }
+    }
+    Ok(allows_feedback)
 }
 
 impl Parse for NodeDecl {

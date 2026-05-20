@@ -84,6 +84,7 @@ fn collect_declarations(
                     endpoints: input_endpoints(input),
                     incoming: Vec::new(),
                     outgoing: Vec::new(),
+                    allows_feedback: false,
                 });
                 ir.inputs.push(id);
                 if name_to_id.insert(input.name.to_string(), id).is_some() {
@@ -104,6 +105,7 @@ fn collect_declarations(
                     endpoints: output_endpoints(output),
                     incoming: Vec::new(),
                     outgoing: Vec::new(),
+                    allows_feedback: false,
                 });
                 ir.outputs.push(id);
                 if name_to_id.insert(output.name.to_string(), id).is_some() {
@@ -160,6 +162,7 @@ fn collect_node_decl(
         endpoints: HashMap::new(),
         incoming: Vec::new(),
         outgoing: Vec::new(),
+        allows_feedback: decl.allows_feedback,
     });
     ir.processors.push(id);
     if name_to_id.insert(decl.name.to_string(), id).is_some() {
@@ -732,20 +735,11 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
 
 /// Return `true` if `node` is a feedback-allowing node (e.g., a delay line).
 ///
-/// Uses the same string-match heuristic as `codegen::is_feedback_allowing_node`
-/// (line ~887): the last path segment of the node's type must contain "Delay".
-/// Replacing this with a marker-trait approach is tracked separately.
+/// Driven by the explicit `#[feedback]` attribute on the node declaration in
+/// the `graph!` DSL. Nodes that want to participate in feedback cycles must
+/// opt in by marking the declaration with `#[feedback]`.
 fn is_feedback_allowing_node(node: &IrNode) -> bool {
-    match &node.kind {
-        IrNodeKind::Processor { ty: Some(path), .. }
-        | IrNodeKind::NodeArray { ty: Some(path), .. } => {
-            if let Some(seg) = path.segments.last() {
-                return seg.ident.to_string().contains("Delay");
-            }
-            false
-        }
-        _ => false,
-    }
+    node.allows_feedback
 }
 
 // ---------------------------------------------------------------------------

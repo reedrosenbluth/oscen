@@ -98,6 +98,7 @@ mod tests {
             },
             incoming: Vec::new(),
             outgoing: Vec::new(),
+            allows_feedback: false,
         });
         g.inputs.push(id);
         id
@@ -123,6 +124,7 @@ mod tests {
             },
             incoming: Vec::new(),
             outgoing: Vec::new(),
+            allows_feedback: false,
         });
         g.outputs.push(id);
         id
@@ -142,6 +144,7 @@ mod tests {
             endpoints: HashMap::new(),
             incoming: Vec::new(),
             outgoing: Vec::new(),
+            allows_feedback: false,
         });
         g.processors.push(id);
         id
@@ -303,6 +306,7 @@ mod tests {
             endpoints: HashMap::new(),
             incoming: Vec::new(),
             outgoing: Vec::new(),
+            allows_feedback: false,
         });
         g.processors.push(id);
 

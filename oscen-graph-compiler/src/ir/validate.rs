@@ -148,6 +148,7 @@ mod tests {
             endpoints: Default::default(),
             incoming: Vec::new(),
             outgoing: Vec::new(),
+            allows_feedback: false,
         });
         g.processors.push(id);
         g.nodes.remove(id); // now processors[] is stale

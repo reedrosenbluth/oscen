@@ -111,6 +111,10 @@ pub struct IrNode {
     pub endpoints: HashMap<Ident, EndpointInfo>,
     pub incoming: Vec<EdgeId>,
     pub outgoing: Vec<EdgeId>,
+    /// True when the user marked this node `#[feedback]` in the graph DSL.
+    /// Topological sort skips this node's incoming edges so cycles through
+    /// it don't trip the cycle detector.
+    pub allows_feedback: bool,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -252,6 +256,7 @@ mod tests {
             endpoints: Default::default(),
             incoming: Vec::new(),
             outgoing: Vec::new(),
+            allows_feedback: false,
         });
         graph.processors.push(id);
         id
