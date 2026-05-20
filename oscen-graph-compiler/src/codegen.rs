@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, ConnectionExpr, ConnectionPolicy, EndpointKind, NodeRate};
+use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, NodeRate};
 use crate::diagnostics::Diagnostics;
 use crate::ir::graph::{
     EdgeId, EdgeKernel, EventRescale, FanoutShape, IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
@@ -831,44 +831,55 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
-    /// Convert a ConnectionExpr to a TokenStream that evaluates it.
-    fn connection_expr_to_tokens(&self, expr: &ConnectionExpr) -> TokenStream {
-        match expr {
-            ConnectionExpr::Ident(ident) => {
-                quote! { self.#ident }
-            }
-            ConnectionExpr::Field(base, field) => {
-                let base_tokens = self.connection_expr_to_tokens(base);
-                quote! { #base_tokens.#field }
-            }
-            ConnectionExpr::MethodCall(base, method, args) => {
-                let base_tokens = self.connection_expr_to_tokens(base);
-                quote! { #base_tokens.#method(#(#args),*) }
-            }
-            ConnectionExpr::ArrayIndex(base, idx) => {
-                let base_tokens = self.connection_expr_to_tokens(base);
-                quote! { #base_tokens[#idx] }
-            }
-            ConnectionExpr::Binary(left, op, right) => {
-                let left_tokens = self.connection_expr_to_tokens(left);
-                let right_tokens = self.connection_expr_to_tokens(right);
+    /// Emit a TokenStream that evaluates the expression at runtime.
+    ///
+    /// For `Endpoint` variants, uses the IR's resolved node name + endpoint
+    /// field. Replaces the AST-walking `connection_expr_to_tokens`.
+    fn emit_expr(&self, expr: &crate::ir::expr::IrExpr) -> TokenStream {
+        use crate::ir::expr::IrExprKind;
+        match &expr.kind {
+            IrExprKind::Endpoint(ep) => self.emit_endpoint(ep),
+            IrExprKind::Binary { left, op, right } => {
+                let l = self.emit_expr(left);
+                let r = self.emit_expr(right);
                 let op_token = match op {
-                    BinaryOp::Add => quote! { + },
-                    BinaryOp::Sub => quote! { - },
-                    BinaryOp::Mul => quote! { * },
-                    BinaryOp::Div => quote! { / },
+                    crate::ast::BinaryOp::Add => quote! { + },
+                    crate::ast::BinaryOp::Sub => quote! { - },
+                    crate::ast::BinaryOp::Mul => quote! { * },
+                    crate::ast::BinaryOp::Div => quote! { / },
                 };
-                quote! { (#left_tokens #op_token #right_tokens) }
+                quote! { (#l #op_token #r) }
             }
-            ConnectionExpr::Literal(lit) => {
-                quote! { #lit }
+            IrExprKind::MethodCall { receiver, method, args } => {
+                let recv = self.emit_expr(receiver);
+                quote! { #recv.#method(#(#args),*) }
             }
-            ConnectionExpr::Call(func, args) => {
-                let arg_tokens: Vec<_> = args
-                    .iter()
-                    .map(|arg| self.connection_expr_to_tokens(arg))
-                    .collect();
-                quote! { #func(#(#arg_tokens),*) }
+            IrExprKind::Call { function, args } => {
+                let arg_tokens: Vec<_> = args.iter().map(|a| self.emit_expr(a)).collect();
+                quote! { #function(#(#arg_tokens),*) }
+            }
+            IrExprKind::Literal(lit) => quote! { #lit },
+        }
+    }
+
+    /// Emit tokens for an `IrEndpoint` reference (`self.osc.output` or
+    /// `self.voices[3].output`). For graph-level input/output nodes whose
+    /// endpoint name matches the node name (bare-ident case), emits just
+    /// `self.<name>` to match the legacy `ConnectionExpr::Ident` emission.
+    fn emit_endpoint(&self, ep: &crate::ir::expr::IrEndpoint) -> TokenStream {
+        let node_name = &self.ir.nodes[ep.node].name;
+        let endpoint_name = &ep.endpoint;
+        match ep.index {
+            Some(idx) => quote! { self.#node_name[#idx].#endpoint_name },
+            None => {
+                // For bare-ident references (graph input/output nodes whose
+                // endpoint name equals the node name), emit just self.<name>
+                // — matches the legacy ConnectionExpr::Ident emission.
+                if *node_name == *endpoint_name {
+                    quote! { self.#node_name }
+                } else {
+                    quote! { self.#node_name.#endpoint_name }
+                }
             }
         }
     }
@@ -968,7 +979,6 @@ impl<'a> CodegenContext<'a> {
             if !keep(&edge.kernel) {
                 continue;
             }
-            let source = &edge.source_expr;
             let ir_source = &edge.ir_source;
             let ir_dest = &edge.ir_dest;
             let dest_node = &self.ir.nodes[ir_dest.node].name;
@@ -982,7 +992,7 @@ impl<'a> CodegenContext<'a> {
             // a single root endpoint. Evaluate them as f32 and route via
             // ConnectEndpoints<f32, _>.
             if !Self::is_simple_endpoint_source(ir_source) {
-                let src_tokens = self.connection_expr_to_tokens(source);
+                let src_tokens = self.emit_expr(ir_source);
                 if let Some(dest_size) = self.get_node_array_size(dest_node) {
                     assignments.push(quote! {
                         {
@@ -1155,7 +1165,6 @@ impl<'a> CodegenContext<'a> {
             if !keep(&edge.kernel) {
                 continue;
             }
-            let source = &edge.source_expr;
             let ir_source = &edge.ir_source;
             let ir_dest = &edge.ir_dest;
             let dest_ident = &self.ir.nodes[ir_dest.node].name;
@@ -1189,7 +1198,7 @@ impl<'a> CodegenContext<'a> {
                                 });
                             }
                         } else {
-                            let source_tokens = self.connection_expr_to_tokens(source);
+                            let source_tokens = self.emit_expr(ir_source);
                             out.push(quote! {
                                 self.#dest_ident = #source_tokens;
                             });
@@ -1555,7 +1564,7 @@ impl<'a> CodegenContext<'a> {
                     });
                 } else {
                     let src_value =
-                        self.connection_source_value_expr(&edge.source_expr, &edge.ir_source);
+                        self.connection_source_value_expr(&edge.ir_source);
                     up_decls.push(quote! {
                         let mut #buf: [f32; #factor_us] = [0.0; #factor_us];
                         {
@@ -1597,8 +1606,6 @@ impl<'a> CodegenContext<'a> {
             } = edge.kernel
             {
                 let drain = self.generate_event_drain(
-                    &edge.source_expr,
-                    &edge.dest_expr,
                     &edge.ir_source,
                     &edge.ir_dest,
                     EventRescale::Multiply(n),
@@ -1615,8 +1622,6 @@ impl<'a> CodegenContext<'a> {
             } = edge.kernel
             {
                 let drain = self.generate_event_drain(
-                    &edge.source_expr,
-                    &edge.dest_expr,
                     &edge.ir_source,
                     &edge.ir_dest,
                     EventRescale::Divide(n),
@@ -1650,7 +1655,6 @@ impl<'a> CodegenContext<'a> {
                     });
                 } else {
                     let dest_assign = self.connection_dest_field_assign(
-                        &edge.dest_expr,
                         &edge.ir_dest,
                         &quote! { #buf[__inner] },
                     );
@@ -1689,7 +1693,7 @@ impl<'a> CodegenContext<'a> {
                     });
                 } else {
                     let src_value =
-                        self.connection_source_value_expr(&edge.source_expr, &edge.ir_source);
+                        self.connection_source_value_expr(&edge.ir_source);
                     down_captures.push(quote! {
                         #buf[__inner] = #src_value;
                     });
@@ -1727,7 +1731,6 @@ impl<'a> CodegenContext<'a> {
                     });
                 } else {
                     let dest_assign = self.connection_dest_field_assign(
-                        &edge.dest_expr,
                         &edge.ir_dest,
                         &quote! {
                             ::oscen::resample::StreamDownsampler::downsample(
@@ -1790,14 +1793,8 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Emit the cross-rate event drain for one edge.
-    ///
-    /// Note: `ConnectionExpr` params are transitional scaffolding for T7 (which
-    /// migrates `connection_expr_to_tokens` to consume `IrExpr`). The IR params
-    /// are used for structural dispatch.
     fn generate_event_drain(
         &self,
-        source: &ConnectionExpr,
-        dest: &ConnectionExpr,
         ir_source: &crate::ir::expr::IrExpr,
         ir_dest: &crate::ir::expr::IrEndpoint,
         rescale: EventRescale,
@@ -1816,17 +1813,20 @@ impl<'a> CodegenContext<'a> {
             Some(ident) => self.get_node_array_size(ident),
             None => None,
         };
-        let dst_size = self.get_node_array_size(&self.ir.nodes[ir_dest.node].name);
-        let src_field_access = matches!(source, ConnectionExpr::Field(base, _)
-            if matches!(**base, ConnectionExpr::Ident(_)));
-        let dst_field_access = matches!(dest, ConnectionExpr::Field(base, _)
-            if matches!(**base, ConnectionExpr::Ident(_)));
+        let dest_node_name = &self.ir.nodes[ir_dest.node].name;
+        let dst_size = self.get_node_array_size(dest_node_name);
+        // src_field_access: source is a plain `node.field` endpoint (not bare-ident, not compound).
+        let src_field_access =
+            Self::is_simple_endpoint_source(ir_source)
+                && self.extract_endpoint_field(ir_source).is_some();
+        // dst_field_access: dest has a separate endpoint field (not bare-ident graph output).
+        let dst_field_access = *dest_node_name != ir_dest.endpoint;
 
         // Broadcast: scalar source → array dest field.
         if let (None, Some(n), true) = (src_size, dst_size, dst_field_access) {
-            let dest_node = &self.ir.nodes[ir_dest.node].name;
+            let dest_node = dest_node_name;
             let dest_field = &ir_dest.endpoint;
-            let source_tokens = self.connection_expr_to_tokens(source);
+            let source_tokens = self.emit_expr(ir_source);
             return quote! {
                 {
                     for __k in 0..#n {
@@ -1847,7 +1847,7 @@ impl<'a> CodegenContext<'a> {
         if let (Some(n), None, true) = (src_size, dst_size, src_field_access) {
             let source_ident = self.extract_root_node(ir_source).expect("checked");
             let source_field = self.extract_endpoint_field(ir_source).expect("Field has field");
-            let dest_tokens = self.connection_expr_to_tokens(dest);
+            let dest_tokens = self.emit_endpoint(ir_dest);
             return quote! {
                 {
                     #dest_tokens.clear();
@@ -1869,7 +1869,7 @@ impl<'a> CodegenContext<'a> {
             let n = ns.min(nd);
             let source_ident = self.extract_root_node(ir_source).expect("checked");
             let source_field = self.extract_endpoint_field(ir_source).expect("Field has field");
-            let dest_node = &self.ir.nodes[ir_dest.node].name;
+            let dest_node = dest_node_name;
             let dest_field = &ir_dest.endpoint;
             return quote! {
                 {
@@ -1886,8 +1886,8 @@ impl<'a> CodegenContext<'a> {
         }
 
         // Scalar (or indexed access on either side): single drain.
-        let source_tokens = self.connection_expr_to_tokens(source);
-        let dest_tokens = self.connection_expr_to_tokens(dest);
+        let source_tokens = self.emit_expr(ir_source);
+        let dest_tokens = self.emit_endpoint(ir_dest);
         quote! {
             {
                 #dest_tokens.clear();
@@ -1974,18 +1974,13 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Build an `f32`-valued expression for a connection's source.
-    ///
-    /// Note: `ConnectionExpr` params are transitional scaffolding for T7 (which
-    /// migrates `connection_expr_to_tokens` to consume `IrExpr`). The IR params
-    /// are used for structural dispatch.
     fn connection_source_value_expr(
         &self,
-        source: &ConnectionExpr,
         ir_source: &crate::ir::expr::IrExpr,
     ) -> TokenStream {
         // Compound or non-trivial sources.
         if !Self::is_simple_endpoint_source(ir_source) {
-            let toks = self.connection_expr_to_tokens(source);
+            let toks = self.emit_expr(ir_source);
             return quote! { (#toks) as f32 };
         }
 
@@ -1994,8 +1989,10 @@ impl<'a> CodegenContext<'a> {
             Some(ident) => self.get_node_array_size(ident),
             None => None,
         };
-        let source_is_field_access = matches!(source, ConnectionExpr::Field(base, _)
-            if matches!(**base, ConnectionExpr::Ident(_)));
+        // source_is_field_access: simple endpoint where endpoint != node_name (not bare-ident).
+        let source_is_field_access =
+            Self::is_simple_endpoint_source(ir_source)
+                && self.extract_endpoint_field(ir_source).is_some();
 
         if let (Some(n), true) = (src_array_size, source_is_field_access) {
             let source_ident = self.extract_root_node(ir_source).expect("checked above");
@@ -2018,14 +2015,19 @@ impl<'a> CodegenContext<'a> {
         }
 
         // Ramped graph value input: read .current directly.
-        if let ConnectionExpr::Ident(ident) = source {
-            if self.is_input(ident) && self.is_ramped_input(ident).is_some() {
-                return quote! { self.#ident.current };
+        // In IR, a bare-ident reference has endpoint == node_name.
+        if let crate::ir::expr::IrExprKind::Endpoint(ep) = &ir_source.kind {
+            let node_name = &self.ir.nodes[ep.node].name;
+            if *node_name == ep.endpoint
+                && self.is_input(node_name)
+                && self.is_ramped_input(node_name).is_some()
+            {
+                return quote! { self.#node_name.current };
             }
         }
 
         // Simple scalar endpoint source.
-        let toks = self.connection_expr_to_tokens(source);
+        let toks = self.emit_expr(ir_source);
         quote! {
             {
                 let mut __src: f32 = 0.0;
@@ -2039,27 +2041,23 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Build an assignment `dest <- value` for a connection's dest.
-    ///
-    /// Note: `ConnectionExpr` params are transitional scaffolding for T7 (which
-    /// migrates `connection_expr_to_tokens` to consume `IrExpr`). The IR params
-    /// are used for structural dispatch.
     fn connection_dest_field_assign(
         &self,
-        dest: &ConnectionExpr,
         ir_dest: &crate::ir::expr::IrEndpoint,
         value: &TokenStream,
     ) -> TokenStream {
         let dest_node = &self.ir.nodes[ir_dest.node].name;
         let dest_field = &ir_dest.endpoint;
 
-        // Graph output (Ident only, no field): direct assignment.
-        if self.is_output(dest_node) && matches!(dest, ConnectionExpr::Ident(_)) {
+        // Graph output (bare-ident, no separate field): direct assignment.
+        // In IR, bare-ident has endpoint == node_name.
+        if self.is_output(dest_node) && *dest_node == *dest_field {
             return quote! { self.#dest_node = #value; };
         }
 
         let dest_array_size = self.get_node_array_size(dest_node);
-        let dest_is_field_access = matches!(dest, ConnectionExpr::Field(base, _)
-            if matches!(**base, ConnectionExpr::Ident(_)));
+        // dest_is_field_access: non-bare-ident endpoint on a scalar node.
+        let dest_is_field_access = *dest_node != *dest_field && ir_dest.index.is_none();
 
         if let (Some(n), true) = (dest_array_size, dest_is_field_access) {
             // Broadcast write: dest is `<array_node>.<field>`.
@@ -2077,7 +2075,7 @@ impl<'a> CodegenContext<'a> {
         }
 
         // Scalar dest (or indexed array element): single ConnectEndpoints write.
-        let dest_toks = self.connection_expr_to_tokens(dest);
+        let dest_toks = self.emit_endpoint(ir_dest);
         quote! {
             {
                 let __dst_val: f32 = #value;
