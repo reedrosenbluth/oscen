@@ -3,6 +3,9 @@ use crate::graph::{EventInput, EventInstance, SignalProcessor, StreamOutput, Val
 use crate::Node;
 
 const MIN_TIME_SECONDS: f32 = 1.0e-5;
+// One-pole curve target: at the end of an attack/decay stage, the level is
+// 1 - 1% = 99% of the way to the target, then snapped. -ln(0.01) ≈ 4.605.
+const CURVE_TIME_CONSTANT: f32 = 4.605_170_2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stage {
@@ -32,7 +35,12 @@ pub struct AdsrEnvelope {
     decay_samples: u32,
     release_samples: u32,
     samples_remaining: u32,
-    increment: f32,
+    // Per-sample coefficients for the one-pole approach used by Attack (toward
+    // 1.0) and Decay (toward sustain_level). Release is still linear and uses
+    // `release_increment`.
+    attack_coeff: f32,
+    decay_coeff: f32,
+    release_increment: f32,
     level: f32,
     target_level: f32,
     sustain_level: f32,
@@ -54,7 +62,9 @@ impl AdsrEnvelope {
             decay_samples: 0,
             release_samples: 0,
             samples_remaining: 0,
-            increment: 0.0,
+            attack_coeff: 0.0,
+            decay_coeff: 0.0,
+            release_increment: 0.0,
             level: 0.0,
             target_level: 0.0,
             sustain_level: sustain.clamp(0.0, 1.0),
@@ -93,8 +103,8 @@ impl AdsrEnvelope {
             Stage::Release => self.target_level = 0.0,
             _ => {}
         }
-        if matches!(self.stage, Stage::Attack | Stage::Decay | Stage::Release) {
-            self.update_increment_for_stage();
+        if matches!(self.stage, Stage::Release) {
+            self.update_release_increment();
         }
     }
 
@@ -109,6 +119,14 @@ impl AdsrEnvelope {
 
         self.release_samples = (self.release.max(MIN_TIME_SECONDS) * sample_rate) as u32;
         self.release_samples = self.release_samples.max(1);
+
+        // One-pole coefficient: after `n` samples of `level += (target - level) * c`,
+        // level is `1 - (1 - c)^n` of the way to target. Picking
+        // `c = 1 - exp(-K/n)` makes that fraction `1 - exp(-K) ≈ 99%` at stage end.
+        self.attack_coeff =
+            1.0 - (-CURVE_TIME_CONSTANT / self.attack_samples as f32).exp();
+        self.decay_coeff =
+            1.0 - (-CURVE_TIME_CONSTANT / self.decay_samples as f32).exp();
     }
 
     fn set_stage(&mut self, stage: Stage, target_level: f32) {
@@ -124,42 +142,29 @@ impl AdsrEnvelope {
 
         if samples == 0 {
             self.samples_remaining = 0;
-            self.increment = 0.0;
+            self.release_increment = 0.0;
             self.level = self.target_level;
             if !matches!(stage, Stage::Sustain | Stage::Idle) {
                 self.complete_stage();
             }
         } else {
             self.samples_remaining = samples;
-            self.update_increment_for_stage();
+            self.update_release_increment();
         }
     }
 
-    fn update_increment_for_stage(&mut self) {
-        if self.samples_remaining == 0 {
-            self.increment = 0.0;
+    fn update_release_increment(&mut self) {
+        // Release stays linear: per-sample slope that lands at zero after
+        // `samples_remaining` samples.
+        if self.samples_remaining == 0 || !matches!(self.stage, Stage::Release) {
+            self.release_increment = 0.0;
             return;
         }
-
         let current = self.level.clamp(0.0, 1.0);
-
-        self.increment = match self.stage {
-            Stage::Attack => {
-                let delta = (1.0 - current).max(0.0);
-                delta / self.samples_remaining as f32
-            }
-            Stage::Decay => {
-                let delta = self.sustain_level - current;
-                delta / self.samples_remaining as f32
-            }
-            Stage::Release => {
-                if current <= 0.0 {
-                    0.0
-                } else {
-                    -current / self.samples_remaining as f32
-                }
-            }
-            Stage::Sustain | Stage::Idle => 0.0,
+        self.release_increment = if current <= 0.0 {
+            0.0
+        } else {
+            -current / self.samples_remaining as f32
         };
     }
 
@@ -173,38 +178,59 @@ impl AdsrEnvelope {
                 self.level = self.sustain_level;
                 self.stage = Stage::Sustain;
                 self.samples_remaining = 0;
-                self.increment = 0.0;
+                self.release_increment = 0.0;
             }
             Stage::Release => {
                 self.level = 0.0;
                 self.stage = Stage::Idle;
                 self.samples_remaining = 0;
-                self.increment = 0.0;
+                self.release_increment = 0.0;
             }
             Stage::Sustain => {
                 self.level = self.sustain_level;
                 self.samples_remaining = 0;
-                self.increment = 0.0;
+                self.release_increment = 0.0;
             }
             Stage::Idle => {
                 self.level = 0.0;
                 self.samples_remaining = 0;
-                self.increment = 0.0;
+                self.release_increment = 0.0;
             }
         }
     }
 
     fn process_stage(&mut self) {
         match self.stage {
-            Stage::Attack | Stage::Decay | Stage::Release => {
+            Stage::Attack => {
                 if self.samples_remaining > 0 {
-                    self.level += self.increment;
+                    self.level += (1.0 - self.level) * self.attack_coeff;
                     self.samples_remaining -= 1;
                     self.level = self.level.clamp(0.0, 1.0);
                 }
-
                 if self.samples_remaining == 0 {
-                    self.level = self.target_level;
+                    self.level = 1.0;
+                    self.complete_stage();
+                }
+            }
+            Stage::Decay => {
+                if self.samples_remaining > 0 {
+                    self.level += (self.sustain_level - self.level) * self.decay_coeff;
+                    self.samples_remaining -= 1;
+                    self.level = self.level.clamp(0.0, 1.0);
+                }
+                if self.samples_remaining == 0 {
+                    self.level = self.sustain_level;
+                    self.complete_stage();
+                }
+            }
+            Stage::Release => {
+                if self.samples_remaining > 0 {
+                    self.level += self.release_increment;
+                    self.samples_remaining -= 1;
+                    self.level = self.level.clamp(0.0, 1.0);
+                }
+                if self.samples_remaining == 0 {
+                    self.level = 0.0;
                     self.complete_stage();
                 }
             }
@@ -236,7 +262,7 @@ impl AdsrEnvelope {
             self.stage = Stage::Idle;
             self.level = 0.0;
             self.samples_remaining = 0;
-            self.increment = 0.0;
+            self.release_increment = 0.0;
         } else {
             self.set_stage(Stage::Release, 0.0);
         }
