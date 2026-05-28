@@ -265,7 +265,7 @@ fn broadcast_event_outer_to_oversampled_array_with_rescale() {
     }
 }
 
-/// Mock voice with one of every endpoint kind. Models c15-synth's voice
+/// Mock voice with one of every endpoint kind. Models a polyphonic voice
 /// surface area without bringing in the full DSP. The gate handler latches
 /// `gate_seen = true`; subsequent process() ticks emit a constant so we can
 /// detect that the voice activated.
@@ -315,7 +315,7 @@ impl SignalProcessor for MockVoice {
 }
 
 graph! {
-    name: C15ShapeArrayAt2x;
+    name: VoiceShapeArrayAt2x;
     input value frequency = 440.0;
     input stream mod_signal;
     input event gate;
@@ -334,8 +334,8 @@ graph! {
 }
 
 #[test]
-fn c15_voice_array_at_2x_compiles_and_processes() {
-    let mut g = C15ShapeArrayAt2x::new();
+fn voice_array_at_2x_compiles_and_processes() {
+    let mut g = VoiceShapeArrayAt2x::new();
     g.init(48_000.0);
     g.frequency = 440.0;
 
@@ -367,7 +367,7 @@ graph! {
     // Ramped graph value input. Without the source-side `.current` special
     // case in `connection_source_value_expr`, this would emit a
     // `ConnectEndpoints<ValueRampState, f32>` call with no impl. Triggered
-    // by c15-synth in real-world use.
+    // by polyphonic synth voices in real-world use.
     input value gain = 0.0 [0.0..1.0, ramp: 16];
     nodes {
         latches = [ValueLatch::new(); 4] * 2;
