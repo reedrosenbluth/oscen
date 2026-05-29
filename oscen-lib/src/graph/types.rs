@@ -259,6 +259,16 @@ impl<T> std::ops::Deref for StreamInput<T> {
     }
 }
 
+/// Sum an iterator of samples into a `StreamInput`. This lets the graph macro
+/// fan an array of stream outputs (e.g. a bank of voices) into a single stream
+/// input by summing them, the same way it already does for plain `f32` inputs.
+impl std::iter::Sum<f32> for StreamInput {
+    #[inline]
+    fn sum<I: Iterator<Item = f32>>(iter: I) -> Self {
+        StreamInput(iter.sum())
+    }
+}
+
 /// A stream output endpoint. Streams carry per-sample audio signals.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct StreamOutput<T = f32>(pub T);
@@ -661,5 +671,50 @@ mod tests {
             assert_eq!(completed, i == 3);
         }
         assert_eq!(ramp.current, 0.0);
+    }
+
+    // ------------------------------------------------------------------
+    // Sum impls used by the graph macro's array-to-scalar fan-in.
+    // The macro lowers `array.field -> dest.field` to
+    // `dest.field = array.iter().map(|n| n.field).sum()`, so the element
+    // type and destination type pick which Sum impl is selected.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn stream_input_sums_f32_iterator() {
+        // Raw-f32 element outputs fanning into a typed `StreamInput` dest.
+        let summed: StreamInput = [1.0_f32, 2.0, 3.0, 4.0].into_iter().sum();
+        assert_eq!(summed.0, 10.0);
+    }
+
+    #[test]
+    fn stream_input_sum_of_empty_is_zero() {
+        // Fan-in identity: an empty source array must yield silence, not NaN.
+        let summed: StreamInput = std::iter::empty::<f32>().sum();
+        assert_eq!(summed.0, 0.0);
+    }
+
+    #[test]
+    fn stream_input_sum_single_element_is_passthrough() {
+        let summed: StreamInput = std::iter::once(0.5_f32).sum();
+        assert_eq!(summed.0, 0.5);
+    }
+
+    #[test]
+    fn stream_output_sums_into_stream_output() {
+        // Sibling impl: StreamOutput elements summed into a StreamOutput.
+        let summed: StreamOutput<f32> =
+            [StreamOutput(1.5_f32), StreamOutput(2.5)].into_iter().sum();
+        assert_eq!(summed.0, 4.0);
+    }
+
+    #[test]
+    fn stream_output_sums_into_f32() {
+        // Sibling impl: StreamOutput elements summed into a bare f32 dest
+        // (e.g. a `#[output(stream)] f32` graph output or node input).
+        let summed: f32 = [StreamOutput(1.0_f32), StreamOutput(2.0), StreamOutput(3.0)]
+            .into_iter()
+            .sum();
+        assert_eq!(summed, 6.0);
     }
 }
