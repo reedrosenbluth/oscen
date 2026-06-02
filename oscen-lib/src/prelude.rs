@@ -19,3 +19,6 @@ pub use crate::{MidiParser, MidiVoiceHandler, VoiceAllocator};
 
 // Value system
 pub use crate::Value;
+
+// Multi-channel frame value type
+pub use crate::Frame;
