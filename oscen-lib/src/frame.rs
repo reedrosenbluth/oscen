@@ -15,6 +15,34 @@ impl<const N: usize> Default for Frame<N> {
     }
 }
 
+use std::iter::Sum;
+use std::ops::{Add, Mul, Neg, Sub};
+
+/// The value type a stream carries: `f32` (mono) or `Frame<N>` (multi-channel).
+///
+/// This is the single bound the resampler kernels and the arithmetic codegen
+/// target. The arithmetic surface (`Add`/`Sub`/`Mul<f32>`/`Sum`) is exactly what
+/// the resampler kernels need to be written once, generically, with no per-channel
+/// loop: element-wise add/sub for accumulation and fan-in, scalar-broadcast
+/// `frame * f32` for tap weights and gain.
+pub trait AudioFrame:
+    Copy
+    + Default
+    + Send
+    + std::fmt::Debug
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<f32, Output = Self>
+    + Sum
+{
+    /// Number of channels in one frame.
+    const CHANNELS: usize;
+}
+
+impl AudioFrame for f32 {
+    const CHANNELS: usize = 1;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -36,5 +64,17 @@ mod tests {
     fn equality_is_elementwise() {
         assert_eq!(Frame([1.0, 2.0]), Frame([1.0, 2.0]));
         assert_ne!(Frame([1.0, 2.0]), Frame([1.0, 2.5]));
+    }
+
+    #[test]
+    fn audioframe_channels_const() {
+        assert_eq!(<f32 as AudioFrame>::CHANNELS, 1);
+    }
+
+    fn assert_is_audioframe<F: AudioFrame>() {}
+
+    #[test]
+    fn f32_is_audioframe() {
+        assert_is_audioframe::<f32>();
     }
 }

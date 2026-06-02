@@ -21,4 +21,4 @@ pub use crate::{MidiParser, MidiVoiceHandler, VoiceAllocator};
 pub use crate::Value;
 
 // Multi-channel frame value type
-pub use crate::Frame;
+pub use crate::{AudioFrame, Frame};
