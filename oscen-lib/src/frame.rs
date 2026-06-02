@@ -59,6 +59,22 @@ impl<const N: usize> Sub for Frame<N> {
     }
 }
 
+impl<const N: usize> Mul<f32> for Frame<N> {
+    type Output = Self;
+    #[inline]
+    fn mul(self, rhs: f32) -> Self {
+        Frame(core::array::from_fn(|i| self.0[i] * rhs))
+    }
+}
+
+impl<const N: usize> Neg for Frame<N> {
+    type Output = Self;
+    #[inline]
+    fn neg(self) -> Self {
+        Frame(core::array::from_fn(|i| -self.0[i]))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +118,15 @@ mod tests {
     #[test]
     fn sub_is_elementwise() {
         assert_eq!(Frame([1.0, 2.0]) - Frame([0.5, -1.0]), Frame([0.5, 3.0]));
+    }
+
+    #[test]
+    fn mul_f32_broadcasts() {
+        assert_eq!(Frame([1.0, -2.0]) * 0.5, Frame([0.5, -1.0]));
+    }
+
+    #[test]
+    fn neg_is_elementwise() {
+        assert_eq!(-Frame([1.0, -2.0]), Frame([-1.0, 2.0]));
     }
 }
