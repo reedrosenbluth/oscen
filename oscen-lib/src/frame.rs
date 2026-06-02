@@ -75,6 +75,17 @@ impl<const N: usize> Neg for Frame<N> {
     }
 }
 
+impl<const N: usize> Sum for Frame<N> {
+    #[inline]
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.fold(Frame::default(), |acc, f| acc + f)
+    }
+}
+
+impl<const N: usize> AudioFrame for Frame<N> {
+    const CHANNELS: usize = N;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +139,25 @@ mod tests {
     #[test]
     fn neg_is_elementwise() {
         assert_eq!(-Frame([1.0, -2.0]), Frame([-1.0, 2.0]));
+    }
+
+    #[test]
+    fn sum_folds_elementwise() {
+        let frames = [Frame([1.0, 10.0]), Frame([2.0, 20.0]), Frame([3.0, 30.0])];
+        let total: Frame<2> = frames.into_iter().sum();
+        assert_eq!(total, Frame([6.0, 60.0]));
+    }
+
+    #[test]
+    fn empty_sum_is_default() {
+        let total: Frame<2> = std::iter::empty::<Frame<2>>().sum();
+        assert_eq!(total, Frame::<2>::default());
+    }
+
+    #[test]
+    fn frame_is_audioframe() {
+        assert_is_audioframe::<Frame<2>>();
+        assert_eq!(<Frame<2> as AudioFrame>::CHANNELS, 2);
+        assert_eq!(<Frame<4> as AudioFrame>::CHANNELS, 4);
     }
 }
