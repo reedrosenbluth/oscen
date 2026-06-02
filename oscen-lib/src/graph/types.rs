@@ -269,6 +269,15 @@ impl std::iter::Sum<f32> for StreamInput {
     }
 }
 
+/// Fan an iterator of `Frame<N>` stream outputs into a single `StreamInput<Frame<N>>`
+/// by summing element-wise — the multi-channel analogue of the `Sum<f32>` impl above.
+impl<const N: usize> std::iter::Sum<crate::frame::Frame<N>> for StreamInput<crate::frame::Frame<N>> {
+    #[inline]
+    fn sum<I: Iterator<Item = crate::frame::Frame<N>>>(iter: I) -> Self {
+        StreamInput(iter.sum())
+    }
+}
+
 /// A stream output endpoint. Streams carry per-sample audio signals.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct StreamOutput<T = f32>(pub T);
