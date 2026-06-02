@@ -43,6 +43,22 @@ impl AudioFrame for f32 {
     const CHANNELS: usize = 1;
 }
 
+impl<const N: usize> Add for Frame<N> {
+    type Output = Self;
+    #[inline]
+    fn add(self, rhs: Self) -> Self {
+        Frame(core::array::from_fn(|i| self.0[i] + rhs.0[i]))
+    }
+}
+
+impl<const N: usize> Sub for Frame<N> {
+    type Output = Self;
+    #[inline]
+    fn sub(self, rhs: Self) -> Self {
+        Frame(core::array::from_fn(|i| self.0[i] - rhs.0[i]))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,5 +92,15 @@ mod tests {
     #[test]
     fn f32_is_audioframe() {
         assert_is_audioframe::<f32>();
+    }
+
+    #[test]
+    fn add_is_elementwise() {
+        assert_eq!(Frame([1.0, 2.0]) + Frame([0.5, -1.0]), Frame([1.5, 1.0]));
+    }
+
+    #[test]
+    fn sub_is_elementwise() {
+        assert_eq!(Frame([1.0, 2.0]) - Frame([0.5, -1.0]), Frame([0.5, 3.0]));
     }
 }
