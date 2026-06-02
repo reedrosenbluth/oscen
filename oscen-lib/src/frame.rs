@@ -1,5 +1,8 @@
 //! Multi-channel audio frames: one sample-instant across N channels.
 
+use std::iter::Sum;
+use std::ops::{Add, Mul, Neg, Sub};
+
 /// One sample-instant across N channels. The audio-standard "frame".
 ///
 /// `f32` is the canonical mono type; `Frame<N>` is the multi-channel value a
@@ -14,9 +17,6 @@ impl<const N: usize> Default for Frame<N> {
         Frame([0.0; N])
     }
 }
-
-use std::iter::Sum;
-use std::ops::{Add, Mul, Neg, Sub};
 
 /// The value type a stream carries: `f32` (mono) or `Frame<N>` (multi-channel).
 ///
