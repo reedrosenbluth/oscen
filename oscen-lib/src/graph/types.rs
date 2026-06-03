@@ -336,6 +336,51 @@ impl<T> std::ops::DerefMut for ValueOutput<T> {
 }
 
 // ============================================================================
+// SampleRate newtype
+// ============================================================================
+
+/// The sample rate (frames per second) a node runs at. Declare a field of this
+/// type and `#[derive(Node)]` will fill it automatically from the parent graph
+/// (defaulting to 44.1 kHz); there is no need to capture it in `init()`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SampleRate(pub f32);
+
+impl Default for SampleRate {
+    #[inline]
+    fn default() -> Self {
+        Self(44100.0)
+    }
+}
+
+impl SampleRate {
+    /// Set the rate. Called by macro-generated code; rarely needed by hand.
+    #[inline]
+    pub fn set(&mut self, value: f32) {
+        self.0 = value;
+    }
+
+    /// Seconds per frame — `1.0 / rate`.
+    #[inline]
+    pub fn period(&self) -> f32 {
+        1.0 / self.0
+    }
+
+    /// Half the sample rate.
+    #[inline]
+    pub fn nyquist(&self) -> f32 {
+        self.0 * 0.5
+    }
+}
+
+impl std::ops::Deref for SampleRate {
+    type Target = f32;
+    #[inline]
+    fn deref(&self) -> &f32 {
+        &self.0
+    }
+}
+
+// ============================================================================
 // Operator impls (Rust doesn't auto-deref for operators)
 // ============================================================================
 
@@ -725,5 +770,29 @@ mod tests {
             .into_iter()
             .sum();
         assert_eq!(summed, 6.0);
+    }
+}
+
+#[cfg(test)]
+mod sample_rate_tests {
+    use super::SampleRate;
+
+    #[test]
+    fn default_is_44100() {
+        assert_eq!(*SampleRate::default(), 44100.0);
+    }
+
+    #[test]
+    fn set_and_read() {
+        let mut sr = SampleRate::default();
+        sr.set(48_000.0);
+        assert_eq!(*sr, 48_000.0);
+    }
+
+    #[test]
+    fn period_and_nyquist() {
+        let sr = SampleRate(48_000.0);
+        assert_eq!(sr.period(), 1.0 / 48_000.0);
+        assert_eq!(sr.nyquist(), 24_000.0);
     }
 }
