@@ -377,11 +377,13 @@ impl<'a> CodegenContext<'a> {
             if is_array {
                 calls.push(quote! {
                     for __child in self.#name.iter_mut() {
+                        __child.set_sample_rate(#scaled);
                         ::oscen::SignalProcessor::init(__child, #scaled);
                     }
                 });
             } else {
                 calls.push(quote! {
+                    self.#name.set_sample_rate(#scaled);
                     ::oscen::SignalProcessor::init(&mut self.#name, #scaled);
                 });
             }

@@ -1120,6 +1120,13 @@ impl<'a> CodegenContext<'a> {
                     }
                 }
 
+                /// Set the graph's sample rate. Called when this graph is nested
+                /// as a node inside another graph; the host normally uses `init`.
+                #[inline]
+                pub fn set_sample_rate(&mut self, sample_rate: f32) {
+                    self.sample_rate = sample_rate;
+                }
+
                 #process_method
 
                 #advance_one_frame_method
