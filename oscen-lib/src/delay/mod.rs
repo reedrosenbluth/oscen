@@ -11,7 +11,6 @@ pub struct Delay {
     pub output: StreamOutput,
 
     buffer: RingBuffer,
-    sample_rate: f32,
     frames_per_update: usize,
     frame_counter: usize,
 }
@@ -28,7 +27,6 @@ impl Delay {
             feedback: ValueInput(feedback),
             output: StreamOutput::default(),
             buffer: RingBuffer::new(initial_buffer_size),
-            sample_rate: 44100.0, // Default, will be overwritten in init()
             frames_per_update: 32,
             frame_counter: 0,
         }
@@ -54,8 +52,6 @@ impl Delay {
 
 impl SignalProcessor for Delay {
     fn init(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
-
         // Calculate a reasonable buffer size based on sample rate, with a safety cap
         // to prevent potential stack overflows
         let target_seconds = 2.0;

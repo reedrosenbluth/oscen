@@ -39,8 +39,6 @@ pub struct VoiceAllocator<const NUM_VOICES: usize> {
     // Internal state
     voice_state: [VoiceState; MAX_VOICES],
     current_age: u32,
-    #[allow(dead_code)]
-    sample_rate: f32,
 }
 
 impl<const NUM_VOICES: usize> VoiceAllocator<NUM_VOICES> {
@@ -52,7 +50,6 @@ impl<const NUM_VOICES: usize> VoiceAllocator<NUM_VOICES> {
             voices: std::array::from_fn(|_| EventOutput::default()),
             voice_state: [VoiceState::new(); MAX_VOICES],
             current_age: 0,
-            sample_rate: 44100.0, // Will be set via init()
         }
     }
 
@@ -146,10 +143,6 @@ impl<const NUM_VOICES: usize> Default for VoiceAllocator<NUM_VOICES> {
 }
 
 impl<const NUM_VOICES: usize> SignalProcessor for VoiceAllocator<NUM_VOICES> {
-    fn init(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
-    }
-
     fn process(&mut self) {
         // Event processing is handled by on_note_on() and on_note_off() event handlers
         // This node has no stream outputs to update

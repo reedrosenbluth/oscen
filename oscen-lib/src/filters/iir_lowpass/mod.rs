@@ -1,4 +1,4 @@
-use crate::graph::{StreamInput, StreamOutput, ValueInput};
+use crate::graph::{SampleRate, StreamInput, StreamOutput, ValueInput};
 use crate::{Node, SignalProcessor};
 use std::f32::consts::PI;
 
@@ -30,7 +30,7 @@ pub struct IirLowpass {
     v1: f32,
     v2: f32,
 
-    sample_rate: f32,
+    sample_rate: SampleRate,
     // Parameter update management
     frame_counter: usize,
     frames_per_update: usize,
@@ -52,7 +52,7 @@ impl Default for IirLowpass {
             v2: 0.0,
             frame_counter: 0,
             frames_per_update: 32,
-            sample_rate: 44100.0,
+            sample_rate: SampleRate::default(),
         }
     }
 }
@@ -145,14 +145,14 @@ impl IirLowpass {
 
 impl SignalProcessor for IirLowpass {
     fn init(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
+        self.sample_rate.set(sample_rate);
         self.update_coefficients(sample_rate);
     }
 
     #[inline(always)]
     fn process(&mut self) {
         // Update filter parameters if needed
-        self.apply_parameter_updates(self.sample_rate);
+        self.apply_parameter_updates(*self.sample_rate);
 
         // Process sample
         let input = *self.input;

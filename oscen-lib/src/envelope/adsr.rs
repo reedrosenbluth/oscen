@@ -1,5 +1,5 @@
 use crate::graph::types::EventPayload;
-use crate::graph::{EventInput, EventInstance, SignalProcessor, StreamOutput, ValueInput};
+use crate::graph::{EventInput, EventInstance, SampleRate, SignalProcessor, StreamOutput, ValueInput};
 use crate::Node;
 
 const MIN_TIME_SECONDS: f32 = 1.0e-5;
@@ -45,7 +45,7 @@ pub struct AdsrEnvelope {
     target_level: f32,
     sustain_level: f32,
     velocity: f32,
-    sample_rate: f32,
+    sample_rate: SampleRate,
 }
 
 impl AdsrEnvelope {
@@ -69,7 +69,7 @@ impl AdsrEnvelope {
             target_level: 0.0,
             sustain_level: sustain.clamp(0.0, 1.0),
             velocity: 1.0,
-            sample_rate: 44_100.0,
+            sample_rate: SampleRate::default(),
         };
         envelope.update_sustain_level();
         envelope
@@ -271,7 +271,7 @@ impl AdsrEnvelope {
 
 impl SignalProcessor for AdsrEnvelope {
     fn init(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
+        self.sample_rate.set(sample_rate);
         self.update_sustain_level();
     }
 

@@ -1,4 +1,4 @@
-use crate::graph::{StreamInput, StreamOutput, ValueInput};
+use crate::graph::{SampleRate, StreamInput, StreamOutput, ValueInput};
 use crate::{Node, SignalProcessor};
 use std::f32::consts::PI;
 
@@ -24,7 +24,7 @@ pub struct TptFilter {
     r: f32,
     k: f32,
 
-    sample_rate: f32,
+    sample_rate: SampleRate,
 }
 
 /// These filters are based on the designs outlined in The Art of VA Filter Design
@@ -47,7 +47,7 @@ impl TptFilter {
             g: 0.0,
             r: 0.0,
             k: 0.0,
-            sample_rate: 44100.0,
+            sample_rate: SampleRate::default(),
         };
         // Initialize coefficients with default sample rate
         // Will be updated again in init() with actual sample rate
@@ -96,7 +96,7 @@ impl TptFilter {
     #[inline(always)]
     pub fn process_internal(&mut self) {
         // Update parameters
-        self.apply_parameter_updates(self.sample_rate);
+        self.apply_parameter_updates(*self.sample_rate);
 
         // Process (state-variable filter)
         let high = (self.input - self.k * self.z[0] - self.z[1]) * self.h;
@@ -115,7 +115,7 @@ impl TptFilter {
 // The Node macro generates ProcessingNode trait and event handler methods
 impl SignalProcessor for TptFilter {
     fn init(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
+        self.sample_rate.set(sample_rate);
         self.update_coefficients(sample_rate, *self.cutoff, *self.q);
     }
 

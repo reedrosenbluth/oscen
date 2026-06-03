@@ -1,4 +1,4 @@
-use crate::graph::{StreamInput, StreamOutput, ValueInput};
+use crate::graph::{SampleRate, StreamInput, StreamOutput, ValueInput};
 use crate::{Node, SignalProcessor};
 use std::f32::consts::{PI, TAU};
 
@@ -13,7 +13,7 @@ pub struct Oscillator {
     pub output: StreamOutput,
 
     waveform: fn(f32) -> f32,
-    sample_rate: f32,
+    sample_rate: SampleRate,
 }
 
 impl Oscillator {
@@ -25,7 +25,7 @@ impl Oscillator {
             amplitude: ValueInput(amplitude),
             waveform,
             output: StreamOutput::default(),
-            sample_rate: 44100.0, // Default, will be set in init()
+            sample_rate: SampleRate::default(),
         }
     }
 
@@ -58,10 +58,6 @@ impl Oscillator {
 }
 
 impl SignalProcessor for Oscillator {
-    fn init(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
-    }
-
     #[inline(always)]
     fn process(&mut self) {
         let frequency = self.frequency * (1.0 + self.frequency_mod);
@@ -70,7 +66,7 @@ impl SignalProcessor for Oscillator {
         let modulated_phase = self.phase % 1.0;
         *self.output = (self.waveform)(modulated_phase) * amplitude;
 
-        self.phase += frequency / self.sample_rate;
+        self.phase += frequency / *self.sample_rate;
         self.phase %= 1.0;
     }
 }
@@ -96,7 +92,7 @@ pub struct PolyBlepOscillator {
     pub output: StreamOutput,
 
     waveform: PolyBlepWaveform,
-    sample_rate: f32,
+    sample_rate: SampleRate,
 }
 
 impl PolyBlepOscillator {
@@ -110,7 +106,7 @@ impl PolyBlepOscillator {
             pulse_width: ValueInput(0.5),
             output: StreamOutput::default(),
             waveform,
-            sample_rate: 44100.0,
+            sample_rate: SampleRate::default(),
         }
     }
 
@@ -168,10 +164,6 @@ impl PolyBlepOscillator {
 }
 
 impl SignalProcessor for PolyBlepOscillator {
-    fn init(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
-    }
-
     #[inline(always)]
     fn process(&mut self) {
         // Calculate modulated frequency
@@ -189,7 +181,7 @@ impl SignalProcessor for PolyBlepOscillator {
         }
 
         // Generate waveform with PolyBLEP anti-aliasing
-        let mut value = if frequency >= self.sample_rate * 0.25 {
+        let mut value = if frequency >= *self.sample_rate * 0.25 {
             (phase * TAU).sin()
         } else {
             match self.waveform {
@@ -238,7 +230,7 @@ mod tests {
     fn test_poly_blep_saw_stays_bounded() {
         let sample_rate = 48_000.0;
         let mut osc = PolyBlepOscillator::saw(440.0, 1.0);
-        osc.init(sample_rate);
+        osc.set_sample_rate(sample_rate);
         // Initialize modulation inputs
         osc.phase_mod = StreamInput(0.0);
         osc.frequency_mod = StreamInput(0.0);
@@ -263,7 +255,7 @@ mod tests {
     fn test_poly_blep_square_continuity() {
         let sample_rate = 48_000.0;
         let mut osc = PolyBlepOscillator::square(880.0, 0.8);
-        osc.init(sample_rate);
+        osc.set_sample_rate(sample_rate);
         // Initialize modulation inputs
         osc.phase_mod = StreamInput(0.0);
         osc.frequency_mod = StreamInput(0.0);
@@ -284,7 +276,7 @@ mod tests {
     fn test_poly_blep_triangle_shape() {
         let sample_rate = 48_000.0;
         let mut osc = PolyBlepOscillator::new(220.0, 1.0, PolyBlepWaveform::Triangle);
-        osc.init(sample_rate);
+        osc.set_sample_rate(sample_rate);
         // Initialize stream input fields before calling process()
         osc.phase_mod = StreamInput(0.0);
         osc.frequency_mod = StreamInput(0.0);
