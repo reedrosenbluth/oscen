@@ -246,6 +246,36 @@ fn infer_endpoint_types(
         })
         .collect();
 
+    // Seed Stream kind from explicit stream-resampling policies.
+    //
+    // `[linear]`/`[sinc]`/`[sinc_iir]` are stream-only interpolation/decimation
+    // filters — they have no value-edge interpretation (unlike `[latch]`, which
+    // `refine_kernels` also uses as the value cross-rate default). So both ends
+    // of such a connection must be `Stream`. In a pure node-to-node graph with
+    // no graph-level stream I/O, this is the only signal that classifies these
+    // processor-node endpoints as `Stream`; without it nothing seeds the
+    // propagation below and the `CrossRateKernel` projection falls back to the
+    // concrete `f32` kernel. Only fills vacant entries, so it never overrides a
+    // kind already known from a graph endpoint or the derive.
+    for stmt in &stmts {
+        if !matches!(
+            stmt.policy,
+            ConnectionPolicy::Linear | ConnectionPolicy::Sinc | ConnectionPolicy::SincIir
+        ) {
+            continue;
+        }
+        for expr in [&stmt.source, &stmt.dest] {
+            if let Some((node_id, ep)) = resolve_node_endpoint(expr, name_to_id) {
+                ir.nodes[node_id]
+                    .endpoints
+                    .entry(ep)
+                    .or_insert(EndpointInfo {
+                        kind: EndpointKind::Stream,
+                    });
+            }
+        }
+    }
+
     let cap = stmts.len() + 1;
     for _ in 0..cap {
         let mut changed = false;
