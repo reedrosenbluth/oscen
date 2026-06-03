@@ -72,7 +72,7 @@ pub trait EndpointAt<Marker> {
     note = "valid kind pairs are: (StreamKind, StreamKind), (ValueKind, ValueKind), (ValueKind, StreamKind), (EventKind, EventKind)",
     label = "edge has no resampler"
 )]
-pub trait CrossRateKernel<SrcKind, DstKind, Policy, const N: u32, Dir> {
+pub trait CrossRateKernel<SrcKind, DstKind, Policy, const N: u32, Dir, Frame = f32> {
     type State: Default + Send;
 }
 
