@@ -542,3 +542,37 @@ fn latch_down_frame2_takes_first_per_channel() {
     let y = down.downsample(&[Frame([1.0, 2.0]), Frame([3.0, 4.0])]);
     assert_eq!(y, Frame([1.0, 2.0]));
 }
+
+#[test]
+fn sinc_fir_frame2_matches_scalar_per_channel() {
+    // Decorrelated L/R sines through a 2× round-trip. Each channel must equal
+    // the scalar kernel run on that channel alone (catches any crosstalk).
+    let mut up_f = SincUpFir::<2, Frame<2>>::new();
+    let mut down_f = SincDownFir::<2, Frame<2>>::new();
+    let mut up_l = SincUpFir::<2>::new();
+    let mut down_l = SincDownFir::<2>::new();
+    let mut up_r = SincUpFir::<2>::new();
+    let mut down_r = SincDownFir::<2>::new();
+
+    let fl = 0.07_f32;
+    let fr = 0.13_f32;
+    let mut bf = [Frame([0.0_f32; 2]); 2];
+    let mut bl = [0.0_f32; 2];
+    let mut br = [0.0_f32; 2];
+    for n in 0..512 {
+        let xl = (2.0 * std::f32::consts::PI * fl * n as f32).sin();
+        let xr = (2.0 * std::f32::consts::PI * fr * n as f32).sin();
+        up_f.upsample(Frame([xl, xr]), &mut bf);
+        up_l.upsample(xl, &mut bl);
+        up_r.upsample(xr, &mut br);
+        for j in 0..2 {
+            assert!(approx_eq!(f32, bf[j].0[0], bl[j], epsilon = 1e-5), "up L n={n} j={j}");
+            assert!(approx_eq!(f32, bf[j].0[1], br[j], epsilon = 1e-5), "up R n={n} j={j}");
+        }
+        let yf = down_f.downsample(&bf);
+        let yl = down_l.downsample(&bl);
+        let yr = down_r.downsample(&br);
+        assert!(approx_eq!(f32, yf.0[0], yl, epsilon = 1e-5), "down L n={n}");
+        assert!(approx_eq!(f32, yf.0[1], yr, epsilon = 1e-5), "down R n={n}");
+    }
+}

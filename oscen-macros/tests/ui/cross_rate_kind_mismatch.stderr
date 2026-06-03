@@ -61,14 +61,14 @@ error[E0277]: no cross-rate kernel for EventKind -> StreamKind with policy Defau
              CrossRateKernel<EventKind, EventKind, SincPolicy, 4, UpDir>
              CrossRateKernel<EventKind, EventKind, SincPolicy, 8, DownDir>
              CrossRateKernel<EventKind, EventKind, SincPolicy, 8, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 1, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 1, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 2, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 2, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 4, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 4, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 8, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 8, UpDir>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 1, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 1, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 2, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 2, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 4, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 4, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 8, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 8, UpDir, F>
              CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 1, DownDir, F>
              CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 1, UpDir, F>
              CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 2, DownDir, F>
@@ -93,14 +93,14 @@ error[E0277]: no cross-rate kernel for EventKind -> StreamKind with policy Defau
              CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 4, UpDir>
              CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 8, DownDir>
              CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 8, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 1, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 1, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 2, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 2, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 4, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 4, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 8, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 8, UpDir>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 1, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 1, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 2, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 2, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 4, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 4, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 8, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 8, UpDir, F>
              CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 1, DownDir>
              CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 1, UpDir>
              CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 2, DownDir>

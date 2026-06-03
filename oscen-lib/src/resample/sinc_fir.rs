@@ -2,6 +2,7 @@ use arrayvec::ArrayVec;
 
 use super::coeffs::{HALFBAND_23_CENTER, HALFBAND_23_GROUP_DELAY, HALFBAND_23_HALF};
 use super::{StreamDownsampler, StreamUpsampler};
+use crate::frame::AudioFrame;
 
 const HB_LEN: usize = 23;
 const HB_CENTER_IDX: usize = 11; // center tap index of the 23-tap filter
@@ -29,24 +30,24 @@ const HB_UP_HISTORY: usize = (HB_LEN + 1) / 2; // 12
 const HB_UP_MAX_DELAY: usize = HB_UP_HISTORY - 1;
 
 #[derive(Debug, Clone)]
-struct Halfband2xUpStage {
+struct Halfband2xUpStage<F: AudioFrame> {
     /// Stores the most recent low-rate input samples. `head` points to the
     /// slot of the *most recent* sample (i.e. the sample we just wrote).
-    history: [f32; HB_UP_HISTORY],
+    history: [F; HB_UP_HISTORY],
     head: usize,
 }
 
-impl Halfband2xUpStage {
+impl<F: AudioFrame> Halfband2xUpStage<F> {
     fn new() -> Self {
         Self {
-            history: [0.0; HB_UP_HISTORY],
+            history: [F::default(); HB_UP_HISTORY],
             head: 0,
         }
     }
 
     /// Push one source sample, write 2 destination samples to `out`.
     #[inline]
-    fn step(&mut self, x: f32, out: &mut [f32; 2]) {
+    fn step(&mut self, x: F, out: &mut [F; 2]) {
         let cap = self.history.len();
         // Advance head, then write at the new head position so `at(0)` = newest.
         self.head = (self.head + 1) % cap;
@@ -54,28 +55,28 @@ impl Halfband2xUpStage {
 
         // Helper: at(d) returns x[n - d] for d=0..(cap-1), with d=0 being the
         // sample we just stored (newest).
-        let at = |d: usize| -> f32 { self.history[(self.head + cap - d) % cap] };
+        let at = |d: usize| -> F { self.history[(self.head + cap - d) % cap] };
 
         // Polyphase E_odd branch — only the center tap h[11] is non-zero.
         // y[2n+1] = h[11] * x[n - 5] = 0.5 * x[n - 5].
         // Center delay in low-rate samples = (HB_CENTER_IDX - 1) / 2 = 5.
         // We multiply by 2 to compensate the 0.5 zero-stuffing loss.
-        out[1] = 2.0 * HALFBAND_23_CENTER * at((HB_CENTER_IDX - 1) / 2);
+        out[1] = at((HB_CENTER_IDX - 1) / 2) * (2.0 * HALFBAND_23_CENTER);
 
         // Polyphase E_even branch — 12 even-index taps mapped to low-rate
         // delays via m/2. y[2n] = sum_{k=0..5} h[2k] * (x[n-k] + x[n-(HB_UP_MAX_DELAY-k)]).
         // Filter symmetry h[2k] = h[22-2k] = HALFBAND_23_HALF[k].
-        let mut acc = 0.0_f32;
+        let mut acc = F::default();
         for (k, &tap) in HALFBAND_23_HALF.iter().enumerate() {
             let left = at(k);
             let right = at(HB_UP_MAX_DELAY - k);
-            acc += tap * (left + right);
+            acc = acc + (left + right) * tap;
         }
-        out[0] = 2.0 * acc;
+        out[0] = acc * 2.0;
     }
 
     fn reset(&mut self) {
-        self.history.fill(0.0);
+        self.history.fill(F::default());
         self.head = 0;
     }
 }
@@ -92,24 +93,24 @@ impl Halfband2xUpStage {
 const HB_DOWN_BUF: usize = HB_LEN + 1; // 24
 
 #[derive(Debug, Clone)]
-struct Halfband2xDownStage {
+struct Halfband2xDownStage<F: AudioFrame> {
     /// Stores the most recent high-rate input samples. `head` points to the
     /// slot of the *most recent* sample (i.e. `xs[1]` after push).
-    history: [f32; HB_DOWN_BUF],
+    history: [F; HB_DOWN_BUF],
     head: usize,
 }
 
-impl Halfband2xDownStage {
+impl<F: AudioFrame> Halfband2xDownStage<F> {
     fn new() -> Self {
         Self {
-            history: [0.0; HB_DOWN_BUF],
+            history: [F::default(); HB_DOWN_BUF],
             head: 0,
         }
     }
 
     /// Push two source samples, return one destination sample.
     #[inline]
-    fn step(&mut self, xs: &[f32; 2]) -> f32 {
+    fn step(&mut self, xs: &[F; 2]) -> F {
         let cap = HB_DOWN_BUF;
         // Advance head and store the two new samples in arrival order.
         self.head = (self.head + 1) % cap;
@@ -121,34 +122,34 @@ impl Halfband2xDownStage {
         // The newest sample written is xs[1] = x[2m + 1]. The older sample of
         // this pair is xs[0] = x[2m]. So `at(d) = x[2m - d]` should read the
         // slot one back from `head`. Using `head + cap - 1 - d` mod cap.
-        let at = |d: usize| -> f32 { self.history[(self.head + cap - 1 - d) % cap] };
+        let at = |d: usize| -> F { self.history[(self.head + cap - 1 - d) % cap] };
 
         // Center tap at delay HB_CENTER_IDX = 11 in high-rate samples.
-        let mut acc = HALFBAND_23_CENTER * at(HB_CENTER_IDX);
+        let mut acc = at(HB_CENTER_IDX) * HALFBAND_23_CENTER;
 
         // Symmetric off-center pairs: filter indices (2k, 22 - 2k) → high-rate
         // delays (2k, 22 - 2k) = (2k, HB_PAIR_SUM - 2k).
         for (k, &tap) in HALFBAND_23_HALF.iter().enumerate() {
             let left = at(2 * k);
             let right = at(HB_PAIR_SUM - 2 * k);
-            acc += tap * (left + right);
+            acc = acc + (left + right) * tap;
         }
         acc
     }
 
     fn reset(&mut self) {
-        self.history.fill(0.0);
+        self.history.fill(F::default());
         self.head = 0;
     }
 }
 
 /// Sinc-FIR upsampler for N ∈ {1, 2, 4, 8}. Cascades 2× halfband stages.
 #[derive(Debug, Clone)]
-pub struct SincUpFir<const N: usize> {
-    stages: ArrayVec<Halfband2xUpStage, MAX_STAGES>,
+pub struct SincUpFir<const N: usize, F: AudioFrame = f32> {
+    stages: ArrayVec<Halfband2xUpStage<F>, MAX_STAGES>,
 }
 
-impl<const N: usize> SincUpFir<N> {
+impl<const N: usize, F: AudioFrame> SincUpFir<N, F> {
     pub fn new() -> Self {
         const_assert_pow2_le_8::<N>();
         let n_stages = (N as u32).trailing_zeros() as usize; // 0,1,2,3 for N=1,2,4,8
@@ -160,24 +161,24 @@ impl<const N: usize> SincUpFir<N> {
     }
 }
 
-impl<const N: usize> Default for SincUpFir<N> {
+impl<const N: usize, F: AudioFrame> Default for SincUpFir<N, F> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const N: usize> StreamUpsampler for SincUpFir<N> {
-    fn upsample(&mut self, x: f32, out: &mut [f32]) {
+impl<const N: usize, F: AudioFrame> StreamUpsampler<F> for SincUpFir<N, F> {
+    fn upsample(&mut self, x: F, out: &mut [F]) {
         debug_assert_eq!(out.len(), N);
         // Cascaded stages: each doubles the rate. We do this in-place via a
         // small temporary buffer per stage.
-        let mut buf: [f32; 8] = [0.0; 8]; // max N = 8
-        let mut next: [f32; 8] = [0.0; 8];
+        let mut buf: [F; 8] = [F::default(); 8]; // max N = 8
+        let mut next: [F; 8] = [F::default(); 8];
         let mut len = 1;
         buf[0] = x;
         for stage in self.stages.iter_mut() {
             for i in 0..len {
-                let mut pair = [0.0_f32; 2];
+                let mut pair = [F::default(); 2];
                 stage.step(buf[i], &mut pair);
                 next[2 * i] = pair[0];
                 next[2 * i + 1] = pair[1];
@@ -206,11 +207,11 @@ impl<const N: usize> StreamUpsampler for SincUpFir<N> {
 
 /// Sinc-FIR downsampler for N ∈ {1, 2, 4, 8}.
 #[derive(Debug, Clone)]
-pub struct SincDownFir<const N: usize> {
-    stages: ArrayVec<Halfband2xDownStage, MAX_STAGES>,
+pub struct SincDownFir<const N: usize, F: AudioFrame = f32> {
+    stages: ArrayVec<Halfband2xDownStage<F>, MAX_STAGES>,
 }
 
-impl<const N: usize> SincDownFir<N> {
+impl<const N: usize, F: AudioFrame> SincDownFir<N, F> {
     pub fn new() -> Self {
         const_assert_pow2_le_8::<N>();
         let n_stages = (N as u32).trailing_zeros() as usize;
@@ -222,20 +223,20 @@ impl<const N: usize> SincDownFir<N> {
     }
 }
 
-impl<const N: usize> Default for SincDownFir<N> {
+impl<const N: usize, F: AudioFrame> Default for SincDownFir<N, F> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const N: usize> StreamDownsampler for SincDownFir<N> {
-    fn downsample(&mut self, xs: &[f32]) -> f32 {
+impl<const N: usize, F: AudioFrame> StreamDownsampler<F> for SincDownFir<N, F> {
+    fn downsample(&mut self, xs: &[F]) -> F {
         debug_assert_eq!(xs.len(), N);
-        let mut buf: [f32; 8] = [0.0; 8];
+        let mut buf: [F; 8] = [F::default(); 8];
         buf[..N].copy_from_slice(xs);
         let mut len = N;
         for stage in self.stages.iter_mut() {
-            let mut next: [f32; 8] = [0.0; 8];
+            let mut next: [F; 8] = [F::default(); 8];
             let half = len / 2;
             for i in 0..half {
                 let pair = [buf[2 * i], buf[2 * i + 1]];
