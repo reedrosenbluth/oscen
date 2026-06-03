@@ -49,6 +49,7 @@ pub struct DownDir;
 /// querying trait impls at expansion time.
 pub trait EndpointAt<Marker> {
     type Kind;
+    type Frame: crate::frame::AudioFrame;
 }
 
 /// Cross-rate edge state-shape table. Coherence picks an impl from the

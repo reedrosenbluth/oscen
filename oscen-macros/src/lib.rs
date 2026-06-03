@@ -87,6 +87,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 if let Some(kind) = primary_kind {
                     let marker_ident = format_ident!("{}__{}__Ep", name, field_name);
                     let kind_marker = kind_marker_for_attr(kind, &field_ty);
+                    let frame_ty = endpoint_frame_type(&field_ty);
                     let assoc_ident = format_ident!("{}__Ep", field_name);
                     endpoint_at_emissions.push(quote! {
                         #[allow(non_camel_case_types)]
@@ -95,6 +96,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             for #name #ty_generics #where_clause
                         {
                             type Kind = #kind_marker;
+                            type Frame = #frame_ty;
                         }
                     });
                     endpoint_assoc_alias_emissions.push(quote! {
@@ -259,6 +261,28 @@ fn detect_output_kind_from_type(ty: &syn::Type) -> Option<EndpointTypeAttr> {
         "EventOutput" => Some(EndpointTypeAttr::Event),
         _ => None,
     }
+}
+
+/// Extract the element type `T` from a `StreamInput<T>` / `StreamOutput<T>`
+/// field type for the `EndpointAt::Frame` associated type. Any endpoint with
+/// no extractable element type (including all value/event endpoints, and
+/// stream wrappers written without an explicit generic argument) maps to `f32`.
+fn endpoint_frame_type(ty: &syn::Type) -> proc_macro2::TokenStream {
+    if let syn::Type::Path(type_path) = ty {
+        if let Some(seg) = type_path.path.segments.last() {
+            let name = seg.ident.to_string();
+            if name == "StreamInput" || name == "StreamOutput" {
+                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                    for arg in &args.args {
+                        if let syn::GenericArgument::Type(t) = arg {
+                            return quote! { #t };
+                        }
+                    }
+                }
+            }
+        }
+    }
+    quote! { f32 }
 }
 
 fn last_segment_ident(ty: &syn::Type) -> Option<String> {
