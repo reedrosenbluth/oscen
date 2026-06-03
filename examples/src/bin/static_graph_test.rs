@@ -15,6 +15,9 @@ impl MockVoice {
 
     // Required for static graphs - called before process()
     pub fn process_event_inputs(&mut self) {}
+
+    // Required so the graph codegen can call set_sample_rate uniformly
+    pub fn set_sample_rate(&mut self, _sample_rate: f32) {}
 }
 
 impl SignalProcessor for MockVoice {

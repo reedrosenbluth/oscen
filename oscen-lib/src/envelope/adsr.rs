@@ -1,5 +1,7 @@
 use crate::graph::types::EventPayload;
-use crate::graph::{EventInput, EventInstance, SampleRate, SignalProcessor, StreamOutput, ValueInput};
+use crate::graph::{
+    EventInput, EventInstance, SampleRate, SignalProcessor, StreamOutput, ValueInput,
+};
 use crate::Node;
 
 const MIN_TIME_SECONDS: f32 = 1.0e-5;
@@ -123,10 +125,8 @@ impl AdsrEnvelope {
         // One-pole coefficient: after `n` samples of `level += (target - level) * c`,
         // level is `1 - (1 - c)^n` of the way to target. Picking
         // `c = 1 - exp(-K/n)` makes that fraction `1 - exp(-K) ≈ 99%` at stage end.
-        self.attack_coeff =
-            1.0 - (-CURVE_TIME_CONSTANT / self.attack_samples as f32).exp();
-        self.decay_coeff =
-            1.0 - (-CURVE_TIME_CONSTANT / self.decay_samples as f32).exp();
+        self.attack_coeff = 1.0 - (-CURVE_TIME_CONSTANT / self.attack_samples as f32).exp();
+        self.decay_coeff = 1.0 - (-CURVE_TIME_CONSTANT / self.decay_samples as f32).exp();
     }
 
     fn set_stage(&mut self, stage: Stage, target_level: f32) {
