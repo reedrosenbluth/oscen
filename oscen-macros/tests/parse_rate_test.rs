@@ -69,3 +69,9 @@ fn feedback_marker_missing_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/feedback_marker_missing.rs");
 }
+
+#[test]
+fn two_sample_rate_fields_is_an_error() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/two_sample_rate_fields.rs");
+}

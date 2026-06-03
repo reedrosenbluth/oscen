@@ -1,0 +1,7 @@
+error: a `#[derive(Node)]` struct may declare at most one `SampleRate` field
+ --> tests/ui/two_sample_rate_fields.rs:3:17
+  |
+3 | #[derive(Debug, Node)]
+  |                 ^^^^
+  |
+  = note: this error originates in the derive macro `Node` (in Nightly builds, run with -Z macro-backtrace for more info)

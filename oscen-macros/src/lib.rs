@@ -13,6 +13,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
     let mut input_idents = Vec::new();
     let mut output_idents = Vec::new();
+    let mut sample_rate_fields: Vec<syn::Ident> = Vec::new();
 
     // Per-endpoint marker types and EndpointAt impls emitted alongside the inherent impl block.
     let mut endpoint_at_emissions: Vec<proc_macro2::TokenStream> = Vec::new();
@@ -37,6 +38,11 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             for field in fields.named {
                 let field_name = field.ident.unwrap();
                 let field_ty = field.ty.clone();
+
+                if last_segment_ident(&field_ty).as_deref() == Some("SampleRate") {
+                    sample_rate_fields.push(field_name.clone());
+                }
+
                 let mut input_type_kind = None;
                 let mut output_type_kind = None;
 
@@ -106,6 +112,43 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             }
         }
     }
+
+    // Generate the inherent `set_sample_rate` method (filled when the struct has
+    // a `SampleRate` field, a no-op otherwise so graph codegen can call it
+    // uniformly). More than one `SampleRate` field is an error.
+    let (set_sample_rate_method, sample_rate_error) = if sample_rate_fields.len() == 1 {
+        let field = &sample_rate_fields[0];
+        (
+            quote! {
+                #[inline]
+                #[allow(dead_code)]
+                pub fn set_sample_rate(&mut self, sample_rate: f32) {
+                    self.#field.set(sample_rate);
+                }
+            },
+            quote! {},
+        )
+    } else if sample_rate_fields.len() > 1 {
+        (
+            quote! {
+                #[inline]
+                #[allow(dead_code)]
+                pub fn set_sample_rate(&mut self, _sample_rate: f32) {}
+            },
+            quote! {
+                compile_error!("a `#[derive(Node)]` struct may declare at most one `SampleRate` field");
+            },
+        )
+    } else {
+        (
+            quote! {
+                #[inline]
+                #[allow(dead_code)]
+                pub fn set_sample_rate(&mut self, _sample_rate: f32) {}
+            },
+            quote! {},
+        )
+    };
 
     // Generate handle_events method for static graphs
     let handle_events_method = if !signal_processor_event_inputs.is_empty() {
@@ -204,6 +247,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let expanded = quote! {
         #(#endpoint_at_emissions)*
 
+        #sample_rate_error
+
         #[allow(non_camel_case_types, dead_code)]
         impl #impl_generics #name #ty_generics #where_clause {
             #(#endpoint_assoc_alias_emissions)*
@@ -215,6 +260,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             #clear_event_outputs_method
 
             #process_event_inputs_method
+
+            #set_sample_rate_method
 
             #[allow(dead_code)]
             fn __oscen_suppress_unused(&self) {
