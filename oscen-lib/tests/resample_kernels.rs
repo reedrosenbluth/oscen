@@ -526,3 +526,19 @@ fn linear_down_frame2_matches_scalar_per_channel() {
         assert!(approx_eq!(f32, y.0[1], yr, epsilon = 1e-6));
     }
 }
+
+#[test]
+fn latch_up_frame2_holds_value_per_channel() {
+    let mut up = LatchUp::<2, Frame<2>>::new();
+    let mut out = [Frame([0.0_f32; 2]); 2];
+    up.upsample(Frame([0.3, -0.7]), &mut out);
+    assert_eq!(out[0], Frame([0.3, -0.7]));
+    assert_eq!(out[1], Frame([0.3, -0.7]));
+}
+
+#[test]
+fn latch_down_frame2_takes_first_per_channel() {
+    let mut down = LatchDown::<2, Frame<2>>::new();
+    let y = down.downsample(&[Frame([1.0, 2.0]), Frame([3.0, 4.0])]);
+    assert_eq!(y, Frame([1.0, 2.0]));
+}

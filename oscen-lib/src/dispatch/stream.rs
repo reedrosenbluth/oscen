@@ -130,15 +130,15 @@ macro_rules! impl_stream_down_framed_all_n {
     };
 }
 
-// Sinc / IIR / Latch still non-framed (f32) until their phase.
+// Sinc / IIR still non-framed (f32) until their phase.
 impl_stream_up_all_n!(DefaultPolicy, SincUpFir);
 impl_stream_up_all_n!(SincPolicy, SincUpFir);
 impl_stream_up_all_n!(SincIirPolicy, IirHalfbandUp);
 impl_stream_up_framed_all_n!(LinearPolicy, LinearUp);
-impl_stream_up_all_n!(LatchPolicy, LatchUp);
+impl_stream_up_framed_all_n!(LatchPolicy, LatchUp);
 
 impl_stream_down_all_n!(DefaultPolicy, SincDownFir);
 impl_stream_down_all_n!(SincPolicy, SincDownFir);
 impl_stream_down_all_n!(SincIirPolicy, IirHalfbandDown);
 impl_stream_down_framed_all_n!(LinearPolicy, LinearDown);
-impl_stream_down_all_n!(LatchPolicy, LatchDown);
+impl_stream_down_framed_all_n!(LatchPolicy, LatchDown);

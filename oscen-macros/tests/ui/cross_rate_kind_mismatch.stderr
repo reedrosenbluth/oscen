@@ -69,14 +69,14 @@ error[E0277]: no cross-rate kernel for EventKind -> StreamKind with policy Defau
              CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 4, UpDir>
              CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 8, DownDir>
              CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 8, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 1, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 1, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 2, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 2, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 4, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 4, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 8, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 8, UpDir>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 1, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 1, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 2, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 2, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 4, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 4, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 8, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 8, UpDir, F>
              CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 1, DownDir, F>
              CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 1, UpDir, F>
              CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 2, DownDir, F>
