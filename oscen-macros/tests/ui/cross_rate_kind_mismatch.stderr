@@ -85,14 +85,14 @@ error[E0277]: no cross-rate kernel for EventKind -> StreamKind with policy Defau
              CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 4, UpDir, F>
              CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 8, DownDir, F>
              CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 8, UpDir, F>
-             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 1, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 1, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 2, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 2, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 4, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 4, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 8, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 8, UpDir>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 1, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 1, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 2, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 2, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 4, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 4, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 8, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 8, UpDir, F>
              CrossRateKernel<StreamKind, StreamKind, SincPolicy, 1, DownDir, F>
              CrossRateKernel<StreamKind, StreamKind, SincPolicy, 1, UpDir, F>
              CrossRateKernel<StreamKind, StreamKind, SincPolicy, 2, DownDir, F>

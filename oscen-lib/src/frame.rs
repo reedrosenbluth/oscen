@@ -37,10 +37,24 @@ pub trait AudioFrame:
 {
     /// Number of channels in one frame.
     const CHANNELS: usize;
+
+    /// Snap each channel to zero when its magnitude is below `threshold`.
+    /// Guards the recursive all-pass state in the IIR halfband against the
+    /// ~100× denormal-multiply slowdown on x86. Applied per channel for frames,
+    /// so each channel flushes independently of the others.
+    fn flush_denormal(self, threshold: f32) -> Self;
 }
 
 impl AudioFrame for f32 {
     const CHANNELS: usize = 1;
+    #[inline]
+    fn flush_denormal(self, threshold: f32) -> Self {
+        if self.abs() < threshold {
+            0.0
+        } else {
+            self
+        }
+    }
 }
 
 impl<const N: usize> Add for Frame<N> {
@@ -84,6 +98,16 @@ impl<const N: usize> Sum for Frame<N> {
 
 impl<const N: usize> AudioFrame for Frame<N> {
     const CHANNELS: usize = N;
+    #[inline]
+    fn flush_denormal(self, threshold: f32) -> Self {
+        Frame(core::array::from_fn(|i| {
+            if self.0[i].abs() < threshold {
+                0.0
+            } else {
+                self.0[i]
+            }
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -159,5 +183,19 @@ mod tests {
         assert_is_audioframe::<Frame<2>>();
         assert_eq!(<Frame<2> as AudioFrame>::CHANNELS, 2);
         assert_eq!(<Frame<4> as AudioFrame>::CHANNELS, 4);
+    }
+
+    #[test]
+    fn flush_denormal_f32_snaps_below_threshold() {
+        assert_eq!(<f32 as AudioFrame>::flush_denormal(1e-20, 1e-15), 0.0);
+        assert_eq!(<f32 as AudioFrame>::flush_denormal(-1e-20, 1e-15), 0.0);
+        assert_eq!(<f32 as AudioFrame>::flush_denormal(0.5, 1e-15), 0.5);
+    }
+
+    #[test]
+    fn flush_denormal_frame_is_per_channel() {
+        // One sub-threshold channel snaps; the other is preserved untouched.
+        let f = Frame([1e-20_f32, 0.5]).flush_denormal(1e-15);
+        assert_eq!(f, Frame([0.0, 0.5]));
     }
 }
