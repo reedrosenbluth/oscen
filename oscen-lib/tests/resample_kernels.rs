@@ -465,3 +465,64 @@ fn iir_hb_passband_flat_n8() {
     }
     assert!(max_err < 0.15, "iir_hb N=8 max passband error = {max_err}");
 }
+
+// ---------------------------------------------------------------------------
+// Frame<2> per-channel round-trip (Layer D, Phase 0): a stereo Frame<2> kernel
+// must produce, on each channel, exactly what the scalar kernel produces for
+// that channel's signal in isolation. Decorrelated L/R inputs catch crosstalk.
+use oscen::Frame;
+
+#[test]
+fn linear_up_frame2_matches_scalar_per_channel() {
+    let inputs_l = [0.0_f32, 1.0, 2.0, -1.0, 0.5];
+    let inputs_r = [0.0_f32, -2.0, 3.0, 1.0, -0.5];
+
+    let mut up_frame = LinearUp::<2, Frame<2>>::new();
+    let mut up_l = LinearUp::<2>::new();
+    let mut up_r = LinearUp::<2>::new();
+
+    for i in 0..inputs_l.len() {
+        let mut out_frame = [Frame([0.0_f32; 2]); 2];
+        up_frame.upsample(Frame([inputs_l[i], inputs_r[i]]), &mut out_frame);
+
+        let mut out_l = [0.0_f32; 2];
+        let mut out_r = [0.0_f32; 2];
+        up_l.upsample(inputs_l[i], &mut out_l);
+        up_r.upsample(inputs_r[i], &mut out_r);
+
+        for j in 0..2 {
+            assert!(
+                approx_eq!(f32, out_frame[j].0[0], out_l[j], epsilon = 1e-6),
+                "L mismatch at i={i} j={j}: {} vs {}",
+                out_frame[j].0[0],
+                out_l[j]
+            );
+            assert!(
+                approx_eq!(f32, out_frame[j].0[1], out_r[j], epsilon = 1e-6),
+                "R mismatch at i={i} j={j}: {} vs {}",
+                out_frame[j].0[1],
+                out_r[j]
+            );
+        }
+    }
+}
+
+#[test]
+fn linear_down_frame2_matches_scalar_per_channel() {
+    let mut down_frame = LinearDown::<2, Frame<2>>::new();
+    let mut down_l = LinearDown::<2>::new();
+    let mut down_r = LinearDown::<2>::new();
+
+    let pairs = [
+        ([1.0_f32, 3.0], [2.0_f32, 4.0]),
+        ([-1.0_f32, 0.5], [0.0_f32, -0.5]),
+    ];
+    for (lp, rp) in pairs {
+        let xs = [Frame([lp[0], rp[0]]), Frame([lp[1], rp[1]])];
+        let y = down_frame.downsample(&xs);
+        let yl = down_l.downsample(&lp);
+        let yr = down_r.downsample(&rp);
+        assert!(approx_eq!(f32, y.0[0], yl, epsilon = 1e-6));
+        assert!(approx_eq!(f32, y.0[1], yr, epsilon = 1e-6));
+    }
+}

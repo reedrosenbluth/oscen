@@ -16,10 +16,12 @@ pub use latch::{LatchDown, LatchUp};
 pub use linear::{LinearDown, LinearUp};
 pub use sinc_fir::{SincDownFir, SincUpFir};
 
-/// Upsampler: one source sample in, N destination samples out.
-pub trait StreamUpsampler: Send + std::fmt::Debug {
-    /// Push one source sample; the kernel writes exactly `N` destination samples to `out`.
-    fn upsample(&mut self, x: f32, out: &mut [f32]);
+use crate::frame::AudioFrame;
+
+/// Upsampler: one source frame in, N destination frames out.
+pub trait StreamUpsampler<F: AudioFrame = f32>: Send + std::fmt::Debug {
+    /// Push one source frame; the kernel writes exactly `N` destination frames to `out`.
+    fn upsample(&mut self, x: F, out: &mut [F]);
 
     /// Group delay measured at the destination (high) rate, in samples.
     fn latency_samples(&self) -> usize;
@@ -28,10 +30,10 @@ pub trait StreamUpsampler: Send + std::fmt::Debug {
     fn reset(&mut self);
 }
 
-/// Downsampler: N source samples in, one destination sample out.
-pub trait StreamDownsampler: Send + std::fmt::Debug {
-    /// Push exactly `N` source samples; returns one destination sample.
-    fn downsample(&mut self, xs: &[f32]) -> f32;
+/// Downsampler: N source frames in, one destination frame out.
+pub trait StreamDownsampler<F: AudioFrame = f32>: Send + std::fmt::Debug {
+    /// Push exactly `N` source frames; returns one destination frame.
+    fn downsample(&mut self, xs: &[F]) -> F;
 
     /// Group delay measured at the source (high) rate, in samples.
     fn latency_samples(&self) -> usize;
