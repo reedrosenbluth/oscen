@@ -20,7 +20,7 @@ error[E0277]: no cross-rate kernel for EventKind -> StreamKind with policy Defau
    |
    = help: the trait `CrossRateKernel<EventKind, StreamKind, DefaultPolicy, 4, UpDir>` is not implemented for `()`
    = note: valid kind pairs are: (StreamKind, StreamKind), (ValueKind, ValueKind), (ValueKind, StreamKind), (EventKind, EventKind)
-   = help: `()` implements trait `CrossRateKernel<SrcKind, DstKind, Policy, N, Dir>`:
+   = help: `()` implements trait `CrossRateKernel<SrcKind, DstKind, Policy, N, Dir, Frame>`:
              CrossRateKernel<EventKind, EventKind, DefaultPolicy, 1, DownDir>
              CrossRateKernel<EventKind, EventKind, DefaultPolicy, 1, UpDir>
              CrossRateKernel<EventKind, EventKind, DefaultPolicy, 2, DownDir>
@@ -77,14 +77,14 @@ error[E0277]: no cross-rate kernel for EventKind -> StreamKind with policy Defau
              CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 4, UpDir>
              CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 8, DownDir>
              CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 8, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 1, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 1, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 2, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 2, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 4, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 4, UpDir>
-             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 8, DownDir>
-             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 8, UpDir>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 1, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 1, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 2, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 2, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 4, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 4, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 8, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 8, UpDir, F>
              CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 1, DownDir>
              CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 1, UpDir>
              CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 2, DownDir>
@@ -205,8 +205,9 @@ error[E0277]: no connection from EventOutput to f32
              ConnectEndpoints<EventInput<S>, EventInput<D>>
              ConnectEndpoints<EventOutput<S>, EventInput<D>>
              ConnectEndpoints<EventOutput<T>, arrayvec::arrayvec::ArrayVec<EventInstance, 32>>
-             ConnectEndpoints<StreamOutput, f32>
              ConnectEndpoints<StreamOutput<T>, StreamInput<T>>
+             ConnectEndpoints<StreamOutput<T>, T>
+             ConnectEndpoints<T, StreamInput<T>>
              ConnectEndpoints<ValueOutput, f32>
              ConnectEndpoints<ValueOutput<T>, StreamInput<T>>
              ConnectEndpoints<ValueOutput<T>, ValueInput<T>>
@@ -221,7 +222,6 @@ error[E0277]: no connection from EventOutput to f32
              ConnectEndpoints<[f32; N], [f32; N]>
              ConnectEndpoints<arrayvec::arrayvec::ArrayVec<EventInstance, 32>, EventInput<T>>
              ConnectEndpoints<arrayvec::arrayvec::ArrayVec<EventInstance, 32>, arrayvec::arrayvec::ArrayVec<EventInstance, 32>>
-             ConnectEndpoints<f32, StreamInput>
              ConnectEndpoints<f32, ValueInput>
              ConnectEndpoints<f32, f32>
    = note: this error originates in the macro `graph` (in Nightly builds, run with -Z macro-backtrace for more info)

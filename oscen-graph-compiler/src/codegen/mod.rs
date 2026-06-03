@@ -274,6 +274,7 @@ impl<'a> CodegenContext<'a> {
                 #policy,
                 #factor,
                 #dir,
+                <#src_path as ::oscen::dispatch::EndpointAt<#src_marker>>::Frame,
             >>::State
         })
     }

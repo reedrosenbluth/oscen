@@ -292,9 +292,10 @@ impl<'a> CodegenContext<'a> {
         } else {
             let src_value = self.connection_source_value_expr(&edge.source);
             quote! {
-                let mut #buf: [f32; #factor_us] = [0.0; #factor_us];
+                let mut #buf: [_; #factor_us] =
+                    ::core::array::from_fn(|_| ::core::default::Default::default());
                 {
-                    let __src_val: f32 = #src_value;
+                    let __src_val = #src_value;
                     ::oscen::resample::StreamUpsampler::upsample(
                         &mut self.#field #access,
                         __src_val,
@@ -330,7 +331,8 @@ impl<'a> CodegenContext<'a> {
             }
         } else {
             quote! {
-                let mut #buf: [f32; #factor_us] = [0.0; #factor_us];
+                let mut #buf: [_; #factor_us] =
+                    ::core::array::from_fn(|_| ::core::default::Default::default());
             }
         }
     }

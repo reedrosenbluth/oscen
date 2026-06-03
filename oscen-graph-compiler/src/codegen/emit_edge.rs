@@ -249,7 +249,7 @@ impl<'a> CodegenContext<'a> {
         let toks = self.emit_expr(source);
         quote! {
             {
-                let mut __src: f32 = 0.0;
+                let mut __src = ::core::default::Default::default();
                 <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
                     &#toks,
                     &mut __src,
@@ -297,7 +297,7 @@ impl<'a> CodegenContext<'a> {
         let dest_toks = self.emit_endpoint(dest);
         quote! {
             {
-                let __dst_val: f32 = #value;
+                let __dst_val = #value;
                 <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
                     &__dst_val,
                     &mut #dest_toks,
