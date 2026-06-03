@@ -170,10 +170,10 @@ impl<T: Copy> ConnectEndpoints<super::types::ValueOutput<T>, super::types::Strea
     }
 }
 
-// Graph f32 → StreamInput
-impl ConnectEndpoints<f32, super::types::StreamInput<f32>> for () {
+// Graph T → StreamInput<T>
+impl<T: Copy> ConnectEndpoints<T, super::types::StreamInput<T>> for () {
     #[inline]
-    fn connect(src: &f32, dst: &mut super::types::StreamInput<f32>) {
+    fn connect(src: &T, dst: &mut super::types::StreamInput<T>) {
         dst.0 = *src;
     }
 }
@@ -186,10 +186,10 @@ impl ConnectEndpoints<f32, super::types::ValueInput<f32>> for () {
     }
 }
 
-// StreamOutput → Graph f32
-impl ConnectEndpoints<super::types::StreamOutput<f32>, f32> for () {
+// StreamOutput<T> → Graph T
+impl<T: Copy> ConnectEndpoints<super::types::StreamOutput<T>, T> for () {
     #[inline]
-    fn connect(src: &super::types::StreamOutput<f32>, dst: &mut f32) {
+    fn connect(src: &super::types::StreamOutput<T>, dst: &mut T) {
         *dst = src.0;
     }
 }
