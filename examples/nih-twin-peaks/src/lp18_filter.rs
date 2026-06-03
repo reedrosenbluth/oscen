@@ -1,4 +1,4 @@
-use oscen::{Node, SignalProcessor};
+use oscen::{Node, SampleRate, SignalProcessor};
 use std::f32::consts::PI;
 
 /// A three-pole, 18dB/octave lowpass filter in the style of Rob Hordijk's TwinPeak filter.
@@ -34,7 +34,7 @@ pub struct LP18Filter {
     last_resonance: f32,
 
     /// Sample rate
-    sample_rate: f32,
+    sample_rate: SampleRate,
 
     /// Filtered output signal
     #[output(stream)]
@@ -54,14 +54,14 @@ impl LP18Filter {
             last_cutoff: cutoff,
             last_fmod: 0.0,
             last_resonance: resonance,
-            sample_rate: 44100.0,
+            sample_rate: SampleRate::default(),
             output: 0.0,
         }
     }
 
     fn update_cutoff_coefficient(&mut self) {
         let modulated_cutoff = self.cutoff + self.fmod;
-        let fc = (modulated_cutoff / self.sample_rate).clamp(0.001, 0.33);
+        let fc = (modulated_cutoff / *self.sample_rate).clamp(0.001, 0.33);
         self.g = (PI * fc).tan();
     }
 
@@ -72,7 +72,7 @@ impl LP18Filter {
 
 impl SignalProcessor for LP18Filter {
     fn init(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
+        self.sample_rate.set(sample_rate);
         self.update_cutoff_coefficient();
         self.update_resonance_coefficient();
     }

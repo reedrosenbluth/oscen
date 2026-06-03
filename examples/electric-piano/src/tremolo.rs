@@ -1,4 +1,4 @@
-use oscen::{Node, SignalProcessor};
+use oscen::{Node, SampleRate, SignalProcessor};
 use std::f32::consts::PI;
 
 /// Tremolo effect with stereo output
@@ -24,7 +24,7 @@ pub struct Tremolo {
     /// LFO phase (0.0 to 1.0)
     pub phase: f32,
     /// Sample rate
-    pub sample_rate: f32,
+    pub sample_rate: SampleRate,
 }
 
 impl Tremolo {
@@ -36,16 +36,12 @@ impl Tremolo {
             left_output: 0.0,
             right_output: 0.0,
             phase: 0.0,
-            sample_rate: 44100.0, // Will be set via init()
+            sample_rate: SampleRate::default(),
         }
     }
 }
 
 impl SignalProcessor for Tremolo {
-    fn init(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
-    }
-
     fn process(&mut self) {
         let input = self.input;
         let rate = self.rate;
@@ -65,7 +61,7 @@ impl SignalProcessor for Tremolo {
         self.right_output = input * (1.0 - pan);
 
         // Advance phase
-        let phase_increment = rate / self.sample_rate;
+        let phase_increment = rate / *self.sample_rate;
         self.phase = (self.phase + phase_increment).fract();
     }
 }
@@ -77,8 +73,8 @@ mod tests {
     #[test]
     fn test_tremolo_creates() {
         let mut tremolo = Tremolo::new();
-        tremolo.init(44100.0);
-        assert_eq!(tremolo.sample_rate, 44100.0);
+        tremolo.set_sample_rate(44100.0);
+        assert_eq!(*tremolo.sample_rate, 44100.0);
         assert_eq!(tremolo.phase, 0.0);
     }
 }

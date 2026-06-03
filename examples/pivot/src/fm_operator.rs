@@ -1,4 +1,4 @@
-use oscen::{Node, SignalProcessor, StreamInput, StreamOutput, ValueInput};
+use oscen::{Node, SampleRate, SignalProcessor, StreamInput, StreamOutput, ValueInput};
 use std::f32::consts::TAU;
 
 /// FM Operator - a sine oscillator with phase modulation and self-feedback.
@@ -11,7 +11,7 @@ use std::f32::consts::TAU;
 pub struct FmOperator {
     phase: f32,
     prev_output: f32,
-    sample_rate: f32,
+    sample_rate: SampleRate,
 
     pub base_freq: ValueInput,
     pub ratio: ValueInput,
@@ -26,7 +26,7 @@ impl FmOperator {
         Self {
             phase: 0.0,
             prev_output: 0.0,
-            sample_rate: 44100.0,
+            sample_rate: SampleRate::default(),
             base_freq: ValueInput(440.0),
             ratio: ValueInput(1.0),
             phase_mod: StreamInput::default(),
@@ -43,10 +43,6 @@ impl Default for FmOperator {
 }
 
 impl SignalProcessor for FmOperator {
-    fn init(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
-    }
-
     #[inline(always)]
     fn process(&mut self) {
         // Calculate actual frequency from base and ratio
@@ -63,7 +59,7 @@ impl SignalProcessor for FmOperator {
         self.prev_output = output;
 
         // Advance phase
-        let phase_inc = frequency / self.sample_rate;
+        let phase_inc = frequency / *self.sample_rate;
         self.phase += phase_inc;
         self.phase = self.phase.fract();
     }

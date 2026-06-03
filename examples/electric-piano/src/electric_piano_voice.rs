@@ -1,5 +1,5 @@
 use oscen::graph::types::{EventInstance, EventPayload};
-use oscen::{EventInput, Node, SignalProcessor};
+use oscen::{EventInput, Node, SampleRate, SignalProcessor};
 use std::f32::consts::PI;
 
 const NUM_HARMONICS: usize = 32;
@@ -96,7 +96,7 @@ pub struct OscillatorBank {
     /// Last frequency we computed multipliers for
     last_frequency: f32,
 
-    sample_rate: f32,
+    sample_rate: SampleRate,
 }
 
 impl OscillatorBank {
@@ -109,7 +109,7 @@ impl OscillatorBank {
             oscillators: [Complex::one(); NUM_HARMONICS],
             multipliers: [Complex::one(); NUM_HARMONICS],
             last_frequency: 0.0,
-            sample_rate: 44100.0, // Will be set via init()
+            sample_rate: SampleRate::default(),
         }
     }
 
@@ -130,14 +130,14 @@ impl OscillatorBank {
         }
 
         self.last_frequency = note_frequency;
-        let nyquist = self.sample_rate * 0.5;
+        let nyquist = *self.sample_rate * 0.5;
 
         for i in 0..NUM_HARMONICS {
             let harmonic_num = (i + 1) as f32;
             let harmonic_freq = note_frequency * harmonic_num;
 
             if harmonic_freq < nyquist {
-                let angle = 2.0 * PI * harmonic_freq / self.sample_rate;
+                let angle = 2.0 * PI * harmonic_freq / *self.sample_rate;
                 self.multipliers[i] = Complex::new(angle.cos(), angle.sin());
             } else {
                 // Above Nyquist - set to identity (no rotation)
@@ -151,10 +151,6 @@ impl OscillatorBank {
 }
 
 impl SignalProcessor for OscillatorBank {
-    fn init(&mut self, sample_rate: f32) {
-        self.sample_rate = sample_rate;
-    }
-
     fn process(&mut self) {
         // Update multipliers if frequency changed
         if self.frequency > 0.0 {
