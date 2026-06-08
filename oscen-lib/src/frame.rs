@@ -18,6 +18,36 @@ impl<const N: usize> Default for Frame<N> {
     }
 }
 
+/// Stereo frame: left/right. Reads lighter than `Frame<2>` in type positions
+/// (`StreamInput<Stereo>` vs `StreamInput<Frame<2>>`).
+pub type Stereo = Frame<2>;
+
+/// Quad frame: four channels.
+pub type Quad = Frame<4>;
+
+/// Single-channel frame. NOTE: `f32` is the canonical mono type (design spec,
+/// decision #2) — `Frame<1>` is a permitted degenerate case, not normalized to.
+/// Reach for this alias only for genuinely `N == 1` frame code (e.g. generic
+/// node code instantiated at one channel), never as a replacement for mono `f32`.
+pub type Mono = Frame<1>;
+
+/// Construct a frame from its channels: `[l, r].into()` instead of `Frame([l, r])`.
+impl<const N: usize> From<[f32; N]> for Frame<N> {
+    #[inline]
+    fn from(samples: [f32; N]) -> Self {
+        Frame(samples)
+    }
+}
+
+/// Scalar broadcast: one sample fills every channel (Cmajor-style scalar→vector).
+/// `let dc: Stereo = 0.5.into();` yields `Frame([0.5, 0.5])`.
+impl<const N: usize> From<f32> for Frame<N> {
+    #[inline]
+    fn from(sample: f32) -> Self {
+        Frame([sample; N])
+    }
+}
+
 /// The value type a stream carries: `f32` (mono) or `Frame<N>` (multi-channel).
 ///
 /// This is the single bound the resampler kernels and the arithmetic codegen
@@ -190,6 +220,28 @@ mod tests {
         assert_eq!(<f32 as AudioFrame>::flush_denormal(1e-20, 1e-15), 0.0);
         assert_eq!(<f32 as AudioFrame>::flush_denormal(-1e-20, 1e-15), 0.0);
         assert_eq!(<f32 as AudioFrame>::flush_denormal(0.5, 1e-15), 0.5);
+    }
+
+    #[test]
+    fn from_array_constructs_channels() {
+        let f: Frame<2> = [0.25, -0.5].into();
+        assert_eq!(f, Frame([0.25, -0.5]));
+    }
+
+    #[test]
+    fn from_scalar_broadcasts_to_all_channels() {
+        let f: Frame<2> = 0.5.into();
+        assert_eq!(f, Frame([0.5, 0.5]));
+        let q: Quad = 1.0.into();
+        assert_eq!(q, Frame([1.0; 4]));
+    }
+
+    #[test]
+    fn aliases_are_transparent() {
+        let s: Stereo = [0.1, 0.2].into();
+        assert_eq!(<Stereo as AudioFrame>::CHANNELS, 2);
+        assert_eq!(<Mono as AudioFrame>::CHANNELS, 1);
+        assert_eq!(s, Frame([0.1, 0.2]));
     }
 
     #[test]
