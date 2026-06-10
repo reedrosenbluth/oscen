@@ -517,14 +517,14 @@ mod tests {
     #[test]
     fn test_midi_parser_and_allocator() {
         use oscen::graph::{EventInstance, EventPayload};
-        use oscen::midi::{NoteOnEvent, RawMidiMessage};
+        use oscen::midi::RawMidiMessage;
         use oscen::prelude::*;
 
         // Test just the parser and allocator in isolation
         let mut parser = MidiParser::new();
         let mut allocator = VoiceAllocator::<8>::new();
-        parser.init(48_000.0);
-        allocator.init(48_000.0);
+        parser.set_sample_rate(48_000.0);
+        allocator.set_sample_rate(48_000.0);
 
         // Push raw MIDI to parser
         let note_on_bytes = [0x90, 60, 100];
@@ -570,7 +570,7 @@ mod tests {
 
         // Now test a handler
         let mut handler = MidiVoiceHandler::new();
-        handler.init(48_000.0);
+        handler.set_sample_rate(48_000.0);
 
         // Copy allocator voice output to handler input
         handler.note_on.clear();

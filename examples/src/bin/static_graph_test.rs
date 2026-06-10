@@ -21,7 +21,6 @@ impl MockVoice {
 }
 
 impl SignalProcessor for MockVoice {
-    fn init(&mut self, _sample_rate: f32) {}
     fn process(&mut self) {}
 }
 

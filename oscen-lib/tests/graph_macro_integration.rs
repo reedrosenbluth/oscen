@@ -1,4 +1,4 @@
-use oscen::{graph, PolyBlepOscillator, SignalProcessor, TptFilter};
+use oscen::{graph, PolyBlepOscillator, TptFilter};
 
 // Define the graph at module level
 graph! {

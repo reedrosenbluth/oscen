@@ -1,4 +1,6 @@
-use crate::graph::{AllowsFeedback, SignalProcessor, StreamInput, StreamOutput, ValueInput};
+use crate::graph::{
+    AllowsFeedback, SampleRate, SignalProcessor, StreamInput, StreamOutput, ValueInput,
+};
 use crate::ring_buffer::RingBuffer;
 use oscen_macros::Node;
 
@@ -11,6 +13,7 @@ pub struct Delay {
     pub output: StreamOutput,
 
     buffer: RingBuffer,
+    sample_rate: SampleRate,
     frames_per_update: usize,
     frame_counter: usize,
 }
@@ -27,6 +30,7 @@ impl Delay {
             feedback: ValueInput(feedback),
             output: StreamOutput::default(),
             buffer: RingBuffer::new(initial_buffer_size),
+            sample_rate: SampleRate::default(),
             frames_per_update: 32,
             frame_counter: 0,
         }
@@ -51,13 +55,13 @@ impl Delay {
 }
 
 impl SignalProcessor for Delay {
-    fn init(&mut self, sample_rate: f32) {
+    fn prepare(&mut self) {
         // Calculate a reasonable buffer size based on sample rate, with a safety cap
         // to prevent potential stack overflows
         let target_seconds = 2.0;
         let max_samples = 88200; // Maximum buffer size (2 seconds at 44.1kHz)
 
-        let buffer_size = ((target_seconds * sample_rate) as usize).min(max_samples);
+        let buffer_size = ((target_seconds * *self.sample_rate) as usize).min(max_samples);
 
         // Initialize the buffer with a capped size
         self.buffer = RingBuffer::new(buffer_size);

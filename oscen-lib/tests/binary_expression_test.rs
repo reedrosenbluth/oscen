@@ -1,4 +1,4 @@
-use oscen::{graph, PolyBlepOscillator, SignalProcessor};
+use oscen::{graph, PolyBlepOscillator};
 
 // Test basic multiplication: osc.output * gain -> out
 graph! {

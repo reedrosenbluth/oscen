@@ -346,7 +346,7 @@ impl<T> std::ops::DerefMut for ValueOutput<T> {
 /// (defaulting to 44.1 kHz); there is no need to capture it in `init()`.
 ///
 /// Outside a graph, call the generated `set_sample_rate` method yourself
-/// before processing — `init()` alone does not fill this field. See the
+/// before processing — `prepare()` alone does not fill this field. See the
 /// [`SignalProcessor`](crate::graph::SignalProcessor) docs for the full
 /// contract.
 #[derive(Debug, Clone, Copy, PartialEq)]

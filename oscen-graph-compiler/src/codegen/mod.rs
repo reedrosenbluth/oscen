@@ -1066,7 +1066,7 @@ impl<'a> CodegenContext<'a> {
         let value_setter_methods = self.generate_value_setter_methods();
         let latency_method = self.generate_latency_method();
 
-        let node_init_calls = self.generate_node_init_calls_rate_aware();
+        let node_prepare_calls = self.generate_node_prepare_calls();
         let node_set_rate_calls = self.generate_node_set_sample_rate_calls();
         let resampler_resets = self.generate_resampler_resets();
 
@@ -1131,6 +1131,15 @@ impl<'a> CodegenContext<'a> {
                     #(#node_set_rate_calls)*
                 }
 
+                /// Host entry point: distribute `sample_rate` to every node
+                /// and prepare the graph for processing. Equivalent to
+                /// `set_sample_rate(sample_rate)` followed by
+                /// `SignalProcessor::prepare`.
+                pub fn init(&mut self, sample_rate: f32) {
+                    self.set_sample_rate(sample_rate);
+                    ::oscen::SignalProcessor::prepare(self);
+                }
+
                 #process_method
 
                 #advance_one_frame_method
@@ -1154,13 +1163,11 @@ impl<'a> CodegenContext<'a> {
 
             // Generate SignalProcessor implementation for compile-time graphs
             impl ::oscen::SignalProcessor for #name {
-                fn init(&mut self, sample_rate: f32) {
-                    // Distribute the (rate-annotation-scaled) sample rate to
-                    // every child before any init() runs.
-                    self.set_sample_rate(sample_rate);
-                    // Call init() on all child nodes, scaling sample_rate by
-                    // each node's rate annotation.
-                    #(#node_init_calls)*
+                fn prepare(&mut self) {
+                    // Rates were already distributed by set_sample_rate (the
+                    // parent graph or the inherent init() calls it first).
+                    // Prepare every child node.
+                    #(#node_prepare_calls)*
                     // Reset every cross-rate resampler kernel.
                     #(#resampler_resets)*
                 }

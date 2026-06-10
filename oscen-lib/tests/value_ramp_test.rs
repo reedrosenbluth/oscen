@@ -1,4 +1,4 @@
-use oscen::{graph, oscillators::PolyBlepOscillator, SignalProcessor};
+use oscen::{graph, oscillators::PolyBlepOscillator};
 
 // Test graph with ramped value inputs
 graph! {

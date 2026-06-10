@@ -1,5 +1,5 @@
 use oscen::graph::{EventInstance, EventPayload};
-use oscen::{graph, AdsrEnvelope, PolyBlepOscillator, SignalProcessor};
+use oscen::{graph, AdsrEnvelope, PolyBlepOscillator};
 
 // Define a simple Voice subgraph
 graph! {

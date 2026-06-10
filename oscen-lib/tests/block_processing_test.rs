@@ -1,4 +1,4 @@
-use oscen::{graph, oscillators::PolyBlepOscillator, SignalProcessor};
+use oscen::{graph, oscillators::PolyBlepOscillator};
 
 // ============================================================================
 // Test 1: Stream-only graph — process_block(N) == N × process()

@@ -20,7 +20,6 @@ impl<const N: usize> GenericNode<N> {
 }
 
 impl<const N: usize> SignalProcessor for GenericNode<N> {
-    fn init(&mut self, _sample_rate: f32) {}
     fn process(&mut self) {}
 }
 

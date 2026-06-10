@@ -3,33 +3,39 @@
 ///
 /// # Sample-rate contract
 ///
-/// The sample rate reaches a node through its [`SampleRate`] field: declare
-/// `sample_rate: SampleRate` and `#[derive(Node)]` generates a
-/// `set_sample_rate` method that fills it. Graphs call `set_sample_rate`
-/// on every child **before** calling [`init`](Self::init), so the field is
-/// already correct when `init` runs.
+/// The sample rate reaches a node through its [`SampleRate`] field — the
+/// *only* way a node learns the rate. Declare `sample_rate: SampleRate` and
+/// `#[derive(Node)]` generates a `set_sample_rate` method that fills it.
+/// Graphs call `set_sample_rate` on every child **before** calling
+/// [`prepare`](Self::prepare), so the field is already correct when
+/// `prepare` runs.
 ///
-/// Standalone callers (driving a node without a graph) must follow the same
-/// order:
+/// Hosts driving a generated graph use its `init(sample_rate)` method,
+/// which distributes the rate and prepares every node in one call.
+/// Standalone callers (driving a node without a graph) do the same two
+/// steps themselves, in the same order:
 ///
 /// ```text
 /// node.set_sample_rate(rate);
-/// node.init(rate);
+/// node.prepare();
 /// ```
 ///
-/// Calling `init` alone does **not** fill a `SampleRate` field — nodes that
-/// rely on the field for their per-sample math will keep the 44.1 kHz
-/// default unless `set_sample_rate` is called.
+/// Calling `prepare` alone does **not** fill a `SampleRate` field — a node
+/// prepared without `set_sample_rate` runs at the 44.1 kHz default.
 ///
 /// [`SampleRate`]: crate::graph::SampleRate
 pub trait SignalProcessor: Send + std::fmt::Debug {
-    /// Called once by the graph after sample-rate distribution (see the
-    /// trait-level docs), before any `process()` call. Implement it to
-    /// compute state derived from the sample rate — filter coefficients,
-    /// buffer sizes, envelope increments. Nodes whose only rate-dependent
-    /// state is a [`SampleRate`](crate::graph::SampleRate) field don't need
-    /// to implement it at all.
-    fn init(&mut self, _sample_rate: f32) {}
+    /// Recompute state derived from the sample rate and return the node to
+    /// a ready-to-play state — filter coefficients, buffer sizes, envelope
+    /// increments. Called by graphs after sample-rate distribution (see the
+    /// trait-level docs), before any `process()` call. Read the rate from
+    /// your [`SampleRate`](crate::graph::SampleRate) field; nodes whose only
+    /// rate-dependent state is that field don't need to implement this at
+    /// all.
+    ///
+    /// Allocation is permitted here (this runs on the control thread, never
+    /// the audio thread) — it's the right place to size buffers.
+    fn prepare(&mut self) {}
 
     /// Process one sample of audio.
     ///

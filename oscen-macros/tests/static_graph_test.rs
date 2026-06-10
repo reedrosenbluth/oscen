@@ -1,7 +1,6 @@
 use oscen::filters::TptFilter;
 use oscen::graph;
 use oscen::oscillators::PolyBlepOscillator;
-use oscen::SignalProcessor;
 
 #[test]
 fn test_static_graph_compilation() {

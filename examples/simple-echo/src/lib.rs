@@ -16,10 +16,12 @@ pub struct EchoChannel {
 impl EchoChannel {
     fn new(sample_rate: f32) -> Self {
         let mut delay = Delay::new(11025.0, 0.0); // 0.25s at 44.1kHz, no internal feedback
-        delay.init(sample_rate);
+        delay.set_sample_rate(sample_rate);
+        delay.prepare();
 
         let mut filter = TptFilter::new(4000.0, 0.7);
-        filter.init(sample_rate);
+        filter.set_sample_rate(sample_rate);
+        filter.prepare();
 
         Self {
             delay,

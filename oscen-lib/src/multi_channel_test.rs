@@ -60,7 +60,7 @@ mod tests {
         let mut source = MultiChannelSource::new(10.0);
         let sample_rate = 48_000.0;
 
-        source.init(sample_rate);
+        source.set_sample_rate(sample_rate);
         source.process();
 
         assert_eq!(source.outputs[0], 10.0);

@@ -1,4 +1,4 @@
-use oscen::{graph, PolyBlepOscillator, SignalProcessor, TptFilter};
+use oscen::{graph, PolyBlepOscillator, TptFilter};
 
 // This test verifies that type validation catches common mistakes
 

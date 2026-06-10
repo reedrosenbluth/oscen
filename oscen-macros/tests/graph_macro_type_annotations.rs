@@ -1,7 +1,7 @@
 // Test that the graph! macro can parse type annotations
 // This test verifies compilation succeeds when type annotations are present
 
-use oscen::{graph, PolyBlepOscillator, SignalProcessor};
+use oscen::{graph, PolyBlepOscillator};
 
 // Test 1: Output with array type annotation
 graph! {

@@ -1,8 +1,7 @@
-/// Verification test for the VoiceAllocator
-/// This test ensures that VoiceAllocator works correctly with event routing.
-///
-/// NOTE: This is a simplified test that verifies the API compiles correctly.
-use oscen::prelude::*;
+//! Verification test for the VoiceAllocator
+//! This test ensures that VoiceAllocator works correctly with event routing.
+//!
+//! NOTE: This is a simplified test that verifies the API compiles correctly.
 use oscen::voice_allocator::VoiceAllocator;
 
 fn main() {
@@ -11,7 +10,7 @@ fn main() {
     // Test 1: Verify VoiceAllocator compiles with new API
     println!("Test 1: Creating VoiceAllocator...");
     let mut allocator = VoiceAllocator::<2>::new();
-    allocator.init(44100.0);
+    allocator.set_sample_rate(44100.0);
     println!("✓ VoiceAllocator created successfully");
 
     // Test 2: Verify unit tests pass
@@ -22,9 +21,9 @@ fn main() {
     // Test 3: Verify const generics work
     println!("\nTest 3: Verifying const generics support...");
     let mut _allocator2 = VoiceAllocator::<4>::new();
-    _allocator2.init(44100.0);
+    _allocator2.set_sample_rate(44100.0);
     let mut _allocator3 = VoiceAllocator::<8>::new();
-    _allocator3.init(48000.0);
+    _allocator3.set_sample_rate(48000.0);
     println!("✓ Const generics work correctly with derive(Node) macro");
 
     println!("\n✅ All verification checks passed!");

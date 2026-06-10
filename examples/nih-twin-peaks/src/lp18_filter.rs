@@ -71,8 +71,7 @@ impl LP18Filter {
 }
 
 impl SignalProcessor for LP18Filter {
-    fn init(&mut self, sample_rate: f32) {
-        self.sample_rate.set(sample_rate);
+    fn prepare(&mut self) {
         self.update_cutoff_coefficient();
         self.update_resonance_coefficient();
     }

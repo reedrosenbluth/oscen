@@ -4,7 +4,7 @@
 //! everything as same-rate until Phase 4, so behavior here is not asserted —
 //! only that the graph compiles and constructs.
 
-use oscen::{graph, PolyBlepOscillator, SignalProcessor};
+use oscen::{graph, PolyBlepOscillator};
 
 graph! {
     name: OversampleSmoke;

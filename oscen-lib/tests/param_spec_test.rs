@@ -1,4 +1,4 @@
-use oscen::{graph, PolyBlepOscillator, SignalProcessor, TptFilter};
+use oscen::{graph, PolyBlepOscillator, TptFilter};
 
 // Test that comma-separated parameter specs parse correctly with ramp annotation
 graph! {

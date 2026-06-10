@@ -270,8 +270,7 @@ impl AdsrEnvelope {
 }
 
 impl SignalProcessor for AdsrEnvelope {
-    fn init(&mut self, sample_rate: f32) {
-        self.sample_rate.set(sample_rate);
+    fn prepare(&mut self) {
         self.update_sustain_level();
     }
 
@@ -310,7 +309,8 @@ mod tests {
     #[test]
     fn reaches_sustain_level() {
         let mut env = AdsrEnvelope::new(0.01, 0.02, 0.6, 0.05);
-        env.init(48_000.0);
+        env.set_sample_rate(48_000.0);
+        env.prepare();
 
         // Trigger gate on
         env.handle_gate_event(&EventInstance {
@@ -332,7 +332,8 @@ mod tests {
     #[test]
     fn release_returns_to_zero() {
         let mut env = AdsrEnvelope::new(0.0, 0.0, 0.8, 0.01);
-        env.init(48_000.0);
+        env.set_sample_rate(48_000.0);
+        env.prepare();
 
         // Trigger gate on
         env.handle_gate_event(&EventInstance {
@@ -360,7 +361,8 @@ mod tests {
     #[test]
     fn velocity_scales_output() {
         let mut env = AdsrEnvelope::new(0.0, 0.0, 1.0, 0.01);
-        env.init(48_000.0);
+        env.set_sample_rate(48_000.0);
+        env.prepare();
 
         // Trigger gate with 0.5 velocity
         env.handle_gate_event(&EventInstance {

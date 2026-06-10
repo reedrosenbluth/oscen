@@ -144,9 +144,8 @@ impl IirLowpass {
 }
 
 impl SignalProcessor for IirLowpass {
-    fn init(&mut self, sample_rate: f32) {
-        self.sample_rate.set(sample_rate);
-        self.update_coefficients(sample_rate);
+    fn prepare(&mut self) {
+        self.update_coefficients(*self.sample_rate);
     }
 
     #[inline(always)]
@@ -176,7 +175,8 @@ mod tests {
         let mut filter = IirLowpass::new(1000.0, std::f32::consts::FRAC_1_SQRT_2);
         let sample_rate = 48_000.0;
 
-        filter.init(sample_rate);
+        filter.set_sample_rate(sample_rate);
+        filter.prepare();
 
         // Manually calculate expected coefficients using JUCE formula
         let freq = 1000.0;
@@ -228,7 +228,8 @@ mod tests {
         let mut filter = IirLowpass::new(1000.0, std::f32::consts::FRAC_1_SQRT_2);
         let sample_rate = 48_000.0;
         filter.frames_per_update = 1;
-        filter.init(sample_rate);
+        filter.set_sample_rate(sample_rate);
+        filter.prepare();
 
         // Feed DC signal and check steady-state output
         filter.cutoff = ValueInput(1000.0);
@@ -252,7 +253,8 @@ mod tests {
         let mut filter = IirLowpass::new(2000.0, std::f32::consts::FRAC_1_SQRT_2);
         let sample_rate = 48_000.0;
         filter.frames_per_update = 1;
-        filter.init(sample_rate);
+        filter.set_sample_rate(sample_rate);
+        filter.prepare();
 
         filter.cutoff = ValueInput(2000.0);
         filter.q = ValueInput(std::f32::consts::FRAC_1_SQRT_2);
@@ -286,7 +288,8 @@ mod tests {
         let mut filter = IirLowpass::new(1000.0, 10.0);
         let sample_rate = 48_000.0;
         filter.frames_per_update = 1;
-        filter.init(sample_rate);
+        filter.set_sample_rate(sample_rate);
+        filter.prepare();
 
         filter.cutoff = ValueInput(1000.0);
         filter.q = ValueInput(10.0);
@@ -309,7 +312,8 @@ mod tests {
     fn test_denormal_protection() {
         let mut filter = IirLowpass::new(100.0, std::f32::consts::FRAC_1_SQRT_2);
         let sample_rate = 48_000.0;
-        filter.init(sample_rate);
+        filter.set_sample_rate(sample_rate);
+        filter.prepare();
 
         // Process very small input
         let tiny_input = 1e-20_f32;

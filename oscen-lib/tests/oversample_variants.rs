@@ -6,7 +6,7 @@
 
 #![allow(non_camel_case_types)]
 
-use oscen::{oversample_variants, PolyBlepOscillator, SignalProcessor};
+use oscen::{oversample_variants, PolyBlepOscillator};
 
 oversample_variants! {
     base_name: TestSynth;

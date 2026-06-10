@@ -114,9 +114,8 @@ impl TptFilter {
 // SignalProcessor must be manually implemented
 // The Node macro generates ProcessingNode trait and event handler methods
 impl SignalProcessor for TptFilter {
-    fn init(&mut self, sample_rate: f32) {
-        self.sample_rate.set(sample_rate);
-        self.update_coefficients(sample_rate, *self.cutoff, *self.q);
+    fn prepare(&mut self) {
+        self.update_coefficients(*self.sample_rate, *self.cutoff, *self.q);
     }
 
     #[inline(always)]
@@ -141,7 +140,8 @@ mod tests {
         let mut filter = TptFilter::new(2_000.0, 0.707);
         let sample_rate = 48_000.0;
 
-        filter.init(sample_rate);
+        filter.set_sample_rate(sample_rate);
+        filter.prepare();
 
         let period = 0.5 / sample_rate;
         let freq = filter.current_cutoff;
@@ -165,7 +165,8 @@ mod tests {
     fn test_impulse_response_matches_reference() {
         let mut filter = TptFilter::new(2_000.0, 0.707);
         let sample_rate = 48_000.0;
-        filter.init(sample_rate);
+        filter.set_sample_rate(sample_rate);
+        filter.prepare();
 
         filter.cutoff = StreamInput(2_000.0);
         filter.q = ValueInput(0.707);

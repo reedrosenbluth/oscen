@@ -3,7 +3,8 @@
 //! Methods here emit the `pub struct GraphName { ... }` declaration, the
 //! `pub fn new()` constructor body (input/output/node var init and `Self {
 //! ... }`), cross-rate resampler fields and their initializers, and the
-//! per-node `init()` calls emitted inside `SignalProcessor::init`.
+//! per-node `set_sample_rate()`/`prepare()` calls emitted inside the graph's
+//! `set_sample_rate` and `SignalProcessor::prepare`.
 
 use crate::ast::{EndpointKind, NodeRate};
 use crate::ir::graph::{EdgeKernel, FanoutShape, IrNodeKind};
@@ -356,24 +357,24 @@ impl<'a> CodegenContext<'a> {
         inits
     }
 
-    /// Generate per-node `init()` calls that scale `sample_rate` by the node's
-    /// rate annotation. Rate distribution happens separately (and first) via
-    /// the calls from [`generate_node_set_sample_rate_calls`].
-    pub(super) fn generate_node_init_calls_rate_aware(&self) -> Vec<TokenStream> {
+    /// Generate per-node `prepare()` calls. Rate distribution happens
+    /// separately (and first) via the calls from
+    /// [`generate_node_set_sample_rate_calls`], so `prepare` takes no rate —
+    /// each node reads its own `SampleRate` field.
+    pub(super) fn generate_node_prepare_calls(&self) -> Vec<TokenStream> {
         let mut calls = Vec::new();
         for node in self.nodes() {
             let name = &node.name;
-            let scaled = scaled_rate_expr(node.rate);
             let is_array = matches!(node.kind, IrNodeKind::NodeArray { .. });
             if is_array {
                 calls.push(quote! {
                     for __child in self.#name.iter_mut() {
-                        ::oscen::SignalProcessor::init(__child, #scaled);
+                        ::oscen::SignalProcessor::prepare(__child);
                     }
                 });
             } else {
                 calls.push(quote! {
-                    ::oscen::SignalProcessor::init(&mut self.#name, #scaled);
+                    ::oscen::SignalProcessor::prepare(&mut self.#name);
                 });
             }
         }

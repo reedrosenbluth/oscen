@@ -20,7 +20,6 @@ impl DummyNode {
 }
 
 impl SignalProcessor for DummyNode {
-    fn init(&mut self, _sample_rate: f32) {}
     fn process(&mut self) {}
 }
 
