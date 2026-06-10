@@ -566,8 +566,14 @@ fn sinc_fir_frame2_matches_scalar_per_channel() {
         up_l.upsample(xl, &mut bl);
         up_r.upsample(xr, &mut br);
         for j in 0..2 {
-            assert!(approx_eq!(f32, bf[j].0[0], bl[j], epsilon = 1e-5), "up L n={n} j={j}");
-            assert!(approx_eq!(f32, bf[j].0[1], br[j], epsilon = 1e-5), "up R n={n} j={j}");
+            assert!(
+                approx_eq!(f32, bf[j].0[0], bl[j], epsilon = 1e-5),
+                "up L n={n} j={j}"
+            );
+            assert!(
+                approx_eq!(f32, bf[j].0[1], br[j], epsilon = 1e-5),
+                "up R n={n} j={j}"
+            );
         }
         let yf = down_f.downsample(&bf);
         let yl = down_l.downsample(&bl);
@@ -602,8 +608,14 @@ fn iir_frame2_matches_scalar_per_channel() {
         up_l.upsample(xl, &mut bl);
         up_r.upsample(xr, &mut br);
         for j in 0..2 {
-            assert!(approx_eq!(f32, bf[j].0[0], bl[j], epsilon = 1e-5), "up L n={n} j={j}");
-            assert!(approx_eq!(f32, bf[j].0[1], br[j], epsilon = 1e-5), "up R n={n} j={j}");
+            assert!(
+                approx_eq!(f32, bf[j].0[0], bl[j], epsilon = 1e-5),
+                "up L n={n} j={j}"
+            );
+            assert!(
+                approx_eq!(f32, bf[j].0[1], br[j], epsilon = 1e-5),
+                "up R n={n} j={j}"
+            );
         }
         let yf = down_f.downsample(&bf);
         let yl = down_l.downsample(&bl);

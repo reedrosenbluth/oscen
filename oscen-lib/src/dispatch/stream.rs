@@ -74,7 +74,9 @@ macro_rules! impl_stream_up_framed_all_n {
 
 macro_rules! impl_stream_down_framed {
     ($Policy:ty, $Kernel:ident, $N:literal) => {
-        impl<F: AudioFrame> CrossRateKernel<StreamKind, StreamKind, $Policy, $N, DownDir, F> for () {
+        impl<F: AudioFrame> CrossRateKernel<StreamKind, StreamKind, $Policy, $N, DownDir, F>
+            for ()
+        {
             type State = DownState<$Kernel<$N, F>, $N, F>;
         }
     };

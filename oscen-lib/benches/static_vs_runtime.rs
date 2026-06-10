@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use oscen::{
-    graph, AdsrEnvelope, Gain, Oscillator, PolyBlepOscillator, TptFilter,
-};
+use oscen::{graph, AdsrEnvelope, Gain, Oscillator, PolyBlepOscillator, TptFilter};
 
 // Simple graph for baseline comparison
 graph! {
