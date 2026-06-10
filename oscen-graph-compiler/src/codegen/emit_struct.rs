@@ -357,34 +357,49 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Generate per-node `init()` calls that scale `sample_rate` by the node's
-    /// rate annotation.
+    /// rate annotation. Rate distribution happens separately (and first) via
+    /// the calls from [`generate_node_set_sample_rate_calls`].
     pub(super) fn generate_node_init_calls_rate_aware(&self) -> Vec<TokenStream> {
         let mut calls = Vec::new();
         for node in self.nodes() {
             let name = &node.name;
-            let scaled = match node.rate {
-                NodeRate::Same => quote! { sample_rate },
-                NodeRate::Up(f) => {
-                    let f = f as f32;
-                    quote! { sample_rate * #f }
-                }
-                NodeRate::Down(d) => {
-                    let d = d as f32;
-                    quote! { sample_rate / #d }
-                }
-            };
+            let scaled = scaled_rate_expr(node.rate);
             let is_array = matches!(node.kind, IrNodeKind::NodeArray { .. });
             if is_array {
                 calls.push(quote! {
                     for __child in self.#name.iter_mut() {
-                        __child.set_sample_rate(#scaled);
                         ::oscen::SignalProcessor::init(__child, #scaled);
                     }
                 });
             } else {
                 calls.push(quote! {
-                    self.#name.set_sample_rate(#scaled);
                     ::oscen::SignalProcessor::init(&mut self.#name, #scaled);
+                });
+            }
+        }
+        calls
+    }
+
+    /// Generate per-node `set_sample_rate()` calls that scale `sample_rate` by
+    /// the node's rate annotation. Emitted into the graph's `set_sample_rate`
+    /// so a rate change reaches every child (and, recursively, nested graphs)
+    /// without touching any other state — `init` is what resets resamplers and
+    /// recomputes derived state.
+    pub(super) fn generate_node_set_sample_rate_calls(&self) -> Vec<TokenStream> {
+        let mut calls = Vec::new();
+        for node in self.nodes() {
+            let name = &node.name;
+            let scaled = scaled_rate_expr(node.rate);
+            let is_array = matches!(node.kind, IrNodeKind::NodeArray { .. });
+            if is_array {
+                calls.push(quote! {
+                    for __child in self.#name.iter_mut() {
+                        __child.set_sample_rate(#scaled);
+                    }
+                });
+            } else {
+                calls.push(quote! {
+                    self.#name.set_sample_rate(#scaled);
                 });
             }
         }
@@ -461,6 +476,22 @@ impl<'a> CodegenContext<'a> {
                 #(#down_latencies)*
                 total
             }
+        }
+    }
+}
+
+/// Expression for a node's effective rate given the graph-level `sample_rate`
+/// binding in scope, scaled by the node's rate annotation.
+fn scaled_rate_expr(rate: NodeRate) -> TokenStream {
+    match rate {
+        NodeRate::Same => quote! { sample_rate },
+        NodeRate::Up(f) => {
+            let f = f as f32;
+            quote! { sample_rate * #f }
+        }
+        NodeRate::Down(d) => {
+            let d = d as f32;
+            quote! { sample_rate / #d }
         }
     }
 }

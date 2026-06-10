@@ -1067,6 +1067,7 @@ impl<'a> CodegenContext<'a> {
         let latency_method = self.generate_latency_method();
 
         let node_init_calls = self.generate_node_init_calls_rate_aware();
+        let node_set_rate_calls = self.generate_node_set_sample_rate_calls();
         let resampler_resets = self.generate_resampler_resets();
 
         // Generate NIH-plug params struct if nih_params flag is set
@@ -1120,11 +1121,14 @@ impl<'a> CodegenContext<'a> {
                     }
                 }
 
-                /// Set the graph's sample rate. Called when this graph is nested
-                /// as a node inside another graph; the host normally uses `init`.
+                /// Set the graph's sample rate and propagate it to every child
+                /// node (scaled by each node's rate annotation, recursing into
+                /// nested graphs). Rate only: unlike `init`, this does not
+                /// reset resamplers or recompute derived state.
                 #[inline]
                 pub fn set_sample_rate(&mut self, sample_rate: f32) {
                     self.sample_rate = sample_rate;
+                    #(#node_set_rate_calls)*
                 }
 
                 #process_method
@@ -1151,7 +1155,9 @@ impl<'a> CodegenContext<'a> {
             // Generate SignalProcessor implementation for compile-time graphs
             impl ::oscen::SignalProcessor for #name {
                 fn init(&mut self, sample_rate: f32) {
-                    self.sample_rate = sample_rate;
+                    // Distribute the (rate-annotation-scaled) sample rate to
+                    // every child before any init() runs.
+                    self.set_sample_rate(sample_rate);
                     // Call init() on all child nodes, scaling sample_rate by
                     // each node's rate annotation.
                     #(#node_init_calls)*
