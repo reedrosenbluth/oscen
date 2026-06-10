@@ -6,11 +6,8 @@
 //! performed directly by the macro's codegen against `state.kernel`, not
 //! dispatched through this trait.
 //!
-//! Two impl forms coexist during the Layer D rollout:
-//!   * `impl_stream_{up,down}_all_n!`        — non-framed (`Kernel<N>`), `Frame`
-//!     defaults to `f32`. Used by policies whose kernel is not yet genericized.
-//!   * `impl_stream_{up,down}_framed_all_n!` — framed (`Kernel<N, F>`), blanket
-//!     over `F: AudioFrame`. Used once a kernel family is genericized.
+//! Every kernel family is genericized over [`AudioFrame`], so all impls here
+//! are blanket impls over `F: AudioFrame` (with `F = f32` as the mono case).
 
 use crate::dispatch::{
     CrossRateKernel, DefaultPolicy, DownDir, LatchPolicy, LinearPolicy, SincIirPolicy, SincPolicy,
@@ -57,44 +54,6 @@ impl<K: Default, const N: usize, F: Default> Default for DownState<K, N, F> {
         }
     }
 }
-
-// --- non-framed (kernel<N>, Frame defaults f32) ---------------------------
-
-macro_rules! impl_stream_up {
-    ($Policy:ty, $Kernel:ident, $N:literal) => {
-        impl CrossRateKernel<StreamKind, StreamKind, $Policy, $N, UpDir> for () {
-            type State = UpState<$Kernel<$N>, $N>;
-        }
-    };
-}
-
-macro_rules! impl_stream_up_all_n {
-    ($Policy:ty, $Kernel:ident) => {
-        impl_stream_up!($Policy, $Kernel, 1);
-        impl_stream_up!($Policy, $Kernel, 2);
-        impl_stream_up!($Policy, $Kernel, 4);
-        impl_stream_up!($Policy, $Kernel, 8);
-    };
-}
-
-macro_rules! impl_stream_down {
-    ($Policy:ty, $Kernel:ident, $N:literal) => {
-        impl CrossRateKernel<StreamKind, StreamKind, $Policy, $N, DownDir> for () {
-            type State = DownState<$Kernel<$N>, $N>;
-        }
-    };
-}
-
-macro_rules! impl_stream_down_all_n {
-    ($Policy:ty, $Kernel:ident) => {
-        impl_stream_down!($Policy, $Kernel, 1);
-        impl_stream_down!($Policy, $Kernel, 2);
-        impl_stream_down!($Policy, $Kernel, 4);
-        impl_stream_down!($Policy, $Kernel, 8);
-    };
-}
-
-// --- framed (kernel<N, F>, blanket over F: AudioFrame) --------------------
 
 macro_rules! impl_stream_up_framed {
     ($Policy:ty, $Kernel:ident, $N:literal) => {
