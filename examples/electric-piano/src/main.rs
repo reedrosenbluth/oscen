@@ -163,18 +163,18 @@ fn audio_callback(
         context.synth.process();
 
         // Static graph: direct field access for outputs
-        let mono = context.synth.left_out;
+        let left = context.synth.left_out;
+        let right = context.synth.right_out;
 
-        // Write to output channels - duplicate mono to stereo
         if context.channels >= 2 {
-            frame[0] = mono;
-            frame[1] = mono;
+            frame[0] = left;
+            frame[1] = right;
             // Zero out any additional channels
             for sample in frame.iter_mut().skip(2) {
                 *sample = 0.0;
             }
         } else if context.channels == 1 {
-            frame[0] = mono;
+            frame[0] = 0.5 * (left + right);
         }
     }
 }
@@ -349,7 +349,7 @@ mod tests {
                 let mut max = 0.0;
                 for i in 0..8192 {
                     synth.process();
-                    let sample = synth.left_out.abs();
+                    let sample = synth.left_out.abs().max(synth.right_out.abs());
                     if sample > max {
                         max = sample;
                         eprintln!("New max at frame {}: {}", i, max);
