@@ -18,6 +18,7 @@ realfft = { version = "3", optional = true }
 [dev-dependencies]
 float-cmp = "0.10.0"
 criterion = { version = "0.5", features = ["html_reports"] }
+assert_no_alloc = "1.1.2"
 
 [[bench]]
 name = "static_vs_runtime"
