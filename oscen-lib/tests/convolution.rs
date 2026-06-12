@@ -140,6 +140,73 @@ fn partitioned_convolver_empty_segment_is_silence() {
     }
 }
 
+#[test]
+fn partitioned_convolver_phase_offset_preserves_output_and_latency() {
+    let block_size = 32;
+    let segment = noise(80, 20);
+    let input = noise(512, 21);
+    let expected = naive_convolve(&input, &segment);
+
+    for &offset in &[0usize, 1, 5, 16, 31] {
+        let mut conv = PartitionedConvolver::with_phase_offset(block_size, &segment, offset);
+        assert_eq!(conv.latency_samples(), block_size);
+        let got: Vec<f32> = input.iter().map(|&x| conv.process_sample(x)).collect();
+
+        assert_close(
+            &got[..block_size],
+            &vec![0.0; block_size],
+            1e-6,
+            &format!("latency zeros, offset={offset}"),
+        );
+        assert_close(
+            &got[block_size..],
+            &expected[..input.len() - block_size],
+            1e-4,
+            &format!("phase offset {offset} vs naive"),
+        );
+    }
+}
+
+#[test]
+fn phase_offset_shifts_block_schedule() {
+    // With no offset, the first block fires on sample block_size - 1; with
+    // an offset of P, it fires P samples earlier and every block_size after.
+    fn firing_samples(conv: &mut PartitionedConvolver, n: usize) -> Vec<usize> {
+        (0..n)
+            .filter(|_| {
+                let fires = conv.samples_until_next_block() == 1;
+                conv.process_sample(0.0);
+                fires
+            })
+            .collect()
+    }
+
+    let segment = noise(8, 22);
+    let mut plain = PartitionedConvolver::new(8, &segment);
+    let mut shifted = PartitionedConvolver::with_phase_offset(8, &segment, 3);
+
+    assert_eq!(firing_samples(&mut plain, 32), vec![7, 15, 23, 31]);
+    assert_eq!(firing_samples(&mut shifted, 32), vec![4, 12, 20, 28]);
+}
+
+#[test]
+fn dephased_node_stages_never_fire_together() {
+    // Mirror the Convolver node's stage configuration: short stage at phase
+    // 0, long stage de-phased. Their FFT work must never land on the same
+    // sample.
+    let short = PartitionedConvolver::new(32, &noise(480, 23));
+    let long = PartitionedConvolver::with_phase_offset(512, &noise(1000, 24), 16);
+    let mut short = short;
+    let mut long = long;
+
+    for t in 0..4096 {
+        let both = short.samples_until_next_block() == 1 && long.samples_until_next_block() == 1;
+        assert!(!both, "both stages fire on sample {t}");
+        short.process_sample(0.0);
+        long.process_sample(0.0);
+    }
+}
+
 // --- Convolver node ---
 
 /// Drive a Convolver node standalone through the documented lifecycle

@@ -26,6 +26,14 @@ pub const SHORT_BLOCK_SIZE: usize = 32;
 /// Block size of the long FFT stage; the short stage covers taps up to here.
 pub const LONG_BLOCK_SIZE: usize = 512;
 
+/// Phase offset for the long stage's block schedule. Because
+/// `LONG_BLOCK_SIZE` is a multiple of `SHORT_BLOCK_SIZE`, an un-shifted long
+/// stage would run its FFT work on the same samples as the short stage every
+/// long block. Any offset that is not a multiple of `SHORT_BLOCK_SIZE`
+/// prevents that; half a short block keeps the two schedules maximally
+/// apart.
+const LONG_STAGE_PHASE_OFFSET: usize = SHORT_BLOCK_SIZE / 2;
+
 /// Brute-force time-domain FIR convolution with zero latency.
 #[derive(Debug)]
 pub struct DirectConvolver {
@@ -71,6 +79,7 @@ impl DirectConvolver {
 #[derive(Debug)]
 pub struct PartitionedConvolver {
     block_size: usize,
+    phase_offset: usize,
     fft: FftPlan,
     ir_spectra: Vec<Vec<Complex<f32>>>,
     input_spectra: Vec<Vec<Complex<f32>>>,
@@ -89,7 +98,21 @@ impl PartitionedConvolver {
     /// The segment is zero-padded to a whole number of partitions. An empty
     /// segment produces silence.
     pub fn new(block_size: usize, ir_segment: &[f32]) -> Self {
+        Self::with_phase_offset(block_size, ir_segment, 0)
+    }
+
+    /// Like [`new`](Self::new), but with the block schedule shifted
+    /// `phase_offset` samples earlier (`phase_offset < block_size`), as if
+    /// the convolver had already consumed that many zeros. The output and
+    /// the latency are unchanged — only *when* the per-block FFT work runs
+    /// moves. Stages with different block sizes can use offsets to avoid
+    /// running their FFT work on the same sample.
+    pub fn with_phase_offset(block_size: usize, ir_segment: &[f32], phase_offset: usize) -> Self {
         assert!(block_size > 0, "block size must be non-zero");
+        assert!(
+            phase_offset < block_size,
+            "phase offset must be less than the block size"
+        );
         let mut fft = FftPlan::new(2 * block_size);
         let mut time_buf = vec![0.0f32; 2 * block_size];
 
@@ -107,12 +130,21 @@ impl PartitionedConvolver {
         let input_spectra = (0..partitions).map(|_| fft.make_spectrum()).collect();
         let spectrum_accum = fft.make_spectrum();
 
+        // Prime the accumulator: the convolver behaves as if `phase_offset`
+        // zeros preceded the input, which moves block boundaries earlier by
+        // that many samples without changing the output or the latency.
+        let mut accumulator = BlockAccumulator::new(block_size);
+        for _ in 0..phase_offset {
+            accumulator.push(0.0);
+        }
+
         Self {
             block_size,
+            phase_offset,
             ir_spectra,
             input_spectra,
             fdl_pos: 0,
-            accumulator: BlockAccumulator::new(block_size),
+            accumulator,
             prev_block: vec![0.0; block_size],
             time_buf,
             spectrum_accum,
@@ -120,6 +152,12 @@ impl PartitionedConvolver {
             samples_processed: 0,
             fft,
         }
+    }
+
+    /// How many more samples until `process_sample` runs this convolver's
+    /// per-block FFT work (1 means the next call does).
+    pub fn samples_until_next_block(&self) -> usize {
+        self.block_size - self.accumulator.block().len()
     }
 
     /// Process one input sample. The returned signal is the convolution of
@@ -130,13 +168,15 @@ impl PartitionedConvolver {
             return 0.0;
         }
 
-        // Read before pushing: output sample t is y[t - B], so the block
-        // computed when sample (k+1)B - 1 arrives is read back while samples
-        // (k+1)B .. (k+2)B - 1 arrive.
+        // Read before pushing: output sample t is y[t - B], so a block's
+        // outputs are read back over the B samples after it is computed.
+        // The phase offset shifts where y[t - B] sits inside its block
+        // (blocks cover input ranges starting `phase_offset` early), not
+        // when it is read.
         let t = self.samples_processed;
         let block = self.block_size as u64;
         let out = if t >= block {
-            self.output[(t % block) as usize]
+            self.output[((t + self.phase_offset as u64) % block) as usize]
         } else {
             0.0
         };
@@ -205,6 +245,22 @@ impl PartitionedConvolver {
 ///
 /// The impulse response is taken to be at the session sample rate; no
 /// resampling is performed. Mono only.
+///
+/// # CPU profile
+///
+/// The average cost per sample is low, but the work is bursty: each FFT
+/// stage does all of its work for a block on the single `process()` call
+/// where that block fills (a 64-point FFT round-trip every 32 samples for
+/// the short stage; a 1024-point round-trip plus one spectral
+/// multiply-accumulate per IR partition every 512 samples for the long
+/// stage). The two stages' schedules are deliberately offset so their
+/// bursts never land on the same sample. With typical audio callbacks
+/// (≥ 64 samples per `process_block`) the bursts amortize inside the
+/// callback budget; only very long IRs combined with very small callback
+/// buffers can make the long stage's burst significant relative to the
+/// budget. If that combination ever matters, the long stage's partition
+/// multiplies can be amortized across the block at the cost of one extra
+/// block of long-stage coverage — not currently implemented.
 #[derive(Debug, Node)]
 pub struct Convolver {
     #[input(stream)]
@@ -280,7 +336,11 @@ impl Convolver {
         } else {
             &[]
         };
-        self.long_stage = PartitionedConvolver::new(LONG_BLOCK_SIZE, long_segment);
+        self.long_stage = PartitionedConvolver::with_phase_offset(
+            LONG_BLOCK_SIZE,
+            long_segment,
+            LONG_STAGE_PHASE_OFFSET,
+        );
     }
 }
 
