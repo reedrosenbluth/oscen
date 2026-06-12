@@ -45,18 +45,18 @@ impl EchoChannel {
         let feedback_signal = self.filter.output * feedback;
 
         // Feed input + feedback into delay (with soft clipping to prevent runaway)
-        self.delay.input = oscen::StreamInput((input + feedback_signal).tanh());
+        self.delay.input = (input + feedback_signal).tanh();
 
         // Update filter cutoff
-        self.filter.cutoff = oscen::StreamInput(filter_cutoff);
+        self.filter.cutoff = filter_cutoff;
 
         // Process delay -> filter chain
         self.delay.process();
-        self.filter.input = oscen::StreamInput(*self.delay.output);
+        self.filter.input = self.delay.output;
         self.filter.process();
 
         // Mix dry and wet
-        let wet = *self.filter.output;
+        let wet = self.filter.output;
         input * (1.0 - mix) + wet * mix
     }
 }

@@ -1,16 +1,18 @@
-use crate::graph::{
-    AllowsFeedback, SampleRate, SignalProcessor, StreamInput, StreamOutput, ValueInput,
-};
+use crate::graph::{AllowsFeedback, SampleRate, SignalProcessor};
 use crate::ring_buffer::RingBuffer;
 use oscen_macros::Node;
 
 #[derive(Debug, Node)]
 pub struct Delay {
-    pub input: StreamInput,
-    delay_samples: ValueInput,
-    feedback: ValueInput,
+    #[input(stream)]
+    pub input: f32,
+    #[input(value)]
+    delay_samples: f32,
+    #[input(value)]
+    feedback: f32,
 
-    pub output: StreamOutput,
+    #[output(stream)]
+    pub output: f32,
 
     buffer: RingBuffer,
     sample_rate: SampleRate,
@@ -25,10 +27,10 @@ impl Delay {
         let initial_buffer_size = 1024;
 
         Self {
-            input: StreamInput::default(),
-            delay_samples: ValueInput(delay_samples),
-            feedback: ValueInput(feedback),
-            output: StreamOutput::default(),
+            input: 0.0,
+            delay_samples,
+            feedback,
+            output: 0.0,
             buffer: RingBuffer::new(initial_buffer_size),
             sample_rate: SampleRate::default(),
             frames_per_update: 32,
@@ -45,9 +47,8 @@ impl Delay {
     fn apply_parameter_updates(&mut self) {
         if self.frame_counter == 0 {
             let max_delay = self.buffer.capacity() as f32 - 1.0;
-            self.delay_samples
-                .set(self.delay_samples.clamp(0.0, max_delay));
-            self.feedback.set(self.feedback.clamp(0.0, 0.99));
+            self.delay_samples = self.delay_samples.clamp(0.0, max_delay);
+            self.feedback = self.feedback.clamp(0.0, 0.99);
         }
 
         self.frame_counter = (self.frame_counter + 1) % self.frames_per_update;
@@ -73,11 +74,11 @@ impl SignalProcessor for Delay {
         self.apply_parameter_updates();
 
         // Process delay
-        let delayed = self.buffer.get(*self.delay_samples);
-        self.buffer.push(*self.input + delayed * *self.feedback);
+        let delayed = self.buffer.get(self.delay_samples);
+        self.buffer.push(self.input + delayed * self.feedback);
 
         // Write output
-        *self.output = delayed;
+        self.output = delayed;
     }
 }
 

@@ -1,7 +1,5 @@
 use crate::graph::types::EventPayload;
-use crate::graph::{
-    EventInput, EventInstance, SampleRate, SignalProcessor, StreamOutput, ValueInput,
-};
+use crate::graph::{EventInput, EventInstance, SampleRate, SignalProcessor};
 use crate::Node;
 
 const MIN_TIME_SECONDS: f32 = 1.0e-5;
@@ -20,17 +18,23 @@ enum Stage {
 
 #[derive(Debug, Node)]
 pub struct AdsrEnvelope {
+    #[input(event)]
     pub gate: EventInput,
 
-    pub attack: ValueInput,
+    #[input(value)]
+    pub attack: f32,
 
-    pub decay: ValueInput,
+    #[input(value)]
+    pub decay: f32,
 
-    pub sustain: ValueInput,
+    #[input(value)]
+    pub sustain: f32,
 
-    pub release: ValueInput,
+    #[input(value)]
+    pub release: f32,
 
-    pub output: StreamOutput,
+    #[output(stream)]
+    pub output: f32,
 
     stage: Stage,
     attack_samples: u32,
@@ -54,11 +58,11 @@ impl AdsrEnvelope {
     pub fn new(attack: f32, decay: f32, sustain: f32, release: f32) -> Self {
         let mut envelope = Self {
             gate: EventInput::default(),
-            attack: ValueInput(attack),
-            decay: ValueInput(decay),
-            sustain: ValueInput(sustain),
-            release: ValueInput(release),
-            output: StreamOutput::default(),
+            attack,
+            decay,
+            sustain,
+            release,
+            output: 0.0,
             stage: Stage::Idle,
             attack_samples: 0,
             decay_samples: 0,
@@ -78,15 +82,15 @@ impl AdsrEnvelope {
     }
 
     fn apply_parameters(&mut self) {
-        self.attack.set(self.attack.max(0.0));
-        self.decay.set(self.decay.max(0.0));
-        self.sustain.set(self.sustain.clamp(0.0, 1.0));
-        self.release.set(self.release.max(0.0));
+        self.attack = self.attack.max(0.0);
+        self.decay = self.decay.max(0.0);
+        self.sustain = self.sustain.clamp(0.0, 1.0);
+        self.release = self.release.max(0.0);
         self.update_sustain_level();
     }
 
     fn update_sustain_level(&mut self) {
-        self.sustain_level = (*self.sustain * self.velocity).clamp(0.0, 1.0);
+        self.sustain_level = (self.sustain * self.velocity).clamp(0.0, 1.0);
         self.recalculate_cached_steps();
         match self.stage {
             Stage::Attack if self.samples_remaining > 0 => {
@@ -252,13 +256,13 @@ impl AdsrEnvelope {
         if velocity > 0.0 {
             self.velocity = velocity.clamp(0.0, 1.0);
             self.update_sustain_level();
-            if *self.attack <= MIN_TIME_SECONDS {
+            if self.attack <= MIN_TIME_SECONDS {
                 self.level = 1.0;
                 self.set_stage(Stage::Decay, self.sustain_level);
             } else {
                 self.set_stage(Stage::Attack, 1.0);
             }
-        } else if *self.release <= MIN_TIME_SECONDS {
+        } else if self.release <= MIN_TIME_SECONDS {
             self.stage = Stage::Idle;
             self.level = 0.0;
             self.samples_remaining = 0;
@@ -283,7 +287,7 @@ impl SignalProcessor for AdsrEnvelope {
         self.process_stage();
 
         // Update output level
-        *self.output = self.level;
+        self.output = self.level;
     }
 
     fn is_active(&self) -> bool {
@@ -323,9 +327,9 @@ mod tests {
         } // 100 ms
 
         assert!(
-            *env.output >= 0.5 && *env.output <= 0.65,
+            env.output >= 0.5 && env.output <= 0.65,
             "value {} not near sustain",
-            *env.output
+            env.output
         );
     }
 
@@ -355,7 +359,7 @@ mod tests {
             env.process();
         }
 
-        assert!(*env.output <= 0.01, "value {} not near zero", *env.output);
+        assert!(env.output <= 0.01, "value {} not near zero", env.output);
     }
 
     #[test]
@@ -375,9 +379,9 @@ mod tests {
         }
 
         assert!(
-            *env.output >= 0.45 && *env.output <= 0.55,
+            env.output >= 0.45 && env.output <= 0.55,
             "value {} not scaled by velocity",
-            *env.output
+            env.output
         );
     }
 }
