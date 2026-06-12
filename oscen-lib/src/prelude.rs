@@ -10,6 +10,8 @@ pub use crate::graph;
 pub use crate::{EventInput, EventOutput};
 
 // Common nodes
+#[cfg(feature = "convolution")]
+pub use crate::convolution::Convolver;
 pub use crate::{
     AdsrEnvelope, AudioInput, Delay, Gain, IirLowpass, Oscillator, PolyBlepOscillator, TptFilter,
 };
