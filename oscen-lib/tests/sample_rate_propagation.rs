@@ -1,26 +1,27 @@
 #![feature(inherent_associated_types)]
 
-use oscen::{graph, Node, SampleRate, SignalProcessor, StreamInput, StreamOutput};
+use oscen::{graph, Node, SampleRate, SignalProcessor};
 
 // A node with no init() — it relies entirely on the graph calling set_sample_rate.
 #[derive(Debug, Node)]
 struct RateProbe {
     sample_rate: SampleRate,
-    pub out: StreamOutput,
+    #[output(stream)]
+    pub out: f32,
 }
 
 impl RateProbe {
     fn new() -> Self {
         Self {
             sample_rate: SampleRate::default(),
-            out: StreamOutput::default(),
+            out: Default::default(),
         }
     }
 }
 
 impl SignalProcessor for RateProbe {
     fn process(&mut self) {
-        *self.out = *self.sample_rate;
+        self.out = *self.sample_rate;
     }
 }
 
@@ -83,22 +84,24 @@ fn oversampled_child_rate_scales_via_set_sample_rate_alone() {
 /// outer graph.
 #[derive(Debug, Node)]
 struct RateSink {
-    pub inp: StreamInput,
-    pub out: StreamOutput,
+    #[input(stream)]
+    pub inp: f32,
+    #[output(stream)]
+    pub out: f32,
 }
 
 impl RateSink {
     fn new() -> Self {
         Self {
-            inp: StreamInput::default(),
-            out: StreamOutput::default(),
+            inp: Default::default(),
+            out: Default::default(),
         }
     }
 }
 
 impl SignalProcessor for RateSink {
     fn process(&mut self) {
-        *self.out = *self.inp;
+        self.out = self.inp;
     }
 }
 

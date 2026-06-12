@@ -1,15 +1,20 @@
-use crate::graph::{SampleRate, StreamInput, StreamOutput, ValueInput};
+use crate::graph::SampleRate;
 use crate::{Node, SignalProcessor};
 use std::f32::consts::PI;
 
 #[derive(Debug, Node)]
 pub struct TptFilter {
-    pub input: StreamInput,
-    pub cutoff: StreamInput,
-    pub q: ValueInput,
-    pub f_mod: StreamInput,
+    #[input(stream)]
+    pub input: f32,
+    #[input(stream)]
+    pub cutoff: f32,
+    #[input(value)]
+    pub q: f32,
+    #[input(stream)]
+    pub f_mod: f32,
 
-    pub output: StreamOutput,
+    #[output(stream)]
+    pub output: f32,
 
     // last applied, sanitized parameters
     current_cutoff: f32,
@@ -35,11 +40,11 @@ pub struct TptFilter {
 impl TptFilter {
     pub fn new(cutoff: f32, q: f32) -> Self {
         let mut filter = Self {
-            input: StreamInput::default(),
-            cutoff: StreamInput(cutoff),
-            q: ValueInput(q),
-            f_mod: StreamInput::default(),
-            output: StreamOutput::default(),
+            input: 0.0,
+            cutoff,
+            q,
+            f_mod: 0.0,
+            output: 0.0,
             current_cutoff: cutoff,
             current_q: q,
             z: [0.0; 2],
@@ -107,7 +112,7 @@ impl TptFilter {
         self.z[1] = self.g * band + low;
 
         // Write output
-        *self.output = low;
+        self.output = low;
     }
 }
 
@@ -115,7 +120,7 @@ impl TptFilter {
 // The Node macro generates ProcessingNode trait and event handler methods
 impl SignalProcessor for TptFilter {
     fn prepare(&mut self) {
-        self.update_coefficients(*self.sample_rate, *self.cutoff, *self.q);
+        self.update_coefficients(*self.sample_rate, self.cutoff, self.q);
     }
 
     #[inline(always)]
@@ -168,15 +173,15 @@ mod tests {
         filter.set_sample_rate(sample_rate);
         filter.prepare();
 
-        filter.cutoff = StreamInput(2_000.0);
-        filter.q = ValueInput(0.707);
-        filter.f_mod = StreamInput(0.0);
+        filter.cutoff = 2_000.0;
+        filter.q = 0.707;
+        filter.f_mod = 0.0;
         let mut outputs = Vec::new();
 
         for n in 0..8 {
-            filter.input = StreamInput(if n == 0 { 1.0 } else { 0.0 });
+            filter.input = if n == 0 { 1.0 } else { 0.0 };
             filter.process();
-            outputs.push(*filter.output);
+            outputs.push(filter.output);
         }
 
         let expected = [

@@ -10,19 +10,19 @@
 //! kernel and not test the frame path).
 #![feature(inherent_associated_types)]
 
-use oscen::graph::{StreamInput, StreamOutput};
 use oscen::{graph, Frame, Node, SignalProcessor};
 
 #[derive(Debug, Node)]
 pub struct StereoConstSrc {
-    pub out: StreamOutput<Frame<2>>,
+    #[output(stream)]
+    pub out: Frame<2>,
     value: Frame<2>,
 }
 
 impl StereoConstSrc {
     pub fn new(value: Frame<2>) -> Self {
         Self {
-            out: StreamOutput(Frame([0.0; 2])),
+            out: Frame([0.0; 2]),
             value,
         }
     }
@@ -37,21 +37,23 @@ impl Default for StereoConstSrc {
 impl SignalProcessor for StereoConstSrc {
     #[inline(always)]
     fn process(&mut self) {
-        *self.out = self.value;
+        self.out = self.value;
     }
 }
 
 #[derive(Debug, Node)]
 pub struct StereoPass {
-    pub inp: StreamInput<Frame<2>>,
-    pub out: StreamOutput<Frame<2>>,
+    #[input(stream)]
+    pub inp: Frame<2>,
+    #[output(stream)]
+    pub out: Frame<2>,
 }
 
 impl StereoPass {
     pub fn new() -> Self {
         Self {
-            inp: StreamInput(Frame([0.0; 2])),
-            out: StreamOutput(Frame([0.0; 2])),
+            inp: Frame([0.0; 2]),
+            out: Frame([0.0; 2]),
         }
     }
 }
@@ -65,20 +67,21 @@ impl Default for StereoPass {
 impl SignalProcessor for StereoPass {
     #[inline(always)]
     fn process(&mut self) {
-        *self.out = *self.inp;
+        self.out = self.inp;
     }
 }
 
 #[derive(Debug, Node)]
 pub struct StereoSink {
-    pub inp: StreamInput<Frame<2>>,
+    #[input(stream)]
+    pub inp: Frame<2>,
     pub last: Frame<2>,
 }
 
 impl StereoSink {
     pub fn new() -> Self {
         Self {
-            inp: StreamInput(Frame([0.0; 2])),
+            inp: Frame([0.0; 2]),
             last: Frame([0.0; 2]),
         }
     }
@@ -93,7 +96,7 @@ impl Default for StereoSink {
 impl SignalProcessor for StereoSink {
     #[inline(always)]
     fn process(&mut self) {
-        self.last = *self.inp;
+        self.last = self.inp;
     }
 }
 

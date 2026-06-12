@@ -1,6 +1,6 @@
 #![feature(inherent_associated_types)]
 
-use oscen::graph::{EventOutput, StreamInput};
+use oscen::graph::EventOutput;
 use oscen::{graph, Node, SignalProcessor};
 
 #[derive(Debug, Node)]
@@ -20,12 +20,13 @@ impl SignalProcessor for EventEmitter {
 
 #[derive(Debug, Node)]
 pub struct StreamSink {
-    pub input: StreamInput,
+    #[input(stream)]
+    pub input: f32,
 }
 impl StreamSink {
     pub fn new() -> Self {
         Self {
-            input: StreamInput::default(),
+            input: Default::default(),
         }
     }
 }

@@ -8,15 +8,15 @@ warning: the feature `inherent_associated_types` is incomplete and may not be sa
   = note: `#[warn(incomplete_features)]` on by default
 
 error[E0277]: the trait bound `Delay: AllowsFeedback` is not satisfied
-  --> tests/ui/feedback_marker_missing.rs:37:14
+  --> tests/ui/feedback_marker_missing.rs:38:14
    |
-37 |     node d = Delay::new();
+38 |     node d = Delay::new();
    |              ^^^^^ unsatisfied trait bound
    |
 help: the trait `AllowsFeedback` is not implemented for `Delay`
-  --> tests/ui/feedback_marker_missing.rs:16:1
+  --> tests/ui/feedback_marker_missing.rs:15:1
    |
-16 | pub struct Delay {
+15 | pub struct Delay {
    | ^^^^^^^^^^^^^^^^
 help: the trait `AllowsFeedback` is implemented for `oscen::Delay`
   --> $WORKSPACE/oscen-lib/src/delay/mod.rs
@@ -24,7 +24,7 @@ help: the trait `AllowsFeedback` is implemented for `oscen::Delay`
    | impl AllowsFeedback for Delay {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: required by a bound in `_assert_allows_feedback`
-  --> tests/ui/feedback_marker_missing.rs:40:9
+  --> tests/ui/feedback_marker_missing.rs:41:9
    |
-40 |         g.output -> [d] -> g.input;
+41 |         g.output -> [d] -> g.input;
    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `_assert_allows_feedback`

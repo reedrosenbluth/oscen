@@ -5,7 +5,6 @@
 
 #![feature(inherent_associated_types)]
 
-use oscen::graph::{StreamInput, StreamOutput};
 use oscen::{graph, Node, SignalProcessor};
 
 // User-defined `Delay` that's missing `impl AllowsFeedback for Delay`.
@@ -14,14 +13,16 @@ use oscen::{graph, Node, SignalProcessor};
 // static bound fails.
 #[derive(Debug, Node)]
 pub struct Delay {
-    pub input: StreamInput,
-    pub output: StreamOutput,
+    #[input(stream)]
+    pub input: f32,
+    #[output(stream)]
+    pub output: f32,
 }
 impl Delay {
     pub fn new() -> Self {
         Self {
-            input: StreamInput::default(),
-            output: StreamOutput::default(),
+            input: Default::default(),
+            output: Default::default(),
         }
     }
 }

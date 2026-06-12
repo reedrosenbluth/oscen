@@ -1,20 +1,21 @@
 use super::traits::SignalProcessor;
-use super::types::{StreamOutput, ValueInput};
 use crate::Node;
 
 /// AudioInput node
 #[derive(Debug, Node)]
 pub struct AudioInput {
-    input_value: ValueInput,
+    #[input(value)]
+    input_value: f32,
 
-    pub output: StreamOutput,
+    #[output(stream)]
+    pub output: f32,
 }
 
 impl AudioInput {
     pub fn new() -> Self {
         Self {
-            input_value: ValueInput::default(),
-            output: StreamOutput::default(),
+            input_value: 0.0,
+            output: 0.0,
         }
     }
 }
@@ -29,6 +30,6 @@ impl SignalProcessor for AudioInput {
     #[inline(always)]
     fn process(&mut self) {
         // Simply pass through the input value
-        *self.output = *self.input_value;
+        self.output = self.input_value;
     }
 }

@@ -2,37 +2,37 @@
 //!
 //! These tests prove a multi-channel `Frame<N>` value can travel one SAME-RATE
 //! stream edge as a unit, and that an array of `Frame<N>` sources can fan into
-//! a single `StreamInput<Frame<N>>` by summing element-wise — with NO resampler
+//! a single `Frame<N>` input by summing element-wise — with NO resampler
 //! involvement (every edge is same-rate).
 //!
 //! - Passthrough (`StereoConst.out -> sink.inp`) lowers to
-//!   `ConnectEndpoints<StreamOutput<T>, StreamInput<T>>`, which is already
+//!   `ConnectEndpoints<Frame<C>, Frame<C>>`, which is already
 //!   generic over `T: Copy`, so `Frame<2>` rides through with no codegen change.
 //! - Array fan-in lowers to
 //!   `self.sink.inp = self.srcs.iter().map(|n| n.out).sum()`
 //!   (see `oscen-graph-compiler/src/codegen/emit_edge.rs::emit_fanin_connect`).
 //!   With a raw-`Frame<2>` output field the per-element `map` yields `Frame<2>`
-//!   and the destination is `StreamInput<Frame<2>>`, so summation selects
-//!   `impl Sum<Frame<N>> for StreamInput<Frame<N>>`. This mirrors the existing
+//!   and the destination is `Frame<2>`, so summation selects
+//!   `impl Sum for Frame<N>`. This mirrors the existing
 //!   raw-`f32`-output fan-in idiom in `tests/array_fanin_stream_input.rs`.
 #![feature(inherent_associated_types)]
 
-use oscen::graph::{StreamInput, StreamOutput};
 use oscen::{graph, Frame, Node, SignalProcessor};
 
-/// Emits a constant stereo frame every tick on a typed `StreamOutput<Frame<2>>`.
-/// Used for the passthrough test: a `StreamOutput<Frame<2>> -> StreamInput<Frame<2>>`
-/// edge resolves via the generic `ConnectEndpoints<StreamOutput<T>, StreamInput<T>>`.
+/// Emits a constant stereo frame every tick on a `Frame<2>` stream output.
+/// Used for the passthrough test: a `Frame<2> -> Frame<2>` edge resolves via
+/// `ConnectEndpoints<Frame<C>, Frame<C>>`.
 #[derive(Debug, Node)]
 pub struct StereoConst {
-    pub out: StreamOutput<Frame<2>>,
+    #[output(stream)]
+    pub out: Frame<2>,
     value: Frame<2>,
 }
 
 impl StereoConst {
     pub fn new(value: Frame<2>) -> Self {
         Self {
-            out: StreamOutput(Frame([0.0; 2])),
+            out: Frame([0.0; 2]),
             value,
         }
     }
@@ -47,14 +47,13 @@ impl Default for StereoConst {
 impl SignalProcessor for StereoConst {
     #[inline(always)]
     fn process(&mut self) {
-        *self.out = self.value;
+        self.out = self.value;
     }
 }
 
 /// Voice element for the fan-in test: emits its configured stereo frame on a
-/// raw-`Frame<2>` stream output. The raw output field (not the `StreamOutput`
-/// wrapper) is what makes the per-element `map` in the fan-in yield `Frame<2>`
-/// directly, mirroring the raw-`f32` fan-in idiom in
+/// `Frame<2>` stream output, so the per-element `map` in the fan-in yields
+/// `Frame<2>` directly, mirroring the `f32` fan-in idiom in
 /// `tests/array_fanin_stream_input.rs`.
 #[derive(Debug, Node)]
 pub struct StereoVoice {
@@ -86,17 +85,18 @@ impl SignalProcessor for StereoVoice {
 }
 
 /// Captures the most recent stereo frame it received on a typed
-/// `StreamInput<Frame<2>>`.
+/// `Frame<2>` input.
 #[derive(Debug, Node)]
 pub struct StereoSink {
-    pub inp: StreamInput<Frame<2>>,
+    #[input(stream)]
+    pub inp: Frame<2>,
     last: Frame<2>,
 }
 
 impl StereoSink {
     pub fn new() -> Self {
         Self {
-            inp: StreamInput(Frame([0.0; 2])),
+            inp: Frame([0.0; 2]),
             last: Frame([0.0; 2]),
         }
     }
@@ -111,7 +111,7 @@ impl Default for StereoSink {
 impl SignalProcessor for StereoSink {
     #[inline(always)]
     fn process(&mut self) {
-        self.last = *self.inp;
+        self.last = self.inp;
     }
 }
 
@@ -160,6 +160,6 @@ fn stereo_fan_in_sums_per_channel() {
 
     g.process();
 
-    // Two stereo contributions summed element-wise into one StreamInput<Frame<2>>.
+    // Two stereo contributions summed element-wise into one Frame<2> input.
     assert_eq!(g.sink.last, Frame([0.3, 3.0]));
 }

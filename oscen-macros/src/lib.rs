@@ -15,6 +15,11 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut output_idents = Vec::new();
     let mut sample_rate_fields: Vec<syn::Ident> = Vec::new();
 
+    // Errors for removed wrapper endpoint types, emitted alongside the
+    // generated impls so the user sees one targeted diagnostic per field
+    // instead of a cascade of resolution failures.
+    let mut endpoint_errors: Vec<proc_macro2::TokenStream> = Vec::new();
+
     // Per-endpoint marker types and EndpointAt impls emitted alongside the inherent impl block.
     let mut endpoint_at_emissions: Vec<proc_macro2::TokenStream> = Vec::new();
 
@@ -56,12 +61,57 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
                 }
 
+                // Event endpoints are still classified by type (EventInput /
+                // EventOutput carry real queue machinery). The removed
+                // stream/value wrappers get a targeted migration error.
                 if input_type_kind.is_none() {
-                    input_type_kind = detect_input_kind_from_type(&field_ty);
+                    match detect_input_kind_from_type(&field_ty) {
+                        Some(EndpointTypeAttr::Event) => {
+                            input_type_kind = Some(EndpointTypeAttr::Event);
+                        }
+                        Some(kind) => {
+                            let attr_name = match kind {
+                                EndpointTypeAttr::Stream => "#[input(stream)]",
+                                _ => "#[input(value)]",
+                            };
+                            endpoint_errors.push(
+                                syn::Error::new_spanned(
+                                    &field_ty,
+                                    format!(
+                                        "wrapper endpoint types were removed; declare this \
+                                         endpoint as `{attr_name} pub {field_name}: f32`"
+                                    ),
+                                )
+                                .to_compile_error(),
+                            );
+                        }
+                        None => {}
+                    }
                 }
 
                 if output_type_kind.is_none() {
-                    output_type_kind = detect_output_kind_from_type(&field_ty);
+                    match detect_output_kind_from_type(&field_ty) {
+                        Some(EndpointTypeAttr::Event) => {
+                            output_type_kind = Some(EndpointTypeAttr::Event);
+                        }
+                        Some(kind) => {
+                            let attr_name = match kind {
+                                EndpointTypeAttr::Stream => "#[output(stream)]",
+                                _ => "#[output(value)]",
+                            };
+                            endpoint_errors.push(
+                                syn::Error::new_spanned(
+                                    &field_ty,
+                                    format!(
+                                        "wrapper endpoint types were removed; declare this \
+                                         endpoint as `{attr_name} pub {field_name}: f32`"
+                                    ),
+                                )
+                                .to_compile_error(),
+                            );
+                        }
+                        None => {}
+                    }
                 }
 
                 if let Some(kind) = input_type_kind {
@@ -93,7 +143,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 if let Some(kind) = primary_kind {
                     let marker_ident = format_ident!("{}__{}__Ep", name, field_name);
                     let kind_marker = kind_marker_for_attr(kind, &field_ty);
-                    let frame_ty = endpoint_frame_type(&field_ty);
+                    let frame_ty = endpoint_frame_type(kind, &field_ty);
                     let assoc_ident = format_ident!("{}__Ep", field_name);
                     endpoint_at_emissions.push(quote! {
                         #[allow(non_camel_case_types)]
@@ -245,6 +295,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
+        #(#endpoint_errors)*
+
         #(#endpoint_at_emissions)*
 
         #sample_rate_error
@@ -310,26 +362,21 @@ fn detect_output_kind_from_type(ty: &syn::Type) -> Option<EndpointTypeAttr> {
     }
 }
 
-/// Extract the element type `T` from a `StreamInput<T>` / `StreamOutput<T>`
-/// field type for the `EndpointAt::Frame` associated type. Any endpoint with
-/// no extractable element type (including all value/event endpoints, and
-/// stream wrappers written without an explicit generic argument) maps to `f32`.
-fn endpoint_frame_type(ty: &syn::Type) -> proc_macro2::TokenStream {
-    if let syn::Type::Path(type_path) = ty {
-        if let Some(seg) = type_path.path.segments.last() {
-            let name = seg.ident.to_string();
-            if name == "StreamInput" || name == "StreamOutput" {
-                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                    for arg in &args.args {
-                        if let syn::GenericArgument::Type(t) = arg {
-                            return quote! { #t };
-                        }
-                    }
-                }
-            }
-        }
+/// Determine the `EndpointAt::Frame` associated type from an endpoint field's
+/// declared type. Stream endpoints use the field type itself (`f32`,
+/// `Frame<N>`), with endpoint arrays using their element's frame type.
+/// Value and event endpoints don't carry an audio frame — their payloads may
+/// be arbitrary types (e.g. `OscilloscopeHandle`) — so they map to `f32`,
+/// which is what cross-rate value kernels operate on.
+fn endpoint_frame_type(kind: EndpointTypeAttr, ty: &syn::Type) -> proc_macro2::TokenStream {
+    if !matches!(kind, EndpointTypeAttr::Stream) {
+        return quote! { f32 };
     }
-    quote! { f32 }
+    match ty {
+        syn::Type::Array(arr) => endpoint_frame_type(kind, &arr.elem),
+        syn::Type::Path(_) => quote! { #ty },
+        _ => quote! { f32 },
+    }
 }
 
 fn last_segment_ident(ty: &syn::Type) -> Option<String> {

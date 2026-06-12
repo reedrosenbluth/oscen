@@ -39,15 +39,19 @@ fn cross_rate_kernel_trait_compiles() {
     }
 }
 
-use oscen::graph::{EventInput, EventOutput, StreamInput, StreamOutput, ValueInput, ValueOutput};
+use oscen::graph::{EventInput, EventOutput};
 use oscen::Node;
 
 #[derive(Debug, Default, Node)]
 pub struct DispatchTestNode {
-    pub stream_in: StreamInput,
-    pub stream_out: StreamOutput,
-    pub value_in: ValueInput,
-    pub value_out: ValueOutput,
+    #[input(stream)]
+    pub stream_in: f32,
+    #[output(stream)]
+    pub stream_out: f32,
+    #[input(value)]
+    pub value_in: f32,
+    #[output(value)]
+    pub value_out: f32,
     pub event_in: EventInput,
     pub event_out: EventOutput,
 }

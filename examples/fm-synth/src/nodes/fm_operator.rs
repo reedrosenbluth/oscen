@@ -1,4 +1,4 @@
-use oscen::{Node, SampleRate, SignalProcessor, StreamInput, StreamOutput, ValueInput};
+use oscen::{Node, SampleRate, SignalProcessor};
 use std::f32::consts::TAU;
 
 /// FM Operator - a sine oscillator with phase modulation and self-feedback.
@@ -14,14 +14,22 @@ pub struct FmOperator {
     prev_output: f32,
     sample_rate: SampleRate,
 
-    pub base_freq: ValueInput,
-    pub ratio: ValueInput,
-    pub phase_mod: StreamInput,
-    pub feedback: ValueInput,
-    pub envelope: StreamInput,
-    pub level: ValueInput,
+    #[input(value)]
 
-    pub output: StreamOutput,
+    pub base_freq: f32,
+    #[input(value)]
+    pub ratio: f32,
+    #[input(stream)]
+    pub phase_mod: f32,
+    #[input(value)]
+    pub feedback: f32,
+    #[input(stream)]
+    pub envelope: f32,
+    #[input(value)]
+    pub level: f32,
+    #[output(stream)]
+
+    pub output: f32,
 }
 
 impl FmOperator {
@@ -30,13 +38,13 @@ impl FmOperator {
             phase: 0.0,
             prev_output: 0.0,
             sample_rate: SampleRate::default(),
-            base_freq: ValueInput(440.0),
-            ratio: ValueInput(1.0),
-            phase_mod: StreamInput::default(),
-            feedback: ValueInput::default(),
-            envelope: StreamInput(1.0),
-            level: ValueInput(1.0),
-            output: StreamOutput::default(),
+            base_freq: 440.0,
+            ratio: 1.0,
+            phase_mod: Default::default(),
+            feedback: Default::default(),
+            envelope: 1.0,
+            level: 1.0,
+            output: Default::default(),
         }
     }
 }
@@ -60,7 +68,7 @@ impl SignalProcessor for FmOperator {
         // Generate sine output with envelope and level applied
         let phase_rad = (self.phase + total_phase_mod) * TAU;
         let output = phase_rad.sin() * self.envelope * self.level;
-        *self.output = output;
+        self.output = output;
         self.prev_output = output;
 
         // Advance phase

@@ -8,55 +8,208 @@ warning: the feature `inherent_associated_types` is incomplete and may not be sa
   = note: `#[warn(incomplete_features)]` on by default
 
 error[E0277]: no cross-rate kernel for EventKind -> StreamKind with policy DefaultPolicy
-  --> tests/ui/cross_rate_kind_mismatch.rs:36:1
+  --> tests/ui/cross_rate_kind_mismatch.rs:37:1
    |
-36 | / graph! {
-37 | |     name: KindMismatch;
-38 | |     nodes {
-39 | |         ee = EventEmitter::new();
+37 | / graph! {
+38 | |     name: KindMismatch;
+39 | |     nodes {
+40 | |         ee = EventEmitter::new();
 ...  |
-45 | | }
+46 | | }
    | |_^ edge has no resampler
    |
    = help: the trait `CrossRateKernel<EventKind, StreamKind, DefaultPolicy, 4, UpDir>` is not implemented for `()`
    = note: valid kind pairs are: (StreamKind, StreamKind), (ValueKind, ValueKind), (ValueKind, StreamKind), (EventKind, EventKind)
-   = help: the following other types implement trait `CrossRateKernel<SrcKind, DstKind, Policy, N, Dir, Frame>`:
-             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 1, DownDir>`
-             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 1, UpDir>`
-             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 2, DownDir>`
-             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 2, UpDir>`
-             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 4, DownDir>`
-             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 4, UpDir>`
-             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 8, DownDir>`
-             `()` implements `CrossRateKernel<EventKind, EventKind, DefaultPolicy, 8, UpDir>`
-           and $N others
+   = help: `()` implements trait `CrossRateKernel<SrcKind, DstKind, Policy, N, Dir, Frame>`:
+             CrossRateKernel<EventKind, EventKind, DefaultPolicy, 1, DownDir>
+             CrossRateKernel<EventKind, EventKind, DefaultPolicy, 1, UpDir>
+             CrossRateKernel<EventKind, EventKind, DefaultPolicy, 2, DownDir>
+             CrossRateKernel<EventKind, EventKind, DefaultPolicy, 2, UpDir>
+             CrossRateKernel<EventKind, EventKind, DefaultPolicy, 4, DownDir>
+             CrossRateKernel<EventKind, EventKind, DefaultPolicy, 4, UpDir>
+             CrossRateKernel<EventKind, EventKind, DefaultPolicy, 8, DownDir>
+             CrossRateKernel<EventKind, EventKind, DefaultPolicy, 8, UpDir>
+             CrossRateKernel<EventKind, EventKind, LatchPolicy, 1, DownDir>
+             CrossRateKernel<EventKind, EventKind, LatchPolicy, 1, UpDir>
+             CrossRateKernel<EventKind, EventKind, LatchPolicy, 2, DownDir>
+             CrossRateKernel<EventKind, EventKind, LatchPolicy, 2, UpDir>
+             CrossRateKernel<EventKind, EventKind, LatchPolicy, 4, DownDir>
+             CrossRateKernel<EventKind, EventKind, LatchPolicy, 4, UpDir>
+             CrossRateKernel<EventKind, EventKind, LatchPolicy, 8, DownDir>
+             CrossRateKernel<EventKind, EventKind, LatchPolicy, 8, UpDir>
+             CrossRateKernel<EventKind, EventKind, LinearPolicy, 1, DownDir>
+             CrossRateKernel<EventKind, EventKind, LinearPolicy, 1, UpDir>
+             CrossRateKernel<EventKind, EventKind, LinearPolicy, 2, DownDir>
+             CrossRateKernel<EventKind, EventKind, LinearPolicy, 2, UpDir>
+             CrossRateKernel<EventKind, EventKind, LinearPolicy, 4, DownDir>
+             CrossRateKernel<EventKind, EventKind, LinearPolicy, 4, UpDir>
+             CrossRateKernel<EventKind, EventKind, LinearPolicy, 8, DownDir>
+             CrossRateKernel<EventKind, EventKind, LinearPolicy, 8, UpDir>
+             CrossRateKernel<EventKind, EventKind, SincIirPolicy, 1, DownDir>
+             CrossRateKernel<EventKind, EventKind, SincIirPolicy, 1, UpDir>
+             CrossRateKernel<EventKind, EventKind, SincIirPolicy, 2, DownDir>
+             CrossRateKernel<EventKind, EventKind, SincIirPolicy, 2, UpDir>
+             CrossRateKernel<EventKind, EventKind, SincIirPolicy, 4, DownDir>
+             CrossRateKernel<EventKind, EventKind, SincIirPolicy, 4, UpDir>
+             CrossRateKernel<EventKind, EventKind, SincIirPolicy, 8, DownDir>
+             CrossRateKernel<EventKind, EventKind, SincIirPolicy, 8, UpDir>
+             CrossRateKernel<EventKind, EventKind, SincPolicy, 1, DownDir>
+             CrossRateKernel<EventKind, EventKind, SincPolicy, 1, UpDir>
+             CrossRateKernel<EventKind, EventKind, SincPolicy, 2, DownDir>
+             CrossRateKernel<EventKind, EventKind, SincPolicy, 2, UpDir>
+             CrossRateKernel<EventKind, EventKind, SincPolicy, 4, DownDir>
+             CrossRateKernel<EventKind, EventKind, SincPolicy, 4, UpDir>
+             CrossRateKernel<EventKind, EventKind, SincPolicy, 8, DownDir>
+             CrossRateKernel<EventKind, EventKind, SincPolicy, 8, UpDir>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 1, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 1, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 2, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 2, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 4, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 4, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 8, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, DefaultPolicy, 8, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 1, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 1, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 2, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 2, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 4, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 4, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 8, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LatchPolicy, 8, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 1, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 1, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 2, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 2, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 4, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 4, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 8, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, LinearPolicy, 8, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 1, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 1, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 2, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 2, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 4, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 4, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 8, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincIirPolicy, 8, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 1, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 1, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 2, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 2, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 4, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 4, UpDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 8, DownDir, F>
+             CrossRateKernel<StreamKind, StreamKind, SincPolicy, 8, UpDir, F>
+             CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 1, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 1, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 2, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 2, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 4, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 4, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 8, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, DefaultPolicy, 8, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, LatchPolicy, 1, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, LatchPolicy, 1, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, LatchPolicy, 2, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, LatchPolicy, 2, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, LatchPolicy, 4, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, LatchPolicy, 4, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, LatchPolicy, 8, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, LatchPolicy, 8, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, LinearPolicy, 1, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, LinearPolicy, 1, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, LinearPolicy, 2, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, LinearPolicy, 2, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, LinearPolicy, 4, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, LinearPolicy, 4, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, LinearPolicy, 8, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, LinearPolicy, 8, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, SincIirPolicy, 1, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, SincIirPolicy, 1, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, SincIirPolicy, 2, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, SincIirPolicy, 2, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, SincIirPolicy, 4, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, SincIirPolicy, 4, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, SincIirPolicy, 8, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, SincIirPolicy, 8, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, SincPolicy, 1, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, SincPolicy, 1, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, SincPolicy, 2, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, SincPolicy, 2, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, SincPolicy, 4, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, SincPolicy, 4, UpDir>
+             CrossRateKernel<ValueKind, StreamKind, SincPolicy, 8, DownDir>
+             CrossRateKernel<ValueKind, StreamKind, SincPolicy, 8, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 1, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 1, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 2, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 2, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 4, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 4, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 8, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, DefaultPolicy, 8, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, LatchPolicy, 1, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, LatchPolicy, 1, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, LatchPolicy, 2, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, LatchPolicy, 2, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, LatchPolicy, 4, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, LatchPolicy, 4, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, LatchPolicy, 8, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, LatchPolicy, 8, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, LinearPolicy, 1, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, LinearPolicy, 1, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, LinearPolicy, 2, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, LinearPolicy, 2, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, LinearPolicy, 4, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, LinearPolicy, 4, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, LinearPolicy, 8, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, LinearPolicy, 8, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, SincIirPolicy, 1, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, SincIirPolicy, 1, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, SincIirPolicy, 2, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, SincIirPolicy, 2, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, SincIirPolicy, 4, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, SincIirPolicy, 4, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, SincIirPolicy, 8, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, SincIirPolicy, 8, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, SincPolicy, 1, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, SincPolicy, 1, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, SincPolicy, 2, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, SincPolicy, 2, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, SincPolicy, 4, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, SincPolicy, 4, UpDir>
+             CrossRateKernel<ValueKind, ValueKind, SincPolicy, 8, DownDir>
+             CrossRateKernel<ValueKind, ValueKind, SincPolicy, 8, UpDir>
 note: required by a bound in `_assert_supported`
-  --> tests/ui/cross_rate_kind_mismatch.rs:43:9
+  --> tests/ui/cross_rate_kind_mismatch.rs:44:9
    |
-43 |         ee.gate -> ss.input;  // EventOutput -> StreamInput across rates: should not compile.
+44 |         ee.gate -> ss.input;  // EventOutput -> StreamInput across rates: should not compile.
    |         ^^ required by this bound in `_assert_supported`
 
 error[E0277]: no connection from EventOutput to f32
-  --> tests/ui/cross_rate_kind_mismatch.rs:36:1
+  --> tests/ui/cross_rate_kind_mismatch.rs:37:1
    |
-36 | / graph! {
-37 | |     name: KindMismatch;
-38 | |     nodes {
-39 | |         ee = EventEmitter::new();
+37 | / graph! {
+38 | |     name: KindMismatch;
+39 | |     nodes {
+40 | |         ee = EventEmitter::new();
 ...  |
-45 | | }
+46 | | }
    | |_^ incompatible endpoint pair
    |
    = help: the trait `ConnectEndpoints<EventOutput, f32>` is not implemented for `()`
-   = note: supported: StreamOutput -> StreamInput/f32, ValueOutput -> ValueInput/StreamInput/f32, EventOutput -> EventInput/ArrayVec<EventInstance, 32>
-   = help: the following other types implement trait `ConnectEndpoints<Src, Dst>`:
-             `()` implements `ConnectEndpoints<&f32, f32>`
-             `()` implements `ConnectEndpoints<EventInput<S>, EventInput<D>>`
-             `()` implements `ConnectEndpoints<EventOutput<S>, EventInput<D>>`
-             `()` implements `ConnectEndpoints<EventOutput<T>, arrayvec::arrayvec::ArrayVec<EventInstance, 32>>`
-             `()` implements `ConnectEndpoints<StreamOutput<T>, StreamInput<T>>`
-             `()` implements `ConnectEndpoints<StreamOutput<T>, T>`
-             `()` implements `ConnectEndpoints<T, StreamInput<T>>`
-             `()` implements `ConnectEndpoints<ValueOutput, f32>`
-           and $N others
+   = note: supported: matching Copy payloads (f32, Frame<N>, arrays), EventOutput -> EventInput/ArrayVec<EventInstance, 32>
+   = help: `()` implements trait `ConnectEndpoints<Src, Dst>`:
+             ConnectEndpoints<&T, T>
+             ConnectEndpoints<EventInput<S>, EventInput<D>>
+             ConnectEndpoints<EventOutput<S>, EventInput<D>>
+             ConnectEndpoints<EventOutput<T>, arrayvec::arrayvec::ArrayVec<EventInstance, 32>>
+             ConnectEndpoints<Frame<C>, Frame<C>>
+             ConnectEndpoints<[EventOutput<S>; N], [EventInput<D>; N]>
+             ConnectEndpoints<[Frame<C>; N], [Frame<C>; N]>
+             ConnectEndpoints<[f32; N], [f32; N]>
+             ConnectEndpoints<arrayvec::arrayvec::ArrayVec<EventInstance, 32>, EventInput<T>>
+             ConnectEndpoints<arrayvec::arrayvec::ArrayVec<EventInstance, 32>, arrayvec::arrayvec::ArrayVec<EventInstance, 32>>
+             ConnectEndpoints<f32, f32>
    = note: this error originates in the macro `graph` (in Nightly builds, run with -Z macro-backtrace for more info)
