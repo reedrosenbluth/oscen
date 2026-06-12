@@ -1,7 +1,8 @@
 //! Convolution correctness tests: every implementation is compared against
 //! a naive O(n*m) time-domain reference.
 
-use oscen::convolution::{DirectConvolver, PartitionedConvolver};
+use oscen::convolution::{Convolver, DirectConvolver, PartitionedConvolver};
+use oscen::SignalProcessor;
 
 /// Naive direct-form convolution, truncated to the input length (matching
 /// what a streaming convolver emits while the input is still flowing).
@@ -21,7 +22,9 @@ fn naive_convolve(input: &[f32], ir: &[f32]) -> Vec<f32> {
 
 /// Deterministic pseudo-noise in [-1, 1] (LCG; no rand dependency).
 fn noise(len: usize, seed: u64) -> Vec<f32> {
-    let mut state = seed.wrapping_mul(2862933555777941757).wrapping_add(3037000493);
+    let mut state = seed
+        .wrapping_mul(2862933555777941757)
+        .wrapping_add(3037000493);
     (0..len)
         .map(|_| {
             state = state
@@ -135,4 +138,92 @@ fn partitioned_convolver_empty_segment_is_silence() {
     for &x in noise(32, 11).iter() {
         assert_eq!(conv.process_sample(x), 0.0);
     }
+}
+
+// --- Convolver node ---
+
+/// Drive a Convolver node standalone through the documented lifecycle
+/// (set_sample_rate → prepare → per-sample process).
+fn run_convolver_node(ir: &[f32], input: &[f32]) -> Vec<f32> {
+    let mut node = Convolver::new(ir.to_vec());
+    node.set_sample_rate(44100.0);
+    node.prepare();
+    input
+        .iter()
+        .map(|&x| {
+            node.input = x;
+            node.process();
+            node.output
+        })
+        .collect()
+}
+
+fn assert_close_rel(got: &[f32], want: &[f32], label: &str) {
+    let scale = want.iter().fold(1.0f32, |m, w| m.max(w.abs()));
+    assert_close(got, want, 1e-4 * scale, label);
+}
+
+#[test]
+fn convolver_node_matches_naive_at_zero_latency() {
+    // IR lengths chosen to hit every tier boundary: head only (short and
+    // exact), head + short stage, all three tiers (barely into the long
+    // stage, and several long partitions deep).
+    for &ir_len in &[1usize, 20, 32, 33, 100, 512, 513, 600, 1500] {
+        let ir = noise(ir_len, 100 + ir_len as u64);
+        let input = noise(3000, 200 + ir_len as u64);
+        let expected = naive_convolve(&input, &ir);
+        let got = run_convolver_node(&ir, &input);
+        assert_close_rel(&got, &expected, &format!("node vs naive, ir_len={ir_len}"));
+    }
+}
+
+#[test]
+fn convolver_node_reproduces_ir_from_unit_impulse() {
+    let ir = noise(700, 12);
+    let mut input = vec![0.0f32; 1024];
+    input[0] = 1.0;
+    let got = run_convolver_node(&ir, &input);
+
+    // Zero latency: the very first output sample is ir[0].
+    assert!(
+        (got[0] - ir[0]).abs() < 1e-5,
+        "first sample: got {}, want {}",
+        got[0],
+        ir[0]
+    );
+    assert_close_rel(&got[..ir.len()], &ir, "impulse reproduces IR");
+    // Past the IR, silence.
+    for (i, &y) in got[ir.len()..].iter().enumerate() {
+        assert!(y.abs() < 1e-3, "tail sample {i} not silent: {y}");
+    }
+}
+
+#[test]
+fn convolver_node_empty_ir_is_silence() {
+    let input = noise(256, 13);
+    let got = run_convolver_node(&[], &input);
+    assert!(got.iter().all(|&y| y == 0.0));
+}
+
+#[test]
+fn convolver_node_prepare_is_idempotent() {
+    let ir = noise(600, 14);
+    let input = noise(2048, 15);
+
+    let once = run_convolver_node(&ir, &input);
+
+    let mut node = Convolver::new(ir.to_vec());
+    node.set_sample_rate(44100.0);
+    node.prepare();
+    node.prepare();
+    let twice: Vec<f32> = input
+        .iter()
+        .map(|&x| {
+            node.input = x;
+            node.process();
+            node.output
+        })
+        .collect();
+
+    assert_close(&once, &twice, 0.0, "prepare idempotence");
 }

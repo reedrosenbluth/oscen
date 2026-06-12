@@ -44,7 +44,10 @@ impl FftPlan {
     /// Create a plan for real FFTs of `size` points. `size` must be even and
     /// non-zero (powers of two are fastest).
     pub fn new(size: usize) -> Self {
-        assert!(size > 0 && size % 2 == 0, "FFT size must be even and non-zero");
+        assert!(
+            size > 0 && size.is_multiple_of(2),
+            "FFT size must be even and non-zero"
+        );
         let mut planner = RealFftPlanner::<f32>::new();
         let forward = planner.plan_fft_forward(size);
         let inverse = planner.plan_fft_inverse(size);
@@ -94,9 +97,9 @@ impl FftPlan {
         // of the DC and Nyquist bins to be exactly zero; clear any numerical
         // residue from spectral arithmetic.
         spectrum[0].im = 0.0;
-        if self.size % 2 == 0 {
-            spectrum[self.num_bins() - 1].im = 0.0;
-        }
+        // The size is always even (asserted in `new`), so the last bin is
+        // the Nyquist bin.
+        spectrum[self.num_bins() - 1].im = 0.0;
         self.inverse
             .process_with_scratch(spectrum, output, &mut self.inverse_scratch)
             .expect("buffer lengths match the plan size");

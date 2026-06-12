@@ -16,7 +16,15 @@
 //! `B` has latency `B`, so it must be fed the IR samples starting at offset
 //! `B` relative to whatever earlier stages cover.
 
+use crate::graph::{SampleRate, SignalProcessor};
 use crate::spectral::{BlockAccumulator, Complex, FftPlan};
+use oscen_macros::Node;
+
+/// Taps covered by the zero-latency time-domain head (and block size of the
+/// short FFT stage).
+pub const SHORT_BLOCK_SIZE: usize = 32;
+/// Block size of the long FFT stage; the short stage covers taps up to here.
+pub const LONG_BLOCK_SIZE: usize = 512;
 
 /// Brute-force time-domain FIR convolution with zero latency.
 #[derive(Debug)]
@@ -180,7 +188,124 @@ impl PartitionedConvolver {
             }
         }
 
-        self.fft.inverse(&mut self.spectrum_accum, &mut self.time_buf);
+        self.fft
+            .inverse(&mut self.spectrum_accum, &mut self.time_buf);
         self.output.copy_from_slice(&self.time_buf[b..]);
+    }
+}
+
+/// Zero-latency impulse-response convolver node.
+///
+/// Three-tier Gardner decomposition: a time-domain head convolves taps
+/// `[0, 32)` with zero latency, a short FFT stage (block 32, latency 32)
+/// covers taps `[32, 512)`, and a long FFT stage (block 512, latency 512)
+/// covers the rest. Because each stage's latency equals its segment's
+/// offset, the summed output is the sample-exact full convolution with no
+/// overall delay.
+///
+/// The impulse response is taken to be at the session sample rate; no
+/// resampling is performed. Mono only.
+#[derive(Debug, Node)]
+pub struct Convolver {
+    #[input(stream)]
+    pub input: f32,
+    #[output(stream)]
+    pub output: f32,
+
+    ir: Vec<f32>,
+    head: DirectConvolver,
+    short_stage: PartitionedConvolver,
+    long_stage: PartitionedConvolver,
+    sample_rate: SampleRate,
+}
+
+impl Convolver {
+    /// Create a convolver for the given impulse response (assumed mono, at
+    /// the session sample rate). An empty IR produces silence.
+    pub fn new(ir: Vec<f32>) -> Self {
+        let mut convolver = Self {
+            input: 0.0,
+            output: 0.0,
+            ir,
+            head: DirectConvolver::new(&[]),
+            short_stage: PartitionedConvolver::new(SHORT_BLOCK_SIZE, &[]),
+            long_stage: PartitionedConvolver::new(LONG_BLOCK_SIZE, &[]),
+            sample_rate: SampleRate::default(),
+        };
+        convolver.rebuild_stages();
+        convolver
+    }
+
+    /// Load a mono impulse response from a WAV file (multi-channel files
+    /// are averaged down to mono; integer samples are normalized to ±1).
+    pub fn from_wav(path: impl AsRef<std::path::Path>) -> Result<Self, hound::Error> {
+        let mut reader = hound::WavReader::open(path)?;
+        let spec = reader.spec();
+        let channels = spec.channels.max(1) as usize;
+
+        let mono: Vec<f32> = match spec.sample_format {
+            hound::SampleFormat::Float => {
+                let samples: Result<Vec<f32>, _> = reader.samples::<f32>().collect();
+                mix_to_mono(&samples?, channels)
+            }
+            hound::SampleFormat::Int => {
+                let scale = 1.0 / (1i64 << (spec.bits_per_sample - 1)) as f32;
+                let samples: Result<Vec<i32>, _> = reader.samples::<i32>().collect();
+                let scaled: Vec<f32> = samples?.iter().map(|&s| s as f32 * scale).collect();
+                mix_to_mono(&scaled, channels)
+            }
+        };
+
+        Ok(Self::new(mono))
+    }
+
+    /// Split the IR across the three tiers. The invariant: each stage's
+    /// latency equals its segment's offset into the IR.
+    fn rebuild_stages(&mut self) {
+        let len = self.ir.len();
+
+        let head_end = len.min(SHORT_BLOCK_SIZE);
+        self.head = DirectConvolver::new(&self.ir[..head_end]);
+
+        let short_end = len.min(LONG_BLOCK_SIZE);
+        let short_segment = if len > SHORT_BLOCK_SIZE {
+            &self.ir[SHORT_BLOCK_SIZE..short_end]
+        } else {
+            &[]
+        };
+        self.short_stage = PartitionedConvolver::new(SHORT_BLOCK_SIZE, short_segment);
+
+        let long_segment = if len > LONG_BLOCK_SIZE {
+            &self.ir[LONG_BLOCK_SIZE..]
+        } else {
+            &[]
+        };
+        self.long_stage = PartitionedConvolver::new(LONG_BLOCK_SIZE, long_segment);
+    }
+}
+
+fn mix_to_mono(interleaved: &[f32], channels: usize) -> Vec<f32> {
+    if channels == 1 {
+        return interleaved.to_vec();
+    }
+    interleaved
+        .chunks(channels)
+        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+        .collect()
+}
+
+impl SignalProcessor for Convolver {
+    fn prepare(&mut self) {
+        // The IR itself is rate-independent (taken to be at session rate),
+        // but rebuilding returns every stage to a cleared, ready state.
+        self.rebuild_stages();
+    }
+
+    #[inline]
+    fn process(&mut self) {
+        let x = self.input;
+        self.output = self.head.process_sample(x)
+            + self.short_stage.process_sample(x)
+            + self.long_stage.process_sample(x);
     }
 }
