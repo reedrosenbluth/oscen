@@ -4,7 +4,7 @@
 #![feature(inherent_associated_types)]
 
 use oscen::graph::{
-    EventInput, EventInstance, EventPayload, StreamInput, StreamOutput, ValueInput, ValueOutput,
+    EventInput, EventInstance, EventPayload,
 };
 use oscen::{graph, Node, SignalProcessor};
 
@@ -14,15 +14,17 @@ use oscen::{graph, Node, SignalProcessor};
 /// element after an outer tick.
 #[derive(Debug, Node)]
 pub struct ValueLatch {
-    pub input: ValueInput<f32>,
-    pub output: ValueOutput<f32>,
+    #[input(value)]
+    pub input: f32,
+    #[output(value)]
+    pub output: f32,
 }
 
 impl ValueLatch {
     pub fn new() -> Self {
         Self {
-            input: ValueInput::default(),
-            output: ValueOutput(0.0),
+            input: Default::default(),
+            output: 0.0,
         }
     }
 }
@@ -36,7 +38,7 @@ impl Default for ValueLatch {
 impl SignalProcessor for ValueLatch {
     #[inline(always)]
     fn process(&mut self) {
-        *self.output = *self.input;
+        self.output = self.input;
     }
 }
 
@@ -64,7 +66,7 @@ fn broadcast_value_outer_to_oversampled_array() {
     // process() (running 2x per outer tick) will have copied 0.7 to its
     // output.
     for i in 0..4 {
-        let got = *g.latches[i].output;
+        let got = g.latches[i].output;
         assert!(
             (got - 0.7).abs() < 1e-6,
             "latches[{i}].output = {got}, expected 0.7"
@@ -76,14 +78,15 @@ fn broadcast_value_outer_to_oversampled_array() {
 /// Used to verify cross-rate fan-in sums correctly across N elements.
 #[derive(Debug, Node)]
 pub struct DcEmitter {
-    pub output: StreamOutput,
+    #[output(stream)]
+    pub output: f32,
     value: f32,
 }
 
 impl DcEmitter {
     pub fn new() -> Self {
         Self {
-            output: StreamOutput::default(),
+            output: Default::default(),
             value: 1.0,
         }
     }
@@ -98,7 +101,7 @@ impl Default for DcEmitter {
 impl SignalProcessor for DcEmitter {
     #[inline(always)]
     fn process(&mut self) {
-        *self.output = self.value;
+        self.output = self.value;
     }
 }
 
@@ -135,14 +138,15 @@ fn fanin_stream_oversampled_array_to_outer_scalar() {
 /// endpoint every tick. Used as the source of per-element distinct values.
 #[derive(Debug, Node)]
 pub struct ValueHolder {
-    pub output: ValueOutput<f32>,
+    #[output(value)]
+    pub output: f32,
     pub value: f32,
 }
 
 impl ValueHolder {
     pub fn new() -> Self {
         Self {
-            output: ValueOutput(0.0),
+            output: 0.0,
             value: 0.0,
         }
     }
@@ -157,7 +161,7 @@ impl Default for ValueHolder {
 impl SignalProcessor for ValueHolder {
     #[inline(always)]
     fn process(&mut self) {
-        *self.output = self.value;
+        self.output = self.value;
     }
 }
 
@@ -193,7 +197,7 @@ fn parallel_value_array_to_oversampled_array_independent_states() {
     }
     let expected = [0.1_f32, 0.3, 0.5, 0.7];
     for (i, want) in expected.iter().enumerate() {
-        let got = *g.latches[i].output;
+        let got = g.latches[i].output;
         assert!(
             (got - want).abs() < 1e-6,
             "latches[{i}].output = {got}, expected {want}"
@@ -207,19 +211,20 @@ fn parallel_value_array_to_oversampled_array_independent_states() {
 #[derive(Debug, Node)]
 pub struct EventOffsetCapture {
     pub gate: EventInput,
-    pub captured_offset: ValueOutput<f32>,
+    #[output(value)]
+    pub captured_offset: f32,
 }
 
 impl EventOffsetCapture {
     pub fn new() -> Self {
         Self {
             gate: EventInput::default(),
-            captured_offset: ValueOutput(-1.0),
+            captured_offset: -1.0,
         }
     }
 
     pub fn on_gate(&mut self, ev: &EventInstance) {
-        *self.captured_offset = ev.frame_offset as f32;
+        self.captured_offset = ev.frame_offset as f32;
     }
 }
 
@@ -257,7 +262,7 @@ fn broadcast_event_outer_to_oversampled_array_with_rescale() {
     // With * 2 oversampling, frame_offset=1 should be rescaled to 1*2=2 on
     // the inner-rate side, captured by every element's gate handler.
     for i in 0..4 {
-        let got = *g.captures[i].captured_offset;
+        let got = g.captures[i].captured_offset;
         assert!(
             (got - 2.0).abs() < 1e-6,
             "captures[{i}].captured_offset = {got}, expected 2.0 (rescaled from outer offset 1)"
@@ -271,20 +276,23 @@ fn broadcast_event_outer_to_oversampled_array_with_rescale() {
 /// detect that the voice activated.
 #[derive(Debug, Node)]
 pub struct MockVoice {
-    pub freq: ValueInput<f32>,
+    #[input(value)]
+    pub freq: f32,
     pub gate: EventInput,
-    pub mod_in: StreamInput,
-    pub audio_out: StreamOutput,
+    #[input(stream)]
+    pub mod_in: f32,
+    #[output(stream)]
+    pub audio_out: f32,
     gate_seen: bool,
 }
 
 impl MockVoice {
     pub fn new() -> Self {
         Self {
-            freq: ValueInput::default(),
+            freq: Default::default(),
             gate: EventInput::default(),
-            mod_in: StreamInput::default(),
-            audio_out: StreamOutput::default(),
+            mod_in: Default::default(),
+            audio_out: Default::default(),
             gate_seen: false,
         }
     }
@@ -306,8 +314,8 @@ impl SignalProcessor for MockVoice {
         // After a gate, emit a constant signal proportional to freq+mod so
         // the test can verify the voice actually ran. Before the gate, stays
         // silent — proves event delivery.
-        *self.audio_out = if self.gate_seen {
-            *self.freq * 0.001 + *self.mod_in
+        self.audio_out = if self.gate_seen {
+            self.freq * 0.001 + self.mod_in
         } else {
             0.0
         };
@@ -388,7 +396,7 @@ fn ramped_value_input_broadcast_cross_rate() {
         g.process();
     }
     for i in 0..4 {
-        let got = *g.latches[i].output;
+        let got = g.latches[i].output;
         assert!(
             (got - 0.5).abs() < 1e-3,
             "latches[{i}].output = {got}, expected ≈ 0.5 after ramp settles"

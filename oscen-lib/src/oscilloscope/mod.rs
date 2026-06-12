@@ -3,7 +3,7 @@ use std::sync::{
     Arc,
 };
 
-use crate::graph::{SignalProcessor, StreamInput, StreamOutput, ValueInput, ValueOutput};
+use crate::graph::SignalProcessor;
 use crate::Node;
 
 #[derive(Debug)]
@@ -155,15 +155,20 @@ pub const DEFAULT_SCOPE_CAPACITY: usize = 4096;
 
 #[derive(Debug, Node)]
 pub struct Oscilloscope {
-    input: StreamInput,
+    #[input(stream)]
+    input: f32,
 
-    output: StreamOutput,
+    #[output(stream)]
+    output: f32,
 
-    handle: ValueOutput<OscilloscopeHandle>,
+    #[output(value)]
+    handle: OscilloscopeHandle,
 
-    trigger_period: ValueInput,
+    #[input(value)]
+    trigger_period: f32,
 
-    trigger_enabled: ValueInput,
+    #[input(value)]
+    trigger_enabled: f32,
 
     last_sample: f32,
     auto_detect_period: bool,
@@ -175,11 +180,11 @@ impl Oscilloscope {
     pub fn new(capacity: usize) -> Self {
         let handle = OscilloscopeHandle::new(capacity);
         Self {
-            input: StreamInput::default(),
-            output: StreamOutput::default(),
-            handle: ValueOutput(handle),
-            trigger_period: ValueInput(capacity as f32),
-            trigger_enabled: ValueInput(1.0),
+            input: 0.0,
+            output: 0.0,
+            handle,
+            trigger_period: capacity as f32,
+            trigger_enabled: 1.0,
             last_sample: 0.0,
             auto_detect_period: false,
             period_sample_count: 0,
@@ -190,11 +195,11 @@ impl Oscilloscope {
     pub fn with_handle(handle: OscilloscopeHandle) -> Self {
         let capacity = handle.capacity();
         Self {
-            input: StreamInput::default(),
-            output: StreamOutput::default(),
-            handle: ValueOutput(handle),
-            trigger_period: ValueInput(capacity as f32),
-            trigger_enabled: ValueInput(1.0),
+            input: 0.0,
+            output: 0.0,
+            handle,
+            trigger_period: capacity as f32,
+            trigger_enabled: 1.0,
             last_sample: 0.0,
             auto_detect_period: false,
             period_sample_count: 0,
@@ -205,11 +210,11 @@ impl Oscilloscope {
     pub fn with_auto_detect(handle: OscilloscopeHandle) -> Self {
         let capacity = handle.capacity();
         Self {
-            input: StreamInput::default(),
-            output: StreamOutput::default(),
-            handle: ValueOutput(handle),
-            trigger_period: ValueInput(capacity as f32),
-            trigger_enabled: ValueInput(1.0),
+            input: 0.0,
+            output: 0.0,
+            handle,
+            trigger_period: capacity as f32,
+            trigger_enabled: 1.0,
             last_sample: 0.0,
             auto_detect_period: true,
             period_sample_count: 0,
@@ -218,7 +223,7 @@ impl Oscilloscope {
     }
 
     pub fn handle(&self) -> &OscilloscopeHandle {
-        &self.handle.0
+        &self.handle
     }
 }
 
@@ -235,11 +240,11 @@ impl SignalProcessor for Oscilloscope {
     /// Graph pre-populates input, node writes to output.
     fn process(&mut self) {
         // Read stream input from self (pre-populated by graph)
-        let input = *self.input;
+        let input = self.input;
 
         // Pass through input to output
-        *self.output = input;
-        self.handle.0.push(input);
+        self.output = input;
+        self.handle.push(input);
 
         if self.trigger_enabled > 0.5 {
             let prev = self.last_sample;
@@ -252,14 +257,14 @@ impl SignalProcessor for Oscilloscope {
                 if zero_crossing {
                     // Found a zero crossing - use the counted samples as the period
                     if self.period_sample_count > 1 {
-                        let capacity = self.handle.0.capacity();
+                        let capacity = self.handle.capacity();
                         // Clamp detected period to reasonable bounds
                         self.detected_period = self.period_sample_count.min(capacity).max(10);
                     }
 
                     // Store triggered buffer with detected period
                     if self.detected_period > 0 {
-                        self.handle.0.store_triggered(self.detected_period);
+                        self.handle.store_triggered(self.detected_period);
                     }
 
                     // Reset counter for next period
@@ -271,7 +276,7 @@ impl SignalProcessor for Oscilloscope {
                     let period = self.trigger_period.max(1.0);
                     let length = period.round() as usize;
                     if length > 0 {
-                        self.handle.0.store_triggered(length);
+                        self.handle.store_triggered(length);
                     }
                 }
             }

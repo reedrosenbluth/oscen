@@ -1,37 +1,39 @@
 #![feature(inherent_associated_types)]
 
-use oscen::{Node, SampleRate, SignalProcessor, StreamOutput};
+use oscen::{Node, SampleRate, SignalProcessor};
 
 #[derive(Debug, Node)]
 struct RateNode {
     sample_rate: SampleRate,
-    pub out: StreamOutput,
+    #[output(stream)]
+    pub out: f32,
 }
 
 impl RateNode {
     fn new() -> Self {
         Self {
             sample_rate: SampleRate::default(),
-            out: StreamOutput::default(),
+            out: Default::default(),
         }
     }
 }
 
 impl SignalProcessor for RateNode {
     fn process(&mut self) {
-        *self.out = *self.sample_rate;
+        self.out = *self.sample_rate;
     }
 }
 
 #[derive(Debug, Node)]
 struct PlainNode {
-    pub out: StreamOutput,
+    #[output(stream)]
+    pub out: f32,
 }
 
 impl PlainNode {
     fn new() -> Self {
         Self {
-            out: StreamOutput::default(),
+            out: Default::default(),
         }
     }
 }

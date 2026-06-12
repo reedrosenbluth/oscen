@@ -1,22 +1,25 @@
-use oscen::{Node, SignalProcessor, StreamInput, StreamOutput, ValueInput};
+use oscen::{Node, SignalProcessor};
 
 /// AddValue - adds a value parameter to a stream signal.
 /// Useful for adding envelope modulation to a base parameter value.
 #[derive(Debug, Node)]
 pub struct AddValue {
-    pub input: StreamInput,
+    #[input(stream)]
+    pub input: f32,
+    #[input(value)]
 
-    pub value: ValueInput,
+    pub value: f32,
+    #[output(stream)]
 
-    pub output: StreamOutput,
+    pub output: f32,
 }
 
 impl AddValue {
     pub fn new(value: f32) -> Self {
         Self {
-            input: StreamInput::default(),
-            value: ValueInput(value),
-            output: StreamOutput::default(),
+            input: Default::default(),
+            value: value,
+            output: Default::default(),
         }
     }
 }
@@ -30,6 +33,6 @@ impl Default for AddValue {
 impl SignalProcessor for AddValue {
     #[inline(always)]
     fn process(&mut self) {
-        *self.output = self.input + self.value;
+        self.output = self.input + self.value;
     }
 }

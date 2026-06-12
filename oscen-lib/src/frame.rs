@@ -18,8 +18,7 @@ impl<const N: usize> Default for Frame<N> {
     }
 }
 
-/// Stereo frame: left/right. Reads lighter than `Frame<2>` in type positions
-/// (`StreamInput<Stereo>` vs `StreamInput<Frame<2>>`).
+/// Stereo frame: left/right. Reads lighter than `Frame<2>` in type positions.
 pub type Stereo = Frame<2>;
 
 /// Quad frame: four channels.

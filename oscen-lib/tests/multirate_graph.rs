@@ -1,6 +1,6 @@
 #![feature(inherent_associated_types)]
 use oscen::graph::{
-    EventInput, EventInstance, EventPayload, StreamInput, StreamOutput, ValueInput, ValueOutput,
+    EventInput, EventInstance, EventPayload,
 };
 use oscen::{graph, AdsrEnvelope, Node, PolyBlepOscillator, SignalProcessor};
 
@@ -12,15 +12,17 @@ use oscen::{graph, AdsrEnvelope, Node, PolyBlepOscillator, SignalProcessor};
 /// downsampler's anti-alias filter can reject them.
 #[derive(Debug, Node)]
 pub struct HardClip {
-    pub input: StreamInput,
-    pub output: StreamOutput,
+    #[input(stream)]
+    pub input: f32,
+    #[output(stream)]
+    pub output: f32,
 }
 
 impl HardClip {
     pub fn new() -> Self {
         Self {
-            input: StreamInput::default(),
-            output: StreamOutput::default(),
+            input: Default::default(),
+            output: Default::default(),
         }
     }
 }
@@ -34,7 +36,7 @@ impl Default for HardClip {
 impl SignalProcessor for HardClip {
     #[inline(always)]
     fn process(&mut self) {
-        *self.output = (*self.input).clamp(-0.7, 0.7);
+        self.output = self.input.clamp(-0.7, 0.7);
     }
 }
 
@@ -746,8 +748,10 @@ fn default_policy_value_edge_uses_latch_not_sinc() {
 #[derive(Debug, Node)]
 pub struct OffsetCapture {
     pub gate: EventInput,
-    pub captured_tick: StreamOutput,
-    pub output: StreamOutput,
+    #[output(stream)]
+    pub captured_tick: f32,
+    #[output(stream)]
+    pub output: f32,
     internal_tick: u32,
     last_capture: f32,
 }
@@ -756,8 +760,8 @@ impl OffsetCapture {
     pub fn new() -> Self {
         Self {
             gate: EventInput::default(),
-            captured_tick: StreamOutput::default(),
-            output: StreamOutput::default(),
+            captured_tick: Default::default(),
+            output: Default::default(),
             internal_tick: 0,
             last_capture: -1.0,
         }
@@ -779,8 +783,8 @@ impl SignalProcessor for OffsetCapture {
     #[inline(always)]
     fn process(&mut self) {
         self.internal_tick += 1;
-        *self.captured_tick = self.last_capture;
-        *self.output = self.last_capture;
+        self.captured_tick = self.last_capture;
+        self.output = self.last_capture;
     }
 }
 
@@ -844,13 +848,14 @@ fn event_frame_offset_rescaled_into_oversampled_node() {
 
 #[derive(Debug, Node)]
 pub struct TickCounter {
-    pub count: oscen::graph::ValueOutput<f32>,
+    #[output(value)]
+    pub count: f32,
 }
 
 impl TickCounter {
     pub fn new() -> Self {
         Self {
-            count: oscen::graph::ValueOutput(0.0),
+            count: 0.0,
         }
     }
 }
@@ -864,7 +869,7 @@ impl Default for TickCounter {
 impl SignalProcessor for TickCounter {
     #[inline(always)]
     fn process(&mut self) {
-        *self.count += 1.0;
+        self.count += 1.0;
     }
 }
 
@@ -910,19 +915,19 @@ fn array_node_with_embedded_rate_oversamples_each_instance() {
     // graph output, which is a Down-rate-edge sample of the inner counter).
     let expected = (2 * k) as f32;
     assert_eq!(
-        *g.counters[0].counter.count, expected,
+        g.counters[0].counter.count, expected,
         "voice 0 ran wrong number of inner ticks"
     );
     assert_eq!(
-        *g.counters[1].counter.count, expected,
+        g.counters[1].counter.count, expected,
         "voice 1 ran wrong number of inner ticks"
     );
     assert_eq!(
-        *g.counters[2].counter.count, expected,
+        g.counters[2].counter.count, expected,
         "voice 2 ran wrong number of inner ticks"
     );
     assert_eq!(
-        *g.counters[3].counter.count, expected,
+        g.counters[3].counter.count, expected,
         "voice 3 ran wrong number of inner ticks"
     );
 }
@@ -951,14 +956,15 @@ fn projection_fires_on_bare_ident_node_type() {
 }
 
 // ---------------------------------------------------------------------------
-// Value cross-rate test: a node-to-node ValueOutput -> ValueInput edge with
+// Value cross-rate test: a node-to-node value -> value edge with
 // the inner side at *4 should latch the source's outer-rate value across all
 // 4 inner ticks. Exercises the concrete `LatchUp` fallback path (kind-gating
 // keeps value cross-rate edges off the projected path).
 
 #[derive(Debug, Default, Node)]
 pub struct ValueRamp {
-    pub out: ValueOutput,
+    #[output(value)]
+    pub out: f32,
     counter: f32,
 }
 
@@ -966,20 +972,22 @@ impl SignalProcessor for ValueRamp {
     #[inline(always)]
     fn process(&mut self) {
         self.counter += 1.0;
-        *self.out = self.counter;
+        self.out = self.counter;
     }
 }
 
 #[derive(Debug, Default, Node)]
 pub struct ValueEcho {
-    pub in_v: ValueInput,
-    pub out: StreamOutput,
+    #[input(value)]
+    pub in_v: f32,
+    #[output(stream)]
+    pub out: f32,
 }
 
 impl SignalProcessor for ValueEcho {
     #[inline(always)]
     fn process(&mut self) {
-        *self.out = *self.in_v;
+        self.out = self.in_v;
     }
 }
 
@@ -1003,9 +1011,9 @@ fn value_cross_rate_latches_across_inner_ticks() {
     g.process_block(4);
     let out = &g.audio_out_block[..4];
     // Each outer tick: src increments its counter and writes it to out (a
-    // ValueOutput).  The [latch] src.out -> sink.in_v edge latches that value
-    // into all 4 inner ticks.  ValueEcho echoes its ValueInput to its
-    // StreamOutput every inner tick, so all 4 inner samples equal the latched
+    // value output).  The [latch] src.out -> sink.in_v edge latches that value
+    // into all 4 inner ticks.  ValueEcho echoes its value input to its
+    // stream output every inner tick, so all 4 inner samples equal the latched
     // value.  The [latch] sink.out -> audio_out edge (LatchDown<4>) takes the
     // first inner sample per outer tick, which is the latched value.
     //

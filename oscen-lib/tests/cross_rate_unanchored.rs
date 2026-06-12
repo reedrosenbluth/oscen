@@ -6,20 +6,21 @@
 //! emitter produces a SincUpFir/SincDownFir resampler.
 #![feature(inherent_associated_types)]
 
-use oscen::graph::{StreamInput, StreamOutput};
 use oscen::{graph, Node, SignalProcessor};
 
 #[derive(Debug, Node)]
 pub struct UnitGain {
-    pub input: StreamInput,
-    pub output: StreamOutput,
+    #[input(stream)]
+    pub input: f32,
+    #[output(stream)]
+    pub output: f32,
 }
 
 impl UnitGain {
     pub fn new() -> Self {
         Self {
-            input: StreamInput::default(),
-            output: StreamOutput::default(),
+            input: Default::default(),
+            output: Default::default(),
         }
     }
 }
@@ -32,20 +33,21 @@ impl Default for UnitGain {
 
 impl SignalProcessor for UnitGain {
     fn process(&mut self) {
-        *self.output = *self.input;
+        self.output = self.input;
     }
 }
 
 #[derive(Debug, Node)]
 pub struct ImpulseSource {
-    pub output: StreamOutput,
+    #[output(stream)]
+    pub output: f32,
     fired: bool,
 }
 
 impl ImpulseSource {
     pub fn new() -> Self {
         Self {
-            output: StreamOutput::default(),
+            output: Default::default(),
             fired: false,
         }
     }
@@ -60,9 +62,9 @@ impl Default for ImpulseSource {
 impl SignalProcessor for ImpulseSource {
     fn process(&mut self) {
         if self.fired {
-            *self.output = 0.0;
+            self.output = 0.0;
         } else {
-            *self.output = 1.0;
+            self.output = 1.0;
             self.fired = true;
         }
     }
