@@ -2,6 +2,8 @@
 
 extern crate self as oscen;
 
+#[cfg(feature = "convolution")]
+pub mod convolution;
 pub mod delay;
 pub mod dispatch;
 pub mod envelope;
@@ -16,6 +18,8 @@ pub mod oscilloscope;
 pub mod prelude;
 pub mod resample;
 pub mod ring_buffer;
+#[cfg(feature = "fft")]
+pub mod spectral;
 pub mod value;
 pub mod voice_allocator;
 
@@ -23,6 +27,8 @@ pub mod voice_allocator;
 mod multi_channel_test;
 
 // Re-export everything from each module to make it easy for consumers
+#[cfg(feature = "convolution")]
+pub use convolution::*;
 pub use delay::*;
 pub use dispatch::*;
 pub use envelope::*;

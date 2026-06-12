@@ -3,11 +3,17 @@ name = "oscen"
 version = "0.2.0"
 edition = "2021"
 
+[features]
+default = ["convolution"]
+fft = ["dep:realfft"]
+convolution = ["fft"]
+
 [dependencies]
 oscen-macros = { path = "../oscen-macros" }
 arrayvec = "0.7.6"
 cpal = "0.15.3"
 hound = "3.5.1"
+realfft = { version = "3", optional = true }
 
 [dev-dependencies]
 float-cmp = "0.10.0"
