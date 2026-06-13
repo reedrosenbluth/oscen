@@ -524,6 +524,61 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
+    /// Generate `impl BlockRender` so the graph supports offline rendering.
+    fn generate_block_render_impl(&self, name: &syn::Ident) -> TokenStream {
+        let mut input_arms = Vec::new();
+        let mut n_in = 0usize;
+        for node in self.inputs() {
+            let field_name = &node.name;
+            if !matches!(self.input_kind(field_name), Some(EndpointKind::Stream)) {
+                continue;
+            }
+            let block_name =
+                syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+            input_arms.push(quote! { #n_in => &mut self.#block_name });
+            n_in += 1;
+        }
+
+        let mut output_arms = Vec::new();
+        let mut n_out = 0usize;
+        for node in self.outputs() {
+            let field_name = &node.name;
+            if !matches!(self.output_kind(field_name), Some(EndpointKind::Stream)) {
+                continue;
+            }
+            let block_name =
+                syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+            output_arms.push(quote! { #n_out => &self.#block_name });
+            n_out += 1;
+        }
+
+        quote! {
+            impl ::oscen::graph::BlockRender for #name {
+                const NUM_STREAM_INPUTS: usize = #n_in;
+                const NUM_STREAM_OUTPUTS: usize = #n_out;
+
+                #[inline]
+                fn run_block(&mut self, frames: usize) {
+                    self.process_block(frames);
+                }
+
+                fn stream_input_block_mut(&mut self, index: usize) -> &mut [f32] {
+                    match index {
+                        #(#input_arms,)*
+                        _ => panic!("stream input index {} out of range", index),
+                    }
+                }
+
+                fn stream_output_block(&self, index: usize) -> &[f32] {
+                    match index {
+                        #(#output_arms,)*
+                        _ => panic!("stream output index {} out of range", index),
+                    }
+                }
+            }
+        }
+    }
+
     /// Generate clear_event_outputs() method for graph types.
     fn generate_static_clear_event_outputs(&self) -> TokenStream {
         let mut clear_stmts = Vec::new();
@@ -1059,6 +1114,7 @@ impl<'a> CodegenContext<'a> {
         let advance_one_frame_method = self.generate_advance_one_frame()?;
         let process_block_method = self.generate_static_process_block()?;
         let get_stream_output_method = self.generate_static_get_stream_output();
+        let block_render_impl = self.generate_block_render_impl(name);
         let clear_event_outputs_method = self.generate_static_clear_event_outputs();
         let process_event_inputs_method = self.generate_static_process_event_inputs();
         let event_handler_methods = self.generate_static_event_handler_methods();
@@ -1176,6 +1232,8 @@ impl<'a> CodegenContext<'a> {
                     // This is already implemented in the impl block above
                 }
             }
+
+            #block_render_impl
 
             #nih_params_output
         })
