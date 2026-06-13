@@ -1,8 +1,7 @@
 //! Impulse-response convolution.
 //!
 //! Building blocks for zero-latency partitioned convolution in the style of
-//! Gardner ("Efficient Convolution without Input-Output Delay") and Cmajor's
-//! `std::convolution`:
+//! Gardner ("Efficient Convolution without Input-Output Delay"):
 //!
 //! - [`DirectConvolver`]: brute-force time-domain convolution. Zero latency,
 //!   O(taps) per sample — used for the short head of an impulse response.
