@@ -101,7 +101,9 @@ pub trait BlockRender {
             "render_mono: graph has {} stream outputs, expected 1",
             Self::NUM_STREAM_OUTPUTS
         );
-        self.render(&[input], tail).pop().expect("one output stream")
+        self.render(&[input], tail)
+            .pop()
+            .expect("one output stream")
     }
 }
 

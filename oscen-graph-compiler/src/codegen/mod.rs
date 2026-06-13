@@ -533,8 +533,7 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.input_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name =
-                syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+            let block_name = syn::Ident::new(&format!("{}_block", field_name), field_name.span());
             input_arms.push(quote! { #n_in => &mut self.#block_name });
             n_in += 1;
         }
@@ -546,8 +545,7 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.output_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name =
-                syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+            let block_name = syn::Ident::new(&format!("{}_block", field_name), field_name.span());
             output_arms.push(quote! { #n_out => &self.#block_name });
             n_out += 1;
         }

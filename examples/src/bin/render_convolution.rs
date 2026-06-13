@@ -20,7 +20,9 @@ use std::sync::OnceLock;
 static IR: OnceLock<Vec<f32>> = OnceLock::new();
 
 fn impulse_response() -> Vec<f32> {
-    IR.get().expect("IR not set before graph construction").clone()
+    IR.get()
+        .expect("IR not set before graph construction")
+        .clone()
 }
 
 graph! {
@@ -71,7 +73,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.len() < 3 {
         eprintln!(
             "usage: {} <input.wav> <ir.wav> [output.wav]",
-            args.first().map(String::as_str).unwrap_or("render_convolution")
+            args.first()
+                .map(String::as_str)
+                .unwrap_or("render_convolution")
         );
         std::process::exit(2);
     }
@@ -79,7 +83,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ir_path = &args[2];
     let output_path = args.get(3).cloned().unwrap_or_else(|| {
         let mut p = PathBuf::from(input_path);
-        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+        let stem = p
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("output")
+            .to_string();
         p.set_file_name(format!("{stem}_reverb.wav"));
         p.to_string_lossy().into_owned()
     });
