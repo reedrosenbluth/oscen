@@ -3,6 +3,9 @@
 // Core graph types and traits
 pub use crate::graph::SignalProcessor;
 
+// Offline (non-realtime) rendering
+pub use crate::graph::BlockRender;
+
 // Macro for building graphs
 pub use crate::graph;
 
