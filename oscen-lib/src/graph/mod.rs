@@ -1,10 +1,12 @@
 mod audio_input;
+mod offline;
 pub mod static_context;
 pub mod topology;
 mod traits;
 pub mod types;
 
 pub use audio_input::AudioInput;
+pub use offline::BlockRender;
 pub use static_context::ConnectEndpoints;
 pub use topology::TopologyError;
 pub use traits::{AllowsFeedback, SignalProcessor};
