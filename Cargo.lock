@@ -4740,6 +4740,7 @@ dependencies = [
  "arrayvec",
  "cpal",
  "eframe",
+ "hound",
  "libmath",
  "oscen",
  "oscen-macros",
