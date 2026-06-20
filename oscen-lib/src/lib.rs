@@ -37,6 +37,6 @@ pub use midi::*;
 pub use oscen_macros::{graph, oversample_variants, Node};
 pub use oscillators::*;
 pub use oscilloscope::*;
-pub use sample::{SampleBank, SampleBuffer, SamplePlayer, SampleSlot};
+pub use sample::{SampleBank, SampleBuffer, SamplePlayer, SamplePlayerN, SampleSlot};
 pub use value::*;
 pub use voice_allocator::*;

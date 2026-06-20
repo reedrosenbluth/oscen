@@ -40,7 +40,7 @@ mod slot;
 
 pub use buffer::SampleBuffer;
 pub use io::{load_wav, read_wav, LoadError};
-pub use player::SamplePlayer;
+pub use player::{SamplePlayer, SamplePlayerN};
 pub use slot::{SampleBank, SampleSlot};
 
 use std::sync::{Arc, OnceLock};

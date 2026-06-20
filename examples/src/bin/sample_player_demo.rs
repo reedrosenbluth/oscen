@@ -99,4 +99,25 @@ fn main() {
         "phase 2 should reflect the swapped-in half-height buffer"
     );
     println!("\nHot-swap verified: peak {peak1:.3} -> {peak2:.3} with no reallocation on the audio path.");
+
+    // --- Multichannel: SamplePlayerN<N> plays a stereo buffer into Frame<N>. ---
+    // (Driven directly here; inside a graph it connects to other Frame<N> nodes
+    // and collapses to f32 only at the final graph output.)
+    let stereo = SampleBuffer::from_interleaved(&[0.1, -0.1, 0.2, -0.2, 0.3, -0.3], 2, sample_rate);
+    let mut sp = SamplePlayerN::<2>::with_slot(SampleSlot::new(Arc::new(stereo)));
+    sp.set_sample_rate(sample_rate);
+    sp.trigger.clear();
+    let _ = sp.trigger.try_push(EventInstance {
+        frame_offset: 0,
+        payload: EventPayload::scalar(1.0),
+    });
+    sp.process_event_inputs(); // dispatch the trigger to the handler
+    sp.trigger.clear(); // ...and don't let it re-fire every sample
+    print!("\nPhase 4 — stereo SamplePlayerN<2> frames: ");
+    for _ in 0..3 {
+        sp.process();
+        let Frame([l, r]) = sp.output;
+        print!("[{l:.2}, {r:.2}] ");
+    }
+    println!();
 }

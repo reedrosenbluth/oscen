@@ -15,7 +15,7 @@ pub use crate::{
 };
 
 // Sample loading, sharing, and playback
-pub use crate::sample::{self, SampleBank, SampleBuffer, SamplePlayer, SampleSlot};
+pub use crate::sample::{self, SampleBank, SampleBuffer, SamplePlayer, SamplePlayerN, SampleSlot};
 
 // MIDI and voice management
 pub use crate::{MidiParser, MidiVoiceHandler, VoiceAllocator};
