@@ -14,6 +14,9 @@ pub use crate::{
     AdsrEnvelope, AudioInput, Delay, Gain, IirLowpass, Oscillator, PolyBlepOscillator, TptFilter,
 };
 
+// Sample loading, sharing, and playback
+pub use crate::sample::{self, SampleBank, SampleBuffer, SamplePlayer, SampleSlot};
+
 // MIDI and voice management
 pub use crate::{MidiParser, MidiVoiceHandler, VoiceAllocator};
 

@@ -16,6 +16,7 @@ pub mod oscilloscope;
 pub mod prelude;
 pub mod resample;
 pub mod ring_buffer;
+pub mod sample;
 pub mod value;
 pub mod voice_allocator;
 
@@ -36,5 +37,6 @@ pub use midi::*;
 pub use oscen_macros::{graph, oversample_variants, Node};
 pub use oscillators::*;
 pub use oscilloscope::*;
+pub use sample::{SampleBank, SampleBuffer, SamplePlayer, SampleSlot};
 pub use value::*;
 pub use voice_allocator::*;
