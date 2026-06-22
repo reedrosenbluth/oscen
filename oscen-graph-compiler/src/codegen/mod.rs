@@ -14,6 +14,21 @@ mod emit_frame;
 mod emit_node;
 mod emit_struct;
 
+/// The frame type shared by all of a graph's top-level stream endpoints, used
+/// to type the `BlockRender<F>` impl and the stream block buffers.
+// Transient value computed and matched immediately; never stored in bulk, so
+// the size of the `Frame` variant does not matter.
+#[allow(clippy::large_enum_variant)]
+enum BlockFrameTy {
+    /// All stream endpoints are mono `f32`.
+    Mono,
+    /// All stream endpoints are the same `Frame<N>` type.
+    Frame(syn::Type),
+    /// Stream endpoints mix `f32` with `Frame<N>` (or differing `Frame<N>`):
+    /// offline rendering is out of scope (the impl emits a `compile_error!`).
+    Mixed,
+}
+
 pub fn generate(ir: &IrGraph) -> std::result::Result<TokenStream, Diagnostics> {
     // lower() has already run analysis + validation. Codegen consumes the
     // IR directly. Static graphs require a name (already enforced by
@@ -118,6 +133,83 @@ impl<'a> CodegenContext<'a> {
             return None;
         }
         node.endpoints.get(name).map(|e| e.kind)
+    }
+
+    /// The declared frame type of a top-level stream endpoint `name`, recognized
+    /// as a non-`f32` `AudioFrame` (`Frame<...>`/`Stereo`/`Mono`/`Quad`).
+    /// Returns `None` for an absent, `f32`, or unrecognized annotation — all of
+    /// which mean mono `f32` (this keeps legacy `[f32; N]` stream annotations
+    /// no-ops, as before).
+    fn endpoint_frame_ty(&self, name: &syn::Ident) -> Option<syn::Type> {
+        let node = self.find_node_by_ident(name)?;
+        let ty = node.endpoints.get(name)?.ty.as_ref()?;
+        if let syn::Type::Path(tp) = ty {
+            if let Some(seg) = tp.path.segments.last() {
+                return match seg.ident.to_string().as_str() {
+                    "Frame" | "Stereo" | "Mono" | "Quad" => Some(ty.clone()),
+                    _ => None,
+                };
+            }
+        }
+        None
+    }
+
+    /// The Rust type to emit for a top-level stream endpoint field/buffer: its
+    /// recognized frame type, or `f32` (mono default).
+    fn stream_field_ty(&self, name: &syn::Ident) -> TokenStream {
+        match self.endpoint_frame_ty(name) {
+            Some(ty) => quote! { #ty },
+            None => quote! { f32 },
+        }
+    }
+
+    /// Initializer expressions `(scalar, block_buffer)` for a top-level stream
+    /// endpoint. Mono `f32` keeps the literal `0.0f32` form (byte-identical to
+    /// the pre-generalization codegen); frame types use `F::default()`.
+    fn stream_init_exprs(&self, name: &syn::Ident) -> (TokenStream, TokenStream) {
+        match self.endpoint_frame_ty(name) {
+            None => (
+                quote! { 0.0f32 },
+                quote! { [0.0f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
+            ),
+            Some(ty) => (
+                quote! { <#ty as ::core::default::Default>::default() },
+                quote! {
+                    [<#ty as ::core::default::Default>::default();
+                        ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE]
+                },
+            ),
+        }
+    }
+
+    /// The single frame type shared by every top-level stream endpoint, for the
+    /// `BlockRender<F>` impl. See [`BlockFrameTy`].
+    fn block_render_frame_ty(&self) -> BlockFrameTy {
+        let mut frame: Option<syn::Type> = None;
+        let mut saw_mono = false;
+        let stream_endpoints = self
+            .inputs()
+            .filter(|n| self.input_kind(&n.name) == Some(EndpointKind::Stream))
+            .chain(
+                self.outputs()
+                    .filter(|n| self.output_kind(&n.name) == Some(EndpointKind::Stream)),
+            );
+        for node in stream_endpoints {
+            match self.endpoint_frame_ty(&node.name) {
+                None => saw_mono = true,
+                Some(t) => match &frame {
+                    Some(existing) if quote!(#existing).to_string() != quote!(#t).to_string() => {
+                        return BlockFrameTy::Mixed;
+                    }
+                    _ => frame = Some(t),
+                },
+            }
+        }
+        match frame {
+            None => BlockFrameTy::Mono,
+            Some(_) if saw_mono => BlockFrameTy::Mixed,
+            Some(t) => BlockFrameTy::Frame(t),
+        }
     }
 
     fn is_input(&self, name: &syn::Ident) -> bool {
@@ -513,9 +605,17 @@ impl<'a> CodegenContext<'a> {
             output_idx += 1;
         }
 
+        // The accessor returns the graph's stream frame type (`f32` for mono;
+        // `Frame<N>` for an all-`Frame<N>` graph). Mixed graphs are out of scope
+        // (their `BlockRender` impl already `compile_error!`s); fall back to f32.
+        let frame_ty = match self.block_render_frame_ty() {
+            BlockFrameTy::Frame(ty) => quote! { #ty },
+            _ => quote! { f32 },
+        };
+
         quote! {
             #[inline(always)]
-            pub fn get_stream_output(&self, index: usize) -> Option<f32> {
+            pub fn get_stream_output(&self, index: usize) -> Option<#frame_ty> {
                 match index {
                     #(#match_arms,)*
                     _ => None
@@ -524,8 +624,31 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
-    /// Generate `impl BlockRender` so the graph supports offline rendering.
+    /// Generate `impl BlockRender<F>` so the graph supports offline rendering,
+    /// where `F` is the single frame type shared by all stream endpoints.
     fn generate_block_render_impl(&self, name: &syn::Ident) -> TokenStream {
+        // A graph whose stream endpoints mix frame types cannot be rendered
+        // offline (one `BlockRender<F>` cannot serve both). The graph still
+        // works in realtime; only offline rendering is gated.
+        // `impl BlockRender for G` (mono) keeps the trait's default `F = f32`,
+        // byte-identical to the pre-generalization codegen; frame graphs spell
+        // out `impl BlockRender<Frame<N>> for G`.
+        let (trait_ref, frame_ty) = match self.block_render_frame_ty() {
+            BlockFrameTy::Mono => (quote! { ::oscen::graph::BlockRender }, quote! { f32 }),
+            BlockFrameTy::Frame(ty) => {
+                (quote! { ::oscen::graph::BlockRender<#ty> }, quote! { #ty })
+            }
+            BlockFrameTy::Mixed => {
+                return quote! {
+                    ::core::compile_error!(
+                        "offline `BlockRender` requires all of a graph's stream \
+                         endpoints to share one frame type; this graph mixes `f32` \
+                         and `Frame<N>` (or differing `Frame<N>`) stream endpoints"
+                    );
+                };
+            }
+        };
+
         let mut input_arms = Vec::new();
         let mut n_in = 0usize;
         for node in self.inputs() {
@@ -551,7 +674,7 @@ impl<'a> CodegenContext<'a> {
         }
 
         quote! {
-            impl ::oscen::graph::BlockRender for #name {
+            impl #trait_ref for #name {
                 const NUM_STREAM_INPUTS: usize = #n_in;
                 const NUM_STREAM_OUTPUTS: usize = #n_out;
 
@@ -560,14 +683,14 @@ impl<'a> CodegenContext<'a> {
                     self.process_block(frames);
                 }
 
-                fn stream_input_block_mut(&mut self, index: usize) -> &mut [f32] {
+                fn stream_input_block_mut(&mut self, index: usize) -> &mut [#frame_ty] {
                     match index {
                         #(#input_arms,)*
                         _ => panic!("stream input index {} out of range", index),
                     }
                 }
 
-                fn stream_output_block(&self, index: usize) -> &[f32] {
+                fn stream_output_block(&self, index: usize) -> &[#frame_ty] {
                     match index {
                         #(#output_arms,)*
                         _ => panic!("stream output index {} out of range", index),
@@ -1043,18 +1166,19 @@ impl<'a> CodegenContext<'a> {
                     }
                 }
                 EndpointKind::Event => quote! { ::oscen::graph::StaticEventQueue },
-                EndpointKind::Stream => quote! { f32 },
+                EndpointKind::Stream => self.stream_field_ty(field_name),
                 // Assets are externals, not graph inputs — never reached here.
                 EndpointKind::Asset => unreachable!("asset endpoint is not a graph input"),
             };
             fields.push(quote! { pub #field_name: #ty });
 
-            // Block buffer for stream inputs
+            // Block buffer for stream inputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
                 let block_name =
                     syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+                let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
-                    quote! { pub #block_name: [f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
+                    quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
                 );
             }
         }
@@ -1064,7 +1188,7 @@ impl<'a> CodegenContext<'a> {
             let field_name = &node.name;
             let kind = self.output_kind(field_name).unwrap_or(EndpointKind::Stream);
             let ty = match kind {
-                EndpointKind::Stream => quote! { f32 },
+                EndpointKind::Stream => self.stream_field_ty(field_name),
                 EndpointKind::Value => quote! { f32 },
                 EndpointKind::Event => quote! { ::oscen::graph::StaticEventQueue },
                 // Assets are externals, not graph outputs — never reached here.
@@ -1072,12 +1196,13 @@ impl<'a> CodegenContext<'a> {
             };
             fields.push(quote! { pub #field_name: #ty });
 
-            // Block buffer for stream outputs
+            // Block buffer for stream outputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
                 let block_name =
                     syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+                let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
-                    quote! { pub #block_name: [f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
+                    quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
                 );
             }
         }

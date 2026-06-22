@@ -156,6 +156,20 @@ pub enum IrNodeKind {
 
 pub struct EndpointInfo {
     pub kind: EndpointKind,
+    /// The declared Rust type of a top-level `input`/`output` stream endpoint,
+    /// from an `input stream x: Frame<2>;`-style annotation. `None` when no
+    /// annotation was given (defaults to `f32`). Only meaningful for the
+    /// implicit endpoints on input/output decl nodes; node endpoints leave it
+    /// `None`.
+    pub ty: Option<syn::Type>,
+}
+
+impl EndpointInfo {
+    /// An endpoint with no declared stream type (the common case for node
+    /// endpoints and synthesized endpoints).
+    pub fn new(kind: EndpointKind) -> Self {
+        Self { kind, ty: None }
+    }
 }
 
 pub struct IrEdge {

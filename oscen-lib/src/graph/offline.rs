@@ -9,9 +9,14 @@
 //! different algorithm. Value inputs keep whatever values were set before
 //! `render` is called; only stream inputs are fed from the supplied buffers.
 
+use crate::frame::AudioFrame;
 use crate::graph::DEFAULT_MAX_BLOCK_SIZE;
 
-pub trait BlockRender {
+/// Offline block-rendering driver, generic over the stream frame type `F`
+/// (mono `f32` by default; `Frame<N>` for a graph whose stream endpoints are
+/// all `Frame<N>`). The generated graph implements `BlockRender<F>` for the
+/// single frame type shared by all of its stream endpoints.
+pub trait BlockRender<F: AudioFrame = f32> {
     /// Number of stream inputs, in declaration order.
     const NUM_STREAM_INPUTS: usize;
     /// Number of stream outputs, in declaration order.
@@ -24,21 +29,21 @@ pub trait BlockRender {
 
     /// Mutable access to stream input `index`'s block buffer (length
     /// `DEFAULT_MAX_BLOCK_SIZE`), in declaration order.
-    fn stream_input_block_mut(&mut self, index: usize) -> &mut [f32];
+    fn stream_input_block_mut(&mut self, index: usize) -> &mut [F];
 
     /// Read access to stream output `index`'s block buffer, in declaration order.
-    fn stream_output_block(&self, index: usize) -> &[f32];
+    fn stream_output_block(&self, index: usize) -> &[F];
 
     /// Render `inputs` (one slice per stream input, declaration order) followed
     /// by `tail` trailing zero frames, returning one buffer per stream output.
     ///
     /// Total length rendered = max input length + `tail`. Inputs shorter than
-    /// that are zero-padded. `tail` lets effects with a decay (reverb, delay)
-    /// ring out past the end of the input.
+    /// that are padded with `F::default()` (silence). `tail` lets effects with a
+    /// decay (reverb, delay) ring out past the end of the input.
     ///
     /// # Panics
     /// If `inputs.len() != NUM_STREAM_INPUTS`.
-    fn render(&mut self, inputs: &[&[f32]], tail: usize) -> Vec<Vec<f32>> {
+    fn render(&mut self, inputs: &[&[F]], tail: usize) -> Vec<Vec<F>> {
         assert_eq!(
             inputs.len(),
             Self::NUM_STREAM_INPUTS,
@@ -50,7 +55,7 @@ pub trait BlockRender {
         let in_len = inputs.iter().map(|s| s.len()).max().unwrap_or(0);
         let total = in_len + tail;
 
-        let mut outs: Vec<Vec<f32>> = (0..Self::NUM_STREAM_OUTPUTS)
+        let mut outs: Vec<Vec<F>> = (0..Self::NUM_STREAM_OUTPUTS)
             .map(|_| Vec::with_capacity(total))
             .collect();
 
@@ -67,7 +72,7 @@ pub trait BlockRender {
                 let src = inputs[i];
                 let block = self.stream_input_block_mut(i);
                 for j in 0..n {
-                    block[j] = src.get(pos + j).copied().unwrap_or(0.0);
+                    block[j] = src.get(pos + j).copied().unwrap_or_default();
                 }
             }
 
@@ -88,7 +93,7 @@ pub trait BlockRender {
     ///
     /// # Panics
     /// If the graph does not have exactly one stream input and one stream output.
-    fn render_mono(&mut self, input: &[f32], tail: usize) -> Vec<f32> {
+    fn render_mono(&mut self, input: &[F], tail: usize) -> Vec<F> {
         assert_eq!(
             Self::NUM_STREAM_INPUTS,
             1,

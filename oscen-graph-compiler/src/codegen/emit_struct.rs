@@ -49,13 +49,14 @@ impl<'a> CodegenContext<'a> {
                         });
                     }
                     EndpointKind::Stream => {
+                        let (init, block_init) = self.stream_init_exprs(name);
                         stmts.push(quote! {
-                            let #name = 0.0f32;
+                            let #name = #init;
                         });
-                        // Block buffer for stream inputs
+                        // Block buffer for stream inputs (typed to the frame type)
                         let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
                         stmts.push(quote! {
-                            let #block_name = [0.0f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE];
+                            let #block_name = #block_init;
                         });
                     }
                     // Assets are externals, not graph inputs — no init here.
@@ -81,13 +82,14 @@ impl<'a> CodegenContext<'a> {
 
                 match kind {
                     EndpointKind::Stream => {
+                        let (init, block_init) = self.stream_init_exprs(name);
                         stmts.push(quote! {
-                            let #name = 0.0f32;
+                            let #name = #init;
                         });
-                        // Block buffer for stream outputs
+                        // Block buffer for stream outputs (typed to the frame type)
                         let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
                         stmts.push(quote! {
-                            let #block_name = [0.0f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE];
+                            let #block_name = #block_init;
                         });
                     }
                     EndpointKind::Value => {

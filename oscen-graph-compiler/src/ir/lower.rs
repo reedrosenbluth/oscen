@@ -188,27 +188,19 @@ fn synth_delay_endpoints(span: proc_macro2::Span) -> HashMap<Ident, EndpointInfo
     let mut m = HashMap::new();
     m.insert(
         Ident::new("input", span),
-        EndpointInfo {
-            kind: EndpointKind::Stream,
-        },
+        EndpointInfo::new(EndpointKind::Stream),
     );
     m.insert(
         Ident::new("output", span),
-        EndpointInfo {
-            kind: EndpointKind::Stream,
-        },
+        EndpointInfo::new(EndpointKind::Stream),
     );
     m.insert(
         Ident::new("delay_samples", span),
-        EndpointInfo {
-            kind: EndpointKind::Value,
-        },
+        EndpointInfo::new(EndpointKind::Value),
     );
     m.insert(
         Ident::new("feedback", span),
-        EndpointInfo {
-            kind: EndpointKind::Value,
-        },
+        EndpointInfo::new(EndpointKind::Value),
     );
     m
 }
@@ -218,13 +210,25 @@ fn input_endpoints(input: &crate::ast::InputDecl) -> HashMap<Ident, EndpointInfo
     // The "name" of the implicit endpoint on an input/output decl is
     // the decl's own identifier — `s -> osc.frequency` references the
     // `s` endpoint on the `s` input node.
-    m.insert(input.name.clone(), EndpointInfo { kind: input.kind });
+    m.insert(
+        input.name.clone(),
+        EndpointInfo {
+            kind: input.kind,
+            ty: input.ty.clone(),
+        },
+    );
     m
 }
 
 fn output_endpoints(output: &crate::ast::OutputDecl) -> HashMap<Ident, EndpointInfo> {
     let mut m = HashMap::new();
-    m.insert(output.name.clone(), EndpointInfo { kind: output.kind });
+    m.insert(
+        output.name.clone(),
+        EndpointInfo {
+            kind: output.kind,
+            ty: output.ty.clone(),
+        },
+    );
     m
 }
 
@@ -275,9 +279,7 @@ fn infer_endpoint_types(
                 ir.nodes[node_id]
                     .endpoints
                     .entry(ep)
-                    .or_insert(EndpointInfo {
-                        kind: EndpointKind::Stream,
-                    });
+                    .or_insert(EndpointInfo::new(EndpointKind::Stream));
             }
         }
     }
@@ -303,7 +305,7 @@ fn infer_endpoint_types(
                     use std::collections::hash_map::Entry;
                     match node.endpoints.entry(dst_ep) {
                         Entry::Vacant(e) => {
-                            e.insert(EndpointInfo { kind: src_kind });
+                            e.insert(EndpointInfo::new(src_kind));
                             changed = true;
                         }
                         Entry::Occupied(_) => {}
@@ -320,7 +322,7 @@ fn infer_endpoint_types(
                     use std::collections::hash_map::Entry;
                     match node.endpoints.entry(src_ep) {
                         Entry::Vacant(e) => {
-                            e.insert(EndpointInfo { kind: dst_kind });
+                            e.insert(EndpointInfo::new(dst_kind));
                             changed = true;
                         }
                         Entry::Occupied(_) => {}
@@ -411,12 +413,9 @@ fn build_edges(
         }
 
         // Mark the endpoint `Asset` so a stray signal edge into it is caught.
-        ir.nodes[dst_node].endpoints.insert(
-            dst_ep.clone(),
-            EndpointInfo {
-                kind: EndpointKind::Asset,
-            },
-        );
+        ir.nodes[dst_node]
+            .endpoints
+            .insert(dst_ep.clone(), EndpointInfo::new(EndpointKind::Asset));
 
         ir.asset_bindings.push(AssetBinding {
             external_name: src_ident.clone(),

@@ -90,9 +90,7 @@ mod tests {
                 let mut m = HashMap::new();
                 m.insert(
                     format_ident!("{}", endpoint),
-                    EndpointInfo {
-                        kind: EndpointKind::Stream,
-                    },
+                    EndpointInfo::new(EndpointKind::Stream),
                 );
                 m
             },
@@ -115,9 +113,7 @@ mod tests {
                 let mut m = HashMap::new();
                 m.insert(
                     format_ident!("{}", name),
-                    EndpointInfo {
-                        kind: EndpointKind::Stream,
-                    },
+                    EndpointInfo::new(EndpointKind::Stream),
                 );
                 m
             },
