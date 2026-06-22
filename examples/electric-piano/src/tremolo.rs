@@ -1,4 +1,4 @@
-use oscen::{Node, SampleRate, SignalProcessor};
+use oscen::{Frame, Node, SampleRate, SignalProcessor};
 use std::f32::consts::PI;
 
 /// Tremolo effect with stereo output
@@ -16,10 +16,7 @@ pub struct Tremolo {
     pub depth: f32,
 
     #[output(stream)]
-    pub left_output: f32,
-
-    #[output(stream)]
-    pub right_output: f32,
+    pub output: Frame<2>,
 
     /// LFO phase (0.0 to 1.0)
     pub phase: f32,
@@ -33,8 +30,7 @@ impl Tremolo {
             input: 0.0,
             rate: 5.0,
             depth: 0.5,
-            left_output: 0.0,
-            right_output: 0.0,
+            output: Frame([0.0, 0.0]),
             phase: 0.0,
             sample_rate: SampleRate::default(),
         }
@@ -57,8 +53,7 @@ impl SignalProcessor for Tremolo {
         let pan = 0.5 + lfo * scaled_depth; // Oscillates around center (0.5)
 
         // Apply constant-power panning
-        self.left_output = input * pan;
-        self.right_output = input * (1.0 - pan);
+        self.output = Frame([input * pan, input * (1.0 - pan)]);
 
         // Advance phase
         let phase_increment = rate / *self.sample_rate;

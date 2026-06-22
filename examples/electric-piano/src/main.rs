@@ -48,8 +48,7 @@ graph! {
     output note_on_out: event;
     output note_off_out: event;
 
-    output left_out: stream;
-    output right_out: stream;
+    output out: stream: Frame<2>;
 
     nodes {
         midi_parser = MidiParser::new();
@@ -92,9 +91,8 @@ graph! {
         vibrato_intensity -> tremolo.depth;
         vibrato_speed -> tremolo.rate;
 
-        // Stereo outputs
-        tremolo.left_output -> left_out;
-        tremolo.right_output -> right_out;
+        // Stereo output
+        tremolo.output -> out;
     }
 }
 
@@ -163,8 +161,9 @@ fn audio_callback(
         context.synth.process();
 
         // Static graph: direct field access for outputs
-        let left = context.synth.left_out;
-        let right = context.synth.right_out;
+        let out = context.synth.out; // Frame<2>
+        let left = out.0[0];
+        let right = out.0[1];
 
         if context.channels >= 2 {
             frame[0] = left;
@@ -347,12 +346,18 @@ mod tests {
                 let _ = synth.midi_in.try_push(event);
 
                 let mut max = 0.0;
+                let mut max_lr_diff = 0.0;
                 for i in 0..8192 {
                     synth.process();
-                    let sample = synth.left_out.abs().max(synth.right_out.abs());
+                    let f = synth.out;
+                    let sample = f.0[0].abs().max(f.0[1].abs());
                     if sample > max {
                         max = sample;
                         eprintln!("New max at frame {}: {}", i, max);
+                    }
+                    let lr_diff = (f.0[0] - f.0[1]).abs();
+                    if lr_diff > max_lr_diff {
+                        max_lr_diff = lr_diff;
                     }
                 }
 
@@ -361,7 +366,7 @@ mod tests {
                 let handler_freq = synth.voice_handlers[0].frequency;
                 let voice_freq = synth.voices[0].frequency;
 
-                (max, voice0, handler_freq, voice_freq)
+                (max, max_lr_diff, voice0, handler_freq, voice_freq)
             })
             .expect("spawn test thread")
             .join()
@@ -370,9 +375,15 @@ mod tests {
         assert!(
             stats.0 > 1e-4,
             "expected non-zero output after MIDI note on (voice_sample={}, handler_freq={}, voice_freq={})",
-            stats.1,
             stats.2,
             stats.3,
+            stats.4,
+        );
+        assert!(
+            stats.1 > 1e-4,
+            "expected L/R channels to diverge (max_lr_diff={}, max={})",
+            stats.1,
+            stats.0,
         );
     }
 }

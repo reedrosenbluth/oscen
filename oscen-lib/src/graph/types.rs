@@ -26,6 +26,10 @@ pub enum EndpointType {
     Stream,
     Value,
     Event,
+    /// A runtime-bound immutable audio asset (e.g. a convolver's impulse
+    /// response). Never resampled and never part of a cross-rate edge — bound
+    /// from an `external` declaration, not from a node output.
+    Asset,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -497,7 +501,6 @@ mod tests {
         }
         assert_eq!(ramp.current, 0.0);
     }
-
 }
 
 #[cfg(test)]

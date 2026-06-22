@@ -12,7 +12,6 @@ pub struct Crossfade {
     #[input(value)]
     pub mix: f32,
     #[output(stream)]
-
     pub output_a: f32,
     #[output(stream)]
     pub output_b: f32,

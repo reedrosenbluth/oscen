@@ -7,10 +7,8 @@ pub struct AddValue {
     #[input(stream)]
     pub input: f32,
     #[input(value)]
-
     pub value: f32,
     #[output(stream)]
-
     pub output: f32,
 }
 

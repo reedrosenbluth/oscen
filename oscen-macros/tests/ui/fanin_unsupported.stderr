@@ -1,0 +1,5 @@
+error: fan-in summing supports only same-rate scalar/frame stream sources; saw a compound (non-endpoint) source into `filter.input`
+  --> tests/ui/fanin_unsupported.rs:17:9
+   |
+17 |         osc.output * gain -> filter.input;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

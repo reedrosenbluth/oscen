@@ -2,6 +2,9 @@
 
 extern crate self as oscen;
 
+pub mod asset;
+#[cfg(feature = "convolution")]
+pub mod convolution;
 pub mod delay;
 pub mod dispatch;
 pub mod envelope;
@@ -10,12 +13,16 @@ pub mod filters;
 pub mod frame;
 pub mod gain;
 pub mod graph;
+pub mod handoff;
 pub mod midi;
 pub mod oscillators;
 pub mod oscilloscope;
 pub mod prelude;
 pub mod resample;
 pub mod ring_buffer;
+pub mod sample_player;
+#[cfg(feature = "fft")]
+pub mod spectral;
 pub mod value;
 pub mod voice_allocator;
 
@@ -23,6 +30,9 @@ pub mod voice_allocator;
 mod multi_channel_test;
 
 // Re-export everything from each module to make it easy for consumers
+pub use asset::*;
+#[cfg(feature = "convolution")]
+pub use convolution::*;
 pub use delay::*;
 pub use dispatch::*;
 pub use envelope::*;
@@ -36,5 +46,6 @@ pub use midi::*;
 pub use oscen_macros::{graph, oversample_variants, Node};
 pub use oscillators::*;
 pub use oscilloscope::*;
+pub use sample_player::*;
 pub use value::*;
 pub use voice_allocator::*;

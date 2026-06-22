@@ -25,6 +25,13 @@ pub struct EventKind;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EventArrayKind;
 
+/// Runtime-bound immutable audio asset endpoint (e.g. a convolver's impulse
+/// response). Recognized by the type system but deliberately has **no**
+/// `CrossRateKernel` impl — an asset edge is a binding, never a resampled
+/// signal, so any attempt to wire it as a cross-rate edge fails to compile.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AssetKind;
+
 /// Policy markers, one per `ConnectionPolicy` variant in `oscen-macros`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DefaultPolicy;

@@ -108,13 +108,16 @@ impl std::fmt::Debug for IrExprKind {
 }
 
 /// Walk an `IrExpr` to find the leftmost endpoint's `NodeId`. Descends through
-/// `Binary` (left) and `MethodCall` (receiver). Returns `None` for `Call` and
-/// `Literal` (no leftmost node reference).
+/// `Binary` (left), `MethodCall` (receiver), and `Call` (first argument) so it
+/// agrees with `collect_referenced_node_ids`' ordering — the leftmost referenced
+/// node is the edge's primary source. Returns `None` only for a `Literal` or a
+/// `Call` with no node-referencing arguments.
 pub(crate) fn primary_node(expr: &IrExpr) -> Option<NodeId> {
     match &expr.kind {
         IrExprKind::Endpoint(ep) => Some(ep.node),
         IrExprKind::Binary { left, .. } => primary_node(left),
         IrExprKind::MethodCall { receiver, .. } => primary_node(receiver),
-        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
+        IrExprKind::Call { args, .. } => args.iter().find_map(primary_node),
+        IrExprKind::Literal(_) => None,
     }
 }

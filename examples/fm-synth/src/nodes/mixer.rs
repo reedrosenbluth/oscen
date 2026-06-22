@@ -8,7 +8,6 @@ pub struct Mixer {
     #[input(stream)]
     pub input_b: f32,
     #[output(stream)]
-
     pub output: f32,
 }
 

@@ -1,11 +1,17 @@
+use crate::frame::AudioFrame;
 use crate::graph::SampleRate;
 use crate::{Node, SignalProcessor};
 use std::f32::consts::PI;
 
+/// Topology-preserving state-variable lowpass, generic over the frame type `F`
+/// (mono `f32` by default, `Frame<N>` for multi-channel). The coefficients are
+/// scalar and shared across channels; only the audio path (`input`/`output`)
+/// and the integrator state carry one value per channel, so every channel is
+/// filtered independently with the same cutoff/Q/modulation.
 #[derive(Debug, Node)]
-pub struct TptFilter {
+pub struct TptFilter<F: AudioFrame = f32> {
     #[input(stream)]
-    pub input: f32,
+    pub input: F,
     #[input(stream)]
     pub cutoff: f32,
     #[input(value)]
@@ -14,16 +20,16 @@ pub struct TptFilter {
     pub f_mod: f32,
 
     #[output(stream)]
-    pub output: f32,
+    pub output: F,
 
     // last applied, sanitized parameters
     current_cutoff: f32,
     current_q: f32,
 
-    // state
-    z: [f32; 2],
+    // per-channel integrator state
+    z: [F; 2],
 
-    // coefficients
+    // coefficients (scalar, shared across channels)
     h: f32,
     g: f32,
     r: f32,
@@ -37,17 +43,17 @@ pub struct TptFilter {
 /// The topology-preserving transform approach leads to designs where parameter
 /// modulation can be applied with minimal instability. Coefficients are recomputed
 /// every sample when inputs change.
-impl TptFilter {
+impl<F: AudioFrame> TptFilter<F> {
     pub fn new(cutoff: f32, q: f32) -> Self {
         let mut filter = Self {
-            input: 0.0,
+            input: F::default(),
             cutoff,
             q,
             f_mod: 0.0,
-            output: 0.0,
+            output: F::default(),
             current_cutoff: cutoff,
             current_q: q,
-            z: [0.0; 2],
+            z: [F::default(); 2],
             h: 0.0,
             g: 0.0,
             r: 0.0,
@@ -96,20 +102,21 @@ impl TptFilter {
     }
 }
 
-impl TptFilter {
+impl<F: AudioFrame> TptFilter<F> {
     /// DSP processing - inputs are already in self fields, write output to self.output
     #[inline(always)]
     pub fn process_internal(&mut self) {
         // Update parameters
         self.apply_parameter_updates(*self.sample_rate);
 
-        // Process (state-variable filter)
-        let high = (self.input - self.k * self.z[0] - self.z[1]) * self.h;
-        let band = self.g * high + self.z[0];
-        let low = self.g * band + self.z[1];
+        // Process (state-variable filter). Coefficients are scalar and the
+        // frame arithmetic is element-wise, so each channel runs independently.
+        let high = (self.input - self.z[0] * self.k - self.z[1]) * self.h;
+        let band = high * self.g + self.z[0];
+        let low = band * self.g + self.z[1];
 
-        self.z[0] = self.g * high + band;
-        self.z[1] = self.g * band + low;
+        self.z[0] = high * self.g + band;
+        self.z[1] = band * self.g + low;
 
         // Write output
         self.output = low;
@@ -118,7 +125,7 @@ impl TptFilter {
 
 // SignalProcessor must be manually implemented
 // The Node macro generates ProcessingNode trait and event handler methods
-impl SignalProcessor for TptFilter {
+impl<F: AudioFrame> SignalProcessor for TptFilter<F> {
     fn prepare(&mut self) {
         self.update_coefficients(*self.sample_rate, self.cutoff, self.q);
     }
@@ -133,6 +140,7 @@ impl SignalProcessor for TptFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frame::Frame;
 
     const EPSILON: f32 = 1e-6;
 
@@ -140,9 +148,58 @@ mod tests {
         (a - b).abs() <= EPSILON
     }
 
+    /// The mono impulse response, reused as the per-channel reference below.
+    const IMPULSE_RESPONSE: [f32; 8] = [
+        0.014401104,
+        0.052318562,
+        0.089890145,
+        0.11065749,
+        0.11862421,
+        0.11729243,
+        0.10961619,
+        0.098000914,
+    ];
+
+    /// A stereo filter processes each channel with an independent integrator
+    /// state: an impulse on channel 0 only reproduces the mono response on
+    /// channel 0 and leaves channel 1 silent (no cross-channel bleed).
+    #[test]
+    fn stereo_channels_are_independent() {
+        let mut filter = TptFilter::<Frame<2>>::new(2_000.0, 0.707);
+        let sample_rate = 48_000.0;
+        filter.set_sample_rate(sample_rate);
+        filter.prepare();
+
+        filter.cutoff = 2_000.0;
+        filter.q = 0.707;
+        filter.f_mod = 0.0;
+
+        for (n, &expected) in IMPULSE_RESPONSE.iter().enumerate() {
+            filter.input = if n == 0 {
+                Frame([1.0, 0.0])
+            } else {
+                Frame([0.0, 0.0])
+            };
+            filter.process();
+            assert!(
+                approx_eq(filter.output.0[0], expected),
+                "channel 0 mismatch at sample {}: got {}, expected {}",
+                n,
+                filter.output.0[0],
+                expected
+            );
+            assert!(
+                approx_eq(filter.output.0[1], 0.0),
+                "channel 1 should stay silent at sample {}: got {}",
+                n,
+                filter.output.0[1]
+            );
+        }
+    }
+
     #[test]
     fn test_coefficients_follow_zavalishin_formulation() {
-        let mut filter = TptFilter::new(2_000.0, 0.707);
+        let mut filter = TptFilter::<f32>::new(2_000.0, 0.707);
         let sample_rate = 48_000.0;
 
         filter.set_sample_rate(sample_rate);
@@ -168,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_impulse_response_matches_reference() {
-        let mut filter = TptFilter::new(2_000.0, 0.707);
+        let mut filter = TptFilter::<f32>::new(2_000.0, 0.707);
         let sample_rate = 48_000.0;
         filter.set_sample_rate(sample_rate);
         filter.prepare();

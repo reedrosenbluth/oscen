@@ -1,7 +1,5 @@
 #![feature(inherent_associated_types)]
-use oscen::graph::{
-    EventInput, EventInstance, EventPayload,
-};
+use oscen::graph::{EventInput, EventInstance, EventPayload};
 use oscen::{graph, AdsrEnvelope, Node, PolyBlepOscillator, SignalProcessor};
 
 /// Simple symmetric hard-clipper used by the aliasing-reduction test below.
@@ -854,9 +852,7 @@ pub struct TickCounter {
 
 impl TickCounter {
     pub fn new() -> Self {
-        Self {
-            count: 0.0,
-        }
+        Self { count: 0.0 }
     }
 }
 

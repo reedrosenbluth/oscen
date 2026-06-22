@@ -75,3 +75,21 @@ fn two_sample_rate_fields_is_an_error() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/two_sample_rate_fields.rs");
 }
+
+#[test]
+fn asset_endpoint_mismatch_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/asset_endpoint_mismatch.rs");
+}
+
+#[test]
+fn unsupported_stream_fanin_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/fanin_unsupported.rs");
+}
+
+#[test]
+fn frame_constructor_into_array_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/frame_constructor_into_array.rs");
+}

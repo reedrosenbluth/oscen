@@ -3,9 +3,7 @@
 //! stream / value / event endpoints over a rate boundary.
 #![feature(inherent_associated_types)]
 
-use oscen::graph::{
-    EventInput, EventInstance, EventPayload,
-};
+use oscen::graph::{EventInput, EventInstance, EventPayload};
 use oscen::{graph, Node, SignalProcessor};
 
 /// Trivial value-passthrough node: copies its value input into its value

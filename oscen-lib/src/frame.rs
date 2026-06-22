@@ -58,6 +58,7 @@ pub trait AudioFrame:
     Copy
     + Default
     + Send
+    + Sync
     + std::fmt::Debug
     + Add<Output = Self>
     + Sub<Output = Self>
@@ -72,6 +73,12 @@ pub trait AudioFrame:
     /// ~100× denormal-multiply slowdown on x86. Applied per channel for frames,
     /// so each channel flushes independently of the others.
     fn flush_denormal(self, threshold: f32) -> Self;
+
+    /// Construct a frame by sampling each channel index in `0..CHANNELS`.
+    fn from_channels(f: impl FnMut(usize) -> f32) -> Self;
+
+    /// The sample in channel `index` (`index < CHANNELS`).
+    fn channel(&self, index: usize) -> f32;
 }
 
 impl AudioFrame for f32 {
@@ -83,6 +90,14 @@ impl AudioFrame for f32 {
         } else {
             self
         }
+    }
+    #[inline]
+    fn from_channels(mut f: impl FnMut(usize) -> f32) -> Self {
+        f(0)
+    }
+    #[inline]
+    fn channel(&self, _index: usize) -> f32 {
+        *self
     }
 }
 
@@ -136,6 +151,14 @@ impl<const N: usize> AudioFrame for Frame<N> {
                 self.0[i]
             }
         }))
+    }
+    #[inline]
+    fn from_channels(f: impl FnMut(usize) -> f32) -> Self {
+        Frame(core::array::from_fn(f))
+    }
+    #[inline]
+    fn channel(&self, index: usize) -> f32 {
+        self.0[index]
     }
 }
 
@@ -248,5 +271,33 @@ mod tests {
         // One sub-threshold channel snaps; the other is preserved untouched.
         let f = Frame([1e-20_f32, 0.5]).flush_denormal(1e-15);
         assert_eq!(f, Frame([0.0, 0.5]));
+    }
+
+    #[test]
+    fn from_channels_builds_frame_per_index() {
+        let f = Frame::<2>::from_channels(|i| (i + 1) as f32 * 10.0);
+        assert_eq!(f, Frame([10.0, 20.0]));
+    }
+
+    #[test]
+    fn from_channels_f32_takes_channel_zero() {
+        assert_eq!(f32::from_channels(|_| 0.7), 0.7);
+    }
+
+    #[test]
+    fn channel_reads_indexed_sample() {
+        assert_eq!(Frame([1.0, 2.0]).channel(1), 2.0);
+    }
+
+    #[test]
+    fn channel_f32_ignores_index() {
+        assert_eq!((0.7f32).channel(0), 0.7);
+    }
+
+    #[test]
+    fn from_channels_channel_round_trip() {
+        let frame = Frame([0.25_f32, -0.5]);
+        let rebuilt = Frame::<2>::from_channels(|i| frame.channel(i));
+        assert_eq!(rebuilt, frame);
     }
 }

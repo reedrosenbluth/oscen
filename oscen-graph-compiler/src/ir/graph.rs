@@ -6,7 +6,7 @@
 //! `remove_node` / `remove_edge`, which maintain adjacency, topological
 //! order, and reference-validity invariants.
 
-use crate::ast::{ConnectionPolicy, EndpointKind, NodeRate};
+use crate::ast::{ConnectionPolicy, EndpointKind, ExternalDecl, NodeRate};
 use proc_macro2::Span;
 use slotmap::{new_key_type, SlotMap};
 use std::collections::HashMap;
@@ -99,6 +99,25 @@ pub struct IrGraph {
     /// per-edge resampler fields and buffers. Removing an edge via
     /// `remove_edge` keeps the surviving edges' relative order.
     pub edge_order: Vec<EdgeId>,
+    /// `external <name>: <Type>;` declarations, in source order. Graph-boundary
+    /// asset handles, not processing nodes — never appear in `nodes`/`edges`.
+    pub externals: Vec<ExternalDecl>,
+    /// Resolved `external -> node.asset` bindings (populated by
+    /// `lower::build_edges`). Each ties an external handle to one node's asset
+    /// input; codegen emits the handoff + load handle for it.
+    pub asset_bindings: Vec<AssetBinding>,
+}
+
+/// A resolved `external -> node.asset` binding. The external becomes the
+/// graph's `pub <external_name>: AssetLoadHandle<...>` field; the node's asset
+/// slot receives the matching handoff consumer.
+pub struct AssetBinding {
+    /// The `external` name; also the generated load-handle field name.
+    pub external_name: Ident,
+    /// The node carrying the asset input endpoint.
+    pub node: NodeId,
+    /// The asset input endpoint name on the node.
+    pub endpoint: Ident,
 }
 
 pub struct IrNode {
@@ -137,6 +156,20 @@ pub enum IrNodeKind {
 
 pub struct EndpointInfo {
     pub kind: EndpointKind,
+    /// The declared Rust type of a top-level `input`/`output` stream endpoint,
+    /// from an `input stream x: Frame<2>;`-style annotation. `None` when no
+    /// annotation was given (defaults to `f32`). Only meaningful for the
+    /// implicit endpoints on input/output decl nodes; node endpoints leave it
+    /// `None`.
+    pub ty: Option<syn::Type>,
+}
+
+impl EndpointInfo {
+    /// An endpoint with no declared stream type (the common case for node
+    /// endpoints and synthesized endpoints).
+    pub fn new(kind: EndpointKind) -> Self {
+        Self { kind, ty: None }
+    }
 }
 
 pub struct IrEdge {
@@ -178,6 +211,8 @@ impl IrGraph {
             outputs: Vec::new(),
             processors: Vec::new(),
             edge_order: Vec::new(),
+            externals: Vec::new(),
+            asset_bindings: Vec::new(),
         }
     }
 
