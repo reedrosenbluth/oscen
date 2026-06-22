@@ -123,6 +123,44 @@ fn convolver_swap_is_alloc_free() {
 }
 
 #[test]
+fn stereo_convolver_swap_is_alloc_free() {
+    use oscen::Frame;
+
+    // Empty stereo convolver with an installed consumer; publish a 2-channel
+    // engine from OUTSIDE the no-alloc region (build + publish may allocate).
+    let (mut publisher, consumer) = pair::<MultiConvolverEngine>();
+    let mut node = Convolver::<Frame<2>>::new();
+    node.install_ir_consumer(consumer);
+    node.set_sample_rate(44100.0);
+    node.prepare();
+
+    let ir_l = noise(1500, 7);
+    let ir_r = noise(1500, 11);
+    let interleaved: Vec<f32> = ir_l.iter().zip(&ir_r).flat_map(|(&l, &r)| [l, r]).collect();
+    let asset = AudioAsset::from_samples(interleaved, 2, 44100, 44100).unwrap();
+    publisher.publish(
+        ConvolverConsumer::<Frame<2>>::default()
+            .build(&asset)
+            .unwrap(),
+    );
+
+    // Drive enough samples to span the `take()` and the full per-channel
+    // crossfade window, exercising the two-engine region and the `retire` push.
+    // None may alloc.
+    let input = noise(2048, 8);
+    let sum = assert_no_alloc(|| {
+        let mut sum = 0.0f32;
+        for &x in &input {
+            node.input = Frame([x, -x]);
+            node.process();
+            sum += node.output.0[0] + node.output.0[1];
+        }
+        sum
+    });
+    assert!(sum.is_finite());
+}
+
+#[test]
 fn sample_player_swap_is_alloc_free() {
     use oscen::handoff::pair;
     use oscen::{SamplePlayer, SignalProcessor};
