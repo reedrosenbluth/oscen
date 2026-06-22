@@ -459,7 +459,7 @@ impl<'a> CodegenContext<'a> {
                 // `Frame<N>` is a tuple struct over `[f32; N]`, so wrap the
                 // channel args in an array literal; width is inferred from the
                 // arg count and the destination type.
-                if function == "Frame" {
+                if function.is_ident("Frame") {
                     quote! { ::oscen::frame::Frame([#(#arg_tokens),*]) }
                 } else {
                     quote! { #function(#(#arg_tokens),*) }

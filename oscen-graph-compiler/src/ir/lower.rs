@@ -1248,12 +1248,17 @@ pub fn lower_expr(
             let ir_args: Option<Vec<_>> =
                 args.iter().map(|a| lower_expr(a, name_to_id, ir)).collect();
             let ir_args = ir_args?;
+            let span = func
+                .segments
+                .last()
+                .map(|s| s.ident.span())
+                .unwrap_or_else(proc_macro2::Span::call_site);
             Some(IrExpr {
                 kind: IrExprKind::Call {
                     function: func.clone(),
                     args: ir_args,
                 },
-                span: func.span(),
+                span,
             })
         }
         ConnectionExpr::Literal(lit) => {

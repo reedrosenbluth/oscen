@@ -66,9 +66,13 @@ pub enum IrExprKind {
         args: Vec<syn::Expr>,
     },
 
-    /// `tanh(x)`, `clamp(x, 0.0, 1.0)`. Args are `IrExpr` because they can
-    /// reference endpoints (`tanh(osc.output)`).
-    Call { function: Ident, args: Vec<IrExpr> },
+    /// `tanh(x)`, `clamp(x, 0.0, 1.0)`, `dsp::decode_ms(x)`. Args are `IrExpr`
+    /// because they can reference endpoints (`tanh(osc.output)`). The function
+    /// name is a path so it can be module-qualified.
+    Call {
+        function: syn::Path,
+        args: Vec<IrExpr>,
+    },
 
     /// `0.5`, `2.0 * PI` — opaque Rust that references no endpoint.
     Literal(syn::Expr),
@@ -96,7 +100,7 @@ impl std::fmt::Debug for IrExprKind {
                 .finish(),
             IrExprKind::Call { function, args } => f
                 .debug_struct("Call")
-                .field("function", function)
+                .field("function", &function.to_token_stream().to_string())
                 .field("args", args)
                 .finish(),
             IrExprKind::Literal(expr) => f

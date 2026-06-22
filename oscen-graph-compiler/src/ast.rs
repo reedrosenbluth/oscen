@@ -123,8 +123,9 @@ pub enum ConnectionExpr {
     Binary(Box<ConnectionExpr>, BinaryOp, Box<ConnectionExpr>),
     /// Literal value
     Literal(Expr),
-    /// Free function call (e.g., tanh(x))
-    Call(Ident, Vec<ConnectionExpr>),
+    /// Free function call (e.g., `tanh(x)`, `dsp::decode_ms(x)`). The name is a
+    /// path so it can be module-qualified.
+    Call(syn::Path, Vec<ConnectionExpr>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -215,7 +216,11 @@ impl ConnectionExpr {
                 .unwrap_or_else(|| inner.span()),
             ConnectionExpr::Binary(l, _, r) => l.span().join(r.span()).unwrap_or_else(|| l.span()),
             ConnectionExpr::Literal(e) => e.span(),
-            ConnectionExpr::Call(f, _) => f.span(),
+            ConnectionExpr::Call(f, _) => f
+                .segments
+                .last()
+                .map(|s| s.ident.span())
+                .unwrap_or_else(proc_macro2::Span::call_site),
         }
     }
 }
