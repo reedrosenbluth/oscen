@@ -1,0 +1,14 @@
+error: asset input `reverb.ir` can only be bound from an `external` in v1
+  --> tests/ui/asset_endpoint_mismatch.rs:26:9
+   |
+26 |         dry -> reverb.ir;  // stream into an asset endpoint: should not compile.
+   |         ^^^^^^^^^^^^^^^^
+
+warning: the feature `inherent_associated_types` is incomplete and may not be safe to use and/or cause compiler crashes
+ --> tests/ui/asset_endpoint_mismatch.rs:1:12
+  |
+1 | #![feature(inherent_associated_types)]
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: see issue #8995 <https://github.com/rust-lang/rust/issues/8995> for more information
+  = note: `#[warn(incomplete_features)]` on by default

@@ -341,6 +341,7 @@ fn kind_marker_for_attr(kind: EndpointTypeAttr, ty: &syn::Type) -> proc_macro2::
         EndpointTypeAttr::Stream => quote! { ::oscen::dispatch::StreamKind },
         EndpointTypeAttr::Value => quote! { ::oscen::dispatch::ValueKind },
         EndpointTypeAttr::Event => quote! { ::oscen::dispatch::EventKind },
+        EndpointTypeAttr::Asset => quote! { ::oscen::dispatch::AssetKind },
     }
 }
 
@@ -396,6 +397,9 @@ enum EndpointTypeAttr {
     Stream,
     Value,
     Event,
+    /// A runtime-bound immutable audio asset input (`#[input(asset)]`). Maps to
+    /// the `AssetKind` dispatch marker; never resampled (no `CrossRateKernel`).
+    Asset,
 }
 
 impl syn::parse::Parse for EndpointTypeAttr {
@@ -409,6 +413,7 @@ impl syn::parse::Parse for EndpointTypeAttr {
             "stream" => Ok(EndpointTypeAttr::Stream),
             "value" => Ok(EndpointTypeAttr::Value),
             "event" => Ok(EndpointTypeAttr::Event),
+            "asset" => Ok(EndpointTypeAttr::Asset),
             other => Err(syn::Error::new(
                 ident.span(),
                 format!("unknown endpoint type `{}`", other),

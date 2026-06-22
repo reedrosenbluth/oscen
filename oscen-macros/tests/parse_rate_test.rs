@@ -75,3 +75,9 @@ fn two_sample_rate_fields_is_an_error() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/two_sample_rate_fields.rs");
 }
+
+#[test]
+fn asset_endpoint_mismatch_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/asset_endpoint_mismatch.rs");
+}

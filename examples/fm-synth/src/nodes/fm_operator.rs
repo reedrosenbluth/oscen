@@ -15,7 +15,6 @@ pub struct FmOperator {
     sample_rate: SampleRate,
 
     #[input(value)]
-
     pub base_freq: f32,
     #[input(value)]
     pub ratio: f32,
@@ -28,7 +27,6 @@ pub struct FmOperator {
     #[input(value)]
     pub level: f32,
     #[output(stream)]
-
     pub output: f32,
 }
 

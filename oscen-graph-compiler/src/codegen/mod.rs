@@ -1044,6 +1044,8 @@ impl<'a> CodegenContext<'a> {
                 }
                 EndpointKind::Event => quote! { ::oscen::graph::StaticEventQueue },
                 EndpointKind::Stream => quote! { f32 },
+                // Assets are externals, not graph inputs — never reached here.
+                EndpointKind::Asset => unreachable!("asset endpoint is not a graph input"),
             };
             fields.push(quote! { pub #field_name: #ty });
 
@@ -1065,6 +1067,8 @@ impl<'a> CodegenContext<'a> {
                 EndpointKind::Stream => quote! { f32 },
                 EndpointKind::Value => quote! { f32 },
                 EndpointKind::Event => quote! { ::oscen::graph::StaticEventQueue },
+                // Assets are externals, not graph outputs — never reached here.
+                EndpointKind::Asset => unreachable!("asset endpoint is not a graph output"),
             };
             fields.push(quote! { pub #field_name: #ty });
 
@@ -1096,9 +1100,14 @@ impl<'a> CodegenContext<'a> {
             }
         }
 
+        // Asset load-handle fields (one per `external -> node.asset` binding).
+        fields.extend(self.generate_asset_handle_fields());
+
         let input_params = self.generate_static_input_params();
         let output_params = self.generate_static_output_params();
         let node_init = self.generate_static_node_init();
+        let asset_wiring = self.generate_asset_wiring();
+        let asset_set_rate_calls = self.generate_asset_set_graph_rate_calls();
         let struct_init = self.generate_static_struct_init();
 
         let resampler_fields = self.generate_resampler_fields();
@@ -1169,6 +1178,9 @@ impl<'a> CodegenContext<'a> {
                     // Initialize nodes (direct instantiation)
                     #(#node_init)*
 
+                    // Wire up asset load handles (handoff pair + install).
+                    #(#asset_wiring)*
+
                     Self {
                         #struct_init
                         #resampler_init_tail
@@ -1183,6 +1195,9 @@ impl<'a> CodegenContext<'a> {
                 pub fn set_sample_rate(&mut self, sample_rate: f32) {
                     self.sample_rate = sample_rate;
                     #(#node_set_rate_calls)*
+                    // Record the graph rate on each asset load handle so a
+                    // subsequent `load_wav` validates against the right rate.
+                    #(#asset_set_rate_calls)*
                 }
 
                 /// Host entry point: distribute `sample_rate` to every node

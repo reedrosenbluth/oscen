@@ -262,6 +262,9 @@ impl<'a> CodegenContext<'a> {
                             }
                         }
                     }
+                    // Asset endpoints are bound from externals, never driven as
+                    // a graph output connection.
+                    EndpointKind::Asset => {}
                 }
             }
         }

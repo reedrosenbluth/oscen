@@ -5,6 +5,12 @@
 //! preserved), pads the tail so the reverb rings out, peak-normalizes to avoid
 //! clipping, and writes a WAV you can listen to.
 //!
+//! The IR is bound to the graph through an `external ir: AudioAsset;` input and
+//! loaded at runtime with `graph.ir.load_wav(...)`. The renderer must
+//! `set_graph_rate` and `load_wav` (per graph instance) **before** rendering,
+//! and the IR sample rate must match the input rate — a mismatch is a hard
+//! `load_wav` error (the convolver does not resample).
+//!
 //! Usage:
 //!   cargo run -p oscen-examples --bin render_convolution -- <input.wav> <ir.wav> [output.wav]
 //!
@@ -13,17 +19,6 @@
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use oscen::prelude::*;
 use std::path::PathBuf;
-use std::sync::OnceLock;
-
-/// The IR is loaded at runtime, but the `graph!` macro constructs nodes with
-/// no arguments. Stash the loaded IR here so the node constructor can read it.
-static IR: OnceLock<Vec<f32>> = OnceLock::new();
-
-fn impulse_response() -> Vec<f32> {
-    IR.get()
-        .expect("IR not set before graph construction")
-        .clone()
-}
 
 graph! {
     name: ReverbRenderGraph;
@@ -31,13 +26,16 @@ graph! {
     input stream dry;
     output stream wet;
 
+    external ir: AudioAsset;
+
     nodes {
-        reverb = Convolver::new(impulse_response());
+        reverb = Convolver::new();
     }
 
     connections {
         dry -> reverb.input;
         reverb.output -> wet;
+        ir -> reverb.ir;
     }
 }
 
@@ -92,26 +90,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         p.to_string_lossy().into_owned()
     });
 
-    // Load input and IR.
     let (input_channels, input_rate) = read_wav(input_path)?;
-    let (ir_channels, ir_rate) = read_wav(ir_path)?;
 
-    if ir_rate != input_rate {
-        eprintln!(
-            "warning: IR sample rate ({ir_rate} Hz) differs from input ({input_rate} Hz). \
-             The Convolver does not resample, so the reverb time will be scaled by {:.3}x.",
-            input_rate as f32 / ir_rate as f32
-        );
-    }
-
-    // Mix the IR down to mono (matching Convolver::from_wav's behavior).
-    let ir_frames = ir_channels.first().map(Vec::len).unwrap_or(0);
-    let ir_ch_count = ir_channels.len().max(1);
-    let ir: Vec<f32> = (0..ir_frames)
-        .map(|f| ir_channels.iter().map(|c| c[f]).sum::<f32>() / ir_ch_count as f32)
-        .collect();
-    let tail = ir.len();
-    IR.set(ir).expect("IR already set");
+    // Read the IR header only for the tail-pad length; the asset input decodes
+    // the samples itself when we `load_wav` into each graph below. A sample-rate
+    // mismatch is no longer a warning — `load_wav` rejects it (no resampling).
+    let ir_reader = WavReader::open(ir_path)?;
+    let tail = ir_reader.duration() as usize;
+    drop(ir_reader);
 
     println!(
         "input: {} ch, {} frames @ {} Hz | IR: {} taps ({:.2}s) | tail pad: {} frames",
@@ -124,10 +110,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Render each channel through its own graph (same mono IR per channel).
+    // The IR is loaded into each graph's asset input before rendering; a
+    // sample-rate mismatch surfaces here as a hard `load_wav` error.
     let mut wet_channels: Vec<Vec<f32>> = Vec::with_capacity(input_channels.len());
     for dry in &input_channels {
         let mut graph = ReverbRenderGraph::new();
         graph.init(input_rate as f32);
+        graph.ir.set_graph_rate(input_rate);
+        graph.ir.load_wav(ir_path)?;
         // `tail` extra zero frames let the reverb ring out past the input.
         wet_channels.push(graph.render_mono(dry, tail));
     }

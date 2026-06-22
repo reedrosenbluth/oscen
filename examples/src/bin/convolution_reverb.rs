@@ -41,7 +41,7 @@ graph! {
 
     nodes {
         osc = PolyBlepOscillator::saw(220.0, 0.2);
-        reverb = Convolver::new(reverb_ir());
+        reverb = Convolver::with_ir(reverb_ir());
     }
 
     connections {

@@ -7,10 +7,8 @@ pub struct Vca {
     #[input(stream)]
     pub input: f32,
     #[input(stream)]
-
     pub control: f32,
     #[output(stream)]
-
     pub output: f32,
 }
 

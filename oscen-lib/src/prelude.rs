@@ -27,3 +27,6 @@ pub use crate::Value;
 
 // Multi-channel frame value type
 pub use crate::{AudioFrame, Frame};
+
+// Audio assets (immutable sample buffers)
+pub use crate::{AssetError, AudioAsset};

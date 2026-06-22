@@ -280,6 +280,8 @@ impl Parse for GraphItem {
             Ok(GraphItem::Input(input.parse()?))
         } else if lookahead.peek(kw::output) {
             Ok(GraphItem::Output(input.parse()?))
+        } else if lookahead.peek(kw::external) {
+            Ok(GraphItem::External(input.parse()?))
         } else if lookahead.peek(kw::node) {
             input.parse::<kw::node>()?;
             parse_node_decl_body(input).map(GraphItem::Node)
@@ -439,6 +441,17 @@ impl Parse for InputDecl {
             default,
             spec,
         })
+    }
+}
+
+impl Parse for ExternalDecl {
+    fn parse(input: ParseStream) -> Result<Self> {
+        input.parse::<kw::external>()?;
+        let name: Ident = input.parse()?;
+        input.parse::<Token![:]>()?;
+        let ty: syn::Type = input.parse()?;
+        input.parse::<Token![;]>()?;
+        Ok(ExternalDecl { name, ty })
     }
 }
 
@@ -1104,10 +1117,11 @@ fn parse_endpoint_kind_from_ident(ident: &Ident) -> Result<EndpointKind> {
         "stream" => Ok(EndpointKind::Stream),
         "value" => Ok(EndpointKind::Value),
         "event" => Ok(EndpointKind::Event),
+        "asset" => Ok(EndpointKind::Asset),
         _ => Err(syn::Error::new_spanned(
             ident,
             format!(
-                "expected 'stream', 'value', or 'event', found '{}'",
+                "expected 'stream', 'value', 'event', or 'asset', found '{}'",
                 ident_str
             ),
         )),
@@ -1126,6 +1140,9 @@ impl Parse for EndpointKind {
         } else if lookahead.peek(kw::event) {
             input.parse::<kw::event>()?;
             Ok(EndpointKind::Event)
+        } else if lookahead.peek(kw::asset) {
+            input.parse::<kw::asset>()?;
+            Ok(EndpointKind::Asset)
         } else {
             Err(lookahead.error())
         }
@@ -1260,6 +1277,8 @@ mod kw {
     syn::custom_keyword!(stream);
     syn::custom_keyword!(value);
     syn::custom_keyword!(event);
+    syn::custom_keyword!(asset);
+    syn::custom_keyword!(external);
     syn::custom_keyword!(linear);
     syn::custom_keyword!(log);
     syn::custom_keyword!(ramp);

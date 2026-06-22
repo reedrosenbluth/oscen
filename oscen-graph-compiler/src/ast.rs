@@ -21,6 +21,10 @@ pub enum GraphItem {
     NodeBlock(NodeBlock),
     Connection(ConnectionStmt),
     ConnectionBlock(ConnectionBlock),
+    /// `external <name>: <Type>;` - declares a runtime-bindable asset slot.
+    /// The external is not a processing node: it names a graph-boundary handle
+    /// that an `asset` endpoint can be bound from (`<name> -> node.asset`).
+    External(ExternalDecl),
     /// `nih_params;` - enables NIH-plug parameter generation
     /// Params struct name is derived from graph name: FMGraph -> FMGraphParams
     NihParams,
@@ -46,6 +50,16 @@ pub struct InputDecl {
     pub ty: Option<syn::Type>, // Optional type annotation (e.g., [f32; 32])
     pub default: Option<Expr>,
     pub spec: Option<ParamSpec>,
+}
+
+/// `external <name>: <Type>;` declaration. Names a runtime-bindable asset slot
+/// exposed at the graph boundary. The `ty` documents the asset currency
+/// (e.g. `AudioAsset`); the concrete playable is resolved through the node's
+/// `AssetEndpoint` impl during codegen.
+#[derive(Clone)]
+pub struct ExternalDecl {
+    pub name: Ident,
+    pub ty: syn::Type,
 }
 
 /// Output endpoint declaration
@@ -150,6 +164,9 @@ pub enum EndpointKind {
     Stream,
     Value,
     Event,
+    /// Runtime-bindable audio asset (bound from an `external`). Never resampled
+    /// and imposes no processing order — handled off the cross-rate path.
+    Asset,
 }
 
 /// Parameter specification (range, curve, ramp, and NIH-plug specific fields)

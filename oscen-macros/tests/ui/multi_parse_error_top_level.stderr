@@ -4,7 +4,7 @@ error: expected `;`
 7 |     input stream s2;
   |     ^^^^^
 
-error: expected one of: `nih_params`, `input`, `output`, `node`, `connection`
+error: expected one of: `nih_params`, `input`, `output`, `external`, `node`, `connection`
   --> tests/ui/multi_parse_error_top_level.rs:10:5
    |
 10 |     foo bar baz;

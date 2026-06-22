@@ -15,9 +15,15 @@
 //! `B` has latency `B`, so it must be fed the IR samples starting at offset
 //! `B` relative to whatever earlier stages cover.
 
+use crate::asset::{AssetConsumer, AssetEndpoint, AssetError, AssetSlot, AudioAsset};
 use crate::graph::{SampleRate, SignalProcessor};
+use crate::handoff;
 use crate::spectral::{BlockAccumulator, Complex, FftPlan};
 use oscen_macros::Node;
+use std::sync::Arc;
+
+#[cfg(test)]
+mod tests;
 
 /// Taps covered by the zero-latency time-domain head (and block size of the
 /// short FFT stage).
@@ -233,6 +239,81 @@ impl PartitionedConvolver {
     }
 }
 
+/// The playable convolution state for one IR: the three Gardner stages plus
+/// the IR they were built from. Built off the audio thread; the audio thread
+/// only runs [`process_sample`](Self::process_sample) and (on `prepare`)
+/// [`rebuild`](Self::rebuild).
+#[derive(Debug)]
+pub struct ConvolverEngine {
+    ir: Vec<f32>,
+    head: DirectConvolver,
+    short_stage: PartitionedConvolver,
+    long_stage: PartitionedConvolver,
+}
+
+impl ConvolverEngine {
+    /// Split `ir` across the three tiers. An empty IR yields a silent engine.
+    pub fn from_ir(ir: Vec<f32>) -> Self {
+        let mut engine = Self {
+            ir,
+            head: DirectConvolver::new(&[]),
+            short_stage: PartitionedConvolver::new(SHORT_BLOCK_SIZE, &[]),
+            long_stage: PartitionedConvolver::new(LONG_BLOCK_SIZE, &[]),
+        };
+        engine.rebuild();
+        engine
+    }
+
+    /// Re-split the stored IR, returning every stage to a cleared, ready state.
+    /// Allocates (called from `prepare`, never the RT path). The invariant:
+    /// each stage's latency equals its segment's offset into the IR.
+    pub fn rebuild(&mut self) {
+        let len = self.ir.len();
+
+        let head_end = len.min(SHORT_BLOCK_SIZE);
+        self.head = DirectConvolver::new(&self.ir[..head_end]);
+
+        let short_end = len.min(LONG_BLOCK_SIZE);
+        let short_segment = if len > SHORT_BLOCK_SIZE {
+            &self.ir[SHORT_BLOCK_SIZE..short_end]
+        } else {
+            &[]
+        };
+        self.short_stage = PartitionedConvolver::new(SHORT_BLOCK_SIZE, short_segment);
+
+        let long_segment = if len > LONG_BLOCK_SIZE {
+            &self.ir[LONG_BLOCK_SIZE..]
+        } else {
+            &[]
+        };
+        self.long_stage = PartitionedConvolver::with_phase_offset(
+            LONG_BLOCK_SIZE,
+            long_segment,
+            LONG_STAGE_PHASE_OFFSET,
+        );
+    }
+
+    /// Sum the three stages for one input sample.
+    #[inline]
+    pub fn process_sample(&mut self, x: f32) -> f32 {
+        self.head.process_sample(x)
+            + self.short_stage.process_sample(x)
+            + self.long_stage.process_sample(x)
+    }
+}
+
+/// Builds a [`ConvolverEngine`] from an asset (mono-mixed IR). Zero-sized; the
+/// build is the off-thread FFT prep.
+#[derive(Debug, Default)]
+pub struct ConvolverConsumer;
+
+impl AssetConsumer for ConvolverConsumer {
+    type Playable = ConvolverEngine;
+    fn build(&self, asset: &AudioAsset) -> Result<ConvolverEngine, AssetError> {
+        Ok(ConvolverEngine::from_ir(asset.to_mono()))
+    }
+}
+
 /// Zero-latency impulse-response convolver node.
 ///
 /// Three-tier Gardner decomposition: a time-domain head convolves taps
@@ -260,6 +341,12 @@ impl PartitionedConvolver {
 /// budget. If that combination ever matters, the long stage's partition
 /// multiplies can be amortized across the block at the cost of one extra
 /// block of long-stage coverage — not currently implemented.
+///
+/// The live IR can be swapped at runtime: a graph publishes a freshly-built
+/// [`ConvolverEngine`] through an [`AssetSlot`], and `process` crossfades from
+/// the outgoing engine to the new one over [`CROSSFADE_SECONDS`] (equal-power,
+/// click-free). The swap path is allocation-free — the new engine is `take`n
+/// from the handoff and the retired one handed back for off-thread destruction.
 #[derive(Debug, Node)]
 pub struct Convolver {
     #[input(stream)]
@@ -267,28 +354,40 @@ pub struct Convolver {
     #[output(stream)]
     pub output: f32,
 
-    ir: Vec<f32>,
-    head: DirectConvolver,
-    short_stage: PartitionedConvolver,
-    long_stage: PartitionedConvolver,
+    current: Arc<ConvolverEngine>,
+    fading: Option<(Arc<ConvolverEngine>, usize)>,
+    fade_len: usize,
+    #[input(asset)]
+    pub ir: AssetSlot<ConvolverEngine>,
     sample_rate: SampleRate,
 }
 
+/// Crossfade duration for a live IR swap (20 ms; the spec allows 10–50 ms).
+const CROSSFADE_SECONDS: f32 = 0.02;
+
 impl Convolver {
-    /// Create a convolver for the given impulse response (assumed mono, at
-    /// the session sample rate). An empty IR produces silence.
-    pub fn new(ir: Vec<f32>) -> Self {
-        let mut convolver = Self {
+    /// Empty convolver: passes silence until an asset is published. Used by the
+    /// graph (sub-project 4) where the IR arrives via the asset input.
+    pub fn new() -> Self {
+        Self {
             input: 0.0,
             output: 0.0,
-            ir,
-            head: DirectConvolver::new(&[]),
-            short_stage: PartitionedConvolver::new(SHORT_BLOCK_SIZE, &[]),
-            long_stage: PartitionedConvolver::new(LONG_BLOCK_SIZE, &[]),
+            current: Arc::new(ConvolverEngine::from_ir(Vec::new())),
+            fading: None,
+            fade_len: 1,
+            ir: AssetSlot::new(),
             sample_rate: SampleRate::default(),
-        };
-        convolver.rebuild_stages();
-        convolver
+        }
+    }
+
+    /// Convolver with an IR baked in at construction (assumed mono, at the
+    /// session sample rate). No live swapping unless an asset consumer is later
+    /// installed. An empty IR produces silence.
+    pub fn with_ir(ir: Vec<f32>) -> Self {
+        Self {
+            current: Arc::new(ConvolverEngine::from_ir(ir)),
+            ..Self::new()
+        }
     }
 
     /// Load a mono impulse response from a WAV file (multi-channel files
@@ -311,35 +410,27 @@ impl Convolver {
             }
         };
 
-        Ok(Self::new(mono))
+        Ok(Self::with_ir(mono))
     }
 
-    /// Split the IR across the three tiers. The invariant: each stage's
-    /// latency equals its segment's offset into the IR.
-    fn rebuild_stages(&mut self) {
-        let len = self.ir.len();
+    /// Install the audio-side handoff consumer (sub-project 4's macro calls
+    /// this; tests call it directly). Delegates to the asset slot.
+    pub fn install_ir_consumer(&mut self, consumer: handoff::Consumer<ConvolverEngine>) {
+        self.ir.install(consumer);
+    }
+}
 
-        let head_end = len.min(SHORT_BLOCK_SIZE);
-        self.head = DirectConvolver::new(&self.ir[..head_end]);
+impl Default for Convolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-        let short_end = len.min(LONG_BLOCK_SIZE);
-        let short_segment = if len > SHORT_BLOCK_SIZE {
-            &self.ir[SHORT_BLOCK_SIZE..short_end]
-        } else {
-            &[]
-        };
-        self.short_stage = PartitionedConvolver::new(SHORT_BLOCK_SIZE, short_segment);
+impl AssetEndpoint for Convolver {
+    type Consumer = ConvolverConsumer;
 
-        let long_segment = if len > LONG_BLOCK_SIZE {
-            &self.ir[LONG_BLOCK_SIZE..]
-        } else {
-            &[]
-        };
-        self.long_stage = PartitionedConvolver::with_phase_offset(
-            LONG_BLOCK_SIZE,
-            long_segment,
-            LONG_STAGE_PHASE_OFFSET,
-        );
+    fn install_asset(&mut self, consumer: handoff::Consumer<ConvolverEngine>) {
+        self.install_ir_consumer(consumer);
     }
 }
 
@@ -355,16 +446,53 @@ fn mix_to_mono(interleaved: &[f32], channels: usize) -> Vec<f32> {
 
 impl SignalProcessor for Convolver {
     fn prepare(&mut self) {
-        // The IR itself is rate-independent (taken to be at session rate),
-        // but rebuilding returns every stage to a cleared, ready state.
-        self.rebuild_stages();
+        self.fade_len = ((CROSSFADE_SECONDS * self.sample_rate.0).round() as usize).max(1);
+        // The IR is rate-independent (taken to be at session rate), but
+        // rebuilding returns every stage to a cleared, ready state. The current
+        // engine is uniquely owned at prepare (no swap has happened yet).
+        Arc::get_mut(&mut self.current)
+            .expect("engine uniquely owned at prepare")
+            .rebuild();
+        self.fading = None;
     }
 
     #[inline]
     fn process(&mut self) {
+        // 1. Pull a newly published engine, if any (RT-safe: atomic swap).
+        if let Some(new_engine) = self.ir.take() {
+            if let Some((old, _)) = self.fading.take() {
+                // A second swap landed mid-fade: retire the in-progress
+                // outgoing engine now (keeps at most two engines live), fade
+                // from the current engine.
+                self.ir.retire(old);
+            }
+            let prev = std::mem::replace(&mut self.current, new_engine);
+            self.fading = Some((prev, 0));
+        }
+
         let x = self.input;
-        self.output = self.head.process_sample(x)
-            + self.short_stage.process_sample(x)
-            + self.long_stage.process_sample(x);
+        let new_out = Arc::get_mut(&mut self.current)
+            .expect("current engine uniquely owned")
+            .process_sample(x);
+
+        self.output = match self.fading.as_mut() {
+            None => new_out,
+            Some((old, pos)) => {
+                let old_out = Arc::get_mut(old)
+                    .expect("outgoing engine uniquely owned")
+                    .process_sample(x);
+                let g = (*pos as f32) / (self.fade_len as f32); // 0..=1
+                                                                // Equal-power crossfade: sin²+cos² = 1, no level dip.
+                let gain_new = (g * std::f32::consts::FRAC_PI_2).sin();
+                let gain_old = (g * std::f32::consts::FRAC_PI_2).cos();
+                let mixed = gain_new * new_out + gain_old * old_out;
+                *pos += 1;
+                if *pos >= self.fade_len {
+                    let (old_arc, _) = self.fading.take().unwrap();
+                    self.ir.retire(old_arc); // hand back for off-thread free
+                }
+                mixed
+            }
+        };
     }
 }

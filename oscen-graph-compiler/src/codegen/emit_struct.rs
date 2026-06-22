@@ -7,9 +7,10 @@
 //! `set_sample_rate` and `SignalProcessor::prepare`.
 
 use crate::ast::{EndpointKind, NodeRate};
-use crate::ir::graph::{EdgeKernel, FanoutShape, IrNodeKind};
+use crate::ir::graph::{EdgeKernel, FanoutShape, IrNodeKind, NodeId};
 use proc_macro2::TokenStream;
 use quote::quote;
+use std::collections::HashSet;
 use syn::Expr;
 
 use super::helpers::{kernel_down_type, kernel_up_type, policy_marker_path, resampler_field_name};
@@ -57,6 +58,8 @@ impl<'a> CodegenContext<'a> {
                             let #block_name = [0.0f32; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE];
                         });
                     }
+                    // Assets are externals, not graph inputs — no init here.
+                    EndpointKind::Asset => {}
                 }
                 stmts
             })
@@ -97,6 +100,8 @@ impl<'a> CodegenContext<'a> {
                             let #name = ::oscen::graph::StaticEventQueue::new();
                         });
                     }
+                    // Assets are externals, not graph outputs — no init here.
+                    EndpointKind::Asset => {}
                 }
                 stmts
             })
@@ -105,9 +110,18 @@ impl<'a> CodegenContext<'a> {
 
     /// Generate static initialization for nodes (direct constructor calls).
     pub(super) fn generate_static_node_init(&self) -> Vec<TokenStream> {
+        // Asset-bound nodes need a `mut` binding so the generated wiring can
+        // call `install_asset(&mut node, ...)` before the node is moved into
+        // `Self`.
+        let asset_bound: HashSet<NodeId> = self.ir.asset_bindings.iter().map(|b| b.node).collect();
         self.nodes()
             .map(|node| {
                 let name = &node.name;
+                let binding = if asset_bound.contains(&node.id) {
+                    quote! { let mut #name }
+                } else {
+                    quote! { let #name }
+                };
                 let constructor_expr = self
                     .node_ctor_expr(node)
                     .expect("processor/array node must have a constructor expression");
@@ -137,12 +151,12 @@ impl<'a> CodegenContext<'a> {
                     // Generate array initialization by repeating constructor
                     let constructors = vec![constructor.clone(); array_size];
                     quote! {
-                        let #name = [#(#constructors),*];
+                        #binding = [#(#constructors),*];
                     }
                 } else {
                     // Single node initialization
                     quote! {
-                        let #name = #constructor;
+                        #binding = #constructor;
                     }
                 }
             })
@@ -196,14 +210,19 @@ impl<'a> CodegenContext<'a> {
             })
             .collect();
 
-        // Add node fields (no IO fields)
-        let node_fields: Vec<_> = self
+        // Add node fields (no IO fields), then asset load-handle fields. Both
+        // are plain locals bound in `new()` before the `Self { .. }` literal.
+        let mut node_fields: Vec<_> = self
             .nodes()
             .map(|node| {
                 let name = &node.name;
                 quote! { #name }
             })
             .collect();
+        for binding in &self.ir.asset_bindings {
+            let name = &binding.external_name;
+            node_fields.push(quote! { #name });
+        }
 
         // Note: Graph-level event storage is no longer generated
         // Nodes own their own EventInput/EventOutput storage
@@ -405,6 +424,74 @@ impl<'a> CodegenContext<'a> {
             }
         }
         calls
+    }
+
+    /// Generate the `new()`-body wiring for each `external -> node.asset`
+    /// binding: a handoff `pair`, `install_asset` into the (mut) node, and the
+    /// `let <name> = AssetLoadHandle::new(..)` local consumed by `Self { .. }`.
+    pub(super) fn generate_asset_wiring(&self) -> Vec<TokenStream> {
+        self.ir
+            .asset_bindings
+            .iter()
+            .map(|binding| {
+                let field = &binding.external_name;
+                let node = &self.ir.nodes[binding.node];
+                let node_name = &node.name;
+                // Guaranteed by lower: asset targets are typed processor nodes.
+                let node_ty = self
+                    .node_type_path(node)
+                    .expect("asset-bound node must have a known type path");
+                let pub_ident = syn::Ident::new(&format!("__{}_pub", field), field.span());
+                let con_ident = syn::Ident::new(&format!("__{}_con", field), field.span());
+                quote! {
+                    let (#pub_ident, #con_ident) = ::oscen::handoff::pair::<
+                        <<#node_ty as ::oscen::asset::AssetEndpoint>::Consumer
+                            as ::oscen::asset::AssetConsumer>::Playable,
+                    >();
+                    <#node_ty as ::oscen::asset::AssetEndpoint>::install_asset(
+                        &mut #node_name,
+                        #con_ident,
+                    );
+                    let #field = ::oscen::asset::AssetLoadHandle::new(
+                        #pub_ident,
+                        <#node_ty as ::oscen::asset::AssetEndpoint>::asset_builder(),
+                    );
+                }
+            })
+            .collect()
+    }
+
+    /// Generate the struct field for each asset load handle.
+    pub(super) fn generate_asset_handle_fields(&self) -> Vec<TokenStream> {
+        self.ir
+            .asset_bindings
+            .iter()
+            .map(|binding| {
+                let field = &binding.external_name;
+                let node = &self.ir.nodes[binding.node];
+                let node_ty = self
+                    .node_type_path(node)
+                    .expect("asset-bound node must have a known type path");
+                quote! {
+                    pub #field: ::oscen::asset::AssetLoadHandle<
+                        <#node_ty as ::oscen::asset::AssetEndpoint>::Consumer,
+                    >
+                }
+            })
+            .collect()
+    }
+
+    /// Generate `self.<name>.set_graph_rate(sample_rate as u32);` for each
+    /// asset handle, emitted into the graph's `set_sample_rate`.
+    pub(super) fn generate_asset_set_graph_rate_calls(&self) -> Vec<TokenStream> {
+        self.ir
+            .asset_bindings
+            .iter()
+            .map(|binding| {
+                let field = &binding.external_name;
+                quote! { self.#field.set_graph_rate(sample_rate as u32); }
+            })
+            .collect()
     }
 
     /// Generate `reset()` calls for every cross-rate resampler kernel.

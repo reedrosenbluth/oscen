@@ -10,8 +10,8 @@ use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, GraphDef, Graph
 use crate::diagnostics::Diagnostics;
 use crate::ir::expr::{primary_node, IrEndpoint, IrExpr, IrExprKind};
 use crate::ir::graph::{
-    classify_fanout, EdgeId, EdgeKernel, EndpointInfo, EventRescale, FanoutShape, IrEdge, IrGraph,
-    IrNode, IrNodeKind, NodeId,
+    classify_fanout, AssetBinding, EdgeId, EdgeKernel, EndpointInfo, EventRescale, FanoutShape,
+    IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
 };
 use proc_macro2::Span;
 use std::collections::HashMap;
@@ -121,7 +121,13 @@ fn collect_declarations(
                     collect_node_decl(n, ir, name_to_id, diags);
                 }
             }
-            // Connections + nih_params + name don't create IrNodes;
+            // An `external` is not a processing node: record it as a
+            // graph-boundary asset handle. Its `-> node.asset` binding is
+            // resolved in `build_edges`.
+            GraphItem::External(ext) => {
+                ir.externals.push(ext.clone());
+            }
+            // Connections + nih_params + name don't create IrNodes here;
             // they're handled by later lowering steps.
             GraphItem::Connection(_)
             | GraphItem::ConnectionBlock(_)
@@ -356,10 +362,77 @@ fn build_edges(
         })
         .collect();
 
+    // External (asset) names declared in this graph. An edge whose *source*
+    // is one of these is an asset binding, not a signal edge.
+    let external_names: std::collections::HashSet<String> =
+        ir.externals.iter().map(|e| e.name.to_string()).collect();
+
+    // Pre-pass: resolve `external -> node.asset` bindings. These are not signal
+    // edges — they carry no kernel, impose no processing order, and create no
+    // `IrEdge`. Recording them up front (and marking the destination endpoint
+    // `Asset`) lets the main pass reject any *other* edge into an asset input.
+    let mut binding_stmts: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for (i, stmt) in stmts.iter().enumerate() {
+        let src_ident = match &stmt.source {
+            ConnectionExpr::Ident(id) if external_names.contains(&id.to_string()) => id,
+            _ => continue,
+        };
+        // This statement is an asset binding regardless of how it resolves.
+        binding_stmts.insert(i);
+
+        let (dst_node, dst_ep) = match resolve_node_endpoint(&stmt.dest, name_to_id) {
+            Some(d) => d,
+            None => {
+                diags.push_error(syn::Error::new(
+                    stmt.span,
+                    format!(
+                        "external `{}` can only be bound to a node's asset input \
+                         (`{} -> node.asset`)",
+                        src_ident, src_ident
+                    ),
+                ));
+                continue;
+            }
+        };
+        // The target must be a single processor node with a known type so the
+        // `AssetEndpoint` trait can be projected during codegen.
+        if !matches!(
+            ir.nodes[dst_node].kind,
+            IrNodeKind::Processor { ty: Some(_), .. }
+        ) {
+            diags.push_error(syn::Error::new(
+                stmt.span,
+                format!(
+                    "external `{}` must be bound to a single node with a known type",
+                    src_ident
+                ),
+            ));
+            continue;
+        }
+
+        // Mark the endpoint `Asset` so a stray signal edge into it is caught.
+        ir.nodes[dst_node].endpoints.insert(
+            dst_ep.clone(),
+            EndpointInfo {
+                kind: EndpointKind::Asset,
+            },
+        );
+
+        ir.asset_bindings.push(AssetBinding {
+            external_name: src_ident.clone(),
+            node: dst_node,
+            endpoint: dst_ep,
+        });
+    }
+
     let mut synth_counter: u32 = 0;
     let mut via_used_nodes: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
 
-    for stmt in stmts {
+    for (stmt_index, stmt) in stmts.into_iter().enumerate() {
+        // Asset bindings were resolved in the pre-pass; they create no edge.
+        if binding_stmts.contains(&stmt_index) {
+            continue;
+        }
         // Lower to IR forms.
         let ir_source = match lower_expr(&stmt.source, name_to_id, ir) {
             Some(e) => e,
@@ -376,6 +449,19 @@ fn build_edges(
             .endpoints
             .get(&ir_dest.endpoint)
             .map(|ei| ei.kind);
+
+        // An asset input can only be fed by an `external` (handled in the
+        // pre-pass). Any other source into it is out of scope in v1.
+        if matches!(dst_kind, Some(EndpointKind::Asset)) {
+            diags.push_error(syn::Error::new(
+                stmt.span,
+                format!(
+                    "asset input `{}.{}` can only be bound from an `external` in v1",
+                    ir.nodes[ir_dest.node].name, ir_dest.endpoint
+                ),
+            ));
+            continue;
+        }
 
         if let (Some(src), Some(dst)) = (src_kind, dst_kind) {
             if !types_compatible(src, dst) {
@@ -848,6 +934,8 @@ pub(crate) fn endpoint_kind_of(expr: &IrExpr, ir: &IrGraph) -> Option<EndpointKi
                 (EndpointKind::Value, EndpointKind::Stream) => Some(EndpointKind::Stream),
                 (EndpointKind::Value, EndpointKind::Value) => Some(EndpointKind::Value),
                 (EndpointKind::Event, _) | (_, EndpointKind::Event) => None,
+                // Asset endpoints never participate in binary signal expressions.
+                (EndpointKind::Asset, _) | (_, EndpointKind::Asset) => None,
             }
         }
         IrExprKind::Literal(_) => Some(EndpointKind::Value),
@@ -1044,6 +1132,7 @@ fn endpoint_kind_name(kind: EndpointKind) -> &'static str {
         EndpointKind::Stream => "stream",
         EndpointKind::Value => "value",
         EndpointKind::Event => "event",
+        EndpointKind::Asset => "asset",
     }
 }
 

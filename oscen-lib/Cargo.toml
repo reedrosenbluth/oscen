@@ -10,7 +10,9 @@ convolution = ["fft"]
 
 [dependencies]
 oscen-macros = { path = "../oscen-macros" }
+arc-swap = "1.9.1"
 arrayvec = "0.7.6"
+rtrb = "0.3.4"
 cpal = "0.15.3"
 hound = "3.5.1"
 realfft = { version = "3", optional = true }

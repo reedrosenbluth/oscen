@@ -6,7 +6,11 @@
 //! test` runs by default.)
 
 use assert_no_alloc::{assert_no_alloc, AllocDisabler};
-use oscen::convolution::{Convolver, DirectConvolver, PartitionedConvolver};
+use oscen::asset::{AssetConsumer, AudioAsset};
+use oscen::convolution::{
+    Convolver, ConvolverConsumer, ConvolverEngine, DirectConvolver, PartitionedConvolver,
+};
+use oscen::handoff::pair;
 use oscen::spectral::FftPlan;
 use oscen::SignalProcessor;
 
@@ -34,7 +38,7 @@ fn convolver_node_process_does_not_allocate() {
     let ir = noise(1500, 1);
     let input = noise(2048, 2);
 
-    let mut node = Convolver::new(ir);
+    let mut node = Convolver::with_ir(ir);
     node.set_sample_rate(44100.0);
     node.prepare();
 
@@ -63,6 +67,55 @@ fn convolver_structs_process_does_not_allocate() {
         let mut sum = 0.0f32;
         for &x in &input {
             sum += direct.process_sample(x) + partitioned.process_sample(x);
+        }
+        sum
+    });
+    assert!(sum.is_finite());
+}
+
+#[test]
+fn handoff_take_and_retire_are_alloc_free() {
+    // A payload large enough that any stray allocation would be caught.
+    let (mut pubr, mut cons) = pair::<[f32; 1024]>();
+
+    // Publish from outside the no-alloc region (publish may allocate).
+    pubr.publish([0.0f32; 1024]);
+
+    let taken = assert_no_alloc(|| {
+        let taken = cons.take();
+        if let Some(arc) = taken {
+            cons.retire(arc);
+            true
+        } else {
+            false
+        }
+    });
+    assert!(taken);
+}
+
+#[test]
+fn convolver_swap_is_alloc_free() {
+    // Build an empty convolver with an installed consumer, then publish an
+    // engine from OUTSIDE the no-alloc region (build + publish may allocate).
+    let (mut publisher, consumer) = pair::<ConvolverEngine>();
+    let mut node = Convolver::new();
+    node.install_ir_consumer(consumer);
+    node.set_sample_rate(44100.0);
+    node.prepare();
+
+    let ir = noise(1500, 7);
+    let asset = AudioAsset::from_samples(ir, 1, 44100, 44100).unwrap();
+    publisher.publish(ConvolverConsumer.build(&asset).unwrap());
+
+    // Drive enough samples to span the `take()` and the full crossfade window,
+    // exercising the two-engine region and the `retire` push. None may alloc.
+    let input = noise(2048, 8);
+    let sum = assert_no_alloc(|| {
+        let mut sum = 0.0f32;
+        for &x in &input {
+            node.input = x;
+            node.process();
+            sum += node.output;
         }
         sum
     });

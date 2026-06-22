@@ -212,7 +212,7 @@ fn dephased_node_stages_never_fire_together() {
 /// Drive a Convolver node standalone through the documented lifecycle
 /// (set_sample_rate → prepare → per-sample process).
 fn run_convolver_node(ir: &[f32], input: &[f32]) -> Vec<f32> {
-    let mut node = Convolver::new(ir.to_vec());
+    let mut node = Convolver::with_ir(ir.to_vec());
     node.set_sample_rate(44100.0);
     node.prepare();
     input
@@ -279,7 +279,7 @@ fn convolver_node_prepare_is_idempotent() {
 
     let once = run_convolver_node(&ir, &input);
 
-    let mut node = Convolver::new(ir.to_vec());
+    let mut node = Convolver::with_ir(ir.to_vec());
     node.set_sample_rate(44100.0);
     node.prepare();
     node.prepare();
