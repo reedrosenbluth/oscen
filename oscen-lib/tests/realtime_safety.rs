@@ -8,7 +8,7 @@
 use assert_no_alloc::{assert_no_alloc, AllocDisabler};
 use oscen::asset::{AssetConsumer, AudioAsset};
 use oscen::convolution::{
-    Convolver, ConvolverEngine, DirectConvolver, MonoConvolverConsumer, PartitionedConvolver,
+    Convolver, ConvolverConsumer, DirectConvolver, MultiConvolverEngine, PartitionedConvolver,
 };
 use oscen::handoff::pair;
 use oscen::spectral::FftPlan;
@@ -97,7 +97,7 @@ fn handoff_take_and_retire_are_alloc_free() {
 fn convolver_swap_is_alloc_free() {
     // Build an empty convolver with an installed consumer, then publish an
     // engine from OUTSIDE the no-alloc region (build + publish may allocate).
-    let (mut publisher, consumer) = pair::<ConvolverEngine>();
+    let (mut publisher, consumer) = pair::<MultiConvolverEngine>();
     let mut node = Convolver::new();
     node.install_ir_consumer(consumer);
     node.set_sample_rate(44100.0);
@@ -105,7 +105,7 @@ fn convolver_swap_is_alloc_free() {
 
     let ir = noise(1500, 7);
     let asset = AudioAsset::from_samples(ir, 1, 44100, 44100).unwrap();
-    publisher.publish(MonoConvolverConsumer.build(&asset).unwrap());
+    publisher.publish(ConvolverConsumer::<f32>::default().build(&asset).unwrap());
 
     // Drive enough samples to span the `take()` and the full crossfade window,
     // exercising the two-engine region and the `retire` push. None may alloc.

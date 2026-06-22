@@ -344,6 +344,21 @@ impl MultiConvolverEngine {
         Self { channels }
     }
 
+    /// Build `num_channels` engines that all share one mono IR (broadcast).
+    /// Backs the mono `with_ir`/`new` helpers on a channel-generic node: a mono
+    /// IR plays identically on every channel. Off-thread; allocates.
+    pub fn from_mono_ir(ir: &[f32], num_channels: usize) -> Self {
+        debug_assert!(
+            num_channels <= MAX_CONV_CHANNELS,
+            "num_channels {num_channels} exceeds MAX_CONV_CHANNELS {MAX_CONV_CHANNELS}"
+        );
+        let mut channels = ArrayVec::new();
+        for _ in 0..num_channels {
+            channels.push(ConvolverEngine::from_ir(ir.to_vec()));
+        }
+        Self { channels }
+    }
+
     /// Number of per-channel engines.
     pub fn num_channels(&self) -> usize {
         self.channels.len()
@@ -390,20 +405,6 @@ impl<F: AudioFrame> AssetConsumer for ConvolverConsumer<F> {
     }
 }
 
-/// Builds a mono [`ConvolverEngine`] from an asset (mono-mixed IR) for the
-/// still-mono [`Convolver`] node. Zero-sized; the build is the off-thread FFT
-/// prep. (Transitional: superseded by `ConvolverConsumer<f32>` once the node
-/// becomes generic over the frame type.)
-#[derive(Debug, Default)]
-pub struct MonoConvolverConsumer;
-
-impl AssetConsumer for MonoConvolverConsumer {
-    type Playable = ConvolverEngine;
-    fn build(&self, asset: &AudioAsset) -> Result<ConvolverEngine, AssetError> {
-        Ok(ConvolverEngine::from_ir(asset.to_mono()))
-    }
-}
-
 /// Zero-latency impulse-response convolver node.
 ///
 /// Three-tier Gardner decomposition: a time-domain head convolves taps
@@ -414,7 +415,12 @@ impl AssetConsumer for MonoConvolverConsumer {
 /// overall delay.
 ///
 /// The impulse response is taken to be at the session sample rate; no
-/// resampling is performed. Mono only.
+/// resampling is performed.
+///
+/// Generic over the frame type `F` (mono `f32` by default; `Frame<N>` for
+/// multi-channel). A multi-channel convolver holds one mono engine per channel
+/// and convolves channel `c` of the input with channel `c` of the IR — the
+/// standard stereo-reverb topology (L→L, R→R), no L↔R cross terms.
 ///
 /// # CPU profile
 ///
@@ -433,36 +439,37 @@ impl AssetConsumer for MonoConvolverConsumer {
 /// block of long-stage coverage — not currently implemented.
 ///
 /// The live IR can be swapped at runtime: a graph publishes a freshly-built
-/// [`ConvolverEngine`] through an [`AssetSlot`], and `process` crossfades from
-/// the outgoing engine to the new one over [`CROSSFADE_SECONDS`] (equal-power,
-/// click-free). The swap path is allocation-free — the new engine is `take`n
-/// from the handoff and the retired one handed back for off-thread destruction.
+/// [`MultiConvolverEngine`] through an [`AssetSlot`], and `process` crossfades
+/// from the outgoing engine to the new one over [`CROSSFADE_SECONDS`]
+/// (equal-power, click-free, applied per channel). The swap path is
+/// allocation-free — the new engine is `take`n from the handoff and the retired
+/// one handed back for off-thread destruction.
 #[derive(Debug, Node)]
-pub struct Convolver {
+pub struct Convolver<F: AudioFrame = f32> {
     #[input(stream)]
-    pub input: f32,
+    pub input: F,
     #[output(stream)]
-    pub output: f32,
+    pub output: F,
 
-    current: Arc<ConvolverEngine>,
-    fading: Option<(Arc<ConvolverEngine>, usize)>,
+    current: Arc<MultiConvolverEngine>,
+    fading: Option<(Arc<MultiConvolverEngine>, usize)>,
     fade_len: usize,
     #[input(asset)]
-    pub ir: AssetSlot<ConvolverEngine>,
+    pub ir: AssetSlot<MultiConvolverEngine>,
     sample_rate: SampleRate,
 }
 
 /// Crossfade duration for a live IR swap (20 ms; the spec allows 10–50 ms).
 const CROSSFADE_SECONDS: f32 = 0.02;
 
-impl Convolver {
+impl<F: AudioFrame> Convolver<F> {
     /// Empty convolver: passes silence until an asset is published. Used by the
     /// graph (sub-project 4) where the IR arrives via the asset input.
     pub fn new() -> Self {
         Self {
-            input: 0.0,
-            output: 0.0,
-            current: Arc::new(ConvolverEngine::from_ir(Vec::new())),
+            input: F::default(),
+            output: F::default(),
+            current: Arc::new(MultiConvolverEngine::from_mono_ir(&[], F::CHANNELS)),
             fading: None,
             fade_len: 1,
             ir: AssetSlot::new(),
@@ -470,18 +477,19 @@ impl Convolver {
         }
     }
 
-    /// Convolver with an IR baked in at construction (assumed mono, at the
-    /// session sample rate). No live swapping unless an asset consumer is later
-    /// installed. An empty IR produces silence.
+    /// Convolver with a mono IR baked in at construction (at the session sample
+    /// rate), broadcast to every channel of `F`. No live swapping unless an
+    /// asset consumer is later installed. An empty IR produces silence.
     pub fn with_ir(ir: Vec<f32>) -> Self {
         Self {
-            current: Arc::new(ConvolverEngine::from_ir(ir)),
+            current: Arc::new(MultiConvolverEngine::from_mono_ir(&ir, F::CHANNELS)),
             ..Self::new()
         }
     }
 
     /// Load a mono impulse response from a WAV file (multi-channel files
-    /// are averaged down to mono; integer samples are normalized to ±1).
+    /// are averaged down to mono; integer samples are normalized to ±1),
+    /// broadcast to every channel of `F`.
     pub fn from_wav(path: impl AsRef<std::path::Path>) -> Result<Self, hound::Error> {
         let mut reader = hound::WavReader::open(path)?;
         let spec = reader.spec();
@@ -505,21 +513,21 @@ impl Convolver {
 
     /// Install the audio-side handoff consumer (sub-project 4's macro calls
     /// this; tests call it directly). Delegates to the asset slot.
-    pub fn install_ir_consumer(&mut self, consumer: handoff::Consumer<ConvolverEngine>) {
+    pub fn install_ir_consumer(&mut self, consumer: handoff::Consumer<MultiConvolverEngine>) {
         self.ir.install(consumer);
     }
 }
 
-impl Default for Convolver {
+impl<F: AudioFrame> Default for Convolver<F> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl AssetEndpoint for Convolver {
-    type Consumer = MonoConvolverConsumer;
+impl<F: AudioFrame> AssetEndpoint for Convolver<F> {
+    type Consumer = ConvolverConsumer<F>;
 
-    fn install_asset(&mut self, consumer: handoff::Consumer<ConvolverEngine>) {
+    fn install_asset(&mut self, consumer: handoff::Consumer<MultiConvolverEngine>) {
         self.install_ir_consumer(consumer);
     }
 }
@@ -534,7 +542,7 @@ fn mix_to_mono(interleaved: &[f32], channels: usize) -> Vec<f32> {
         .collect()
 }
 
-impl SignalProcessor for Convolver {
+impl<F: AudioFrame> SignalProcessor for Convolver<F> {
     fn prepare(&mut self) {
         self.fade_len = ((CROSSFADE_SECONDS * self.sample_rate.0).round() as usize).max(1);
         // The IR is rate-independent (taken to be at session rate), but
@@ -563,19 +571,20 @@ impl SignalProcessor for Convolver {
         let x = self.input;
         let new_out = Arc::get_mut(&mut self.current)
             .expect("current engine uniquely owned")
-            .process_sample(x);
+            .process_frame::<F>(x);
 
         self.output = match self.fading.as_mut() {
             None => new_out,
             Some((old, pos)) => {
                 let old_out = Arc::get_mut(old)
                     .expect("outgoing engine uniquely owned")
-                    .process_sample(x);
+                    .process_frame::<F>(x);
                 let g = (*pos as f32) / (self.fade_len as f32); // 0..=1
                                                                 // Equal-power crossfade: sin²+cos² = 1, no level dip.
+                                                                // Scalar gains broadcast to every channel via `Mul<f32>`.
                 let gain_new = (g * std::f32::consts::FRAC_PI_2).sin();
                 let gain_old = (g * std::f32::consts::FRAC_PI_2).cos();
-                let mixed = gain_new * new_out + gain_old * old_out;
+                let mixed = new_out * gain_new + old_out * gain_old;
                 *pos += 1;
                 if *pos >= self.fade_len {
                     let (old_arc, _) = self.fading.take().unwrap();

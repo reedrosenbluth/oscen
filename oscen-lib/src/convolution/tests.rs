@@ -53,8 +53,8 @@ fn prepared_with_ir(ir: Vec<f32>) -> Convolver {
 
 /// Build a `Convolver::new()` with an installed consumer fed by `publisher`,
 /// already prepared at 44.1 kHz. Returns the convolver and the publisher.
-fn prepared_with_consumer() -> (Convolver, handoff::Publisher<ConvolverEngine>) {
-    let (publisher, consumer) = handoff::pair::<ConvolverEngine>();
+fn prepared_with_consumer() -> (Convolver, handoff::Publisher<MultiConvolverEngine>) {
+    let (publisher, consumer) = handoff::pair::<MultiConvolverEngine>();
     let mut conv = Convolver::new();
     conv.install_ir_consumer(consumer);
     conv.set_sample_rate(44100.0);
@@ -96,7 +96,7 @@ fn convolver_swap_matches_direct_construction() {
     let asset = AudioAsset::from_samples(ir.clone(), 1, 44100, 44100).unwrap();
 
     let (mut conv, mut publisher) = prepared_with_consumer();
-    let engine = MonoConvolverConsumer.build(&asset).unwrap();
+    let engine = ConvolverConsumer::<f32>::default().build(&asset).unwrap();
     publisher.publish(engine);
 
     let mut reference = prepared_with_ir(ir.clone());
@@ -129,10 +129,10 @@ fn convolver_swap_is_click_free() {
     let input = noise(8192, 30);
 
     // Publish A, run 4096 samples.
-    publisher.publish(MonoConvolverConsumer.build(&asset_a).unwrap());
+    publisher.publish(ConvolverConsumer::<f32>::default().build(&asset_a).unwrap());
     let mut out = run(&mut conv, &input[..4096]);
     // Publish B, run 4096 more (the swap is taken at output index 4096).
-    publisher.publish(MonoConvolverConsumer.build(&asset_b).unwrap());
+    publisher.publish(ConvolverConsumer::<f32>::default().build(&asset_b).unwrap());
     out.extend(run(&mut conv, &input[4096..]));
 
     assert!(out.iter().all(|y| y.is_finite()), "all outputs finite");
@@ -171,8 +171,8 @@ fn load_handle_publish_round_trip() {
     let ir = noise(1500, 6);
     let asset = AudioAsset::from_samples(ir.clone(), 1, 44100, 44100).unwrap();
 
-    let (publisher, consumer) = handoff::pair::<ConvolverEngine>();
-    let mut handle = AssetLoadHandle::new(publisher, MonoConvolverConsumer);
+    let (publisher, consumer) = handoff::pair::<MultiConvolverEngine>();
+    let mut handle = AssetLoadHandle::new(publisher, ConvolverConsumer::<f32>::default());
     handle.set_graph_rate(44100);
     handle.publish(&asset).unwrap();
 
@@ -266,6 +266,76 @@ fn multi_convolver_engine_mono_ir_broadcasts() {
     let (left, right) = run_stereo(&mut engine, &input);
     assert_close_rel(&left, &ir, "mono IR broadcast to left");
     assert_close_rel(&right, &ir, "mono IR broadcast to right");
+}
+
+/// A stereo input sequence with an impulse on `channel` at t=0, then zeros.
+fn stereo_impulse(channel: usize, len: usize) -> Vec<Frame<2>> {
+    let mut input = vec![Frame([0.0, 0.0]); len];
+    input[0].0[channel] = 1.0;
+    input
+}
+
+/// Drive a stereo `Convolver<Frame<2>>` node, returning per-channel output.
+fn run_stereo_node(conv: &mut Convolver<Frame<2>>, input: &[Frame<2>]) -> (Vec<f32>, Vec<f32>) {
+    let frames: Vec<Frame<2>> = input
+        .iter()
+        .map(|&x| {
+            conv.input = x;
+            conv.process();
+            conv.output
+        })
+        .collect();
+    let left = frames.iter().map(|f| f.0[0]).collect();
+    let right = frames.iter().map(|f| f.0[1]).collect();
+    (left, right)
+}
+
+/// Build a stereo `Convolver<Frame<2>>` with a per-channel IR published through
+/// the asset path and faded fully in (silent input flushes engine history to
+/// zero), so a subsequent impulse reproduces the IR at full gain.
+fn prepared_stereo_with_ir(ir_l: &[f32], ir_r: &[f32]) -> Convolver<Frame<2>> {
+    let interleaved: Vec<f32> = ir_l.iter().zip(ir_r).flat_map(|(&l, &r)| [l, r]).collect();
+    let asset = AudioAsset::from_samples(interleaved, 2, 44100, 44100).unwrap();
+
+    let (mut publisher, consumer) = handoff::pair::<MultiConvolverEngine>();
+    let mut conv = Convolver::<Frame<2>>::new();
+    conv.install_ir_consumer(consumer);
+    conv.set_sample_rate(44100.0);
+    conv.prepare();
+    publisher.publish(
+        ConvolverConsumer::<Frame<2>>::default()
+            .build(&asset)
+            .unwrap(),
+    );
+
+    // Fade the new engine fully in with silent input; the crossfade completes
+    // and the engines' histories settle back to zero.
+    for _ in 0..fade_len_at_44k() + 1 {
+        conv.input = Frame([0.0, 0.0]);
+        conv.process();
+    }
+    conv
+}
+
+/// The generic node at `Frame<2>` convolves each channel with its own IR and
+/// does not bleed L↔R: a post-fade impulse on one channel reproduces that
+/// channel's IR while the other channel stays silent.
+#[test]
+fn convolver_stereo_node_reproduces_per_channel_ir() {
+    let ir_l = vec![0.5f32, -0.25, 0.125];
+    let ir_r = vec![0.2f32, 0.4, -0.1];
+
+    // Left impulse -> left IR, right silent.
+    let mut conv = prepared_stereo_with_ir(&ir_l, &ir_r);
+    let (l, r) = run_stereo_node(&mut conv, &stereo_impulse(0, ir_l.len()));
+    assert_close_rel(&l, &ir_l, "stereo node left reproduces IR-left");
+    assert!(r.iter().all(|&y| y == 0.0), "no left->right bleed: {r:?}");
+
+    // Right impulse -> right IR, left silent (fresh node).
+    let mut conv = prepared_stereo_with_ir(&ir_l, &ir_r);
+    let (l, r) = run_stereo_node(&mut conv, &stereo_impulse(1, ir_r.len()));
+    assert_close_rel(&r, &ir_r, "stereo node right reproduces IR-right");
+    assert!(l.iter().all(|&y| y == 0.0), "no right->left bleed: {l:?}");
 }
 
 /// Test 7 (sub-project 4a): the `#[input(asset)]` attribute makes the derive
