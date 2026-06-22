@@ -81,3 +81,9 @@ fn asset_endpoint_mismatch_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/asset_endpoint_mismatch.rs");
 }
+
+#[test]
+fn unsupported_stream_fanin_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/fanin_unsupported.rs");
+}
