@@ -8,3 +8,10 @@ AGENTS.md
 flamegraph.svg
 todo.md
 TODO.md
+
+# Cairn harness: TUI build artifacts and the live-driver PID lock (ephemeral).
+/tui/target
+tasks/.cairn.lock
+
+# Audio render artifacts produced by examples (not source).
+*.wav
