@@ -8,7 +8,7 @@
 use assert_no_alloc::{assert_no_alloc, AllocDisabler};
 use oscen::asset::{AssetConsumer, AudioAsset};
 use oscen::convolution::{
-    Convolver, ConvolverConsumer, ConvolverEngine, DirectConvolver, PartitionedConvolver,
+    Convolver, ConvolverEngine, DirectConvolver, MonoConvolverConsumer, PartitionedConvolver,
 };
 use oscen::handoff::pair;
 use oscen::spectral::FftPlan;
@@ -105,7 +105,7 @@ fn convolver_swap_is_alloc_free() {
 
     let ir = noise(1500, 7);
     let asset = AudioAsset::from_samples(ir, 1, 44100, 44100).unwrap();
-    publisher.publish(ConvolverConsumer.build(&asset).unwrap());
+    publisher.publish(MonoConvolverConsumer.build(&asset).unwrap());
 
     // Drive enough samples to span the `take()` and the full crossfade window,
     // exercising the two-engine region and the `retire` push. None may alloc.

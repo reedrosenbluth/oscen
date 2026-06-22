@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::asset::{AssetConsumer, AssetLoadHandle, AudioAsset};
+use crate::frame::Frame;
 use crate::handoff;
 use crate::SignalProcessor;
 use float_cmp::approx_eq;
@@ -95,7 +96,7 @@ fn convolver_swap_matches_direct_construction() {
     let asset = AudioAsset::from_samples(ir.clone(), 1, 44100, 44100).unwrap();
 
     let (mut conv, mut publisher) = prepared_with_consumer();
-    let engine = ConvolverConsumer.build(&asset).unwrap();
+    let engine = MonoConvolverConsumer.build(&asset).unwrap();
     publisher.publish(engine);
 
     let mut reference = prepared_with_ir(ir.clone());
@@ -128,10 +129,10 @@ fn convolver_swap_is_click_free() {
     let input = noise(8192, 30);
 
     // Publish A, run 4096 samples.
-    publisher.publish(ConvolverConsumer.build(&asset_a).unwrap());
+    publisher.publish(MonoConvolverConsumer.build(&asset_a).unwrap());
     let mut out = run(&mut conv, &input[..4096]);
     // Publish B, run 4096 more (the swap is taken at output index 4096).
-    publisher.publish(ConvolverConsumer.build(&asset_b).unwrap());
+    publisher.publish(MonoConvolverConsumer.build(&asset_b).unwrap());
     out.extend(run(&mut conv, &input[4096..]));
 
     assert!(out.iter().all(|y| y.is_finite()), "all outputs finite");
@@ -171,7 +172,7 @@ fn load_handle_publish_round_trip() {
     let asset = AudioAsset::from_samples(ir.clone(), 1, 44100, 44100).unwrap();
 
     let (publisher, consumer) = handoff::pair::<ConvolverEngine>();
-    let mut handle = AssetLoadHandle::new(publisher, ConvolverConsumer);
+    let mut handle = AssetLoadHandle::new(publisher, MonoConvolverConsumer);
     handle.set_graph_rate(44100);
     handle.publish(&asset).unwrap();
 
@@ -195,6 +196,76 @@ fn load_handle_publish_round_trip() {
 fn _assert_convolver_engine_send() {
     fn f<T: Send>() {}
     f::<ConvolverEngine>();
+}
+
+/// Drive a `MultiConvolverEngine` with a sequence of stereo input frames,
+/// returning the per-channel output as `(left, right)` vectors.
+fn run_stereo(engine: &mut MultiConvolverEngine, input: &[Frame<2>]) -> (Vec<f32>, Vec<f32>) {
+    let frames: Vec<Frame<2>> = input.iter().map(|&x| engine.process_frame(x)).collect();
+    let left = frames.iter().map(|f| f.0[0]).collect();
+    let right = frames.iter().map(|f| f.0[1]).collect();
+    (left, right)
+}
+
+/// A stereo impulse on one channel reproduces that channel's IR and leaves the
+/// other channel silent: per-channel convolution with no L↔R bleed.
+#[test]
+fn multi_convolver_engine_per_channel_no_bleed() {
+    let ir_l = vec![0.5f32, -0.25, 0.125];
+    let ir_r = vec![0.2f32, 0.4, -0.1];
+    // Channel-major asset: build interleaved L,R,L,R,... for `from_samples`.
+    let interleaved: Vec<f32> = ir_l
+        .iter()
+        .zip(ir_r.iter())
+        .flat_map(|(&l, &r)| [l, r])
+        .collect();
+    let asset = AudioAsset::from_samples(interleaved, 2, 44100, 44100).unwrap();
+
+    // Impulse on the LEFT channel only.
+    let mut engine = ConvolverConsumer::<Frame<2>>::default()
+        .build(&asset)
+        .unwrap();
+    let mut input = vec![Frame([0.0, 0.0]); ir_l.len()];
+    input[0] = Frame([1.0, 0.0]);
+    let (left, right) = run_stereo(&mut engine, &input);
+    assert_close_rel(&left, &ir_l, "left impulse reproduces IR-left");
+    assert!(
+        right.iter().all(|&y| y == 0.0),
+        "left impulse must not bleed into right: {right:?}"
+    );
+
+    // Impulse on the RIGHT channel only (fresh engine).
+    let mut engine = ConvolverConsumer::<Frame<2>>::default()
+        .build(&asset)
+        .unwrap();
+    let mut input = vec![Frame([0.0, 0.0]); ir_r.len()];
+    input[0] = Frame([0.0, 1.0]);
+    let (left, right) = run_stereo(&mut engine, &input);
+    assert_close_rel(&right, &ir_r, "right impulse reproduces IR-right");
+    assert!(
+        left.iter().all(|&y| y == 0.0),
+        "right impulse must not bleed into left: {left:?}"
+    );
+}
+
+/// A 1-channel IR drives a 2-channel engine by broadcasting: every output
+/// channel reproduces the mono IR of its own input channel.
+#[test]
+fn multi_convolver_engine_mono_ir_broadcasts() {
+    let ir = vec![0.3f32, -0.6, 0.2];
+    let asset = AudioAsset::from_samples(ir.clone(), 1, 44100, 44100).unwrap();
+
+    let mut engine = ConvolverConsumer::<Frame<2>>::default()
+        .build(&asset)
+        .unwrap();
+    assert_eq!(engine.num_channels(), 2, "F::CHANNELS engines built");
+
+    // Impulse on both channels: each output channel reproduces the broadcast IR.
+    let mut input = vec![Frame([0.0, 0.0]); ir.len()];
+    input[0] = Frame([1.0, 1.0]);
+    let (left, right) = run_stereo(&mut engine, &input);
+    assert_close_rel(&left, &ir, "mono IR broadcast to left");
+    assert_close_rel(&right, &ir, "mono IR broadcast to right");
 }
 
 /// Test 7 (sub-project 4a): the `#[input(asset)]` attribute makes the derive

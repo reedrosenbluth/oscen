@@ -16,10 +16,13 @@
 //! `B` relative to whatever earlier stages cover.
 
 use crate::asset::{AssetConsumer, AssetEndpoint, AssetError, AssetSlot, AudioAsset};
+use crate::frame::AudioFrame;
 use crate::graph::{SampleRate, SignalProcessor};
 use crate::handoff;
 use crate::spectral::{BlockAccumulator, Complex, FftPlan};
+use arrayvec::ArrayVec;
 use oscen_macros::Node;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -302,12 +305,99 @@ impl ConvolverEngine {
     }
 }
 
-/// Builds a [`ConvolverEngine`] from an asset (mono-mixed IR). Zero-sized; the
-/// build is the off-thread FFT prep.
-#[derive(Debug, Default)]
-pub struct ConvolverConsumer;
+/// Maximum channels a [`MultiConvolverEngine`] holds. Stereo needs 2; the cap
+/// keeps the per-channel bundle stack-friendly via `ArrayVec`.
+pub const MAX_CONV_CHANNELS: usize = 8;
 
-impl AssetConsumer for ConvolverConsumer {
+/// One mono [`ConvolverEngine`] per channel: the realtime-playable state for a
+/// multi-channel IR. Channel `c` of the input is convolved with channel `c` of
+/// the IR (the standard stereo-reverb topology — L→L, R→R, no L↔R cross terms).
+/// Built off the audio thread; the audio thread only runs
+/// [`process_frame`](Self::process_frame) and (on `prepare`)
+/// [`rebuild`](Self::rebuild).
+#[derive(Debug)]
+pub struct MultiConvolverEngine {
+    channels: ArrayVec<ConvolverEngine, MAX_CONV_CHANNELS>,
+}
+
+impl MultiConvolverEngine {
+    /// Build `num_channels` per-channel engines from a channel-major IR asset.
+    /// The channel mapping mirrors the sample player's clamp rule:
+    /// - mono IR (`asset.channels() == 1`) broadcasts channel 0 to every engine;
+    /// - an IR with `>= num_channels` channels maps the first `num_channels`
+    ///   channels in order (extra source channels dropped);
+    /// - `1 < asset.channels() < num_channels` maps what exists and clamps the
+    ///   remaining engines to the last available source channel.
+    ///
+    /// Off-thread; allocates (one FFT prep per channel).
+    pub fn from_asset(asset: &AudioAsset, num_channels: usize) -> Self {
+        debug_assert!(
+            num_channels <= MAX_CONV_CHANNELS,
+            "num_channels {num_channels} exceeds MAX_CONV_CHANNELS {MAX_CONV_CHANNELS}"
+        );
+        let src_ch = asset.channels();
+        let mut channels = ArrayVec::new();
+        for c in 0..num_channels {
+            let sc = if src_ch == 1 { 0 } else { c.min(src_ch - 1) };
+            channels.push(ConvolverEngine::from_ir(asset.channel(sc).to_vec()));
+        }
+        Self { channels }
+    }
+
+    /// Number of per-channel engines.
+    pub fn num_channels(&self) -> usize {
+        self.channels.len()
+    }
+
+    /// Rebuild every per-channel engine, returning each stage to a cleared,
+    /// ready state. Allocates; called from `prepare`, never the RT path.
+    pub fn rebuild(&mut self) {
+        for engine in &mut self.channels {
+            engine.rebuild();
+        }
+    }
+
+    /// Convolve one multi-channel frame: channel `c` of `x` through engine `c`.
+    /// Requires `F::CHANNELS == self.num_channels()`. Allocation-free.
+    #[inline]
+    pub fn process_frame<F: AudioFrame>(&mut self, x: F) -> F {
+        debug_assert_eq!(
+            F::CHANNELS,
+            self.channels.len(),
+            "frame channels must match engine channels"
+        );
+        let channels = &mut self.channels;
+        F::from_channels(|c| channels[c].process_sample(x.channel(c)))
+    }
+}
+
+/// Builds a [`MultiConvolverEngine`] with `F::CHANNELS` per-channel engines from
+/// an IR asset. Zero-sized (carries only the frame type); the build is the
+/// off-thread per-channel FFT prep.
+#[derive(Debug)]
+pub struct ConvolverConsumer<F: AudioFrame = f32>(PhantomData<F>);
+
+impl<F: AudioFrame> Default for ConvolverConsumer<F> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<F: AudioFrame> AssetConsumer for ConvolverConsumer<F> {
+    type Playable = MultiConvolverEngine;
+    fn build(&self, asset: &AudioAsset) -> Result<MultiConvolverEngine, AssetError> {
+        Ok(MultiConvolverEngine::from_asset(asset, F::CHANNELS))
+    }
+}
+
+/// Builds a mono [`ConvolverEngine`] from an asset (mono-mixed IR) for the
+/// still-mono [`Convolver`] node. Zero-sized; the build is the off-thread FFT
+/// prep. (Transitional: superseded by `ConvolverConsumer<f32>` once the node
+/// becomes generic over the frame type.)
+#[derive(Debug, Default)]
+pub struct MonoConvolverConsumer;
+
+impl AssetConsumer for MonoConvolverConsumer {
     type Playable = ConvolverEngine;
     fn build(&self, asset: &AudioAsset) -> Result<ConvolverEngine, AssetError> {
         Ok(ConvolverEngine::from_ir(asset.to_mono()))
@@ -427,7 +517,7 @@ impl Default for Convolver {
 }
 
 impl AssetEndpoint for Convolver {
-    type Consumer = ConvolverConsumer;
+    type Consumer = MonoConvolverConsumer;
 
     fn install_asset(&mut self, consumer: handoff::Consumer<ConvolverEngine>) {
         self.install_ir_consumer(consumer);
