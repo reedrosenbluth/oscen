@@ -178,15 +178,6 @@ impl<'a> CodegenContext<'a> {
         (dest.node, dest.endpoint.to_string(), dest.index)
     }
 
-    /// True when a source expression is a `Frame(...)` constructor call (a
-    /// frame-valued connection source, e.g. `Frame::<2>(a, b)`).
-    fn is_frame_constructor_source(source: &crate::ir::expr::IrExpr) -> bool {
-        matches!(
-            &source.kind,
-            crate::ir::expr::IrExprKind::Call { function, .. } if function == "Frame"
-        )
-    }
-
     /// Generate connection assignments for a specific node.
     pub(super) fn generate_connection_assignments_for_node(
         &self,
@@ -250,24 +241,26 @@ impl<'a> CodegenContext<'a> {
             if !Self::is_simple_endpoint_source(source) {
                 let src_tokens = self.emit_expr(source);
                 if let Some(dest_size) = self.get_node_array_size(dest_node) {
-                    // The array-broadcast path binds `let __src: f32` (pinning
-                    // numeric-literal inference to f32 where no single dest type
-                    // is available). A frame constructor cannot flow through it —
-                    // reject it with a scoped message rather than a confusing
-                    // `expected f32, found Frame<_>` type error.
-                    if Self::is_frame_constructor_source(source) {
-                        assignments.push(quote_spanned! { source.span =>
-                            ::core::compile_error!(
-                                "a frame constructor cannot broadcast into a node array; \
-                                 frame connection expressions are supported into scalar \
-                                 stream destinations only"
-                            );
-                        });
-                        continue;
-                    }
+                    // Bind the broadcast source to the destination endpoint's own
+                    // projected type (`f32` for a mono input, `Frame<N>` for a
+                    // frame input). This routes frame-returning calls and frame
+                    // constructors correctly, and still coerces numeric literals
+                    // to the destination type. Fall back to an `f32` pin only when
+                    // the endpoint has no derive-emitted marker (shouldn't happen
+                    // for a node-array element).
+                    let src_binding = if let Some((dst_path, dst_marker)) =
+                        self.endpoint_marker_tokens(dest)
+                    {
+                        quote! {
+                            let __src: <#dst_path as ::oscen::dispatch::EndpointAt<#dst_marker>>::Frame
+                                = #src_tokens;
+                        }
+                    } else {
+                        quote! { let __src: f32 = #src_tokens; }
+                    };
                     assignments.push(quote! {
                         {
-                            let __src: f32 = #src_tokens;
+                            #src_binding
                             for i in 0..#dest_size {
                                 <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
                                     &__src,

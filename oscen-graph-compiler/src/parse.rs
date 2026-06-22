@@ -1036,10 +1036,12 @@ fn parse_primary_expr(input: ParseStream) -> Result<ConnectionExpr> {
         return parse_connection_expr(&content);
     }
 
-    // Handle literals
+    // Handle literals. Parse just the literal token (not a full `Expr`): a
+    // greedy `Expr` parse would treat the joint `-` of a following `->` arrow
+    // as subtraction and fail (`0.5 -> dest`).
     if input.peek(syn::LitFloat) || input.peek(syn::LitInt) {
-        let lit: Expr = input.parse()?;
-        return Ok(ConnectionExpr::Literal(lit));
+        let lit: syn::Lit = input.parse()?;
+        return Ok(ConnectionExpr::Literal(syn::parse_quote!(#lit)));
     }
 
     // Parse identifier or method call

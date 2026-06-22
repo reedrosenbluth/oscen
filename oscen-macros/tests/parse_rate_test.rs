@@ -87,9 +87,3 @@ fn unsupported_stream_fanin_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/fanin_unsupported.rs");
 }
-
-#[test]
-fn frame_constructor_into_array_fails_to_compile() {
-    let t = trybuild::TestCases::new();
-    t.compile_fail("tests/ui/frame_constructor_into_array.rs");
-}
