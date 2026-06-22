@@ -123,6 +123,31 @@ fn convolver_swap_is_alloc_free() {
 }
 
 #[test]
+fn sample_player_swap_is_alloc_free() {
+    use oscen::handoff::pair;
+    use oscen::{SamplePlayer, SignalProcessor};
+
+    let (mut publisher, consumer) = pair::<Vec<f32>>();
+    let mut player = SamplePlayer::new();
+    player.install_buf_consumer(consumer);
+
+    // Publish from OUTSIDE the no-alloc region.
+    publisher.publish(vec![0.25; 600]);
+
+    // The first iteration `take`s the new buffer and `retire`s the old (empty)
+    // one; neither may allocate. Looping wraps the playhead many times.
+    let sum = assert_no_alloc(|| {
+        let mut sum = 0.0f32;
+        for _ in 0..2048 {
+            player.process();
+            sum += player.output;
+        }
+        sum
+    });
+    assert!(sum.is_finite());
+}
+
+#[test]
 fn fft_plan_forward_inverse_does_not_allocate() {
     let mut plan = FftPlan::new(1024);
     let mut time = noise(1024, 6);

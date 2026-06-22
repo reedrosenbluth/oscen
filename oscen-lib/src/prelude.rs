@@ -16,7 +16,8 @@ pub use crate::{EventInput, EventOutput};
 #[cfg(feature = "convolution")]
 pub use crate::convolution::Convolver;
 pub use crate::{
-    AdsrEnvelope, AudioInput, Delay, Gain, IirLowpass, Oscillator, PolyBlepOscillator, TptFilter,
+    AdsrEnvelope, AudioInput, Delay, Gain, IirLowpass, Oscillator, PolyBlepOscillator,
+    SamplePlayer, TptFilter,
 };
 
 // MIDI and voice management

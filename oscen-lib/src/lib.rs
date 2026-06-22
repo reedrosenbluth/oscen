@@ -20,6 +20,7 @@ pub mod oscilloscope;
 pub mod prelude;
 pub mod resample;
 pub mod ring_buffer;
+pub mod sample_player;
 #[cfg(feature = "fft")]
 pub mod spectral;
 pub mod value;
@@ -45,5 +46,6 @@ pub use midi::*;
 pub use oscen_macros::{graph, oversample_variants, Node};
 pub use oscillators::*;
 pub use oscilloscope::*;
+pub use sample_player::*;
 pub use value::*;
 pub use voice_allocator::*;
