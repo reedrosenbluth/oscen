@@ -58,6 +58,7 @@ pub trait AudioFrame:
     Copy
     + Default
     + Send
+    + Sync
     + std::fmt::Debug
     + Add<Output = Self>
     + Sub<Output = Self>
