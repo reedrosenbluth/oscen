@@ -178,6 +178,15 @@ impl<'a> CodegenContext<'a> {
         (dest.node, dest.endpoint.to_string(), dest.index)
     }
 
+    /// True when a source expression is a `Frame(...)` constructor call (a
+    /// frame-valued connection source, e.g. `Frame::<2>(a, b)`).
+    fn is_frame_constructor_source(source: &crate::ir::expr::IrExpr) -> bool {
+        matches!(
+            &source.kind,
+            crate::ir::expr::IrExprKind::Call { function, .. } if function == "Frame"
+        )
+    }
+
     /// Generate connection assignments for a specific node.
     pub(super) fn generate_connection_assignments_for_node(
         &self,
@@ -241,6 +250,21 @@ impl<'a> CodegenContext<'a> {
             if !Self::is_simple_endpoint_source(source) {
                 let src_tokens = self.emit_expr(source);
                 if let Some(dest_size) = self.get_node_array_size(dest_node) {
+                    // The array-broadcast path binds `let __src: f32` (pinning
+                    // numeric-literal inference to f32 where no single dest type
+                    // is available). A frame constructor cannot flow through it —
+                    // reject it with a scoped message rather than a confusing
+                    // `expected f32, found Frame<_>` type error.
+                    if Self::is_frame_constructor_source(source) {
+                        assignments.push(quote_spanned! { source.span =>
+                            ::core::compile_error!(
+                                "a frame constructor cannot broadcast into a node array; \
+                                 frame connection expressions are supported into scalar \
+                                 stream destinations only"
+                            );
+                        });
+                        continue;
+                    }
                     assignments.push(quote! {
                         {
                             let __src: f32 = #src_tokens;
@@ -287,6 +311,14 @@ impl<'a> CodegenContext<'a> {
                     }
                 }
 
+                // A channel index on a scalar node's endpoint (`s.output[0]`)
+                // extracts one channel of its `Frame<N>` value. (An index on a
+                // node-array element is handled via the `[i]` node position and
+                // keeps its existing access form.)
+                let channel_index = Self::ir_expr_as_endpoint(source)
+                    .and_then(|ep| ep.index)
+                    .filter(|_| self.get_node_array_size(source_ident).is_none());
+
                 // Construct source expression part
                 // For ramped graph inputs, we need to access .current to get the f32 value
                 let source_access = if source_is_graph_input
@@ -295,7 +327,10 @@ impl<'a> CodegenContext<'a> {
                 {
                     quote! { .current }
                 } else if let Some(field) = source_field {
-                    quote! { .#field }
+                    match channel_index {
+                        Some(i) => quote! { .#field.0[#i] },
+                        None => quote! { .#field },
+                    }
                 } else {
                     quote! {}
                 };

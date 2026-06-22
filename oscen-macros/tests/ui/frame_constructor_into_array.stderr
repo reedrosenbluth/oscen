@@ -1,0 +1,5 @@
+error: a frame constructor cannot broadcast into a node array; frame connection expressions are supported into scalar stream destinations only
+  --> tests/ui/frame_constructor_into_array.rs:17:9
+   |
+17 |         Frame::<2>(a.output, b.output) -> filters.input;
+   |         ^^^^^

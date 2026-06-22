@@ -1045,6 +1045,16 @@ fn parse_primary_expr(input: ParseStream) -> Result<ConnectionExpr> {
     // Parse identifier or method call
     let ident: Ident = input.parse()?;
 
+    // Optional turbofish on a call, e.g. `Frame::<2>(a, b)`. The width is
+    // inferred from the argument count and the destination type, so the explicit
+    // `<N>` is accepted here and dropped (it disambiguates nothing for codegen).
+    if input.peek(Token![::]) {
+        input.parse::<Token![::]>()?;
+        input.parse::<Token![<]>()?;
+        let _width: syn::LitInt = input.parse()?;
+        input.parse::<Token![>]>()?;
+    }
+
     // Check for method call or field access
     let mut expr = ConnectionExpr::Ident(ident.clone());
 

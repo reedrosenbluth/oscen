@@ -455,7 +455,15 @@ impl<'a> CodegenContext<'a> {
             }
             IrExprKind::Call { function, args } => {
                 let arg_tokens: Vec<_> = args.iter().map(|a| self.emit_expr(a)).collect();
-                quote! { #function(#(#arg_tokens),*) }
+                // `Frame(a, b, …)` is a frame constructor from scalar channels.
+                // `Frame<N>` is a tuple struct over `[f32; N]`, so wrap the
+                // channel args in an array literal; width is inferred from the
+                // arg count and the destination type.
+                if function == "Frame" {
+                    quote! { ::oscen::frame::Frame([#(#arg_tokens),*]) }
+                } else {
+                    quote! { #function(#(#arg_tokens),*) }
+                }
             }
             IrExprKind::Literal(lit) => quote! { #lit },
         }
@@ -468,7 +476,12 @@ impl<'a> CodegenContext<'a> {
         let node_name = &self.ir.nodes[ep.node].name;
         let endpoint_name = &ep.endpoint;
         match ep.index {
-            Some(idx) => quote! { self.#node_name[#idx].#endpoint_name },
+            // An index on a node-array element selects the element; an index on a
+            // scalar node's endpoint selects a channel of its `Frame<N>` value.
+            Some(idx) if self.get_node_array_size(node_name).is_some() => {
+                quote! { self.#node_name[#idx].#endpoint_name }
+            }
+            Some(idx) => quote! { self.#node_name.#endpoint_name.0[#idx] },
             None => {
                 if ep.bare {
                     quote! { self.#node_name }
