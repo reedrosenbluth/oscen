@@ -1,8 +1,9 @@
 //! End-to-end test for a stereo `SamplePlayer<Frame<2>>` driven through a
 //! `graph!`: an `external sample: AudioAsset;` feeds `player.buf`, and the
-//! player's `Frame<2>` output flows to an internal stereo sink (top-level
-//! `output stream` is `f32`-only, so multi-channel output rides an internal
-//! edge — the `frame_streams.rs` pattern).
+//! player's `Frame<2>` output flows to an internal stereo sink. Frame-typed
+//! top-level outputs are supported (`output stream out: Frame<2>;`); this test
+//! deliberately exercises the *internal-edge* path instead — a `Frame<2>` on a
+//! node-to-node edge into a custom `StereoSink` — so that coverage is preserved.
 //!
 //! The graph is silent before any load; after `graph.sample.load_wav(A)` it
 //! loops buffer A, reproducing each channel exactly. Distinct L/R values rule

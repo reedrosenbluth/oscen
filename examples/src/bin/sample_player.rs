@@ -1,11 +1,17 @@
-//! Realtime looping sample player with live file swapping and an LFO-swept
-//! resonant lowpass filter.
+//! Realtime looping **stereo** sample player with live file swapping and an
+//! LFO-swept resonant lowpass filter applied independently per channel.
 //!
 //! Pass one or more WAV files at the OUTPUT DEVICE's sample rate (the asset
 //! loader does not resample — a mismatch is reported and that file skipped).
 //! The player loops the first file; every 4 seconds it swaps to the next file
 //! in the list, decoded and published from the control thread through a
 //! lock-free handoff so the audio thread never decodes, allocates, or frees.
+//!
+//! The signal path is `Frame<2>` end to end: a stereo `SamplePlayer` feeds a
+//! stereo `TptFilter` (one integrator state per channel, shared cutoff/Q swept
+//! by a mono LFO). The graph declares a frame-typed top-level
+//! `output stream out: Frame<2>;`, so the audio callback reads the stereo result
+//! straight from `graph.out` per channel.
 //!
 //! Usage:
 //!   cargo run -p oscen-examples --bin sample_player -- <a.wav> [b.wav ...]
@@ -18,14 +24,13 @@ use std::time::Duration;
 graph! {
     name: SamplePlayerGraph;
 
-    output stream out;
-
     external sample: AudioAsset;
+    output stream out: Frame<2>;
 
     nodes {
-        player = SamplePlayer::new();
+        player = SamplePlayer::<Frame<2>>::new();
         lfo = PolyBlepOscillator::sine(0.3, 1.0);
-        filter = TptFilter::new(800.0, 0.7);
+        filter = TptFilter::<Frame<2>>::new(800.0, 0.7);
     }
 
     connections {
@@ -60,7 +65,7 @@ fn main() -> anyhow::Result<()> {
 
     // Move the load handle to the control thread (see plan: control/audio split).
     let (dummy_pub, _dummy_con) = oscen::handoff::pair();
-    let dummy = AssetLoadHandle::new(dummy_pub, SamplePlayer::asset_builder());
+    let dummy = AssetLoadHandle::new(dummy_pub, SamplePlayer::<Frame<2>>::asset_builder());
     let mut loader = std::mem::replace(&mut graph.sample, dummy);
     loader.set_graph_rate(config.sample_rate.0);
 
@@ -76,8 +81,10 @@ fn main() -> anyhow::Result<()> {
         move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
             for frame in data.chunks_mut(channels) {
                 graph.process();
-                for s in frame.iter_mut() {
-                    *s = graph.out;
+                // Interleave the stereo sink across the output channels; clamp
+                // to the available source channels for non-stereo devices.
+                for (ch, s) in frame.iter_mut().enumerate() {
+                    *s = graph.out.0[ch.min(1)];
                 }
             }
         },
