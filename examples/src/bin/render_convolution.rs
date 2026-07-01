@@ -7,9 +7,9 @@
 //!
 //! The IR is bound to the graph through an `external ir: AudioAsset;` input and
 //! loaded at runtime with `graph.ir.load_wav(...)`. The renderer must
-//! `set_graph_rate` and `load_wav` (per graph instance) **before** rendering,
-//! and the IR sample rate must match the input rate — a mismatch is a hard
-//! `load_wav` error (the convolver does not resample).
+//! `set_graph_rate` and `load_wav` (per graph instance) **before** rendering.
+//! An IR at a different rate than the input is resampled to the input rate on
+//! load (band-limited); loading before the graph rate is set is an error.
 //!
 //! Usage:
 //!   cargo run -p oscen-examples --bin render_convolution -- <input.wav> <ir.wav> [output.wav]
@@ -93,10 +93,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (input_channels, input_rate) = read_wav(input_path)?;
 
     // Read the IR header only for the tail-pad length; the asset input decodes
-    // the samples itself when we `load_wav` into each graph below. A sample-rate
-    // mismatch is no longer a warning — `load_wav` rejects it (no resampling).
+    // and resamples the samples itself when we `load_wav` into each graph below.
+    // Size the pad from the IR's duration in seconds against the input rate, so
+    // it still rings out fully when the IR is resampled to a different rate.
     let ir_reader = WavReader::open(ir_path)?;
-    let tail = ir_reader.duration() as usize;
+    let ir_spec = ir_reader.spec();
+    let ir_seconds = ir_reader.duration() as f32 / ir_spec.sample_rate as f32;
+    let tail = (ir_seconds * input_rate as f32).ceil() as usize;
     drop(ir_reader);
 
     println!(
@@ -110,8 +113,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Render each channel through its own graph (same mono IR per channel).
-    // The IR is loaded into each graph's asset input before rendering; a
-    // sample-rate mismatch surfaces here as a hard `load_wav` error.
+    // The IR is loaded into each graph's asset input before rendering and is
+    // resampled to the input rate on load if the two differ.
     let mut wet_channels: Vec<Vec<f32>> = Vec::with_capacity(input_channels.len());
     for dry in &input_channels {
         let mut graph = ReverbRenderGraph::new();

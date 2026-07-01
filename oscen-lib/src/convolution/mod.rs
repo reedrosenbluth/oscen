@@ -477,38 +477,19 @@ impl<F: AudioFrame> Convolver<F> {
         }
     }
 
-    /// Convolver with a mono IR baked in at construction (at the session sample
-    /// rate), broadcast to every channel of `F`. No live swapping unless an
-    /// asset consumer is later installed. An empty IR produces silence.
+    /// Convolver with a mono IR baked in at construction, broadcast to every
+    /// channel of `F`. No live swapping unless an asset consumer is later
+    /// installed. An empty IR produces silence.
+    ///
+    /// The taps are assumed to be at the session sample rate; they are not
+    /// resampled. To load an impulse response from a file at any rate, use the
+    /// asset input (`#[input(asset)] ir`), which resamples the file to the
+    /// session rate and preserves its channels.
     pub fn with_ir(ir: Vec<f32>) -> Self {
         Self {
             current: Arc::new(MultiConvolverEngine::from_mono_ir(&ir, F::CHANNELS)),
             ..Self::new()
         }
-    }
-
-    /// Load a mono impulse response from a WAV file (multi-channel files
-    /// are averaged down to mono; integer samples are normalized to ±1),
-    /// broadcast to every channel of `F`.
-    pub fn from_wav(path: impl AsRef<std::path::Path>) -> Result<Self, hound::Error> {
-        let mut reader = hound::WavReader::open(path)?;
-        let spec = reader.spec();
-        let channels = spec.channels.max(1) as usize;
-
-        let mono: Vec<f32> = match spec.sample_format {
-            hound::SampleFormat::Float => {
-                let samples: Result<Vec<f32>, _> = reader.samples::<f32>().collect();
-                mix_to_mono(&samples?, channels)
-            }
-            hound::SampleFormat::Int => {
-                let scale = 1.0 / (1i64 << (spec.bits_per_sample - 1)) as f32;
-                let samples: Result<Vec<i32>, _> = reader.samples::<i32>().collect();
-                let scaled: Vec<f32> = samples?.iter().map(|&s| s as f32 * scale).collect();
-                mix_to_mono(&scaled, channels)
-            }
-        };
-
-        Ok(Self::with_ir(mono))
     }
 
     /// Install the audio-side handoff consumer (sub-project 4's macro calls
@@ -530,16 +511,6 @@ impl<F: AudioFrame> AssetEndpoint for Convolver<F> {
     fn install_asset(&mut self, consumer: handoff::Consumer<MultiConvolverEngine>) {
         self.install_ir_consumer(consumer);
     }
-}
-
-fn mix_to_mono(interleaved: &[f32], channels: usize) -> Vec<f32> {
-    if channels == 1 {
-        return interleaved.to_vec();
-    }
-    interleaved
-        .chunks(channels)
-        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
-        .collect()
 }
 
 impl<F: AudioFrame> SignalProcessor for Convolver<F> {
