@@ -87,3 +87,21 @@ fn unsupported_stream_fanin_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/fanin_unsupported.rs");
 }
+
+#[test]
+fn turbofish_on_non_frame_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/turbofish_non_frame.rs");
+}
+
+#[test]
+fn frame_turbofish_without_args_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/frame_turbofish_no_args.rs");
+}
+
+#[test]
+fn unknown_node_in_call_arg_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/unknown_node_in_call_arg.rs");
+}

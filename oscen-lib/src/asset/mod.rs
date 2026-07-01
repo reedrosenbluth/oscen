@@ -31,10 +31,17 @@ pub enum AssetError {
     Decode(hound::Error),
     /// The decoded buffer had zero frames.
     Empty,
-    /// The graph rate is not yet configured (0), so the asset cannot be
-    /// conformed to it. Loads with a valid graph rate are resampled on the
-    /// fly, so a rate difference alone is never an error — this only fires
-    /// when a load is attempted before `set_graph_rate`/`init`.
+    /// The asset declared a sample rate of 0 (e.g. a malformed WAV header),
+    /// so it cannot be resampled to the graph rate.
+    ZeroSampleRate,
+    /// The graph rate is not yet configured, so the asset cannot be conformed
+    /// to it. Loads with a valid graph rate are resampled on the fly, so a
+    /// rate difference alone is never a load error — this only fires when a
+    /// load is attempted before `set_graph_rate`/`init`.
+    GraphRateUnset { asset: u32 },
+    /// A pre-built asset was published into a handle whose graph rate differs
+    /// from the asset's. Assets are conformed to the graph rate when they are
+    /// built (`from_samples`/`from_wav`); rebuild the asset at `graph` Hz.
     SampleRateMismatch { asset: u32, graph: u32 },
 }
 
@@ -43,10 +50,18 @@ impl std::fmt::Display for AssetError {
         match self {
             AssetError::Decode(err) => write!(f, "{err}"),
             AssetError::Empty => write!(f, "audio asset is empty"),
+            AssetError::ZeroSampleRate => {
+                write!(f, "audio asset declares a sample rate of 0 Hz")
+            }
+            AssetError::GraphRateUnset { asset } => write!(
+                f,
+                "cannot conform asset ({asset} Hz): graph rate not configured \
+                 (call set_graph_rate/init first)"
+            ),
             AssetError::SampleRateMismatch { asset, graph } => write!(
                 f,
-                "cannot conform asset ({asset} Hz) to graph rate {graph} Hz \
-                 (graph rate not configured; call set_graph_rate/init first)"
+                "asset is at {asset} Hz but the graph runs at {graph} Hz; \
+                 rebuild the asset at the graph rate"
             ),
         }
     }
@@ -145,10 +160,12 @@ impl AudioAsset {
     ///
     /// If `rate != graph_rate` the samples are resampled per channel to
     /// `graph_rate` (band-limited; no aliasing) so the stored asset is always
-    /// at the graph rate. A `graph_rate` of 0 means the rate has not been
-    /// configured yet and is a [`SampleRateMismatch`] error.
+    /// at the graph rate. A `rate` of 0 is a [`ZeroSampleRate`] error; a
+    /// `graph_rate` of 0 means the rate has not been configured yet and is a
+    /// [`GraphRateUnset`] error.
     ///
-    /// [`SampleRateMismatch`]: AssetError::SampleRateMismatch
+    /// [`ZeroSampleRate`]: AssetError::ZeroSampleRate
+    /// [`GraphRateUnset`]: AssetError::GraphRateUnset
     pub fn from_samples(
         samples: Vec<f32>,
         channels: usize,
@@ -168,13 +185,15 @@ impl AudioAsset {
         if src_frames == 0 {
             return Err(AssetError::Empty);
         }
+        // A zero asset rate (malformed WAV header) cannot be resampled;
+        // reject it here so `resample_channel` never sees a zero rate.
+        if rate == 0 {
+            return Err(AssetError::ZeroSampleRate);
+        }
         // A rate difference is resolved by resampling, but only once the graph
         // rate is known; loading before `set_graph_rate`/`init` cannot conform.
         if graph_rate == 0 {
-            return Err(AssetError::SampleRateMismatch {
-                asset: rate,
-                graph: graph_rate,
-            });
+            return Err(AssetError::GraphRateUnset { asset: rate });
         }
 
         // Deinterleave frame-major → channel-major.
@@ -252,7 +271,16 @@ impl<C: AssetConsumer> AssetLoadHandle<C> {
     }
 
     /// Build from an already-loaded asset and publish it to the audio thread.
+    /// If the graph rate is configured, the asset must already be at it —
+    /// assets are conformed when built, so a mismatch here means the asset was
+    /// built against a different rate.
     pub fn publish(&mut self, asset: &AudioAsset) -> Result<(), AssetError> {
+        if self.graph_rate != 0 && asset.sample_rate() != self.graph_rate {
+            return Err(AssetError::SampleRateMismatch {
+                asset: asset.sample_rate(),
+                graph: self.graph_rate,
+            });
+        }
         let playable = self.builder.build(asset)?;
         self.publisher.publish(playable);
         Ok(())

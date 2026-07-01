@@ -322,7 +322,9 @@ pub struct MultiConvolverEngine {
 
 impl MultiConvolverEngine {
     /// Build `num_channels` per-channel engines from a channel-major IR asset.
-    /// The channel mapping mirrors the sample player's clamp rule:
+    /// Channel mapping:
+    /// - a multi-channel IR into a mono engine averages all channels (the
+    ///   convention of the old `from_wav` loader);
     /// - mono IR (`asset.channels() == 1`) broadcasts channel 0 to every engine;
     /// - an IR with `>= num_channels` channels maps the first `num_channels`
     ///   channels in order (extra source channels dropped);
@@ -337,6 +339,10 @@ impl MultiConvolverEngine {
         );
         let src_ch = asset.channels();
         let mut channels = ArrayVec::new();
+        if num_channels == 1 && src_ch > 1 {
+            channels.push(ConvolverEngine::from_ir(asset.to_mono()));
+            return Self { channels };
+        }
         for c in 0..num_channels {
             let sc = if src_ch == 1 { 0 } else { c.min(src_ch - 1) };
             channels.push(ConvolverEngine::from_ir(asset.channel(sc).to_vec()));

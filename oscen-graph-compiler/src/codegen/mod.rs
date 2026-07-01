@@ -455,11 +455,13 @@ impl<'a> CodegenContext<'a> {
             }
             IrExprKind::Call { function, args } => {
                 let arg_tokens: Vec<_> = args.iter().map(|a| self.emit_expr(a)).collect();
-                // `Frame(a, b, …)` is a frame constructor from scalar channels.
-                // `Frame<N>` is a tuple struct over `[f32; N]`, so wrap the
-                // channel args in an array literal; width is inferred from the
-                // arg count and the destination type.
-                if function.is_ident("Frame") {
+                // A call whose path ends in `Frame` (bare or qualified, e.g.
+                // `frame::Frame(a, b)`) is a frame constructor from scalar
+                // channels. `Frame<N>` is a tuple struct over `[f32; N]`, so
+                // wrap the channel args in an array literal; width is inferred
+                // from the arg count and the destination type.
+                let is_frame_ctor = function.segments.last().is_some_and(|s| s.ident == "Frame");
+                if is_frame_ctor {
                     quote! { ::oscen::frame::Frame([#(#arg_tokens),*]) }
                 } else {
                     quote! { #function(#(#arg_tokens),*) }

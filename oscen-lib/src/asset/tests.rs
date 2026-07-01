@@ -69,9 +69,39 @@ fn asset_from_samples_unconfigured_rate_is_error() {
     let result = AudioAsset::from_samples(vec![0.0, 1.0], 1, 48000, 0);
     assert!(matches!(
         result,
+        Err(AssetError::GraphRateUnset { asset: 48000 })
+    ));
+}
+
+#[test]
+fn asset_from_samples_zero_rate_is_error() {
+    // A 0 Hz asset rate (malformed WAV header) must be a recoverable error,
+    // not a panic inside the resampler.
+    let result = AudioAsset::from_samples(vec![0.0, 1.0], 1, 0, 48000);
+    assert!(matches!(result, Err(AssetError::ZeroSampleRate)));
+}
+
+#[test]
+fn publish_rejects_asset_at_wrong_rate() {
+    struct NopConsumer;
+    impl AssetConsumer for NopConsumer {
+        type Playable = ();
+        fn build(&self, _asset: &AudioAsset) -> Result<(), AssetError> {
+            Ok(())
+        }
+    }
+
+    let (publisher, _consumer) = crate::handoff::pair::<()>();
+    let mut handle = AssetLoadHandle::new(publisher, NopConsumer);
+    handle.set_graph_rate(44100);
+
+    // Built (and conformed) against 48 kHz, published into a 44.1 kHz handle.
+    let asset = AudioAsset::from_samples(vec![0.0, 1.0], 1, 48000, 48000).unwrap();
+    assert!(matches!(
+        handle.publish(&asset),
         Err(AssetError::SampleRateMismatch {
             asset: 48000,
-            graph: 0
+            graph: 44100
         })
     ));
 }
