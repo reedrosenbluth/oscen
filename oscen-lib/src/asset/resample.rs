@@ -30,9 +30,12 @@ fn blackman(t: f32) -> f32 {
     if t.abs() > 1.0 {
         return 0.0;
     }
-    // Standard Blackman with the argument mapped so t = 0 is the center.
+    // Standard Blackman with the argument mapped so t = 0 is the center. The
+    // cos(2*phase) term uses the double-angle identity to avoid a second
+    // transcendental call in the per-tap kernel loop.
     let phase = PI * (t + 1.0);
-    0.42 - 0.5 * phase.cos() + 0.08 * (2.0 * phase).cos()
+    let c = phase.cos();
+    0.42 - 0.5 * c + 0.08 * (2.0 * c * c - 1.0)
 }
 
 /// Offline band-limited rational resample of a single channel from `src_rate`
@@ -65,25 +68,27 @@ pub(crate) fn resample_channel(input: &[f32], src_rate: u32, dst_rate: u32) -> V
     let radius = ZERO_CROSSINGS as f32 / cutoff;
 
     let inv_ratio = 1.0 / ratio; // output index -> input position
+    let inv_radius = 1.0 / radius;
     let mut output = Vec::with_capacity(out_len);
     for n in 0..out_len {
         // Continuous source position (in input samples) for this output sample.
         let pos = n as f64 * inv_ratio;
-        let first = (pos - radius as f64).ceil() as isize;
-        let last = (pos + radius as f64).floor() as isize;
+        // Clamp the kernel support to the buffer up front: taps skipped at the
+        // edges contribute nothing to `acc` or `weight_sum`, which the
+        // per-output normalization below already accounts for.
+        let first = ((pos - radius as f64).ceil() as isize).max(0) as usize;
+        let last = ((pos + radius as f64).floor() as isize)
+            .min(input.len() as isize - 1) as usize;
 
         let mut acc = 0.0f32;
         let mut weight_sum = 0.0f32;
-        for i in first..=last {
-            if i < 0 || i as usize >= input.len() {
-                continue;
-            }
+        for (i, &sample) in input.iter().enumerate().take(last + 1).skip(first) {
             // `dist` is in input samples from the kernel center. No leading
             // `cutoff` gain factor: a constant scale cancels under the
             // per-output normalization below.
             let dist = (pos - i as f64) as f32;
-            let w = sinc(cutoff * dist) * blackman(dist / radius);
-            acc += w * input[i as usize];
+            let w = sinc(cutoff * dist) * blackman(dist * inv_radius);
+            acc += w * sample;
             weight_sum += w;
         }
 
