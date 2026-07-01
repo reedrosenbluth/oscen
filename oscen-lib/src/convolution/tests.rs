@@ -268,6 +268,33 @@ fn multi_convolver_engine_mono_ir_broadcasts() {
     assert_close_rel(&right, &ir, "mono IR broadcast to right");
 }
 
+/// A multi-channel IR into a mono engine averages the channels, matching the
+/// old `from_wav` downmix instead of silently taking channel 0.
+#[test]
+fn multi_convolver_engine_stereo_ir_to_mono_averages() {
+    let ir_l = vec![0.5f32, -0.25, 0.125];
+    let ir_r = vec![0.2f32, 0.4, -0.1];
+    let averaged: Vec<f32> = ir_l
+        .iter()
+        .zip(ir_r.iter())
+        .map(|(&l, &r)| (l + r) * 0.5)
+        .collect();
+    let interleaved: Vec<f32> = ir_l
+        .iter()
+        .zip(ir_r.iter())
+        .flat_map(|(&l, &r)| [l, r])
+        .collect();
+    let asset = AudioAsset::from_samples(interleaved, 2, 44100, 44100).unwrap();
+
+    let mut engine = ConvolverConsumer::<f32>::default().build(&asset).unwrap();
+    assert_eq!(engine.num_channels(), 1);
+
+    let mut input = vec![0.0f32; averaged.len()];
+    input[0] = 1.0;
+    let got: Vec<f32> = input.iter().map(|&x| engine.process_frame(x)).collect();
+    assert_close_rel(&got, &averaged, "stereo IR averaged into mono engine");
+}
+
 /// A stereo input sequence with an impulse on `channel` at t=0, then zeros.
 fn stereo_impulse(channel: usize, len: usize) -> Vec<Frame<2>> {
     let mut input = vec![Frame([0.0, 0.0]); len];
