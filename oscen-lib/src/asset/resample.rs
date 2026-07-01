@@ -77,8 +77,7 @@ pub(crate) fn resample_channel(input: &[f32], src_rate: u32, dst_rate: u32) -> V
         // edges contribute nothing to `acc` or `weight_sum`, which the
         // per-output normalization below already accounts for.
         let first = ((pos - radius as f64).ceil() as isize).max(0) as usize;
-        let last = ((pos + radius as f64).floor() as isize)
-            .min(input.len() as isize - 1) as usize;
+        let last = ((pos + radius as f64).floor() as isize).min(input.len() as isize - 1) as usize;
 
         let mut acc = 0.0f32;
         let mut weight_sum = 0.0f32;

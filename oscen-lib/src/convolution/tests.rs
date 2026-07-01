@@ -272,8 +272,8 @@ fn multi_convolver_engine_mono_ir_broadcasts() {
 /// old `from_wav` downmix instead of silently taking channel 0.
 #[test]
 fn multi_convolver_engine_stereo_ir_to_mono_averages() {
-    let ir_l = vec![0.5f32, -0.25, 0.125];
-    let ir_r = vec![0.2f32, 0.4, -0.1];
+    let ir_l = [0.5f32, -0.25, 0.125];
+    let ir_r = [0.2f32, 0.4, -0.1];
     let averaged: Vec<f32> = ir_l
         .iter()
         .zip(ir_r.iter())
