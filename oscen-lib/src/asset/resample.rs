@@ -78,8 +78,11 @@ pub(crate) fn resample_channel(input: &[f32], src_rate: u32, dst_rate: u32) -> V
             if i < 0 || i as usize >= input.len() {
                 continue;
             }
-            let dist = (pos - i as f64) as f32; // input samples from the center
-            let w = cutoff * sinc(cutoff * dist) * blackman(dist / radius);
+            // `dist` is in input samples from the kernel center. No leading
+            // `cutoff` gain factor: a constant scale cancels under the
+            // per-output normalization below.
+            let dist = (pos - i as f64) as f32;
+            let w = sinc(cutoff * dist) * blackman(dist / radius);
             acc += w * input[i as usize];
             weight_sum += w;
         }
@@ -204,5 +207,61 @@ mod tests {
         assert_eq!(resample_channel(&input, 48_000, 24_000).len(), 500);
         assert_eq!(resample_channel(&input, 24_000, 48_000).len(), 2_000);
         assert_eq!(resample_channel(&input, 48_000, 48_000).len(), 1_000);
+    }
+
+    /// Upsampling reproduces a sub-Nyquist sine at the destination rate (the
+    /// counterpart to `sine_frequency_and_amplitude_preserved`, which goes
+    /// down): frequency in Hz and amplitude are preserved with no imaging.
+    #[test]
+    fn upsample_preserves_sine() {
+        let src = 24_000u32;
+        let dst = 48_000u32;
+        let freq = 1_000.0f32; // well below both Nyquist limits
+        let len = 12_000usize; // 0.5 s
+        let input: Vec<f32> = (0..len)
+            .map(|i| (2.0 * PI * freq * i as f32 / src as f32).sin())
+            .collect();
+
+        let out = resample_channel(&input, src, dst);
+        assert_eq!(out.len(), 24_000);
+
+        let guard = ZERO_CROSSINGS + 8;
+        let mut max_err = 0.0f32;
+        for i in guard..out.len() - guard {
+            let want = (2.0 * PI * freq * i as f32 / dst as f32).sin();
+            max_err = max_err.max((out[i] - want).abs());
+        }
+        assert!(max_err < 1e-2, "upsampled sine mismatch: max_err {max_err}");
+    }
+
+    /// Hygiene: no reachable input produces NaN/Inf. Drive the resampler with a
+    /// pseudo-random `[-1, 1]` signal across a sweep of up/down/odd ratios and
+    /// assert every output sample is finite.
+    #[test]
+    fn output_is_finite_across_rate_sweep() {
+        // Small LCG so the test is deterministic without a dependency.
+        let mut state = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((state >> 33) as f32 / (1u32 << 31) as f32) - 1.0 // [-1, 1)
+        };
+        let input: Vec<f32> = (0..4_000).map(|_| next()).collect();
+
+        for (src, dst) in [
+            (48_000, 44_100),
+            (44_100, 48_000),
+            (96_000, 44_100),
+            (44_100, 96_000),
+            (48_000, 8_000),
+            (22_050, 44_100),
+            (48_000, 48_000),
+        ] {
+            for (i, &y) in resample_channel(&input, src, dst).iter().enumerate() {
+                assert!(
+                    y.is_finite(),
+                    "non-finite output at {src}->{dst}, idx {i}: {y}"
+                );
+            }
+        }
     }
 }
