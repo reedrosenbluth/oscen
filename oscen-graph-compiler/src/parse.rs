@@ -1036,27 +1036,55 @@ fn parse_primary_expr(input: ParseStream) -> Result<ConnectionExpr> {
         return parse_connection_expr(&content);
     }
 
-    // Handle literals
+    // Handle literals. Parse just the literal token (not a full `Expr`): a
+    // greedy `Expr` parse would treat the joint `-` of a following `->` arrow
+    // as subtraction and fail (`0.5 -> dest`).
     if input.peek(syn::LitFloat) || input.peek(syn::LitInt) {
-        let lit: Expr = input.parse()?;
-        return Ok(ConnectionExpr::Literal(lit));
+        let lit: syn::Lit = input.parse()?;
+        return Ok(ConnectionExpr::Literal(syn::parse_quote!(#lit)));
     }
 
-    // Parse identifier or method call
-    let ident: Ident = input.parse()?;
-
-    // Optional turbofish on a call, e.g. `Frame::<2>(a, b)`. The width is
-    // inferred from the argument count and the destination type, so the explicit
-    // `<N>` is accepted here and dropped (it disambiguates nothing for codegen).
-    if input.peek(Token![::]) {
+    // Parse a path: `segment (:: segment)*`. The leading name of a connection
+    // source is either a graph input (single-segment ident) or a function name
+    // for a call (possibly path-qualified, e.g. `dsp::decode_ms(x)`).
+    let first: Ident = input.parse()?;
+    let mut segments: Vec<Ident> = vec![first];
+    while input.peek(Token![::]) {
         input.parse::<Token![::]>()?;
-        input.parse::<Token![<]>()?;
-        let _width: syn::LitInt = input.parse()?;
-        input.parse::<Token![>]>()?;
+        // A `::<N>` is the (dropped) turbofish width on a call, e.g.
+        // `Frame::<2>(a, b)`. The width is inferred from the argument count and
+        // the destination type, so it disambiguates nothing for codegen — accept
+        // and drop it, and stop extending the path.
+        if input.peek(Token![<]) {
+            input.parse::<Token![<]>()?;
+            let _width: syn::LitInt = input.parse()?;
+            input.parse::<Token![>]>()?;
+            break;
+        }
+        segments.push(input.parse::<Ident>()?);
     }
 
-    // Check for method call or field access
-    let mut expr = ConnectionExpr::Ident(ident.clone());
+    // A `(` makes this a function call whose name is the parsed path.
+    if input.peek(token::Paren) {
+        let content;
+        parenthesized!(content in input);
+        let args = parse_call_args(&content)?;
+        return Ok(ConnectionExpr::Call(ident_path(&segments), args));
+    }
+
+    // Not a call: a multi-segment path here is meaningless (endpoints are
+    // `node.field`, not `a::b`), so reject it with a clear message.
+    if segments.len() > 1 {
+        return Err(syn::Error::new(
+            segments[0].span(),
+            "a path is only valid as a function name in a connection; \
+             endpoints use `node.field`",
+        ));
+    }
+
+    // Single segment: a graph input ident that may begin a `.field` / `[i]`
+    // postfix chain (e.g. `osc.output`, `voices[0].output`).
+    let mut expr = ConnectionExpr::Ident(segments.into_iter().next().unwrap());
 
     loop {
         if input.peek(token::Bracket) {
@@ -1079,21 +1107,24 @@ fn parse_primary_expr(input: ParseStream) -> Result<ConnectionExpr> {
             } else {
                 expr = ConnectionExpr::Field(Box::new(expr), method_name);
             }
-        } else if input.peek(token::Paren) && matches!(expr, ConnectionExpr::Ident(_)) {
-            // Function call
-            let content;
-            parenthesized!(content in input);
-            let args = parse_call_args(&content)?;
-
-            if let ConnectionExpr::Ident(func_name) = expr {
-                expr = ConnectionExpr::Call(func_name, args);
-            }
         } else {
             break;
         }
     }
 
     Ok(expr)
+}
+
+/// Build a `syn::Path` from a non-empty sequence of identifier segments.
+fn ident_path(segments: &[Ident]) -> syn::Path {
+    let mut path_segments = syn::punctuated::Punctuated::new();
+    for ident in segments {
+        path_segments.push(syn::PathSegment::from(ident.clone()));
+    }
+    syn::Path {
+        leading_colon: None,
+        segments: path_segments,
+    }
 }
 
 fn parse_method_args(input: ParseStream) -> Result<Vec<Expr>> {

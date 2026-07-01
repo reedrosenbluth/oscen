@@ -10,6 +10,8 @@ use crate::handoff::{self, Consumer, Publisher};
 use std::path::Path;
 use std::sync::Arc;
 
+mod resample;
+
 /// An immutable, deinterleaved (channel-major) audio buffer at a known sample
 /// rate. Cheap to clone (the samples sit behind an `Arc`). Constructed only
 /// off the audio thread via the loaders below.
@@ -29,8 +31,10 @@ pub enum AssetError {
     Decode(hound::Error),
     /// The decoded buffer had zero frames.
     Empty,
-    /// The asset's sample rate does not match the graph's. v1 does not
-    /// resample (deferred — see the spec's "Out of scope").
+    /// The graph rate is not yet configured (0), so the asset cannot be
+    /// conformed to it. Loads with a valid graph rate are resampled on the
+    /// fly, so a rate difference alone is never an error — this only fires
+    /// when a load is attempted before `set_graph_rate`/`init`.
     SampleRateMismatch { asset: u32, graph: u32 },
 }
 
@@ -41,7 +45,8 @@ impl std::fmt::Display for AssetError {
             AssetError::Empty => write!(f, "audio asset is empty"),
             AssetError::SampleRateMismatch { asset, graph } => write!(
                 f,
-                "asset sample rate {asset} Hz does not match graph rate {graph} Hz"
+                "cannot conform asset ({asset} Hz) to graph rate {graph} Hz \
+                 (graph rate not configured; call set_graph_rate/init first)"
             ),
         }
     }
@@ -112,7 +117,9 @@ impl AudioAsset {
 
     /// Decode a WAV file. Integer formats normalize to ±1.0 f32; the result is
     /// deinterleaved to channel-major. `graph_rate` is the graph's sample rate;
-    /// a mismatch is an error (no resampling in v1).
+    /// a file at a different rate is resampled to it (see [`from_samples`]).
+    ///
+    /// [`from_samples`]: AudioAsset::from_samples
     pub fn from_wav(path: impl AsRef<Path>, graph_rate: u32) -> Result<AudioAsset, AssetError> {
         let mut reader = hound::WavReader::open(path)?;
         let spec = reader.spec();
@@ -135,6 +142,13 @@ impl AudioAsset {
     /// Build an asset from in-memory **interleaved** (frame-major) samples —
     /// used by tests and by future in-memory consumers. `samples.len()` must be
     /// a multiple of `channels`, `channels >= 1`, and the buffer non-empty.
+    ///
+    /// If `rate != graph_rate` the samples are resampled per channel to
+    /// `graph_rate` (band-limited; no aliasing) so the stored asset is always
+    /// at the graph rate. A `graph_rate` of 0 means the rate has not been
+    /// configured yet and is a [`SampleRateMismatch`] error.
+    ///
+    /// [`SampleRateMismatch`]: AssetError::SampleRateMismatch
     pub fn from_samples(
         samples: Vec<f32>,
         channels: usize,
@@ -150,11 +164,13 @@ impl AudioAsset {
         if channels == 0 || !samples.len().is_multiple_of(channels) {
             return Err(AssetError::Empty);
         }
-        let frames = samples.len() / channels;
-        if frames == 0 {
+        let src_frames = samples.len() / channels;
+        if src_frames == 0 {
             return Err(AssetError::Empty);
         }
-        if rate != graph_rate {
+        // A rate difference is resolved by resampling, but only once the graph
+        // rate is known; loading before `set_graph_rate`/`init` cannot conform.
+        if graph_rate == 0 {
             return Err(AssetError::SampleRateMismatch {
                 asset: rate,
                 graph: graph_rate,
@@ -165,15 +181,34 @@ impl AudioAsset {
         let mut out = vec![0.0f32; samples.len()];
         for (frame_index, frame) in samples.chunks(channels).enumerate() {
             for (c, &sample) in frame.iter().enumerate() {
-                out[c * frames + frame_index] = sample;
+                out[c * src_frames + frame_index] = sample;
             }
         }
 
+        // Conform to the graph rate. Resampling is per channel on the
+        // channel-major layout; an unchanged rate is a cheap copy.
+        let (samples, frames) = if rate == graph_rate {
+            (out, src_frames)
+        } else {
+            let mut resampled: Vec<f32> = Vec::new();
+            let mut dst_frames = 0;
+            for c in 0..channels {
+                let channel = &out[c * src_frames..(c + 1) * src_frames];
+                let conformed = resample::resample_channel(channel, rate, graph_rate);
+                dst_frames = conformed.len();
+                resampled.extend_from_slice(&conformed);
+            }
+            (resampled, dst_frames)
+        };
+        if frames == 0 {
+            return Err(AssetError::Empty);
+        }
+
         Ok(AudioAsset {
-            samples: out.into(),
+            samples: samples.into(),
             channels,
             frames,
-            sample_rate: rate,
+            sample_rate: graph_rate,
         })
     }
 }

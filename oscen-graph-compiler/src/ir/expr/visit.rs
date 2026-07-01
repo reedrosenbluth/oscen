@@ -113,7 +113,7 @@ mod tests {
     fn walk_expr_visits_nested_call_args() {
         let expr = IrExpr {
             kind: IrExprKind::Call {
-                function: format_ident!("clamp"),
+                function: syn::parse_quote!(clamp),
                 args: vec![endpoint("x"), endpoint("y"), endpoint("z")],
             },
             span: Span::call_site(),

@@ -1,8 +1,8 @@
 //! Realtime looping **stereo** sample player with live file swapping and an
 //! LFO-swept resonant lowpass filter applied independently per channel.
 //!
-//! Pass one or more WAV files at the OUTPUT DEVICE's sample rate (the asset
-//! loader does not resample — a mismatch is reported and that file skipped).
+//! Pass one or more WAV files; the asset loader resamples each to the OUTPUT
+//! DEVICE's sample rate on load (a file that fails to decode is skipped).
 //! The player loops the first file; every 4 seconds it swaps to the next file
 //! in the list, decoded and published from the control thread through a
 //! lock-free handoff so the audio thread never decodes, allocates, or frees.
