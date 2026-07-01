@@ -432,14 +432,30 @@ fn build_edges(
         if binding_stmts.contains(&stmt_index) {
             continue;
         }
-        // Lower to IR forms.
+        // Lower to IR forms. A failed lowering means a name in the expression
+        // resolved to nothing — report it; a silently dropped edge compiles to
+        // a graph that runs but produces silence.
         let ir_source = match lower_expr(&stmt.source, name_to_id, ir) {
             Some(e) => e,
-            None => continue,
+            None => {
+                diags.push_error(syn::Error::new(
+                    stmt.span,
+                    "cannot resolve the source of this connection \
+                     (unknown node or endpoint name?)",
+                ));
+                continue;
+            }
         };
         let ir_dest = match lower_endpoint(&stmt.dest, name_to_id, ir) {
             Some(d) => d,
-            None => continue,
+            None => {
+                diags.push_error(syn::Error::new(
+                    stmt.span,
+                    "cannot resolve the destination of this connection \
+                     (unknown node or endpoint name?)",
+                ));
+                continue;
+            }
         };
 
         // Type-compatibility check.

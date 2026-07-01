@@ -112,6 +112,23 @@ graph! {
     }
 }
 
+// path-qualified frame constructor: any call path ending in `Frame` is the
+// frame constructor, so the qualified spelling behaves like the bare one.
+graph! {
+    name: QualifiedFrameCtorGraph;
+
+    output stream out: Frame<2>;
+
+    nodes {
+        a = ConstF32::new(0.25);
+        b = ConstF32::new(-0.5);
+    }
+
+    connections {
+        oscen::frame::Frame::<2>(a.output, b.output) -> out;
+    }
+}
+
 // bare-ident function regression: a single-segment name still works.
 graph! {
     name: BareIdentFnGraph;
@@ -145,6 +162,19 @@ fn path_qualified_function_decodes_frame_to_frame() {
 #[test]
 fn turbofish_frame_constructor_still_parses() {
     let mut graph = TurbofishCtorGraph::new();
+    graph.init(RATE);
+    graph.process();
+    assert!(
+        approx_eq!(f32, graph.out.0[0], 0.25, epsilon = 1e-6)
+            && approx_eq!(f32, graph.out.0[1], -0.5, epsilon = 1e-6),
+        "expected Frame([0.25, -0.5]), got {:?}",
+        graph.out
+    );
+}
+
+#[test]
+fn qualified_frame_constructor_matches_bare() {
+    let mut graph = QualifiedFrameCtorGraph::new();
     graph.init(RATE);
     graph.process();
     assert!(

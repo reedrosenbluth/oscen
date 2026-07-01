@@ -1,0 +1,13 @@
+error: cannot resolve the source of this connection (unknown node or endpoint name?)
+  --> tests/ui/unknown_node_in_call_arg.rs:17:9
+   |
+17 |         double(ocs.output) -> out;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PolyBlepOscillator`
+ --> tests/ui/unknown_node_in_call_arg.rs:1:20
+  |
+1 | use oscen::{graph, PolyBlepOscillator};
+  |                    ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

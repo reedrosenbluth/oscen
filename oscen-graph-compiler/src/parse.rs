@@ -1051,14 +1051,25 @@ fn parse_primary_expr(input: ParseStream) -> Result<ConnectionExpr> {
     let mut segments: Vec<Ident> = vec![first];
     while input.peek(Token![::]) {
         input.parse::<Token![::]>()?;
-        // A `::<N>` is the (dropped) turbofish width on a call, e.g.
-        // `Frame::<2>(a, b)`. The width is inferred from the argument count and
-        // the destination type, so it disambiguates nothing for codegen — accept
-        // and drop it, and stop extending the path.
+        // A `::<N>` is the (dropped) turbofish width on a `Frame` constructor,
+        // e.g. `Frame::<2>(a, b)` or `frame::Frame::<2>(a, b)`. The width is
+        // inferred from the argument count and the destination type, so it
+        // disambiguates nothing for codegen — accept and drop it. Any other
+        // path silently losing its generic arguments would miscompile, so
+        // turbofish is rejected everywhere else.
         if input.peek(Token![<]) {
-            input.parse::<Token![<]>()?;
+            let lt = input.parse::<Token![<]>()?;
+            if segments.last().map(|s| s != "Frame").unwrap_or(true) {
+                return Err(syn::Error::new(
+                    lt.span,
+                    "turbofish arguments are only supported on the `Frame` constructor",
+                ));
+            }
             let _width: syn::LitInt = input.parse()?;
             input.parse::<Token![>]>()?;
+            if !input.peek(token::Paren) {
+                return Err(input.error("expected `(` after `Frame::<N>`"));
+            }
             break;
         }
         segments.push(input.parse::<Ident>()?);
