@@ -82,8 +82,10 @@ impl IirLowpass {
     /// 2. Calculate coefficients in the analog domain
     /// 3. Apply bilinear transform to get digital coefficients
     fn update_coefficients(&mut self, sample_rate: f32) {
-        let nyquist = sample_rate * 0.5 - f32::EPSILON;
-        let freq = self.cutoff.clamp(20.0, nyquist);
+        // Keep the cutoff strictly below Nyquist with a relative margin: an
+        // absolute epsilon rounds away at these magnitudes, letting tan() blow
+        // up and push the poles onto the unit circle.
+        let freq = self.cutoff.clamp(20.0, sample_rate * 0.49);
         let q = self.q.max(0.01); // Prevent division by zero
 
         // Pre-warping: n = 1/tan(π·f/fs)
@@ -307,6 +309,103 @@ mod tests {
                 filter.output.abs() < 10.0,
                 "Output unstable at sample {}: {}",
                 n,
+                filter.output
+            );
+        }
+    }
+
+    /// Deterministic white-ish noise in [-1, 1) from a seeded LCG.
+    fn lcg_noise(seed: &mut u32) -> f32 {
+        *seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (*seed >> 8) as f32 / (1 << 24) as f32 * 2.0 - 1.0
+    }
+
+    #[test]
+    fn test_coefficients_stable_at_and_beyond_nyquist() {
+        // Cutoffs at or above Nyquist must still produce poles strictly inside
+        // the unit circle (biquad stability triangle: |a2| < 1, |a1| < 1 + a2).
+        for &sample_rate in &[22_050.0, 32_000.0, 44_100.0, 48_000.0, 96_000.0] {
+            for &cutoff in &[sample_rate * 0.5, sample_rate, 1e6] {
+                let mut filter = IirLowpass::new(cutoff, std::f32::consts::FRAC_1_SQRT_2);
+                filter.set_sample_rate(sample_rate);
+                filter.prepare();
+
+                assert!(
+                    filter.a2.abs() < 1.0,
+                    "pole on/outside unit circle at sr={}, cutoff={}: a2={}",
+                    sample_rate,
+                    cutoff,
+                    filter.a2
+                );
+                assert!(
+                    filter.a1.abs() < 1.0 + filter.a2,
+                    "unstable coefficients at sr={}, cutoff={}: a1={}, a2={}",
+                    sample_rate,
+                    cutoff,
+                    filter.a1,
+                    filter.a2
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_output_finite_and_bounded_across_extremes() {
+        let sample_rates = [22_050.0, 32_000.0, 44_100.0, 48_000.0, 96_000.0];
+        let qs = [0.01, std::f32::consts::FRAC_1_SQRT_2, 10.0];
+        for &sample_rate in &sample_rates {
+            let cutoffs = [
+                20.0,
+                1_000.0,
+                sample_rate * 0.25,
+                sample_rate * 0.49,
+                sample_rate * 0.5,
+                sample_rate,
+                100_000.0,
+            ];
+            for &cutoff in &cutoffs {
+                for &q in &qs {
+                    let mut filter = IirLowpass::new(cutoff, q);
+                    filter.set_sample_rate(sample_rate);
+                    filter.prepare();
+
+                    let mut seed = 0x1234_5678_u32;
+                    for n in 0..8_000 {
+                        filter.input = lcg_noise(&mut seed);
+                        filter.process();
+                        assert!(
+                            filter.output.is_finite() && filter.output.abs() < 100.0,
+                            "unstable output at sr={}, cutoff={}, q={}, sample {}: {}",
+                            sample_rate,
+                            cutoff,
+                            q,
+                            n,
+                            filter.output
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_dc_gain_unity_across_sample_rates() {
+        use float_cmp::approx_eq;
+
+        for &sample_rate in &[22_050.0, 32_000.0, 44_100.0, 48_000.0, 96_000.0] {
+            let mut filter = IirLowpass::new(1_000.0, std::f32::consts::FRAC_1_SQRT_2);
+            filter.set_sample_rate(sample_rate);
+            filter.prepare();
+
+            for _ in 0..4_000 {
+                filter.input = 1.0;
+                filter.process();
+            }
+
+            assert!(
+                approx_eq!(f32, filter.output, 1.0, epsilon = 0.01),
+                "DC gain should be ~1.0 at sr={}: got {}",
+                sample_rate,
                 filter.output
             );
         }

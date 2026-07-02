@@ -67,8 +67,10 @@ impl<F: AudioFrame> TptFilter<F> {
     }
 
     fn update_coefficients(&mut self, sample_rate: f32, cutoff: f32, q: f32) {
-        let nyquist = sample_rate * 0.5 - f32::EPSILON;
-        let freq = cutoff.clamp(20.0, nyquist);
+        // Keep the cutoff strictly below Nyquist with a relative margin: an
+        // absolute epsilon rounds away at these magnitudes, letting tan() blow
+        // up and degenerate the coefficients.
+        let freq = cutoff.clamp(20.0, sample_rate * 0.49);
         let period = 0.5 / sample_rate;
         let f = (2.0 * sample_rate) * (2.0 * PI * freq * period).tan() * period;
         let inv_q = 1.0 / q;
@@ -83,8 +85,7 @@ impl<F: AudioFrame> TptFilter<F> {
 
     #[inline(always)]
     fn apply_parameter_updates(&mut self, sample_rate: f32) {
-        let nyquist = sample_rate * 0.5 - f32::EPSILON;
-        let max_cutoff = nyquist.min(20_000.0);
+        let max_cutoff = (sample_rate * 0.49).min(20_000.0);
         let cutoff_base = self.cutoff.clamp(20.0, max_cutoff);
         let q = self.q.clamp(0.1, 10.0);
 
@@ -115,8 +116,10 @@ impl<F: AudioFrame> TptFilter<F> {
         let band = high * self.g + self.z[0];
         let low = band * self.g + self.z[1];
 
-        self.z[0] = high * self.g + band;
-        self.z[1] = band * self.g + low;
+        // Flush the feedback state to zero before it decays into subnormals,
+        // which are 10-100x slower on hardware without flush-to-zero.
+        self.z[0] = (high * self.g + band).flush_denormal(1e-30);
+        self.z[1] = (band * self.g + low).flush_denormal(1e-30);
 
         // Write output
         self.output = low;
@@ -195,6 +198,113 @@ mod tests {
                 filter.output.0[1]
             );
         }
+    }
+
+    /// Deterministic white-ish noise in [-1, 1) from a seeded LCG.
+    fn lcg_noise(seed: &mut u32) -> f32 {
+        *seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (*seed >> 8) as f32 / (1 << 24) as f32 * 2.0 - 1.0
+    }
+
+    #[test]
+    fn test_output_finite_and_bounded_across_extremes() {
+        let sample_rates = [22_050.0, 32_000.0, 44_100.0, 48_000.0, 96_000.0];
+        let qs = [0.1, 0.707, 10.0];
+        for &sample_rate in &sample_rates {
+            let cutoffs = [
+                20.0,
+                1_000.0,
+                sample_rate * 0.25,
+                sample_rate * 0.49,
+                sample_rate * 0.5,
+                sample_rate,
+                100_000.0,
+            ];
+            for &cutoff in &cutoffs {
+                for &q in &qs {
+                    let mut filter = TptFilter::<f32>::new(cutoff, q);
+                    filter.set_sample_rate(sample_rate);
+                    filter.prepare();
+                    filter.cutoff = cutoff;
+                    filter.q = q;
+                    filter.f_mod = 0.0;
+
+                    // The degenerate-coefficient blow-up is a slow exponential,
+                    // so drive the filter long enough to expose it.
+                    let mut seed = 0x1234_5678_u32;
+                    for n in 0..100_000 {
+                        filter.input = lcg_noise(&mut seed);
+                        filter.process();
+                        assert!(
+                            filter.output.is_finite() && filter.output.abs() < 100.0,
+                            "unstable output at sr={}, cutoff={}, q={}, sample {}: {}",
+                            sample_rate,
+                            cutoff,
+                            q,
+                            n,
+                            filter.output
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_dc_gain_unity_across_sample_rates() {
+        use float_cmp::approx_eq;
+
+        for &sample_rate in &[22_050.0, 32_000.0, 44_100.0, 48_000.0, 96_000.0] {
+            let mut filter = TptFilter::<f32>::new(1_000.0, 0.707);
+            filter.set_sample_rate(sample_rate);
+            filter.prepare();
+            filter.cutoff = 1_000.0;
+            filter.q = 0.707;
+            filter.f_mod = 0.0;
+
+            for _ in 0..4_000 {
+                filter.input = 1.0;
+                filter.process();
+            }
+
+            assert!(
+                approx_eq!(f32, filter.output, 1.0, epsilon = 0.01),
+                "DC gain should be ~1.0 at sr={}: got {}",
+                sample_rate,
+                filter.output
+            );
+        }
+    }
+
+    /// After the input goes silent the integrator state must be flushed to
+    /// zero before it decays into the f32 subnormal range, where multiplies
+    /// are 10-100x slower on hardware without flush-to-zero.
+    #[test]
+    fn test_integrator_state_never_goes_subnormal_after_silence() {
+        let mut filter = TptFilter::<f32>::new(1_000.0, 0.707);
+        filter.set_sample_rate(48_000.0);
+        filter.prepare();
+        filter.cutoff = 1_000.0;
+        filter.q = 0.707;
+        filter.f_mod = 0.0;
+
+        filter.input = 1.0;
+        filter.process();
+
+        filter.input = 0.0;
+        for n in 0..20_000 {
+            filter.process();
+            for (i, &z) in filter.z.iter().enumerate() {
+                assert!(
+                    z == 0.0 || z.is_normal(),
+                    "integrator state z[{}] is subnormal at sample {}: {:e}",
+                    i,
+                    n,
+                    z
+                );
+            }
+        }
+        assert_eq!(filter.z, [0.0, 0.0], "state should settle to exactly zero");
     }
 
     #[test]
