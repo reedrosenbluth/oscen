@@ -213,3 +213,55 @@ fn bare_event_passthrough_emits_queue_copy() {
         body
     );
 }
+
+// ---------------------------------------------------------------------------
+// Indexed endpoints on same-rate paths
+// ---------------------------------------------------------------------------
+
+#[test]
+fn indexed_source_and_dest_use_single_element_access() {
+    let tokens = compile_to_string(quote! {
+        name: IdxCode;
+        input stream s;
+        output stream out;
+        output stream solo;
+        node voices = [Gain::new(0.5); 3];
+        node fx = Gain::new(0.5);
+        node lfo = Gain::new(0.5);
+        connections {
+            s -> voices.input;
+            lfo.output -> voices[2].gain;
+            voices[0].output -> fx.input;
+            voices[1].output -> solo;
+            fx.output -> out;
+        }
+    });
+    // `voices[0].output -> fx.input` reads exactly one element (no fan-in sum).
+    assert!(
+        tokens.contains("self . voices [0usize] . output"),
+        "expected single-element read of voices[0]; got:\n{}",
+        tokens
+    );
+    assert!(
+        !tokens.contains("self . fx . input = self . voices . iter ()"),
+        "indexed source must not fan-in over the whole array:\n{}",
+        tokens
+    );
+    // `lfo.output -> voices[2].gain` writes exactly one element (no broadcast).
+    assert!(
+        tokens.contains("& mut self . voices [2usize] . gain"),
+        "expected single-element write to voices[2]; got:\n{}",
+        tokens
+    );
+    // `voices[1].output -> solo` (graph output) also reads one element.
+    assert!(
+        tokens.contains("self . voices [1usize] . output"),
+        "expected single-element read of voices[1] for graph output; got:\n{}",
+        tokens
+    );
+    assert!(
+        !tokens.contains("self . solo = self . voices . iter ()"),
+        "indexed graph-output source must not fan-in over the whole array:\n{}",
+        tokens
+    );
+}

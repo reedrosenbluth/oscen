@@ -124,24 +124,13 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// The source-access expression a scalar connect would read, e.g.
-    /// `self.osc.output` (node endpoint) or `self.dry` (graph input). Used as a
-    /// single term of a fan-in sum. The source is known simple + scalar.
+    /// `self.osc.output` (node endpoint), `self.dry` (graph input), or
+    /// `self.voices[0].output` (indexed array element). Used as a single term
+    /// of a fan-in sum. The source is known simple + scalar; `emit_expr`
+    /// already handles ramped graph inputs (`.current`) and element/channel
+    /// indices.
     fn simple_source_access_tokens(&self, source: &crate::ir::expr::IrExpr) -> TokenStream {
-        let source_ident = self
-            .extract_root_node(source)
-            .expect("simple scalar source has a root node");
-        let source_field = self.extract_endpoint_field(source);
-        let source_access = if self.is_input(source_ident)
-            && source_field.is_none()
-            && self.is_ramped_input(source_ident).is_some()
-        {
-            quote! { .current }
-        } else if let Some(field) = source_field {
-            quote! { .#field }
-        } else {
-            quote! {}
-        };
-        quote! { self.#source_ident #source_access }
+        self.emit_expr(source)
     }
 
     /// Emit a fan-in sum into `dst` (the destination lvalue `self.node.field`
@@ -304,10 +293,29 @@ impl<'a> CodegenContext<'a> {
                     }
                 }
 
+                // An index on a node-array endpoint (`voices[0].output` /
+                // `voices[2].frequency`) addresses a single element; such
+                // edges are classified Scalar during lowering. Route them
+                // through the endpoint emitters, which produce the `[k]`
+                // element access on the indexed side.
+                let src_elem_indexed = Self::ir_expr_as_endpoint(source)
+                    .and_then(|ep| ep.index)
+                    .filter(|_| self.get_node_array_size(source_ident).is_some())
+                    .is_some();
+                if src_elem_indexed || dest.index.is_some() {
+                    let src_toks = self.emit_expr(source);
+                    let dst_toks = self.emit_endpoint(dest);
+                    assignments.push(quote! {
+                        <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                            &#src_toks,
+                            &mut #dst_toks
+                        );
+                    });
+                    continue;
+                }
+
                 // A channel index on a scalar node's endpoint (`s.output[0]`)
-                // extracts one channel of its `Frame<N>` value. (An index on a
-                // node-array element is handled via the `[i]` node position and
-                // keeps its existing access form.)
+                // extracts one channel of its `Frame<N>` value.
                 let channel_index = Self::ir_expr_as_endpoint(source)
                     .and_then(|ep| ep.index)
                     .filter(|_| self.get_node_array_size(source_ident).is_none());
@@ -455,19 +463,27 @@ impl<'a> CodegenContext<'a> {
                 let is_simple_source =
                     Self::is_simple_endpoint_source(source) && source_field.is_some();
 
+                // An index on the source endpoint selects one array element
+                // (or one frame channel); it must never fan in over the
+                // whole array.
+                let source_index = Self::ir_expr_as_endpoint(source).and_then(|ep| ep.index);
+
                 match output_kind {
                     EndpointKind::Stream | EndpointKind::Value => {
                         if is_simple_source {
                             let source_node = source_node.unwrap();
                             let source_field = source_field.unwrap();
-                            if let Some(_src_array_size) = self.get_node_array_size(source_node) {
+                            if self.get_node_array_size(source_node).is_some()
+                                && source_index.is_none()
+                            {
                                 out.push(quote! {
                                     self.#dest_ident = self.#source_node.iter().map(|n| n.#source_field).sum();
                                 });
                             } else {
+                                let source_tokens = self.emit_expr(source);
                                 out.push(quote! {
                                     <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                        &self.#source_node.#source_field,
+                                        &#source_tokens,
                                         &mut self.#dest_ident
                                     );
                                 });
@@ -483,7 +499,10 @@ impl<'a> CodegenContext<'a> {
                         if is_simple_source {
                             let source_node = source_node.unwrap();
                             let source_field = source_field.unwrap();
-                            if let Some(array_size) = self.get_node_array_size(source_node) {
+                            let array_size = self
+                                .get_node_array_size(source_node)
+                                .filter(|_| source_index.is_none());
+                            if let Some(array_size) = array_size {
                                 out.push(quote! {
                                     self.#dest_ident.clear();
                                     for i in 0..#array_size {
@@ -493,9 +512,10 @@ impl<'a> CodegenContext<'a> {
                                     }
                                 });
                             } else {
+                                let source_tokens = self.emit_expr(source);
                                 out.push(quote! {
                                     <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                        &self.#source_node.#source_field,
+                                        &#source_tokens,
                                         &mut self.#dest_ident
                                     );
                                 });

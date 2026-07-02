@@ -759,13 +759,24 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
     let edge_ids: Vec<_> = ir.edges.keys().collect();
 
     for eid in edge_ids {
-        let (src_node_id, dst_node_id, policy, span) = {
+        let (src_node_id, dst_node_id, policy, span, src_index, dst_index) = {
             let edge = &ir.edges[eid];
             let src_node_id = match primary_node(&edge.source) {
                 Some(id) => id,
                 None => continue, // Pure-literal source; no rate to check.
             };
-            (src_node_id, edge.dest.node, edge.policy, edge.span)
+            let src_index = match &edge.source.kind {
+                IrExprKind::Endpoint(ep) => ep.index,
+                _ => None,
+            };
+            (
+                src_node_id,
+                edge.dest.node,
+                edge.policy,
+                edge.span,
+                src_index,
+                edge.dest.index,
+            )
         };
 
         let source_rate = ir.nodes[src_node_id].rate;
@@ -796,9 +807,13 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
             }
         };
 
-        // Compute fanout shape from source/dest node array sizes.
-        let src_array_size = array_size_of(&ir.nodes[src_node_id].kind);
-        let dst_array_size = array_size_of(&ir.nodes[dst_node_id].kind);
+        // Compute fanout shape from source/dest node array sizes. An indexed
+        // endpoint (`voices[0].output`, `voices[2].frequency`) addresses one
+        // element, so it is scalar regardless of the node's array size.
+        let src_array_size =
+            array_size_of(&ir.nodes[src_node_id].kind).filter(|_| src_index.is_none());
+        let dst_array_size =
+            array_size_of(&ir.nodes[dst_node_id].kind).filter(|_| dst_index.is_none());
         let fanout = classify_fanout(src_array_size, dst_array_size);
 
         ir.edges[eid].kernel = kernel;

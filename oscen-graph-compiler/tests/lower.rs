@@ -750,3 +750,54 @@ fn non_literal_node_array_size_is_rejected() {
         msgs
     );
 }
+
+#[test]
+fn indexed_endpoints_classify_as_scalar_fanout() {
+    // `voices[0].output -> fx.input` addresses one element; it must not be
+    // classified as an array fan-in (and an indexed destination must not be
+    // classified as a broadcast).
+    let (ir, diags) = lower_quote(quote! {
+        name: Idx;
+        input stream s;
+        output stream out;
+        node voices = [Gain::new(0.5); 3];
+        node fx = Gain::new(0.5);
+        node lfo = Gain::new(0.5);
+        connections {
+            s -> voices.input;
+            lfo.output -> voices[2].gain;
+            voices[0].output -> fx.input;
+            fx.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diagnostics: {:?}",
+        diags.items
+    );
+    let ir = ir.expect("lower should produce an IrGraph");
+
+    use oscen_graph_compiler::ir::FanoutShape;
+    for edge in ir.edges.values() {
+        let dest_name = ir.nodes[edge.dest.node].name.to_string();
+        let src_index = match &edge.source.kind {
+            oscen_graph_compiler::ir::IrExprKind::Endpoint(ep) => ep.index,
+            _ => None,
+        };
+        if src_index.is_some() || edge.dest.index.is_some() {
+            assert!(
+                matches!(edge.fanout, FanoutShape::Scalar),
+                "indexed edge into `{}` should be Scalar, got {:?}",
+                dest_name,
+                edge.fanout
+            );
+        }
+        if dest_name == "voices" && edge.dest.index.is_none() {
+            assert!(
+                matches!(edge.fanout, FanoutShape::Broadcast { n: 3 }),
+                "un-indexed edge into `voices` should stay Broadcast, got {:?}",
+                edge.fanout
+            );
+        }
+    }
+}
