@@ -116,8 +116,10 @@ impl<F: AudioFrame> TptFilter<F> {
         let band = high * self.g + self.z[0];
         let low = band * self.g + self.z[1];
 
-        self.z[0] = high * self.g + band;
-        self.z[1] = band * self.g + low;
+        // Flush the feedback state to zero before it decays into subnormals,
+        // which are 10-100x slower on hardware without flush-to-zero.
+        self.z[0] = (high * self.g + band).flush_denormal(1e-30);
+        self.z[1] = (band * self.g + low).flush_denormal(1e-30);
 
         // Write output
         self.output = low;
@@ -272,6 +274,37 @@ mod tests {
                 filter.output
             );
         }
+    }
+
+    /// After the input goes silent the integrator state must be flushed to
+    /// zero before it decays into the f32 subnormal range, where multiplies
+    /// are 10-100x slower on hardware without flush-to-zero.
+    #[test]
+    fn test_integrator_state_never_goes_subnormal_after_silence() {
+        let mut filter = TptFilter::<f32>::new(1_000.0, 0.707);
+        filter.set_sample_rate(48_000.0);
+        filter.prepare();
+        filter.cutoff = 1_000.0;
+        filter.q = 0.707;
+        filter.f_mod = 0.0;
+
+        filter.input = 1.0;
+        filter.process();
+
+        filter.input = 0.0;
+        for n in 0..20_000 {
+            filter.process();
+            for (i, &z) in filter.z.iter().enumerate() {
+                assert!(
+                    z == 0.0 || z.is_normal(),
+                    "integrator state z[{}] is subnormal at sample {}: {:e}",
+                    i,
+                    n,
+                    z
+                );
+            }
+        }
+        assert_eq!(filter.z, [0.0, 0.0], "state should settle to exactly zero");
     }
 
     #[test]
