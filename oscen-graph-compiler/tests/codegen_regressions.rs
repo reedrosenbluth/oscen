@@ -341,3 +341,26 @@ fn same_rate_event_edge_propagates_post_inner_taint() {
         body
     );
 }
+
+// ---------------------------------------------------------------------------
+// set_X_with_ramp(value, 0) must not leak the active_ramps counter
+// ---------------------------------------------------------------------------
+
+#[test]
+fn zero_frame_ramp_setter_decrements_active_ramps() {
+    let tokens = compile(quote! {
+        name: RampZero;
+        input value gain = 1.0 [ramp: 64];
+        output value level;
+        connections {
+            gain -> level;
+        }
+    })
+    .expect("compile succeeds");
+    let body = inherent_method_body(tokens, "set_gain_with_ramp");
+    assert!(
+        body.contains("self . active_ramps -= 1"),
+        "frames == 0 with an in-flight ramp must decrement active_ramps; got:\n{}",
+        body
+    );
+}

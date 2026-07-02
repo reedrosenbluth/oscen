@@ -972,8 +972,13 @@ impl<'a> CodegenContext<'a> {
                         pub fn #set_ramp_name(&mut self, value: f32, frames: u32) {
                             // Only start a new ramp if target actually changed
                             if value != self.#name.target {
-                                if frames > 0 && !self.#name.is_ramping() {
-                                    self.active_ramps += 1;
+                                if frames > 0 {
+                                    if !self.#name.is_ramping() {
+                                        self.active_ramps += 1;
+                                    }
+                                } else if self.#name.is_ramping() {
+                                    // frames == 0 ends any in-flight ramp immediately.
+                                    self.active_ramps -= 1;
                                 }
                                 self.#name.set_with_ramp(value, frames);
                             }
