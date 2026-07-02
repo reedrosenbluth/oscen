@@ -502,6 +502,7 @@ fn build_edges(
                     stmt.policy,
                     stmt.span,
                     /*is_feedback=*/ false,
+                    diags,
                 );
             }
 
@@ -548,6 +549,7 @@ fn build_edges(
                     stmt.policy,
                     stmt.span,
                     /*is_feedback=*/ false,
+                    diags,
                 );
 
                 // Edge 2: via.output → dst  (feedback — breaks the cycle)
@@ -568,6 +570,7 @@ fn build_edges(
                     stmt.policy,
                     stmt.span,
                     /*is_feedback=*/ true,
+                    diags,
                 );
             }
 
@@ -628,6 +631,7 @@ fn build_edges(
                     stmt.policy,
                     stmt.span,
                     /*is_feedback=*/ false,
+                    diags,
                 );
 
                 // Edge 2: synth.output → dst  (feedback — breaks the cycle)
@@ -648,6 +652,7 @@ fn build_edges(
                     stmt.policy,
                     stmt.span,
                     /*is_feedback=*/ true,
+                    diags,
                 );
             }
         }
@@ -662,13 +667,24 @@ fn insert_edge(
     policy: ConnectionPolicy,
     span: proc_macro2::Span,
     is_feedback: bool,
+    diags: &mut Diagnostics,
 ) {
     // Compute primary source NodeId and extras from the IR source.
     let mut refs = collect_referenced_node_ids(&source);
     refs.dedup();
     let primary_src = match refs.first() {
         Some(&id) => id,
-        None => return, // Pure-literal source with no node references; skip.
+        None => {
+            // A source with no node references (e.g. `0.5 -> g.gain;`) has no
+            // edge to anchor on; silently dropping it would compile to a graph
+            // that never delivers the value.
+            diags.push_error(syn::Error::new(
+                span,
+                "constant connection sources are not supported; \
+                 set a default on the destination input instead",
+            ));
+            return;
+        }
     };
     let extra_sources: Vec<NodeId> = refs.into_iter().skip(1).collect();
 
@@ -716,8 +732,9 @@ impl crate::ir::expr::visit::Visitor for CollectEndpoints {
 /// Collect every `NodeId` referenced by an `IrExpr` source expression.
 /// Used by `build_edges` to anchor edges whose source is a compound
 /// expression — the first id is promoted to `IrEdge::source.node`, the
-/// rest are stored in `extra_source_nodes`.
-fn collect_referenced_node_ids(expr: &crate::ir::expr::IrExpr) -> Vec<NodeId> {
+/// rest are stored in `extra_source_nodes`. Also used by codegen's
+/// post-inner taint analysis to consider every referenced source node.
+pub(crate) fn collect_referenced_node_ids(expr: &crate::ir::expr::IrExpr) -> Vec<NodeId> {
     use crate::ir::expr::visit::Visitor;
     let mut v = CollectEndpoints::new();
     v.visit_expr(expr);
@@ -743,13 +760,24 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
     let edge_ids: Vec<_> = ir.edges.keys().collect();
 
     for eid in edge_ids {
-        let (src_node_id, dst_node_id, policy, span) = {
+        let (src_node_id, dst_node_id, policy, span, src_index, dst_index) = {
             let edge = &ir.edges[eid];
             let src_node_id = match primary_node(&edge.source) {
                 Some(id) => id,
                 None => continue, // Pure-literal source; no rate to check.
             };
-            (src_node_id, edge.dest.node, edge.policy, edge.span)
+            let src_index = match &edge.source.kind {
+                IrExprKind::Endpoint(ep) => ep.index,
+                _ => None,
+            };
+            (
+                src_node_id,
+                edge.dest.node,
+                edge.policy,
+                edge.span,
+                src_index,
+                edge.dest.index,
+            )
         };
 
         let source_rate = ir.nodes[src_node_id].rate;
@@ -780,9 +808,13 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
             }
         };
 
-        // Compute fanout shape from source/dest node array sizes.
-        let src_array_size = array_size_of(&ir.nodes[src_node_id].kind);
-        let dst_array_size = array_size_of(&ir.nodes[dst_node_id].kind);
+        // Compute fanout shape from source/dest node array sizes. An indexed
+        // endpoint (`voices[0].output`, `voices[2].frequency`) addresses one
+        // element, so it is scalar regardless of the node's array size.
+        let src_array_size =
+            array_size_of(&ir.nodes[src_node_id].kind).filter(|_| src_index.is_none());
+        let dst_array_size =
+            array_size_of(&ir.nodes[dst_node_id].kind).filter(|_| dst_index.is_none());
         let fanout = classify_fanout(src_array_size, dst_array_size);
 
         ir.edges[eid].kernel = kernel;
@@ -793,17 +825,41 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
 /// Per-node rate validation. Catches `Down(n)` rate annotations
 /// (currently unsupported) even on nodes with no edges. Mirrors the
 /// per-node check in `rate_analysis::analyze` so that unconnected
-/// undersampled nodes also produce a diagnostic.
+/// undersampled nodes also produce a diagnostic. Also rejects graphs
+/// mixing different `Up(n)` oversampling factors.
 fn validate_node_rates(ir: &IrGraph, diags: &mut Diagnostics) {
+    // Mixed `* N` factors are rejected for now: codegen runs the inner loop
+    // to the max factor while sizing and indexing each Up/Down edge buffer by
+    // its own edge's factor, so mixed factors would index out of bounds at
+    // runtime. Future upgrade path (clock division): gate each node's inner
+    // work on `__inner % (max / factor) == 0` and index its buffers by
+    // `__inner / (max / factor)`; factors are powers of two, so LCM == max.
+    let mut first_up: Option<u32> = None;
     for &id in &ir.processors {
         let node = &ir.nodes[id];
-        if let NodeRate::Down(n) = node.rate {
-            if n > 1 {
+        match node.rate {
+            NodeRate::Down(n) if n > 1 => {
                 diags.push_error(syn::Error::new(
                     node.span,
                     "node undersampling (`/ N`) is not yet supported in v1; only oversampling (`* N`) is implemented",
                 ));
             }
+            NodeRate::Up(n) => match first_up {
+                None => first_up = Some(n),
+                Some(m) if m != n => {
+                    diags.push_error(syn::Error::new(
+                        node.span,
+                        format!(
+                            "all oversampled nodes in a graph must use the same rate factor \
+                             (found `* {}` and `* {}`); use the highest factor for every \
+                             oversampled node",
+                            m, n
+                        ),
+                    ));
+                }
+                Some(_) => {}
+            },
+            _ => {}
         }
     }
 }

@@ -9,7 +9,7 @@ use quote::{quote, quote_spanned};
 use std::collections::HashSet;
 use syn::Result;
 
-use super::helpers::root_node_name;
+use super::helpers::{is_same_rate_kernel, root_node_name};
 use super::CodegenContext;
 
 /// How a stream destination's incoming edges should be emitted, after
@@ -124,24 +124,13 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// The source-access expression a scalar connect would read, e.g.
-    /// `self.osc.output` (node endpoint) or `self.dry` (graph input). Used as a
-    /// single term of a fan-in sum. The source is known simple + scalar.
+    /// `self.osc.output` (node endpoint), `self.dry` (graph input), or
+    /// `self.voices[0].output` (indexed array element). Used as a single term
+    /// of a fan-in sum. The source is known simple + scalar; `emit_expr`
+    /// already handles ramped graph inputs (`.current`) and element/channel
+    /// indices.
     fn simple_source_access_tokens(&self, source: &crate::ir::expr::IrExpr) -> TokenStream {
-        let source_ident = self
-            .extract_root_node(source)
-            .expect("simple scalar source has a root node");
-        let source_field = self.extract_endpoint_field(source);
-        let source_access = if self.is_input(source_ident)
-            && source_field.is_none()
-            && self.is_ramped_input(source_ident).is_some()
-        {
-            quote! { .current }
-        } else if let Some(field) = source_field {
-            quote! { .#field }
-        } else {
-            quote! {}
-        };
-        quote! { self.#source_ident #source_access }
+        self.emit_expr(source)
     }
 
     /// Emit a fan-in sum into `dst` (the destination lvalue `self.node.field`
@@ -304,10 +293,29 @@ impl<'a> CodegenContext<'a> {
                     }
                 }
 
+                // An index on a node-array endpoint (`voices[0].output` /
+                // `voices[2].frequency`) addresses a single element; such
+                // edges are classified Scalar during lowering. Route them
+                // through the endpoint emitters, which produce the `[k]`
+                // element access on the indexed side.
+                let src_elem_indexed = Self::ir_expr_as_endpoint(source)
+                    .and_then(|ep| ep.index)
+                    .filter(|_| self.get_node_array_size(source_ident).is_some())
+                    .is_some();
+                if src_elem_indexed || dest.index.is_some() {
+                    let src_toks = self.emit_expr(source);
+                    let dst_toks = self.emit_endpoint(dest);
+                    assignments.push(quote! {
+                        <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                            &#src_toks,
+                            &mut #dst_toks
+                        );
+                    });
+                    continue;
+                }
+
                 // A channel index on a scalar node's endpoint (`s.output[0]`)
-                // extracts one channel of its `Frame<N>` value. (An index on a
-                // node-array element is handled via the `[i]` node position and
-                // keeps its existing access form.)
+                // extracts one channel of its `Frame<N>` value.
                 let channel_index = Self::ir_expr_as_endpoint(source)
                     .and_then(|ep| ep.index)
                     .filter(|_| self.get_node_array_size(source_ident).is_none());
@@ -455,19 +463,27 @@ impl<'a> CodegenContext<'a> {
                 let is_simple_source =
                     Self::is_simple_endpoint_source(source) && source_field.is_some();
 
+                // An index on the source endpoint selects one array element
+                // (or one frame channel); it must never fan in over the
+                // whole array.
+                let source_index = Self::ir_expr_as_endpoint(source).and_then(|ep| ep.index);
+
                 match output_kind {
                     EndpointKind::Stream | EndpointKind::Value => {
                         if is_simple_source {
                             let source_node = source_node.unwrap();
                             let source_field = source_field.unwrap();
-                            if let Some(_src_array_size) = self.get_node_array_size(source_node) {
+                            if self.get_node_array_size(source_node).is_some()
+                                && source_index.is_none()
+                            {
                                 out.push(quote! {
                                     self.#dest_ident = self.#source_node.iter().map(|n| n.#source_field).sum();
                                 });
                             } else {
+                                let source_tokens = self.emit_expr(source);
                                 out.push(quote! {
                                     <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                        &self.#source_node.#source_field,
+                                        &#source_tokens,
                                         &mut self.#dest_ident
                                     );
                                 });
@@ -483,7 +499,10 @@ impl<'a> CodegenContext<'a> {
                         if is_simple_source {
                             let source_node = source_node.unwrap();
                             let source_field = source_field.unwrap();
-                            if let Some(array_size) = self.get_node_array_size(source_node) {
+                            let array_size = self
+                                .get_node_array_size(source_node)
+                                .filter(|_| source_index.is_none());
+                            if let Some(array_size) = array_size {
                                 out.push(quote! {
                                     self.#dest_ident.clear();
                                     for i in 0..#array_size {
@@ -493,13 +512,24 @@ impl<'a> CodegenContext<'a> {
                                     }
                                 });
                             } else {
+                                let source_tokens = self.emit_expr(source);
                                 out.push(quote! {
                                     <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
-                                        &self.#source_node.#source_field,
+                                        &#source_tokens,
                                         &mut self.#dest_ident
                                     );
                                 });
                             }
+                        } else if Self::is_simple_endpoint_source(source) {
+                            // Bare graph event input forwarded to a graph
+                            // event output (`midi -> thru;`): copy the queue.
+                            let source_tokens = self.emit_expr(source);
+                            out.push(quote! {
+                                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                    &#source_tokens,
+                                    &mut self.#dest_ident
+                                );
+                            });
                         }
                     }
                     // Asset endpoints are bound from externals, never driven as
@@ -540,24 +570,26 @@ impl<'a> CodegenContext<'a> {
             }
         }
 
-        // Propagate through Same-rate edges until fixpoint.
+        // Propagate through same-rate edges (including same-rate event edges)
+        // until fixpoint. A compound source taints its destination if ANY
+        // node it references is tainted, not just the leftmost — otherwise
+        // `a.out + d.out -> mix.in` with a tainted `d` would leave `mix`
+        // pre-inner, reading `d`'s previous-frame output.
         let mut changed = true;
         while changed {
             changed = false;
             for (_, edge) in self.edges() {
-                if !matches!(edge.kernel, EdgeKernel::None) {
+                if !is_same_rate_kernel(&edge.kernel) {
                     continue;
                 }
-                let (Some(src), Some(dst)) = (
-                    root_node_name(&edge.source, self.ir),
-                    Some(self.ir.nodes[edge.dest.node].name.to_string()),
-                ) else {
-                    continue;
-                };
-                if !same_rate(&dst) {
+                let dst = self.ir.nodes[edge.dest.node].name.to_string();
+                if !same_rate(&dst) || tainted.contains(&dst) {
                     continue;
                 }
-                if tainted.contains(&src) && !tainted.contains(&dst) {
+                let src_tainted = crate::ir::lower::collect_referenced_node_ids(&edge.source)
+                    .into_iter()
+                    .any(|id| tainted.contains(&self.ir.nodes[id].name.to_string()));
+                if src_tainted {
                     tainted.insert(dst);
                     changed = true;
                 }

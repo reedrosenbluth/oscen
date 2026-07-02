@@ -630,3 +630,174 @@ fn plain_arrow_cycle_diagnostic_mentions_bracket_syntax() {
         msgs
     );
 }
+
+#[test]
+fn mixed_oversampling_factors_are_rejected() {
+    // Two disjoint oversampled chains with different `* N` factors used to
+    // compile and panic (index out of bounds) on the first process_block:
+    // the inner loop runs to the max factor while each edge buffer is sized
+    // by its own factor.
+    let (ir, diags) = lower_quote(quote! {
+        name: MixedUp;
+        input stream s;
+        output stream out_a;
+        output stream out_b;
+        node a = Gain::new(0.5) * 2;
+        node b = Gain::new(0.5) * 4;
+        connections {
+            s -> a.input;
+            s -> b.input;
+            a.output -> out_a;
+            b.output -> out_b;
+        }
+    });
+    assert!(ir.is_none(), "lower should reject mixed `* N` factors");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter().any(|m| m.contains("same rate factor")),
+        "expected mixed-factor error; got: {:?}",
+        msgs
+    );
+}
+
+#[test]
+fn constant_connection_source_is_rejected() {
+    // `0.5 -> g.gain;` used to be silently dropped (no edge, no diagnostic).
+    let (ir, diags) = lower_quote(quote! {
+        name: ConstSrc;
+        input stream s;
+        output stream out;
+        node g = Gain::new(0.5);
+        connections {
+            s -> g.input;
+            0.5 -> g.gain;
+            g.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "lower should reject a constant-only source");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("constant connection sources are not supported")),
+        "expected constant-source error; got: {:?}",
+        msgs
+    );
+}
+
+#[test]
+fn literal_left_compound_source_anchors_on_endpoint() {
+    // `0.5 * g.output -> out` anchors the edge on `g` even though the
+    // literal is the left operand. This used to panic in the debug IR
+    // validator (edge source not matching `primary_node`) and silently
+    // prune `g` in release builds.
+    let (ir, diags) = lower_quote(quote! {
+        name: LitLeft;
+        input stream s;
+        output stream out;
+        node g = Gain::new(0.5);
+        connections {
+            s -> g.input;
+            0.5 * g.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diagnostics: {:?}",
+        diags.items
+    );
+    let ir = ir.expect("lower should produce an IrGraph");
+
+    let g_id = ir
+        .nodes
+        .iter()
+        .find(|(_, n)| n.name == "g")
+        .map(|(id, _)| id)
+        .expect("node g");
+    let out_id = ir
+        .outputs
+        .iter()
+        .copied()
+        .find(|&id| ir.nodes[id].name == "out")
+        .expect("output out");
+    // The compound edge into `out` must appear in g's outgoing list.
+    let anchored = ir.nodes[g_id]
+        .outgoing
+        .iter()
+        .any(|&eid| ir.edges[eid].dest.node == out_id);
+    assert!(anchored, "compound edge should be anchored on `g`");
+}
+
+#[test]
+fn non_literal_node_array_size_is_rejected() {
+    // `[Voice::new(); NUM_VOICES]` used to silently lower to a single
+    // (scalar) node when the length was not an integer literal.
+    let (ir, diags) = lower_quote(quote! {
+        name: NamedLen;
+        input stream s;
+        output stream out;
+        node voices = [Gain::new(0.5); NUM_VOICES];
+        connections {
+            s -> voices.input;
+            voices.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "non-literal array size should be an error");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("node array size must be an integer literal")),
+        "expected array-size error; got: {:?}",
+        msgs
+    );
+}
+
+#[test]
+fn indexed_endpoints_classify_as_scalar_fanout() {
+    // `voices[0].output -> fx.input` addresses one element; it must not be
+    // classified as an array fan-in (and an indexed destination must not be
+    // classified as a broadcast).
+    let (ir, diags) = lower_quote(quote! {
+        name: Idx;
+        input stream s;
+        output stream out;
+        node voices = [Gain::new(0.5); 3];
+        node fx = Gain::new(0.5);
+        node lfo = Gain::new(0.5);
+        connections {
+            s -> voices.input;
+            lfo.output -> voices[2].gain;
+            voices[0].output -> fx.input;
+            fx.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diagnostics: {:?}",
+        diags.items
+    );
+    let ir = ir.expect("lower should produce an IrGraph");
+
+    use oscen_graph_compiler::ir::FanoutShape;
+    for edge in ir.edges.values() {
+        let dest_name = ir.nodes[edge.dest.node].name.to_string();
+        let src_index = match &edge.source.kind {
+            oscen_graph_compiler::ir::IrExprKind::Endpoint(ep) => ep.index,
+            _ => None,
+        };
+        if src_index.is_some() || edge.dest.index.is_some() {
+            assert!(
+                matches!(edge.fanout, FanoutShape::Scalar),
+                "indexed edge into `{}` should be Scalar, got {:?}",
+                dest_name,
+                edge.fanout
+            );
+        }
+        if dest_name == "voices" && edge.dest.index.is_none() {
+            assert!(
+                matches!(edge.fanout, FanoutShape::Broadcast { n: 3 }),
+                "un-indexed edge into `voices` should stay Broadcast, got {:?}",
+                edge.fanout
+            );
+        }
+    }
+}
