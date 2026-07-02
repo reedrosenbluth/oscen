@@ -11,7 +11,8 @@ pub use static_context::{AccumulateEndpoints, ConnectEndpoints};
 pub use topology::TopologyError;
 pub use traits::{AllowsFeedback, SignalProcessor};
 pub use types::{
-    EndpointDescriptor, EndpointDirection, EndpointType, EventInput, EventInstance, EventObject,
-    EventOutput, EventPayload, SampleRate, StaticEventQueue, ValueRampState,
-    DEFAULT_MAX_BLOCK_SIZE, MAX_EVENTS, MAX_NODE_ENDPOINTS, MAX_STATIC_EVENTS_PER_ENDPOINT,
+    debug_assert_event_pushed, EndpointDescriptor, EndpointDirection, EndpointType, EventInput,
+    EventInstance, EventObject, EventOutput, EventPayload, SampleRate, StaticEventQueue,
+    ValueRampState, DEFAULT_MAX_BLOCK_SIZE, MAX_EVENTS, MAX_NODE_ENDPOINTS,
+    MAX_STATIC_EVENTS_PER_ENDPOINT,
 };

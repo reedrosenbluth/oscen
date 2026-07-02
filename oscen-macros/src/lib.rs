@@ -285,8 +285,10 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             let handle_method = format_ident!("handle_{}_events", field_name);
             let temp_var = format_ident!("temp_{}_events", field_name);
             handler_calls.push(quote! {
-                let #temp_var: ::arrayvec::ArrayVec<_, 32> =
-                    self.#field_name.iter().cloned().collect();
+                let #temp_var: ::arrayvec::ArrayVec<
+                    _,
+                    { ::oscen::graph::MAX_STATIC_EVENTS_PER_ENDPOINT },
+                > = self.#field_name.iter().cloned().collect();
                 self.#handle_method(&#temp_var);
             });
         }

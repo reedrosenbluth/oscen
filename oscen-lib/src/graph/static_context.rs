@@ -26,7 +26,7 @@
 /// this trait only moves payloads between already-validated endpoints.
 #[diagnostic::on_unimplemented(
     message = "no connection from {Src} to {Dst}",
-    note = "supported: matching Copy payloads (f32, Frame<N>, arrays), EventOutput -> EventInput/ArrayVec<EventInstance, 32>",
+    note = "supported: matching Copy payloads (f32, Frame<N>, arrays), EventOutput -> EventInput/StaticEventQueue",
     label = "incompatible endpoint pair"
 )]
 pub trait ConnectEndpoints<Src, Dst> {
@@ -83,7 +83,7 @@ impl ConnectEndpoints<super::types::StaticEventQueue, super::types::StaticEventQ
         dst.clear();
         // Copy all events from source to destination
         for event in src.iter() {
-            let _ = dst.try_push(event.clone());
+            super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
         }
     }
 }
@@ -97,7 +97,7 @@ impl<S, D> ConnectEndpoints<super::types::EventOutput<S>, super::types::EventInp
         dst.clear();
         // Copy all events from source output to destination input
         for event in src.iter() {
-            let _ = dst.try_push(event.clone());
+            super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
         }
     }
 }
@@ -109,7 +109,7 @@ impl<S, D> ConnectEndpoints<super::types::EventInput<S>, super::types::EventInpu
         dst.clear();
         // Copy all events from source to destination
         for event in src.iter() {
-            let _ = dst.try_push(event.clone());
+            super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
         }
     }
 }
@@ -126,7 +126,7 @@ impl<S, D, const N: usize>
         for (s, d) in src.iter().zip(dst.iter_mut()) {
             d.clear();
             for event in s.iter() {
-                let _ = d.try_push(event.clone());
+                super::types::debug_assert_event_pushed(d.try_push(event.clone()));
             }
         }
     }
@@ -138,7 +138,7 @@ impl<T> ConnectEndpoints<super::types::StaticEventQueue, super::types::EventInpu
     fn connect(src: &super::types::StaticEventQueue, dst: &mut super::types::EventInput<T>) {
         dst.clear();
         for event in src.iter() {
-            let _ = dst.try_push(event.clone());
+            super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
         }
     }
 }
@@ -149,7 +149,7 @@ impl<T> ConnectEndpoints<super::types::EventOutput<T>, super::types::StaticEvent
     fn connect(src: &super::types::EventOutput<T>, dst: &mut super::types::StaticEventQueue) {
         dst.clear();
         for event in src.iter() {
-            let _ = dst.try_push(event.clone());
+            super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
         }
     }
 }
@@ -201,7 +201,7 @@ impl<S, D> AccumulateEndpoints<super::types::EventOutput<S>, super::types::Event
     #[inline]
     fn accumulate(src: &super::types::EventOutput<S>, dst: &mut super::types::EventInput<D>) {
         for event in src.iter() {
-            let _ = dst.try_push(event.clone());
+            super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
         }
     }
 }
@@ -210,7 +210,7 @@ impl<S, D> AccumulateEndpoints<super::types::EventInput<S>, super::types::EventI
     #[inline]
     fn accumulate(src: &super::types::EventInput<S>, dst: &mut super::types::EventInput<D>) {
         for event in src.iter() {
-            let _ = dst.try_push(event.clone());
+            super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
         }
     }
 }
@@ -219,7 +219,7 @@ impl<D> AccumulateEndpoints<super::types::StaticEventQueue, super::types::EventI
     #[inline]
     fn accumulate(src: &super::types::StaticEventQueue, dst: &mut super::types::EventInput<D>) {
         for event in src.iter() {
-            let _ = dst.try_push(event.clone());
+            super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
         }
     }
 }

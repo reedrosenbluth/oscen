@@ -507,7 +507,9 @@ impl<'a> CodegenContext<'a> {
                                     self.#dest_ident.clear();
                                     for i in 0..#array_size {
                                         for event in self.#source_node[i].#source_field.iter() {
-                                            let _ = self.#dest_ident.try_push(event.clone());
+                                            ::oscen::graph::debug_assert_event_pushed(
+                                                self.#dest_ident.try_push(event.clone()),
+                                            );
                                         }
                                     }
                                 });
