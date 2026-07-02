@@ -534,7 +534,10 @@ fn extract_array_and_embedded_rate(expr: Expr) -> Result<(Expr, Option<usize>, O
         {
             Some(c.base10_parse::<usize>()?)
         } else {
-            None
+            return Err(syn::Error::new_spanned(
+                &repeat.len,
+                "node array size must be an integer literal",
+            ));
         };
         Ok((*repeat.expr, count))
     }

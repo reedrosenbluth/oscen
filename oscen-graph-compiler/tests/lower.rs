@@ -726,3 +726,27 @@ fn literal_left_compound_source_anchors_on_endpoint() {
         .any(|&eid| ir.edges[eid].dest.node == out_id);
     assert!(anchored, "compound edge should be anchored on `g`");
 }
+
+#[test]
+fn non_literal_node_array_size_is_rejected() {
+    // `[Voice::new(); NUM_VOICES]` used to silently lower to a single
+    // (scalar) node when the length was not an integer literal.
+    let (ir, diags) = lower_quote(quote! {
+        name: NamedLen;
+        input stream s;
+        output stream out;
+        node voices = [Gain::new(0.5); NUM_VOICES];
+        connections {
+            s -> voices.input;
+            voices.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "non-literal array size should be an error");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("node array size must be an integer literal")),
+        "expected array-size error; got: {:?}",
+        msgs
+    );
+}
