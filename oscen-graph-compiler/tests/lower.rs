@@ -659,3 +659,27 @@ fn mixed_oversampling_factors_are_rejected() {
         msgs
     );
 }
+
+#[test]
+fn constant_connection_source_is_rejected() {
+    // `0.5 -> g.gain;` used to be silently dropped (no edge, no diagnostic).
+    let (ir, diags) = lower_quote(quote! {
+        name: ConstSrc;
+        input stream s;
+        output stream out;
+        node g = Gain::new(0.5);
+        connections {
+            s -> g.input;
+            0.5 -> g.gain;
+            g.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "lower should reject a constant-only source");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("constant connection sources are not supported")),
+        "expected constant-source error; got: {:?}",
+        msgs
+    );
+}

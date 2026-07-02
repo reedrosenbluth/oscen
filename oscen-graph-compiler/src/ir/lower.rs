@@ -502,6 +502,7 @@ fn build_edges(
                     stmt.policy,
                     stmt.span,
                     /*is_feedback=*/ false,
+                    diags,
                 );
             }
 
@@ -548,6 +549,7 @@ fn build_edges(
                     stmt.policy,
                     stmt.span,
                     /*is_feedback=*/ false,
+                    diags,
                 );
 
                 // Edge 2: via.output → dst  (feedback — breaks the cycle)
@@ -568,6 +570,7 @@ fn build_edges(
                     stmt.policy,
                     stmt.span,
                     /*is_feedback=*/ true,
+                    diags,
                 );
             }
 
@@ -628,6 +631,7 @@ fn build_edges(
                     stmt.policy,
                     stmt.span,
                     /*is_feedback=*/ false,
+                    diags,
                 );
 
                 // Edge 2: synth.output → dst  (feedback — breaks the cycle)
@@ -648,6 +652,7 @@ fn build_edges(
                     stmt.policy,
                     stmt.span,
                     /*is_feedback=*/ true,
+                    diags,
                 );
             }
         }
@@ -662,13 +667,24 @@ fn insert_edge(
     policy: ConnectionPolicy,
     span: proc_macro2::Span,
     is_feedback: bool,
+    diags: &mut Diagnostics,
 ) {
     // Compute primary source NodeId and extras from the IR source.
     let mut refs = collect_referenced_node_ids(&source);
     refs.dedup();
     let primary_src = match refs.first() {
         Some(&id) => id,
-        None => return, // Pure-literal source with no node references; skip.
+        None => {
+            // A source with no node references (e.g. `0.5 -> g.gain;`) has no
+            // edge to anchor on; silently dropping it would compile to a graph
+            // that never delivers the value.
+            diags.push_error(syn::Error::new(
+                span,
+                "constant connection sources are not supported; \
+                 set a default on the destination input instead",
+            ));
+            return;
+        }
     };
     let extra_sources: Vec<NodeId> = refs.into_iter().skip(1).collect();
 
