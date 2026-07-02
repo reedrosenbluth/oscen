@@ -1,6 +1,11 @@
+use crate::frame::AudioFrame;
 use crate::graph::{AllowsFeedback, SampleRate, SignalProcessor};
 use crate::ring_buffer::RingBuffer;
 use oscen_macros::Node;
+
+/// Below this magnitude the recirculating feedback tail hits denormals, which
+/// cost ~100× on x86. Same threshold as the halfband IIR's recursive state.
+const DENORMAL_THRESHOLD: f32 = 1e-15;
 
 #[derive(Debug, Node)]
 pub struct Delay {
@@ -71,9 +76,11 @@ impl SignalProcessor for Delay {
         // Update parameters
         self.apply_parameter_updates();
 
-        // Process delay
+        // Process delay. Flush the recirculated value so a decaying feedback
+        // tail snaps to zero instead of ringing through the subnormal range.
         let delayed = self.buffer.get(self.delay_samples);
-        self.buffer.push(self.input + delayed * self.feedback);
+        self.buffer
+            .push((self.input + delayed * self.feedback).flush_denormal(DENORMAL_THRESHOLD));
 
         // Write output
         self.output = delayed;

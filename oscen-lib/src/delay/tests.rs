@@ -20,6 +20,32 @@ fn run(delay: &mut Delay, input: impl Iterator<Item = f32>) -> Vec<f32> {
         .collect()
 }
 
+/// A decaying feedback tail must be flushed to zero instead of recirculating
+/// through the f32 subnormal range after the input stops.
+#[test]
+fn feedback_tail_flushes_denormals() {
+    let mut delay = prepared(4.0, 0.9, 44_100.0);
+
+    // One impulse, then silence. The tail decays by 0.9 per 5-sample round
+    // trip and would reach subnormal magnitudes (~1e-38) after roughly 830
+    // trips without the flush.
+    let out = run(
+        &mut delay,
+        (0..6_000).map(|t| if t == 0 { 1.0 } else { 0.0 }),
+    );
+
+    assert!(
+        out.iter().all(|y| !y.is_subnormal()),
+        "output entered the subnormal range"
+    );
+    // The flush snaps the tail to exactly zero once it falls below the
+    // threshold; the final stretch must be dead silence.
+    assert!(
+        out[5_000..].iter().all(|&y| y == 0.0),
+        "tail did not settle to exact zero"
+    );
+}
+
 /// The maximum delay is fixed in *time* (2 s), not in samples: a 1.5 s delay
 /// must survive at 96 kHz instead of being silently clamped to a
 /// 44.1 kHz-sized buffer.
