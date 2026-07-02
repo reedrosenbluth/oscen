@@ -683,3 +683,46 @@ fn constant_connection_source_is_rejected() {
         msgs
     );
 }
+
+#[test]
+fn literal_left_compound_source_anchors_on_endpoint() {
+    // `0.5 * g.output -> out` anchors the edge on `g` even though the
+    // literal is the left operand. This used to panic in the debug IR
+    // validator (edge source not matching `primary_node`) and silently
+    // prune `g` in release builds.
+    let (ir, diags) = lower_quote(quote! {
+        name: LitLeft;
+        input stream s;
+        output stream out;
+        node g = Gain::new(0.5);
+        connections {
+            s -> g.input;
+            0.5 * g.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diagnostics: {:?}",
+        diags.items
+    );
+    let ir = ir.expect("lower should produce an IrGraph");
+
+    let g_id = ir
+        .nodes
+        .iter()
+        .find(|(_, n)| n.name == "g")
+        .map(|(id, _)| id)
+        .expect("node g");
+    let out_id = ir
+        .outputs
+        .iter()
+        .copied()
+        .find(|&id| ir.nodes[id].name == "out")
+        .expect("output out");
+    // The compound edge into `out` must appear in g's outgoing list.
+    let anchored = ir.nodes[g_id]
+        .outgoing
+        .iter()
+        .any(|&eid| ir.edges[eid].dest.node == out_id);
+    assert!(anchored, "compound edge should be anchored on `g`");
+}

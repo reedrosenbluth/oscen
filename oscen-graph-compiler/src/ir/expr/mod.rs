@@ -111,15 +111,19 @@ impl std::fmt::Debug for IrExprKind {
     }
 }
 
-/// Walk an `IrExpr` to find the leftmost endpoint's `NodeId`. Descends through
-/// `Binary` (left), `MethodCall` (receiver), and `Call` (first argument) so it
-/// agrees with `collect_referenced_node_ids`' ordering — the leftmost referenced
-/// node is the edge's primary source. Returns `None` only for a `Literal` or a
-/// `Call` with no node-referencing arguments.
+/// Walk an `IrExpr` to find the first endpoint's `NodeId` in left-to-right
+/// order. Descends through both sides of `Binary`, the receiver of
+/// `MethodCall` (args are opaque `syn::Expr`, so they can't reference
+/// endpoints), and every argument of `Call`, so it agrees with
+/// `collect_referenced_node_ids`' ordering — the first referenced node is the
+/// edge's primary source (e.g. `0.5 * g.output` anchors on `g`). Returns
+/// `None` only when the expression references no endpoint at all.
 pub(crate) fn primary_node(expr: &IrExpr) -> Option<NodeId> {
     match &expr.kind {
         IrExprKind::Endpoint(ep) => Some(ep.node),
-        IrExprKind::Binary { left, .. } => primary_node(left),
+        IrExprKind::Binary { left, right, .. } => {
+            primary_node(left).or_else(|| primary_node(right))
+        }
         IrExprKind::MethodCall { receiver, .. } => primary_node(receiver),
         IrExprKind::Call { args, .. } => args.iter().find_map(primary_node),
         IrExprKind::Literal(_) => None,
