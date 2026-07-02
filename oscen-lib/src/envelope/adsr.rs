@@ -91,18 +91,27 @@ impl AdsrEnvelope {
 
     fn update_sustain_level(&mut self) {
         self.sustain_level = (self.sustain * self.velocity).clamp(0.0, 1.0);
+        let old_attack_samples = self.attack_samples;
+        let old_decay_samples = self.decay_samples;
+        let old_release_samples = self.release_samples;
         self.recalculate_cached_steps();
-        match self.stage {
+        // If the active stage's total length changed, rescale the remaining
+        // sample count so the stage keeps its fractional progress. The cached
+        // coefficients are derived from the new total, so keeping the old
+        // remaining count would end the stage far from its target and snap.
+        let (old_total, new_total) = match self.stage {
             Stage::Attack if self.samples_remaining > 0 => {
-                self.samples_remaining = self.samples_remaining.min(self.attack_samples).max(1);
+                (old_attack_samples, self.attack_samples)
             }
-            Stage::Decay if self.samples_remaining > 0 => {
-                self.samples_remaining = self.samples_remaining.min(self.decay_samples).max(1);
-            }
+            Stage::Decay if self.samples_remaining > 0 => (old_decay_samples, self.decay_samples),
             Stage::Release if self.samples_remaining > 0 => {
-                self.samples_remaining = self.samples_remaining.min(self.release_samples).max(1);
+                (old_release_samples, self.release_samples)
             }
-            _ => {}
+            _ => (0, 0),
+        };
+        if old_total > 0 && old_total != new_total {
+            let rescaled = new_total as u64 * self.samples_remaining as u64 / old_total as u64;
+            self.samples_remaining = (rescaled as u32).max(1);
         }
         match self.stage {
             Stage::Decay | Stage::Sustain => self.target_level = self.sustain_level,
@@ -360,6 +369,41 @@ mod tests {
         }
 
         assert!(env.output <= 0.01, "value {} not near zero", env.output);
+    }
+
+    #[test]
+    fn lengthening_attack_mid_stage_does_not_snap() {
+        let mut env = AdsrEnvelope::new(0.01, 0.02, 0.6, 0.05);
+        env.set_sample_rate(48_000.0);
+        env.prepare();
+
+        env.handle_gate_event(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::scalar(1.0),
+        });
+
+        // 100 samples into the 0.01 s attack, lengthen it to 1.0 s.
+        for _ in 0..100 {
+            env.process();
+        }
+        env.attack = 1.0;
+
+        // Run through the rest of the attack and into the decay; the largest
+        // single-sample step must stay small (no amplitude snap). The one-pole
+        // curve lands 99% of the way to its target before snapping, so the
+        // stage-end correction is at most ~0.01.
+        let mut previous = env.output;
+        let mut max_step = 0.0f32;
+        for _ in 0..96_000 {
+            env.process();
+            max_step = max_step.max((env.output - previous).abs());
+            previous = env.output;
+        }
+
+        assert!(
+            max_step < 0.011,
+            "attack change caused amplitude snap of {max_step}"
+        );
     }
 
     #[test]
