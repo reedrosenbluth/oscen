@@ -64,11 +64,10 @@ impl Oscillator {
 impl SignalProcessor for Oscillator {
     #[inline(always)]
     fn process(&mut self) {
-        let frequency = self.frequency * (1.0 + self.frequency_mod);
+        let frequency = (self.frequency * (1.0 + self.frequency_mod)).max(0.0);
         let amplitude = self.amplitude;
 
-        let modulated_phase = self.phase % 1.0;
-        self.output = (self.waveform)(modulated_phase) * amplitude;
+        self.output = (self.waveform)(self.phase) * amplitude;
 
         self.phase += frequency / *self.sample_rate;
         self.phase %= 1.0;
@@ -179,16 +178,12 @@ impl SignalProcessor for PolyBlepOscillator {
         // Calculate modulated frequency
         let frequency = (self.frequency * (1.0 + self.frequency_mod)).max(0.0);
         let amplitude = self.amplitude;
-        let mut pulse_width = self.pulse_width.clamp(0.0001, 0.9999);
+        let pulse_width = self.pulse_width.clamp(0.0001, 0.9999);
 
         // Calculate phase with modulation
         let mut phase = Self::wrap_phase(self.phase + self.phase_mod);
         let freq_per_sample = frequency / self.sample_rate.max(f32::EPSILON);
         let dt = freq_per_sample.min(1.0);
-
-        if pulse_width <= 0.0 {
-            pulse_width = 0.0001;
-        }
 
         // Generate waveform with PolyBLEP anti-aliasing
         let mut value = if frequency >= *self.sample_rate * 0.25 {
@@ -234,7 +229,44 @@ impl SignalProcessor for PolyBlepOscillator {
 
 #[cfg(test)]
 mod tests {
-    use super::{PolyBlepOscillator, PolyBlepWaveform, SignalProcessor};
+    use super::{Oscillator, PolyBlepOscillator, PolyBlepWaveform, SignalProcessor};
+
+    #[test]
+    fn test_oscillator_clamps_negative_modulated_frequency() {
+        let sample_rate = 48_000.0;
+        let mut saw = Oscillator::saw(440.0, 1.0);
+        saw.set_sample_rate(sample_rate);
+        let mut square = Oscillator::square(440.0, 1.0);
+        square.set_sample_rate(sample_rate);
+
+        let mut saw_min = f32::MAX;
+        let mut saw_max = f32::MIN;
+        let mut square_high = false;
+        let mut square_low = false;
+
+        // FM depth 2: alternate blocks where the modulated frequency is
+        // negative (must clamp to zero) and blocks of plain playback.
+        for i in 0..2_000 {
+            let mod_value = if (i / 100) % 2 == 0 { -2.0 } else { 0.0 };
+            saw.frequency_mod = mod_value;
+            square.frequency_mod = mod_value;
+            saw.process();
+            square.process();
+            saw_min = saw_min.min(saw.output);
+            saw_max = saw_max.max(saw.output);
+            square_high |= square.output > 0.5;
+            square_low |= square.output < -0.5;
+        }
+
+        assert!(
+            saw_min >= -1.0 && saw_max <= 1.0,
+            "saw output out of bounds: min {saw_min}, max {saw_max}"
+        );
+        assert!(
+            square_high && square_low,
+            "square stopped alternating under negative frequency modulation"
+        );
+    }
 
     #[test]
     fn test_poly_blep_saw_stays_bounded() {
