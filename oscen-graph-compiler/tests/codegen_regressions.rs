@@ -101,3 +101,44 @@ fn asset_bound_node_survives_dead_node_pass() {
         "asset load handle field `sample` must be generated"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Ramped value inputs in compound expressions
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ramped_input_in_compound_expression_reads_current() {
+    let tokens = compile_to_string(quote! {
+        name: RampCompound;
+        input stream s;
+        input value gain = 1.0 [ramp: 64];
+        output stream out;
+        node osc = Gain::new(0.5);
+        connections {
+            s -> osc.input;
+            osc.output * gain -> out;
+        }
+    });
+    assert!(
+        tokens.contains("self . osc . output * self . gain . current"),
+        "compound expression must read `.current` of the ramped input; got:\n{}",
+        tokens
+    );
+}
+
+#[test]
+fn bare_ramped_input_to_value_output_reads_current() {
+    let tokens = compile_to_string(quote! {
+        name: RampBare;
+        input value gain = 1.0 [ramp: 64];
+        output value level;
+        connections {
+            gain -> level;
+        }
+    });
+    assert!(
+        tokens.contains("self . level = self . gain . current"),
+        "bare ramped input forwarded to a value output must read `.current`; got:\n{}",
+        tokens
+    );
+}

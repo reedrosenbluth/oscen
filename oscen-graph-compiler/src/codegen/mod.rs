@@ -486,7 +486,13 @@ impl<'a> CodegenContext<'a> {
             Some(idx) => quote! { self.#node_name.#endpoint_name.0[#idx] },
             None => {
                 if ep.bare {
-                    quote! { self.#node_name }
+                    // A ramped graph value input is stored as a
+                    // `ValueRampState`; expressions read its `.current` f32.
+                    if self.is_ramped_input(node_name).is_some() {
+                        quote! { self.#node_name.current }
+                    } else {
+                        quote! { self.#node_name }
+                    }
                 } else {
                     quote! { self.#node_name.#endpoint_name }
                 }
