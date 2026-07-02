@@ -23,7 +23,7 @@ pub struct Delay {
 impl Delay {
     /// Create a delay with delay time specified in samples/frames.
     pub fn new(delay_samples: f32, feedback: f32) -> Self {
-        // Start with a very small buffer to avoid excessive stack usage
+        // Placeholder size; `prepare` resizes for the actual sample rate.
         let initial_buffer_size = 1024;
 
         Self {
@@ -57,14 +57,12 @@ impl Delay {
 
 impl SignalProcessor for Delay {
     fn prepare(&mut self) {
-        // Calculate a reasonable buffer size based on sample rate, with a safety cap
-        // to prevent potential stack overflows
+        // Size the buffer in time so the maximum delay is the same at every
+        // sample rate. PowerOfTwo mode (the `new` default) is kept for its
+        // mask-based indexing on the audio thread; the rounding up only adds
+        // delay headroom.
         let target_seconds = 2.0;
-        let max_samples = 88200; // Maximum buffer size (2 seconds at 44.1kHz)
-
-        let buffer_size = ((target_seconds * *self.sample_rate) as usize).min(max_samples);
-
-        // Initialize the buffer with a capped size
+        let buffer_size = (target_seconds * *self.sample_rate) as usize;
         self.buffer = RingBuffer::new(buffer_size);
     }
 
@@ -83,3 +81,6 @@ impl SignalProcessor for Delay {
 }
 
 impl AllowsFeedback for Delay {}
+
+#[cfg(test)]
+mod tests;
