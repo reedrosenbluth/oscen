@@ -22,8 +22,17 @@ pub fn run(ir: &mut IrGraph) {
     // edges; mark every node visited as live. Compound-source edges carry
     // additional referenced nodes in `extra_source_nodes` — walk those too
     // so e.g. `a.x * b.y -> out` keeps both `a` and `b` alive.
+    //
+    // Asset-bound nodes are also live roots: their external load handle is
+    // part of the graph's public API, and removing the node would leave its
+    // `AssetBinding` pointing at a freed key (codegen would panic).
     let mut live: HashSet<NodeId> = HashSet::new();
-    let mut queue: VecDeque<NodeId> = ir.outputs.iter().copied().collect();
+    let mut queue: VecDeque<NodeId> = ir
+        .outputs
+        .iter()
+        .copied()
+        .chain(ir.asset_bindings.iter().map(|b| b.node))
+        .collect();
     while let Some(id) = queue.pop_front() {
         if !live.insert(id) {
             continue;

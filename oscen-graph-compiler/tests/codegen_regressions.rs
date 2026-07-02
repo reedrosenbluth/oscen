@@ -69,3 +69,35 @@ fn literal_left_compound_source_keeps_node_alive() {
         "output assignment should read g.output"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Dead-node pass and asset bindings
+// ---------------------------------------------------------------------------
+
+#[test]
+fn asset_bound_node_survives_dead_node_pass() {
+    // `player` has no path to a graph output; removing it used to leave the
+    // AssetBinding pointing at a freed key, panicking in codegen
+    // ("invalid SlotMap key used").
+    let tokens = compile_to_string(quote! {
+        name: AssetKeep;
+        input stream s;
+        output stream out;
+        external sample: AudioAsset;
+        node player = SamplePlayer::new();
+        node g = Gain::new(0.5);
+        connections {
+            sample -> player.buf;
+            s -> g.input;
+            g.output -> out;
+        }
+    });
+    assert!(
+        tokens.contains("pub player :"),
+        "asset-bound node `player` must stay alive"
+    );
+    assert!(
+        tokens.contains("pub sample :"),
+        "asset load handle field `sample` must be generated"
+    );
+}
