@@ -630,3 +630,32 @@ fn plain_arrow_cycle_diagnostic_mentions_bracket_syntax() {
         msgs
     );
 }
+
+#[test]
+fn mixed_oversampling_factors_are_rejected() {
+    // Two disjoint oversampled chains with different `* N` factors used to
+    // compile and panic (index out of bounds) on the first process_block:
+    // the inner loop runs to the max factor while each edge buffer is sized
+    // by its own factor.
+    let (ir, diags) = lower_quote(quote! {
+        name: MixedUp;
+        input stream s;
+        output stream out_a;
+        output stream out_b;
+        node a = Gain::new(0.5) * 2;
+        node b = Gain::new(0.5) * 4;
+        connections {
+            s -> a.input;
+            s -> b.input;
+            a.output -> out_a;
+            b.output -> out_b;
+        }
+    });
+    assert!(ir.is_none(), "lower should reject mixed `* N` factors");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter().any(|m| m.contains("same rate factor")),
+        "expected mixed-factor error; got: {:?}",
+        msgs
+    );
+}

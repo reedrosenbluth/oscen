@@ -1,3 +1,9 @@
+error: all oversampled nodes in a graph must use the same rate factor (found `* 4` and `* 2`); use the highest factor for every oversampled node
+ --> tests/ui/mixed_rates.rs:8:9
+  |
+8 |         b = TptFilter::new(1000.0, 0.7) * 2;
+  |         ^
+
 error: v1 does not support connections between two differently-rated non-default-rate nodes; route through an outer-rate node instead
   --> tests/ui/mixed_rates.rs:11:9
    |

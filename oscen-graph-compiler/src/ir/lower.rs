@@ -793,17 +793,41 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
 /// Per-node rate validation. Catches `Down(n)` rate annotations
 /// (currently unsupported) even on nodes with no edges. Mirrors the
 /// per-node check in `rate_analysis::analyze` so that unconnected
-/// undersampled nodes also produce a diagnostic.
+/// undersampled nodes also produce a diagnostic. Also rejects graphs
+/// mixing different `Up(n)` oversampling factors.
 fn validate_node_rates(ir: &IrGraph, diags: &mut Diagnostics) {
+    // Mixed `* N` factors are rejected for now: codegen runs the inner loop
+    // to the max factor while sizing and indexing each Up/Down edge buffer by
+    // its own edge's factor, so mixed factors would index out of bounds at
+    // runtime. Future upgrade path (clock division): gate each node's inner
+    // work on `__inner % (max / factor) == 0` and index its buffers by
+    // `__inner / (max / factor)`; factors are powers of two, so LCM == max.
+    let mut first_up: Option<u32> = None;
     for &id in &ir.processors {
         let node = &ir.nodes[id];
-        if let NodeRate::Down(n) = node.rate {
-            if n > 1 {
+        match node.rate {
+            NodeRate::Down(n) if n > 1 => {
                 diags.push_error(syn::Error::new(
                     node.span,
                     "node undersampling (`/ N`) is not yet supported in v1; only oversampling (`* N`) is implemented",
                 ));
             }
+            NodeRate::Up(n) => match first_up {
+                None => first_up = Some(n),
+                Some(m) if m != n => {
+                    diags.push_error(syn::Error::new(
+                        node.span,
+                        format!(
+                            "all oversampled nodes in a graph must use the same rate factor \
+                             (found `* {}` and `* {}`); use the highest factor for every \
+                             oversampled node",
+                            m, n
+                        ),
+                    ));
+                }
+                Some(_) => {}
+            },
+            _ => {}
         }
     }
 }
