@@ -39,8 +39,8 @@ impl<'a> CodegenContext<'a> {
         // so pure node-to-node endpoints stay `None` (unknown) and are treated
         // as stream-summable below. Consequences for the unknown case:
         //   * stream f32/Frame fan-in sums (the feature);
-        //   * event fan-in still works — `AccumulateEndpoints` delegates events
-        //     to `connect` (last-write-wins, unchanged), so it compiles;
+        //   * event fan-in still works — `AccumulateEndpoints` appends events
+        //     from each extra source, so all sources' events are merged;
         //   * an unknown-kind *value* f32 fan-in is summed rather than
         //     last-write-wins. There is no kind info to tell it apart from a
         //     stream f32 fan-in; summing matches Cmajor's rule and is the same
@@ -137,8 +137,8 @@ impl<'a> CodegenContext<'a> {
     /// or `self.out`): one `ConnectEndpoints::connect` for the first source,
     /// then one `AccumulateEndpoints::accumulate` per remaining source. For
     /// stream payloads (`f32`/`Frame<N>`) this sums element-wise; for event
-    /// endpoints `accumulate` delegates to `connect`, preserving the existing
-    /// last-write-wins behavior (and compiling — event queues have no `Add`).
+    /// endpoints `accumulate` appends the extra source's events, merging all
+    /// sources (and compiling — event queues have no `Add`).
     fn emit_stream_sum_assign(&self, sources: &[&IrEdge], dst: &TokenStream) -> TokenStream {
         let terms: Vec<TokenStream> = sources
             .iter()

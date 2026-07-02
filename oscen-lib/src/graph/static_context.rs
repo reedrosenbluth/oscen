@@ -166,12 +166,12 @@ impl<T> ConnectEndpoints<super::types::EventOutput<T>, super::types::StaticEvent
 ///
 /// The dispatch mirrors [`ConnectEndpoints`]: coherence selects the impl from
 /// the actual field types. Stream payloads (`f32`, `Frame<N>`) sum; event
-/// endpoints fall back to plain `connect` (last-write-wins), so an event fan-in
-/// keeps its existing behavior and still compiles (event queues have no `Add`).
+/// endpoints append their events to the destination queue (already initialized
+/// by the first source's `connect`), so an event fan-in merges all sources.
 #[diagnostic::on_unimplemented(
     message = "no fan-in accumulation from {Src} into {Dst}",
     note = "fan-in summing supports matching stream payloads (f32, Frame<N>); \
-            event endpoints keep last-write-wins",
+            event endpoints append their events",
     label = "endpoint pair cannot be summed"
 )]
 pub trait AccumulateEndpoints<Src, Dst> {
@@ -193,25 +193,33 @@ impl<const C: usize> AccumulateEndpoints<crate::frame::Frame<C>, crate::frame::F
     }
 }
 
-// Event endpoints have no summation; a multi-source event fan-in keeps the
-// existing last-write-wins behavior by delegating to `connect`.
+// Event endpoints have no summation; a multi-source event fan-in appends each
+// extra source's events to the destination queue. The first source's `connect`
+// already cleared and initialized the destination, so appending (rather than
+// delegating to `connect`, which clears) preserves events from every source.
 impl<S, D> AccumulateEndpoints<super::types::EventOutput<S>, super::types::EventInput<D>> for () {
     #[inline]
     fn accumulate(src: &super::types::EventOutput<S>, dst: &mut super::types::EventInput<D>) {
-        <() as ConnectEndpoints<_, _>>::connect(src, dst);
+        for event in src.iter() {
+            let _ = dst.try_push(event.clone());
+        }
     }
 }
 
 impl<S, D> AccumulateEndpoints<super::types::EventInput<S>, super::types::EventInput<D>> for () {
     #[inline]
     fn accumulate(src: &super::types::EventInput<S>, dst: &mut super::types::EventInput<D>) {
-        <() as ConnectEndpoints<_, _>>::connect(src, dst);
+        for event in src.iter() {
+            let _ = dst.try_push(event.clone());
+        }
     }
 }
 
 impl<D> AccumulateEndpoints<super::types::StaticEventQueue, super::types::EventInput<D>> for () {
     #[inline]
     fn accumulate(src: &super::types::StaticEventQueue, dst: &mut super::types::EventInput<D>) {
-        <() as ConnectEndpoints<_, _>>::connect(src, dst);
+        for event in src.iter() {
+            let _ = dst.try_push(event.clone());
+        }
     }
 }
