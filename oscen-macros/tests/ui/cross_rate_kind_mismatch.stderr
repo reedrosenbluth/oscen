@@ -48,12 +48,12 @@ error[E0277]: no connection from EventOutput to f32
    | |_^ incompatible endpoint pair
    |
    = help: the trait `ConnectEndpoints<EventOutput, f32>` is not implemented for `()`
-   = note: supported: matching Copy payloads (f32, Frame<N>, arrays), EventOutput -> EventInput/ArrayVec<EventInstance, 32>
+   = note: supported: matching Copy payloads (f32, Frame<N>, arrays), EventOutput -> EventInput/StaticEventQueue
    = help: the following other types implement trait `ConnectEndpoints<Src, Dst>`:
              `()` implements `ConnectEndpoints<&T, T>`
              `()` implements `ConnectEndpoints<EventInput<S>, EventInput<D>>`
              `()` implements `ConnectEndpoints<EventOutput<S>, EventInput<D>>`
-             `()` implements `ConnectEndpoints<EventOutput<T>, arrayvec::arrayvec::ArrayVec<EventInstance, 32>>`
+             `()` implements `ConnectEndpoints<EventOutput<T>, arrayvec::arrayvec::ArrayVec<EventInstance, 128>>`
              `()` implements `ConnectEndpoints<Frame<C>, Frame<C>>`
              `()` implements `ConnectEndpoints<[EventOutput<S>; N], [EventInput<D>; N]>`
              `()` implements `ConnectEndpoints<[Frame<C>; N], [Frame<C>; N]>`

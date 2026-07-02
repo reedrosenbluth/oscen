@@ -126,7 +126,9 @@ impl<'a> CodegenContext<'a> {
                         let mut __ev = __ev_ref.clone();
                         #transform
                         for __k in 0..#n {
-                            let _ = self.#dest_node[__k].#dest_field.try_push(__ev.clone());
+                            ::oscen::graph::debug_assert_event_pushed(
+                                self.#dest_node[__k].#dest_field.try_push(__ev.clone()),
+                            );
                         }
                     }
                 }
@@ -147,7 +149,9 @@ impl<'a> CodegenContext<'a> {
                         for __ev_ref in self.#source_ident[__k].#source_field.iter() {
                             let mut __ev = __ev_ref.clone();
                             #transform
-                            let _ = #dest_tokens.try_push(__ev);
+                            ::oscen::graph::debug_assert_event_pushed(
+                                #dest_tokens.try_push(__ev),
+                            );
                         }
                     }
                 }
@@ -172,7 +176,9 @@ impl<'a> CodegenContext<'a> {
                         for __ev_ref in self.#source_ident[__k].#source_field.iter() {
                             let mut __ev = __ev_ref.clone();
                             #transform
-                            let _ = self.#dest_node[__k].#dest_field.try_push(__ev);
+                            ::oscen::graph::debug_assert_event_pushed(
+                                self.#dest_node[__k].#dest_field.try_push(__ev),
+                            );
                         }
                     }
                 }
@@ -188,7 +194,7 @@ impl<'a> CodegenContext<'a> {
                 for __ev_ref in #source_tokens.iter() {
                     let mut __ev = __ev_ref.clone();
                     #transform
-                    let _ = #dest_tokens.try_push(__ev);
+                    ::oscen::graph::debug_assert_event_pushed(#dest_tokens.try_push(__ev));
                 }
             }
         }

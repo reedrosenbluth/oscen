@@ -14,12 +14,22 @@ pub const MAX_NODE_ENDPOINTS: usize = 32;
 pub const MAX_STREAM_CHANNELS: usize = 128;
 
 /// Maximum number of events per static graph event input/output.
-/// This is smaller than MAX_EVENTS to reduce stack usage.
-pub const MAX_STATIC_EVENTS_PER_ENDPOINT: usize = 32;
+/// This is smaller than MAX_EVENTS to reduce stack usage, but large enough to
+/// absorb bursts like a MIDI panic flood (128 note-offs in one buffer).
+pub const MAX_STATIC_EVENTS_PER_ENDPOINT: usize = 128;
 
 /// Fixed-capacity event queue for static graphs.
 /// Uses stack-allocated ArrayVec instead of heap-allocated Vec for zero-overhead event handling.
 pub type StaticEventQueue = ArrayVec<EventInstance, MAX_STATIC_EVENTS_PER_ENDPOINT>;
+
+/// Record the result of a `try_push` into a static event queue: an overflowed
+/// (dropped) event panics in debug builds so drops are observable during
+/// development, and is silently dropped in release builds (no allocation, no
+/// panic on the audio thread).
+#[inline]
+pub fn debug_assert_event_pushed<T>(result: Result<(), arrayvec::CapacityError<T>>) {
+    debug_assert!(result.is_ok(), "static event queue overflow: event dropped");
+}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum EndpointType {

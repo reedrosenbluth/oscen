@@ -1,0 +1,5 @@
+error: unknown endpoint type `strem`
+ --> tests/ui/unknown_endpoint_kind.rs:5:13
+  |
+5 |     #[input(strem)]
+  |             ^^^^^
