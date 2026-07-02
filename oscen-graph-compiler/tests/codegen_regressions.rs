@@ -265,3 +265,79 @@ fn indexed_source_and_dest_use_single_element_access() {
         tokens
     );
 }
+
+// ---------------------------------------------------------------------------
+// Post-inner taint propagation (multirate scheduling)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compound_source_taints_post_inner_consumer() {
+    // `d` consumes a Down edge (post-inner). `a.output + d.output -> mix.input`
+    // must schedule `mix` post-inner even though the leftmost operand is the
+    // untainted `a`.
+    let tokens = compile(quote! {
+        name: TaintCompound;
+        input stream s;
+        output stream out;
+        node up = Gain::new(0.5) * 2;
+        node a = Gain::new(0.5);
+        node d = Gain::new(0.5);
+        node mix = Gain::new(0.5);
+        connections {
+            s -> up.input;
+            s -> a.input;
+            up.output -> d.input;
+            a.output + d.output -> mix.input;
+            mix.output -> out;
+        }
+    })
+    .expect("compile succeeds");
+    let body = inherent_method_body(tokens, "process");
+    let pos_d = body
+        .find("self . d . process ()")
+        .expect("d should be processed");
+    let pos_mix = body
+        .find("self . mix . process ()")
+        .expect("mix should be processed");
+    assert!(
+        pos_mix > pos_d,
+        "mix consumes tainted d and must run post-inner (after d):\n{}",
+        body
+    );
+}
+
+#[test]
+fn same_rate_event_edge_propagates_post_inner_taint() {
+    // `d` is post-inner; the same-rate event edge `d.midi_out -> sink.midi_in`
+    // must pull `sink` post-inner too (its events would otherwise be a frame
+    // stale).
+    let tokens = compile(quote! {
+        name: TaintEvent;
+        input stream s;
+        input event midi;
+        output stream out;
+        node up = Gain::new(0.5) * 2;
+        node d = Gain::new(0.5);
+        node sink = Gain::new(0.5);
+        connections {
+            s -> up.input;
+            up.output -> d.input;
+            midi -> sink.midi_in;
+            d.midi_out -> sink.midi_in;
+            sink.output -> out;
+        }
+    })
+    .expect("compile succeeds");
+    let body = inherent_method_body(tokens, "process");
+    let pos_d = body
+        .find("self . d . process ()")
+        .expect("d should be processed");
+    let pos_sink = body
+        .find("self . sink . process ()")
+        .expect("sink should be processed");
+    assert!(
+        pos_sink > pos_d,
+        "sink consumes a same-rate event edge from tainted d and must run post-inner:\n{}",
+        body
+    );
+}

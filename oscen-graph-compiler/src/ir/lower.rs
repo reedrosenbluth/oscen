@@ -732,8 +732,9 @@ impl crate::ir::expr::visit::Visitor for CollectEndpoints {
 /// Collect every `NodeId` referenced by an `IrExpr` source expression.
 /// Used by `build_edges` to anchor edges whose source is a compound
 /// expression — the first id is promoted to `IrEdge::source.node`, the
-/// rest are stored in `extra_source_nodes`.
-fn collect_referenced_node_ids(expr: &crate::ir::expr::IrExpr) -> Vec<NodeId> {
+/// rest are stored in `extra_source_nodes`. Also used by codegen's
+/// post-inner taint analysis to consider every referenced source node.
+pub(crate) fn collect_referenced_node_ids(expr: &crate::ir::expr::IrExpr) -> Vec<NodeId> {
     use crate::ir::expr::visit::Visitor;
     let mut v = CollectEndpoints::new();
     v.visit_expr(expr);

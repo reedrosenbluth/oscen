@@ -9,7 +9,7 @@ use quote::{quote, quote_spanned};
 use std::collections::HashSet;
 use syn::Result;
 
-use super::helpers::root_node_name;
+use super::helpers::{is_same_rate_kernel, root_node_name};
 use super::CodegenContext;
 
 /// How a stream destination's incoming edges should be emitted, after
@@ -570,24 +570,26 @@ impl<'a> CodegenContext<'a> {
             }
         }
 
-        // Propagate through Same-rate edges until fixpoint.
+        // Propagate through same-rate edges (including same-rate event edges)
+        // until fixpoint. A compound source taints its destination if ANY
+        // node it references is tainted, not just the leftmost — otherwise
+        // `a.out + d.out -> mix.in` with a tainted `d` would leave `mix`
+        // pre-inner, reading `d`'s previous-frame output.
         let mut changed = true;
         while changed {
             changed = false;
             for (_, edge) in self.edges() {
-                if !matches!(edge.kernel, EdgeKernel::None) {
+                if !is_same_rate_kernel(&edge.kernel) {
                     continue;
                 }
-                let (Some(src), Some(dst)) = (
-                    root_node_name(&edge.source, self.ir),
-                    Some(self.ir.nodes[edge.dest.node].name.to_string()),
-                ) else {
-                    continue;
-                };
-                if !same_rate(&dst) {
+                let dst = self.ir.nodes[edge.dest.node].name.to_string();
+                if !same_rate(&dst) || tainted.contains(&dst) {
                     continue;
                 }
-                if tainted.contains(&src) && !tainted.contains(&dst) {
+                let src_tainted = crate::ir::lower::collect_referenced_node_ids(&edge.source)
+                    .into_iter()
+                    .any(|id| tainted.contains(&self.ir.nodes[id].name.to_string()));
+                if src_tainted {
                     tainted.insert(dst);
                     changed = true;
                 }
