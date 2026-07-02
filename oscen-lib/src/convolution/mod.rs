@@ -459,6 +459,10 @@ pub struct Convolver<F: AudioFrame = f32> {
 
     current: Arc<MultiConvolverEngine>,
     fading: Option<(Arc<MultiConvolverEngine>, usize)>,
+    /// Engine published while a crossfade was already in progress; promoted
+    /// into a new fade when the active fade completes (newest wins — a
+    /// displaced pending engine is retired for off-thread destruction).
+    pending: Option<Arc<MultiConvolverEngine>>,
     fade_len: usize,
     #[input(asset)]
     pub ir: AssetSlot<MultiConvolverEngine>,
@@ -477,6 +481,7 @@ impl<F: AudioFrame> Convolver<F> {
             output: F::default(),
             current: Arc::new(MultiConvolverEngine::from_mono_ir(&[], F::CHANNELS)),
             fading: None,
+            pending: None,
             fade_len: 1,
             ir: AssetSlot::new(),
             sample_rate: SampleRate::default(),
@@ -529,20 +534,25 @@ impl<F: AudioFrame> SignalProcessor for Convolver<F> {
             .expect("engine uniquely owned at prepare")
             .rebuild();
         self.fading = None;
+        self.pending = None;
     }
 
     #[inline]
     fn process(&mut self) {
         // 1. Pull a newly published engine, if any (RT-safe: atomic swap).
         if let Some(new_engine) = self.ir.take() {
-            if let Some((old, _)) = self.fading.take() {
-                // A second swap landed mid-fade: retire the in-progress
-                // outgoing engine now (keeps at most two engines live), fade
-                // from the current engine.
-                self.ir.retire(old);
+            if self.fading.is_some() {
+                // A second swap landed mid-fade: cutting the fade short would
+                // step the output in one sample, so defer the new engine until
+                // the active fade completes. Newest wins — a displaced pending
+                // engine is retired for off-thread destruction.
+                if let Some(displaced) = self.pending.replace(new_engine) {
+                    self.ir.retire(displaced);
+                }
+            } else {
+                let prev = std::mem::replace(&mut self.current, new_engine);
+                self.fading = Some((prev, 0));
             }
-            let prev = std::mem::replace(&mut self.current, new_engine);
-            self.fading = Some((prev, 0));
         }
 
         let x = self.input;
@@ -566,6 +576,11 @@ impl<F: AudioFrame> SignalProcessor for Convolver<F> {
                 if *pos >= self.fade_len {
                     let (old_arc, _) = self.fading.take().unwrap();
                     self.ir.retire(old_arc); // hand back for off-thread free
+                    if let Some(next) = self.pending.take() {
+                        // Promote the engine deferred mid-fade into a new fade.
+                        let prev = std::mem::replace(&mut self.current, next);
+                        self.fading = Some((prev, 0));
+                    }
                 }
                 mixed
             }
