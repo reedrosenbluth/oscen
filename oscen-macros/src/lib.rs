@@ -118,6 +118,19 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
                 }
 
+                // A field cannot serve as both an input and an output endpoint;
+                // silently picking one would misroute (or drop) signals.
+                if input_type_kind.is_some() && output_type_kind.is_some() {
+                    endpoint_errors.push(
+                        syn::Error::new_spanned(
+                            &field_name,
+                            "a field cannot be both #[input] and #[output]",
+                        )
+                        .to_compile_error(),
+                    );
+                    continue;
+                }
+
                 if let Some(kind) = input_type_kind {
                     // Track event inputs for handle_events and process_event_inputs
                     if kind == EndpointTypeAttr::Event {
@@ -140,9 +153,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 }
 
                 // Emit one marker type + EndpointAt impl per endpoint that has a known kind.
-                // A field is classified as either an input or an output (the existing walk
-                // enforces this by checking input then output) — so taking input first, then
-                // output, picks the field's actual endpoint kind.
+                // A field is classified as either an input or an output (the conflict check
+                // above rejects fields with both), so at most one of the two is Some here.
                 let primary_kind = input_type_kind.or(output_type_kind);
                 if let Some(kind) = primary_kind {
                     let marker_ident = format_ident!("{}__{}__Ep", name, field_name);
