@@ -289,6 +289,10 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     _,
                     { ::oscen::graph::MAX_STATIC_EVENTS_PER_ENDPOINT },
                 > = self.#field_name.iter().cloned().collect();
+                // Drain the queue so events delivered outside a graph
+                // connection (which would overwrite it) are not replayed
+                // on the next frame.
+                self.#field_name.clear();
                 self.#handle_method(&#temp_var);
             });
         }

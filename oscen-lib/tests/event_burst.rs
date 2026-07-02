@@ -64,6 +64,28 @@ fn burst_of_128_events_is_delivered_in_full() {
     );
 }
 
+/// `process_event_inputs()` must drain the input queue: an event input that is
+/// not the destination of a graph connection (which would overwrite it) must
+/// not replay its events on every subsequent frame.
+#[test]
+fn event_inputs_drain_after_dispatch() {
+    let mut counter = Counter::new();
+    counter
+        .ev
+        .try_push(EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::scalar(0.0),
+        })
+        .unwrap();
+    counter.process_event_inputs();
+    counter.process_event_inputs();
+    assert_eq!(
+        counter.received, 1,
+        "the event must be dispatched only once"
+    );
+    assert!(counter.ev.is_empty(), "the input queue must be drained");
+}
+
 /// Overflowing an event queue silently drops in release, but must be
 /// observable in debug builds.
 #[cfg(debug_assertions)]
