@@ -53,11 +53,15 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
                 for attr in field.attrs.iter() {
                     if attr.path().is_ident("input") {
-                        input_type_kind =
-                            Some(parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value));
+                        match parse_endpoint_attr(attr) {
+                            Ok(kind) => input_type_kind = Some(kind),
+                            Err(err) => endpoint_errors.push(err.to_compile_error()),
+                        }
                     } else if attr.path().is_ident("output") {
-                        output_type_kind =
-                            Some(parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value));
+                        match parse_endpoint_attr(attr) {
+                            Ok(kind) => output_type_kind = Some(kind),
+                            Err(err) => endpoint_errors.push(err.to_compile_error()),
+                        }
                     }
                 }
 
@@ -326,8 +330,15 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-fn parse_endpoint_attr(attr: &syn::Attribute) -> Option<EndpointTypeAttr> {
-    attr.parse_args::<EndpointTypeAttr>().ok()
+fn parse_endpoint_attr(attr: &syn::Attribute) -> syn::Result<EndpointTypeAttr> {
+    match &attr.meta {
+        // Bare `#[input]` / `#[output]` defaults to a value endpoint.
+        syn::Meta::Path(_) => Ok(EndpointTypeAttr::Value),
+        // Anything with arguments must parse; unknown kinds (e.g. a typo'd
+        // `#[input(strem)]`) are compile errors instead of silently
+        // defaulting to a value endpoint.
+        _ => attr.parse_args::<EndpointTypeAttr>(),
+    }
 }
 
 fn kind_marker_for_attr(kind: EndpointTypeAttr, ty: &syn::Type) -> proc_macro2::TokenStream {
