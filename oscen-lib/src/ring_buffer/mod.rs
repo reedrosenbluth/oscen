@@ -193,7 +193,16 @@ impl RingBuffer {
         // Choose interpolation method based on available capacity.
         // Pass the original non-negative (but potentially > capacity) offset
         // to the interpolation functions. `read_pos` inside them handles wrapping.
-        if self.capacity >= 4 {
+        //
+        // Near the ends of the buffer the cubic's outer taps cross the write
+        // boundary: for offsets in (0, 1) the fourth tap lands on write_pos
+        // (the oldest sample), and for offsets in (capacity - 2, capacity - 1)
+        // the first tap lands on the newest sample. Fall back to linear there —
+        // its two taps stay on the correct side of the write boundary.
+        if self.capacity >= 4
+            && non_negative_offset >= 1.0
+            && non_negative_offset <= self.capacity as f32 - 2.0
+        {
             self.get_cubic(non_negative_offset)
         } else {
             self.get_linear(non_negative_offset)

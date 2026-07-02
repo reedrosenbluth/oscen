@@ -214,6 +214,39 @@ fn test_get_cubic_interpolation() {
 }
 
 #[test]
+fn test_fractional_offset_below_one_ignores_oldest_sample() {
+    // The oldest sample sits at write_pos. A cubic read at a sub-sample
+    // offset would place its fourth tap there, bleeding seconds-old audio
+    // into a near-zero delay. `get` must not touch it.
+    let mut buf = RingBuffer::with_mode(8, BufferMode::PowerOfTwo);
+    buf.push(1.0); // idx 0
+    for _ in 0..7 {
+        buf.push(0.0); // idx 1..=7, write_pos wraps to 0
+    }
+    // Buffer: [1.0, 0, 0, 0, 0, 0, 0, 0], write_pos = 0. The 1.0 at
+    // write_pos is the OLDEST sample; everything recent is silence.
+    assert_approx_eq!(f32, buf.get(0.5), 0.0, epsilon = 1e-6);
+    assert_approx_eq!(f32, buf.get(0.25), 0.0, epsilon = 1e-6);
+    assert_approx_eq!(f32, buf.get(0.75), 0.0, epsilon = 1e-6);
+}
+
+#[test]
+fn test_fractional_offset_near_capacity_ignores_newest_sample() {
+    // Symmetric case: a cubic read near the longest delay would place its
+    // first tap on the newest sample. `get` must not touch it.
+    let mut buf = RingBuffer::with_mode(8, BufferMode::PowerOfTwo);
+    for _ in 0..7 {
+        buf.push(0.0); // idx 0..=6
+    }
+    buf.push(1.0); // idx 7, write_pos wraps to 0
+                   // Buffer: [0, 0, 0, 0, 0, 0, 0, 1.0], write_pos = 0. The 1.0 is the
+                   // NEWEST sample; everything older is silence.
+    assert_approx_eq!(f32, buf.get(6.5), 0.0, epsilon = 1e-6);
+    assert_approx_eq!(f32, buf.get(6.25), 0.0, epsilon = 1e-6);
+    assert_approx_eq!(f32, buf.get(6.75), 0.0, epsilon = 1e-6);
+}
+
+#[test]
 fn test_minimum_capacity() {
     // Renamed from test_empty_buffer
     // Test with minimum N and size 0 -> capacity 1

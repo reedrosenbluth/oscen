@@ -154,6 +154,51 @@ fn convolver_swap_is_click_free() {
     );
 }
 
+/// A second IR published while a crossfade is still in progress must not step
+/// the output: the new engine is deferred until the active fade completes,
+/// then promoted into its own fade (and the newest publish still wins).
+#[test]
+fn convolver_second_swap_mid_fade_is_click_free() {
+    // Single-tap IRs make each engine a pure gain, so with DC input the
+    // output is a crossfade between constants and any fade restart shows up
+    // as a single-sample step.
+    let (mut publisher, consumer) = handoff::pair::<MultiConvolverEngine>();
+    let mut conv = Convolver::with_ir(vec![0.2]);
+    conv.install_ir_consumer(consumer);
+    conv.set_sample_rate(44100.0);
+    conv.prepare();
+
+    let fade = fade_len_at_44k();
+    let dc = vec![1.0f32; 50 + 100 + 3 * fade];
+
+    // Steady state on the 0.2 IR.
+    let mut out = run(&mut conv, &dc[..50]);
+    // Publish B: the fade toward gain 0.6 begins.
+    publisher.publish(MultiConvolverEngine::from_mono_ir(&[0.6], 1));
+    out.extend(run(&mut conv, &dc[50..150]));
+    // Publish C 100 samples into the fade: it must defer, not restart.
+    publisher.publish(MultiConvolverEngine::from_mono_ir(&[1.0], 1));
+    out.extend(run(&mut conv, &dc[150..]));
+
+    // The equal-power fade moves the output by at most (pi/2)/fade of the
+    // gain delta per sample (~0.001 here); the pre-fix fade restart stepped
+    // ~0.3 in one sample.
+    let max_step = (1..out.len())
+        .map(|i| (out[i] - out[i - 1]).abs())
+        .fold(0.0f32, f32::max);
+    assert!(
+        max_step < 0.01,
+        "single-sample step {max_step} exceeds the fade slope"
+    );
+
+    // The deferred engine must eventually land: output settles on C's gain.
+    let last = *out.last().unwrap();
+    assert!(
+        approx_eq!(f32, last, 1.0, epsilon = 1e-4),
+        "pending IR did not land: {last}"
+    );
+}
+
 /// Test 4: a convolver with an installed consumer but nothing published is
 /// exactly silent.
 #[test]
