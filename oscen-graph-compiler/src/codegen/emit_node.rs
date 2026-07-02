@@ -500,6 +500,16 @@ impl<'a> CodegenContext<'a> {
                                     );
                                 });
                             }
+                        } else if Self::is_simple_endpoint_source(source) {
+                            // Bare graph event input forwarded to a graph
+                            // event output (`midi -> thru;`): copy the queue.
+                            let source_tokens = self.emit_expr(source);
+                            out.push(quote! {
+                                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                                    &#source_tokens,
+                                    &mut self.#dest_ident
+                                );
+                            });
                         }
                     }
                     // Asset endpoints are bound from externals, never driven as

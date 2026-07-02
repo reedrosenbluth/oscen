@@ -142,3 +142,74 @@ fn bare_ramped_input_to_value_output_reads_current() {
         tokens
     );
 }
+
+// ---------------------------------------------------------------------------
+// Graph event outputs: cleared at cycle start, readable after process()
+// ---------------------------------------------------------------------------
+
+#[test]
+fn event_output_is_not_cleared_after_population() {
+    let tokens = compile(quote! {
+        name: EvOut;
+        input event midi;
+        output event thru;
+        node seq = Sequencer::new();
+        connections {
+            midi -> seq.midi_in;
+            seq.midi_out -> thru;
+        }
+    })
+    .expect("compile succeeds");
+    let body = inherent_method_body(tokens, "process");
+
+    let clear_thru = "self . thru . clear ()";
+    let forward = "& mut self . thru";
+    let pos_forward = body
+        .find(forward)
+        .expect("process() should forward events into `thru`");
+    if let Some(pos_clear) = body.find(clear_thru) {
+        assert!(
+            pos_clear < pos_forward,
+            "event output must be cleared BEFORE it is populated:\n{}",
+            body
+        );
+    }
+    let after_forward = &body[pos_forward..];
+    assert!(
+        !after_forward.contains(clear_thru),
+        "event output must not be cleared after it is populated:\n{}",
+        body
+    );
+    // Event inputs are still cleared after processing.
+    let pos_clear_midi = body
+        .rfind("self . midi . clear ()")
+        .expect("event input should be cleared");
+    assert!(
+        pos_clear_midi > pos_forward,
+        "event input clearing should happen after processing:\n{}",
+        body
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Bare event input -> event output passthrough (`midi -> thru`)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn bare_event_passthrough_emits_queue_copy() {
+    let tokens = compile(quote! {
+        name: EvThru;
+        input event midi;
+        output event thru;
+        connections {
+            midi -> thru;
+        }
+    })
+    .expect("compile succeeds");
+    let body = inherent_method_body(tokens, "process");
+    assert!(
+        body.contains("(& self . midi , & mut self . thru)"),
+        "expected a queue copy from `midi` to `thru`; got:\n{}",
+        body
+    );
+}

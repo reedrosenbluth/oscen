@@ -519,8 +519,8 @@ impl<'a> CodegenContext<'a> {
         Ok(process_body)
     }
 
-    /// Generate event queue clearing statements for graph-level event inputs/outputs.
-    fn generate_event_clearing(&self) -> Vec<TokenStream> {
+    /// Generate event queue clearing statements for graph-level event inputs.
+    fn generate_event_input_clearing(&self) -> Vec<TokenStream> {
         let mut clearing = Vec::new();
         for node in self.inputs() {
             let name = &node.name;
@@ -530,6 +530,15 @@ impl<'a> CodegenContext<'a> {
                 });
             }
         }
+        clearing
+    }
+
+    /// Generate event queue clearing statements for graph-level event outputs.
+    /// Outputs are cleared at the START of a processing cycle (not after it),
+    /// so events produced during the cycle stay readable by the host / an
+    /// outer graph until the next cycle begins.
+    fn generate_event_output_clearing(&self) -> Vec<TokenStream> {
+        let mut clearing = Vec::new();
         for node in self.outputs() {
             let name = &node.name;
             if matches!(self.output_kind(name), Some(EndpointKind::Event)) {
@@ -543,7 +552,8 @@ impl<'a> CodegenContext<'a> {
 
     /// Generate the static process() method for compile-time graphs.
     fn generate_static_process(&self) -> Result<TokenStream> {
-        let event_clearing = self.generate_event_clearing();
+        let event_input_clearing = self.generate_event_input_clearing();
+        let event_output_clearing = self.generate_event_output_clearing();
 
         if self.max_factor() > 1 {
             // Multi-rate graph nested as a node: the multi-rate inner-loop
@@ -553,10 +563,14 @@ impl<'a> CodegenContext<'a> {
                 #[inline(always)]
                 #[allow(unused_variables, unused_mut)]
                 pub fn process(&mut self) {
+                    // Clear event outputs from the previous cycle.
+                    #(#event_output_clearing)*
+
                     #body
 
-                    // Clear event queues after processing.
-                    #(#event_clearing)*
+                    // Clear event inputs after processing (outputs stay
+                    // readable until the next cycle).
+                    #(#event_input_clearing)*
                 }
             });
         }
@@ -567,13 +581,17 @@ impl<'a> CodegenContext<'a> {
             pub fn process(&mut self) {
                 use ::oscen::SignalProcessor as _;
 
+                // Clear event outputs from the previous cycle
+                #(#event_output_clearing)*
+
                 // Advance ramped value inputs
                 self.tick_ramps();
 
                 #(#process_body)*
 
-                // Clear event queues after processing
-                #(#event_clearing)*
+                // Clear event inputs after processing (outputs stay readable
+                // until the next cycle)
+                #(#event_input_clearing)*
             }
         })
     }
@@ -837,7 +855,7 @@ impl<'a> CodegenContext<'a> {
             })
             .collect();
 
-        let event_clearing = self.generate_event_clearing();
+        let event_input_clearing = self.generate_event_input_clearing();
 
         Ok(quote! {
             /// Process a block of `frames` samples with sub-block splitting at event boundaries.
@@ -871,8 +889,10 @@ impl<'a> CodegenContext<'a> {
                     self.__advance_one_frame(__frame);
                     __frame += 1;
 
-                    // Clear event queues so next sub-block starts clean
-                    #(#event_clearing)*
+                    // Clear event input queues so the next sub-block starts
+                    // clean (event outputs are overwritten per frame by the
+                    // output assignments and stay readable after the block)
+                    #(#event_input_clearing)*
                 }
             }
         })
