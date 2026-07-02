@@ -318,6 +318,40 @@ impl AdsrEnvelope {
 mod tests {
     use super::*;
     use crate::graph::types::EventPayload;
+    use float_cmp::approx_eq;
+
+    #[test]
+    fn attack_reaches_target_on_schedule() {
+        let sample_rate = 48_000.0;
+        let attack_seconds = 0.05;
+        let mut env = AdsrEnvelope::new(attack_seconds, 0.1, 0.5, 0.05);
+        env.set_sample_rate(sample_rate);
+        env.prepare();
+
+        env.handle_gate_event(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::scalar(1.0),
+        });
+
+        // The one-pole coefficient is derived so the level is 99% of the way
+        // to the target on the last attack sample, where it snaps to 1.0.
+        let attack_samples = (attack_seconds * sample_rate) as u32;
+        for _ in 0..attack_samples - 1 {
+            env.process();
+        }
+        assert!(
+            approx_eq!(f32, env.output, 0.99, epsilon = 0.001),
+            "level {} not ~99% of target one sample before attack end",
+            env.output
+        );
+
+        env.process();
+        assert!(
+            approx_eq!(f32, env.output, 1.0, ulps = 2),
+            "level {} did not reach target at attack end",
+            env.output
+        );
+    }
 
     #[test]
     fn reaches_sustain_level() {

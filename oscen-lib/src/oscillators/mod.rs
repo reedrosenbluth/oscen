@@ -269,6 +269,32 @@ mod tests {
     }
 
     #[test]
+    fn test_poly_blep_frequency_accuracy() {
+        let sample_rate = 48_000.0;
+        let mut osc = PolyBlepOscillator::sine(440.0, 1.0);
+        osc.set_sample_rate(sample_rate);
+        osc.phase_mod = 0.0;
+        osc.frequency_mod = 0.0;
+
+        // Count rising zero-crossings over exactly one second: there should
+        // be one per cycle, so approximately 440.
+        let mut crossings = 0i32;
+        let mut previous = 0.0f32;
+        for i in 0..(sample_rate as usize) {
+            osc.process();
+            if i > 0 && previous < 0.0 && osc.output >= 0.0 {
+                crossings += 1;
+            }
+            previous = osc.output;
+        }
+
+        assert!(
+            (crossings - 440).abs() <= 1,
+            "expected ~440 rising zero-crossings, got {crossings}"
+        );
+    }
+
+    #[test]
     fn test_poly_blep_saw_stays_bounded() {
         let sample_rate = 48_000.0;
         let mut osc = PolyBlepOscillator::saw(440.0, 1.0);
