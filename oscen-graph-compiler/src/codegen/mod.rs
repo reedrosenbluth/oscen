@@ -861,6 +861,25 @@ impl<'a> CodegenContext<'a> {
             })
             .collect();
 
+        let leftover_requeues: Vec<_> = event_inputs
+            .iter()
+            .map(|node| {
+                let name = &node.name;
+                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
+                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                quote! {
+                    while #cursor_name < #staged_name.len() {
+                        let mut __e = #staged_name[#cursor_name].clone();
+                        __e.frame_offset -= frames as u32;
+                        ::oscen::graph::debug_assert_event_pushed(
+                            self.#name.try_push(__e),
+                        );
+                        #cursor_name += 1;
+                    }
+                }
+            })
+            .collect();
+
         let event_input_clearing = self.generate_event_input_clearing();
 
         Ok(quote! {
@@ -868,6 +887,8 @@ impl<'a> CodegenContext<'a> {
             /// Stream inputs should be written to `*_block` arrays before calling.
             /// Stream outputs will be available in `*_block` arrays after calling.
             /// Events should be pushed to event input queues with appropriate `frame_offset` values.
+            /// Events whose `frame_offset` lands beyond `frames` are deferred: they stay queued
+            /// with the offset rebased so they fire sample-accurately in a later block.
             pub fn process_block(&mut self, frames: usize) {
                 debug_assert!(frames <= Self::MAX_BLOCK_SIZE);
 
@@ -900,6 +921,11 @@ impl<'a> CodegenContext<'a> {
                     // output assignments and stay readable after the block)
                     #(#event_input_clearing)*
                 }
+
+                // The loop consumed every staged event with frame_offset < frames,
+                // so anything left is beyond this block: re-queue it with the
+                // offset rebased so it fires sample-accurately in a later block.
+                #(#leftover_requeues)*
             }
         })
     }

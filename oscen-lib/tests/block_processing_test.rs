@@ -341,3 +341,67 @@ fn test_block_with_stream_input() {
         );
     }
 }
+
+// ============================================================================
+// Test 6: Events beyond the block are deferred, not dropped
+// ============================================================================
+
+#[test]
+fn test_event_beyond_block_is_deferred() {
+    use oscen::graph::{EventInstance, EventPayload};
+    use oscen::midi::RawMidiMessage;
+
+    let block_size = 32;
+    let event_frame = 40; // beyond the first block, 8 frames into the second
+
+    // Reference: per-sample processing with the event at the right sample
+    let note_on_bytes = [0x90, 81, 100];
+    let mut graph_a = EventBlockGraph::new();
+    graph_a.init(44100.0);
+    let mut per_sample_outputs = Vec::with_capacity(block_size * 2);
+    for i in 0..block_size * 2 {
+        if i == event_frame {
+            let msg = RawMidiMessage::new(&note_on_bytes);
+            let _ = graph_a.midi_in.try_push(EventInstance {
+                frame_offset: 0,
+                payload: EventPayload::Object(std::sync::Arc::new(msg)),
+            });
+        }
+        graph_a.process();
+        per_sample_outputs.push(graph_a.audio_out);
+    }
+
+    // Block: push the event with frame_offset beyond the first block, then
+    // process two blocks — the event must fire 8 frames into the second.
+    let msg = RawMidiMessage::new(&note_on_bytes);
+    let mut graph_b = EventBlockGraph::new();
+    graph_b.init(44100.0);
+    let _ = graph_b.midi_in.try_push(EventInstance {
+        frame_offset: event_frame as u32,
+        payload: EventPayload::Object(std::sync::Arc::new(msg)),
+    });
+
+    graph_b.process_block(block_size);
+    for i in 0..block_size {
+        assert_eq!(
+            graph_b.audio_out_block[i], per_sample_outputs[i],
+            "Deferred event fired early at sample {}: block={} per_sample={}",
+            i, graph_b.audio_out_block[i], per_sample_outputs[i]
+        );
+    }
+
+    graph_b.process_block(block_size);
+    for i in 0..block_size {
+        assert_eq!(
+            graph_b.audio_out_block[i],
+            per_sample_outputs[block_size + i],
+            "Deferred event mismatch at sample {}: block={} per_sample={}",
+            block_size + i,
+            graph_b.audio_out_block[i],
+            per_sample_outputs[block_size + i]
+        );
+    }
+
+    // The note actually arrived (frequency set to A5)
+    assert!((graph_b.voice_handler.frequency - 880.0).abs() < 0.01);
+}
