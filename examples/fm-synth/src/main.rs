@@ -194,23 +194,32 @@ fn audio_callback(
         }
     }
 
-    // Block-based processing: process all frames at once
-    let frames = data.len() / context.channels;
-    let frames = frames.min(FMStandaloneGraph::MAX_BLOCK_SIZE);
-    context.synth.process_block(frames);
+    // Block-based processing: the host buffer can be larger than the graph's
+    // block buffers, so process it in chunks of at most MAX_BLOCK_SIZE. MIDI
+    // events (pushed above at frame_offset 0) are consumed by the first chunk.
+    let channels = context.channels;
+    let total_frames = data.len() / channels;
+    let mut frame_start = 0;
+    while frame_start < total_frames {
+        let block_frames = (total_frames - frame_start).min(FMStandaloneGraph::MAX_BLOCK_SIZE);
+        context.synth.process_block(block_frames);
 
-    // Copy from output block buffer to interleaved audio output
-    for (i, frame) in data.chunks_mut(context.channels).enumerate() {
-        let mono = context.synth.audio_out_block[i];
-        if context.channels >= 2 {
-            frame[0] = mono;
-            frame[1] = mono;
-            for sample in frame.iter_mut().skip(2) {
-                *sample = 0.0;
+        // Copy this chunk from the output block buffer to interleaved output
+        let chunk = &mut data[frame_start * channels..(frame_start + block_frames) * channels];
+        for (i, frame) in chunk.chunks_mut(channels).enumerate() {
+            let mono = context.synth.audio_out_block[i];
+            if channels >= 2 {
+                frame[0] = mono;
+                frame[1] = mono;
+                for sample in frame.iter_mut().skip(2) {
+                    *sample = 0.0;
+                }
+            } else if channels == 1 {
+                frame[0] = mono;
             }
-        } else if context.channels == 1 {
-            frame[0] = mono;
         }
+
+        frame_start += block_frames;
     }
 }
 

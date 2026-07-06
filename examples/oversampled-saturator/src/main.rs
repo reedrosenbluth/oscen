@@ -153,13 +153,23 @@ where
         .build_output_stream(
             &config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let frames = data.len() / channels;
-                let block = process(&mut graph, frames);
-                for (i, frame) in data.chunks_mut(channels).enumerate() {
-                    let mono = block.get(i).copied().unwrap_or(0.0);
-                    for sample in frame.iter_mut() {
-                        *sample = mono;
+                // Process in chunks of at most the graph block size; the host
+                // buffer can be larger than the graph's block buffers.
+                let total_frames = data.len() / channels;
+                let mut frame_start = 0;
+                while frame_start < total_frames {
+                    let frames =
+                        (total_frames - frame_start).min(oscen::graph::DEFAULT_MAX_BLOCK_SIZE);
+                    let block = process(&mut graph, frames);
+                    let chunk =
+                        &mut data[frame_start * channels..(frame_start + frames) * channels];
+                    for (i, frame) in chunk.chunks_mut(channels).enumerate() {
+                        let mono = block.get(i).copied().unwrap_or(0.0);
+                        for sample in frame.iter_mut() {
+                            *sample = mono;
+                        }
                     }
+                    frame_start += frames;
                 }
             },
             |err| eprintln!("audio stream error: {err}"),
