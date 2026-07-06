@@ -65,8 +65,8 @@ graph! {
 
     // OP3 parameters
     input op3_ratio: value = 3.0;
-    input op3_level: value = 0.5;
-    input op3_feedback: value = 0.0;
+    input op3_level: value = 0.5 [ramp: 2205];
+    input op3_feedback: value = 0.0 [ramp: 2205];
     input op3_attack: value = 0.01;
     input op3_decay: value = 0.1;
     input op3_sustain: value = 0.7;
@@ -74,8 +74,8 @@ graph! {
 
     // OP2 parameters
     input op2_ratio: value = 2.0;
-    input op2_level: value = 0.5;
-    input op2_feedback: value = 0.0;
+    input op2_level: value = 0.5 [ramp: 2205];
+    input op2_feedback: value = 0.0 [ramp: 2205];
     input op2_attack: value = 0.01;
     input op2_decay: value = 0.1;
     input op2_sustain: value = 0.7;
@@ -89,16 +89,16 @@ graph! {
     input op1_release: value = 0.5;
 
     // Route: blends OP3 between OP2 (0.0) and OP1 (1.0)
-    input route: value = 0.0;
+    input route: value = 0.0 [ramp: 2205];
 
     // Filter parameters
-    input cutoff: value = 2000.0;
-    input resonance: value = 0.707;
+    input cutoff: value = 2000.0 [ramp: 2205];
+    input resonance: value = 0.707 [ramp: 2205];
     input filter_attack: value = 0.01;
     input filter_decay: value = 0.2;
     input filter_sustain: value = 0.5;
     input filter_release: value = 0.3;
-    input filter_env_amount: value = 0.0;
+    input filter_env_amount: value = 0.0 [ramp: 2205];
 
     output audio_out: stream;
 
@@ -202,15 +202,15 @@ fn audio_callback(
     while let Ok(change) = param_rx.try_recv() {
         match change {
             ParamChange::Op3Ratio(value) => context.synth.op3_ratio = value,
-            ParamChange::Op3Level(value) => context.synth.op3_level = value,
-            ParamChange::Op3Feedback(value) => context.synth.op3_feedback = value,
+            ParamChange::Op3Level(value) => context.synth.set_op3_level(value),
+            ParamChange::Op3Feedback(value) => context.synth.set_op3_feedback(value),
             ParamChange::Op3Attack(value) => context.synth.op3_attack = value,
             ParamChange::Op3Decay(value) => context.synth.op3_decay = value,
             ParamChange::Op3Sustain(value) => context.synth.op3_sustain = value,
             ParamChange::Op3Release(value) => context.synth.op3_release = value,
             ParamChange::Op2Ratio(value) => context.synth.op2_ratio = value,
-            ParamChange::Op2Level(value) => context.synth.op2_level = value,
-            ParamChange::Op2Feedback(value) => context.synth.op2_feedback = value,
+            ParamChange::Op2Level(value) => context.synth.set_op2_level(value),
+            ParamChange::Op2Feedback(value) => context.synth.set_op2_feedback(value),
             ParamChange::Op2Attack(value) => context.synth.op2_attack = value,
             ParamChange::Op2Decay(value) => context.synth.op2_decay = value,
             ParamChange::Op2Sustain(value) => context.synth.op2_sustain = value,
@@ -219,14 +219,14 @@ fn audio_callback(
             ParamChange::Op1Decay(value) => context.synth.op1_decay = value,
             ParamChange::Op1Sustain(value) => context.synth.op1_sustain = value,
             ParamChange::Op1Release(value) => context.synth.op1_release = value,
-            ParamChange::Route(value) => context.synth.route = value,
-            ParamChange::Cutoff(value) => context.synth.cutoff = value,
-            ParamChange::Resonance(value) => context.synth.resonance = value,
+            ParamChange::Route(value) => context.synth.set_route(value),
+            ParamChange::Cutoff(value) => context.synth.set_cutoff(value),
+            ParamChange::Resonance(value) => context.synth.set_resonance(value),
             ParamChange::FilterAttack(value) => context.synth.filter_attack = value,
             ParamChange::FilterDecay(value) => context.synth.filter_decay = value,
             ParamChange::FilterSustain(value) => context.synth.filter_sustain = value,
             ParamChange::FilterRelease(value) => context.synth.filter_release = value,
-            ParamChange::FilterEnvAmount(value) => context.synth.filter_env_amount = value,
+            ParamChange::FilterEnvAmount(value) => context.synth.set_filter_env_amount(value),
         }
     }
 
