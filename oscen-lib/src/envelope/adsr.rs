@@ -268,7 +268,7 @@ impl AdsrEnvelope {
     fn handle_gate_event(&mut self, event: &EventInstance) {
         let velocity = match &event.payload {
             EventPayload::Scalar(v) => *v,
-            EventPayload::Object(_) => 1.0,
+            EventPayload::Midi(_) | EventPayload::Object(_) => 1.0,
         };
 
         if velocity > 0.0 {

@@ -28,10 +28,53 @@ pub struct NoteOnEvent {
     pub velocity: f32, // 0.0 - 1.0
 }
 
+impl NoteOnEvent {
+    /// Extract a note-on from an event payload.
+    ///
+    /// Accepts both the allocation-free `EventPayload::Midi` representation
+    /// (a note-on status byte with non-zero velocity) and a boxed
+    /// `NoteOnEvent` object.
+    pub fn from_payload(payload: &EventPayload) -> Option<Self> {
+        match payload {
+            EventPayload::Midi(bytes) => {
+                if bytes[0] & 0xF0 == 0x90 && bytes[2] > 0 {
+                    Some(Self {
+                        note: bytes[1],
+                        velocity: (bytes[2] as f32 / 127.0).clamp(0.0, 1.0),
+                    })
+                } else {
+                    None
+                }
+            }
+            EventPayload::Object(obj) => obj.as_any().downcast_ref::<Self>().copied(),
+            EventPayload::Scalar(_) => None,
+        }
+    }
+}
+
 /// Note-off event with note number
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NoteOffEvent {
     pub note: u8,
+}
+
+impl NoteOffEvent {
+    /// Extract a note-off from an event payload.
+    ///
+    /// Accepts both the allocation-free `EventPayload::Midi` representation
+    /// (a note-off status byte, or note-on with velocity 0) and a boxed
+    /// `NoteOffEvent` object.
+    pub fn from_payload(payload: &EventPayload) -> Option<Self> {
+        match payload {
+            EventPayload::Midi(bytes) => match bytes[0] & 0xF0 {
+                0x80 => Some(Self { note: bytes[1] }),
+                0x90 if bytes[2] == 0 => Some(Self { note: bytes[1] }),
+                _ => None,
+            },
+            EventPayload::Object(obj) => obj.as_any().downcast_ref::<Self>().copied(),
+            EventPayload::Scalar(_) => None,
+        }
+    }
 }
 
 /// A node that manages MIDI note state and converts to frequency/gate outputs.
@@ -90,32 +133,40 @@ impl SignalProcessor for MidiVoiceHandler {
 impl MidiVoiceHandler {
     // Event handlers called automatically by derive macro via process_event_inputs()
     fn on_note_on(&mut self, event: &EventInstance) {
-        if let EventPayload::Object(obj) = &event.payload {
-            if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
-                self.current_note = Some(note_on.note);
-                self.current_frequency = Self::midi_note_to_freq(note_on.note);
+        if let Some(note_on) = NoteOnEvent::from_payload(&event.payload) {
+            self.current_note = Some(note_on.note);
+            self.current_frequency = Self::midi_note_to_freq(note_on.note);
 
-                // Emit gate-on event with velocity - push directly to EventOutput field
-                let _ = self.gate.try_push(EventInstance {
-                    frame_offset: event.frame_offset,
-                    payload: EventPayload::Scalar(note_on.velocity),
-                });
-            }
+            // Emit gate-on event with velocity - push directly to EventOutput field
+            let _ = self.gate.try_push(EventInstance {
+                frame_offset: event.frame_offset,
+                payload: EventPayload::Scalar(note_on.velocity),
+            });
         }
     }
 
     fn on_note_off(&mut self, event: &EventInstance) {
-        if let EventPayload::Object(obj) = &event.payload {
-            if let Some(note_off) = obj.as_any().downcast_ref::<NoteOffEvent>() {
-                // Only turn off gate if this is the current note
-                if self.current_note == Some(note_off.note) {
-                    // Emit gate-off event - push directly to EventOutput field
-                    let _ = self.gate.try_push(EventInstance {
-                        frame_offset: event.frame_offset,
-                        payload: EventPayload::Scalar(0.0),
-                    });
-                    self.current_note = None;
-                }
+        // CC 120 (All Sound Off) / CC 123 (All Notes Off): gate off whatever
+        // note is playing.
+        if is_all_notes_off(&event.payload) {
+            if self.current_note.take().is_some() {
+                let _ = self.gate.try_push(EventInstance {
+                    frame_offset: event.frame_offset,
+                    payload: EventPayload::Scalar(0.0),
+                });
+            }
+            return;
+        }
+
+        if let Some(note_off) = NoteOffEvent::from_payload(&event.payload) {
+            // Only turn off gate if this is the current note
+            if self.current_note == Some(note_off.note) {
+                // Emit gate-off event - push directly to EventOutput field
+                let _ = self.gate.try_push(EventInstance {
+                    frame_offset: event.frame_offset,
+                    payload: EventPayload::Scalar(0.0),
+                });
+                self.current_note = None;
             }
         }
     }
@@ -150,7 +201,7 @@ impl MidiParser {
         }
 
         let status = data[0] & 0xF0;
-        let note = data[1];
+        let note = data[1]; // controller number for CC messages
         let velocity = data[2];
 
         match status {
@@ -160,12 +211,14 @@ impl MidiParser {
                     // Note-on with velocity 0 is treated as note-off
                     Some(ParsedMidi::NoteOff { note })
                 } else {
-                    Some(ParsedMidi::NoteOn {
-                        note,
-                        velocity: (velocity as f32 / 127.0).clamp(0.0, 1.0),
-                    })
+                    Some(ParsedMidi::NoteOn { note, velocity })
                 }
             }
+            // CC 120 (All Sound Off) and CC 123 (All Notes Off)
+            0xB0 => match note {
+                120 | 123 => Some(ParsedMidi::AllNotesOff { controller: note }),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -173,8 +226,9 @@ impl MidiParser {
 
 /// Internal enum for parsed MIDI messages
 enum ParsedMidi {
-    NoteOn { note: u8, velocity: f32 },
+    NoteOn { note: u8, velocity: u8 },
     NoteOff { note: u8 },
+    AllNotesOff { controller: u8 },
 }
 
 impl Default for MidiParser {
@@ -194,39 +248,64 @@ impl SignalProcessor for MidiParser {
 impl MidiParser {
     // Event handler called automatically by derive macro via process_event_inputs()
     fn on_midi_in(&mut self, event: &EventInstance) {
-        if let EventPayload::Object(obj) = &event.payload {
-            // Try to downcast to RawMidiMessage
-            if let Some(raw_midi) = obj.as_any().downcast_ref::<RawMidiMessage>() {
-                // Parse the raw bytes
-                if let Some(parsed) = Self::parse_bytes(&raw_midi.bytes[..raw_midi.len]) {
-                    match parsed {
-                        ParsedMidi::NoteOn { note, velocity } => {
-                            // Push note-on event directly to EventOutput field
-                            let _ = self.note_on.try_push(EventInstance {
-                                frame_offset: event.frame_offset,
-                                payload: EventPayload::Object(Arc::new(NoteOnEvent {
-                                    note,
-                                    velocity,
-                                })),
-                            });
-                        }
-                        ParsedMidi::NoteOff { note } => {
-                            // Push note-off event directly to EventOutput field
-                            let _ = self.note_off.try_push(EventInstance {
-                                frame_offset: event.frame_offset,
-                                payload: EventPayload::Object(Arc::new(NoteOffEvent { note })),
-                            });
-                        }
-                    }
-                }
+        // Accept both the allocation-free Midi payload and the legacy
+        // Object(RawMidiMessage) representation.
+        let parsed = match &event.payload {
+            EventPayload::Midi(bytes) => Self::parse_bytes(bytes),
+            EventPayload::Object(obj) => obj
+                .as_any()
+                .downcast_ref::<RawMidiMessage>()
+                .and_then(|raw| Self::parse_bytes(&raw.bytes[..raw.len])),
+            EventPayload::Scalar(_) => None,
+        };
+
+        // Emit plain-data Midi payloads: no heap allocation on the audio thread.
+        match parsed {
+            Some(ParsedMidi::NoteOn { note, velocity }) => {
+                let _ = self.note_on.try_push(EventInstance {
+                    frame_offset: event.frame_offset,
+                    payload: EventPayload::Midi([0x90, note, velocity]),
+                });
             }
+            Some(ParsedMidi::NoteOff { note }) => {
+                let _ = self.note_off.try_push(EventInstance {
+                    frame_offset: event.frame_offset,
+                    payload: EventPayload::Midi([0x80, note, 0]),
+                });
+            }
+            Some(ParsedMidi::AllNotesOff { controller }) => {
+                // Routed through the note_off output; consumers recognize it
+                // via is_all_notes_off() and silence all active notes.
+                let _ = self.note_off.try_push(EventInstance {
+                    frame_offset: event.frame_offset,
+                    payload: EventPayload::Midi([0xB0, controller, 0]),
+                });
+            }
+            None => {}
         }
     }
 }
 
-/// Helper function to create a raw MIDI message event payload
+/// True if the payload is a MIDI CC 120 (All Sound Off) or CC 123
+/// (All Notes Off) message.
+pub fn is_all_notes_off(payload: &EventPayload) -> bool {
+    matches!(
+        payload.as_midi(),
+        Some([status, controller, _])
+            if status & 0xF0 == 0xB0 && (controller == 120 || controller == 123)
+    )
+}
+
+/// Helper function to create a raw MIDI message event payload.
+/// Complete 3-byte messages use the allocation-free `EventPayload::Midi`
+/// representation; shorter messages fall back to a boxed `RawMidiMessage`.
 pub fn raw_midi_event(bytes: &[u8]) -> EventPayload {
-    EventPayload::Object(Arc::new(RawMidiMessage::new(bytes)))
+    let msg = RawMidiMessage::new(bytes);
+    if msg.len == 3 {
+        EventPayload::Midi(msg.bytes)
+    } else {
+        EventPayload::Object(Arc::new(msg))
+    }
 }
 
 #[cfg(test)]
@@ -246,7 +325,10 @@ mod tests {
         let parsed = MidiParser::parse_bytes(&[0x90, 60, 100]);
         assert!(matches!(
             parsed,
-            Some(ParsedMidi::NoteOn { note: 60, velocity }) if (velocity - 100.0/127.0).abs() < 0.01
+            Some(ParsedMidi::NoteOn {
+                note: 60,
+                velocity: 100
+            })
         ));
     }
 
@@ -270,5 +352,200 @@ mod tests {
         assert_eq!(msg.bytes[1], 60);
         assert_eq!(msg.bytes[2], 100);
         assert_eq!(msg.len, 3);
+    }
+
+    #[test]
+    fn test_raw_midi_event_is_pod_for_full_messages() {
+        assert_eq!(
+            raw_midi_event(&[0x90, 60, 100]).as_midi(),
+            Some([0x90, 60, 100])
+        );
+        // Short messages fall back to the boxed representation
+        assert!(raw_midi_event(&[0xC0, 5]).as_object().is_some());
+    }
+
+    fn midi_event(bytes: [u8; 3]) -> EventInstance {
+        EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Midi(bytes),
+        }
+    }
+
+    #[test]
+    fn test_note_on_off_round_trip_with_pod_payload() {
+        use float_cmp::approx_eq;
+
+        let mut parser = MidiParser::new();
+        let mut handler = MidiVoiceHandler::new();
+
+        // Note-on A4 (69), velocity 100, through the parser
+        parser.on_midi_in(&midi_event([0x90, 69, 100]));
+        assert_eq!(parser.note_on.len(), 1);
+        let note_on = parser.note_on.iter().next().unwrap().clone();
+        assert_eq!(note_on.payload.as_midi(), Some([0x90, 69, 100]));
+
+        handler.on_note_on(&note_on);
+        handler.process();
+        assert!(approx_eq!(f32, handler.frequency, 440.0, ulps = 2));
+        let gate_on = handler.gate.iter().next().unwrap();
+        assert!(approx_eq!(
+            f32,
+            gate_on.payload.as_scalar().unwrap(),
+            100.0 / 127.0,
+            ulps = 2
+        ));
+        handler.gate.clear();
+
+        // Note-off for the same note
+        parser.on_midi_in(&midi_event([0x80, 69, 0]));
+        assert_eq!(parser.note_off.len(), 1);
+        let note_off = parser.note_off.iter().next().unwrap().clone();
+        assert_eq!(note_off.payload.as_midi(), Some([0x80, 69, 0]));
+
+        handler.on_note_off(&note_off);
+        let gate_off = handler.gate.iter().next().unwrap();
+        assert!(approx_eq!(
+            f32,
+            gate_off.payload.as_scalar().unwrap(),
+            0.0,
+            ulps = 2
+        ));
+    }
+
+    #[test]
+    fn test_parser_accepts_boxed_raw_midi_message() {
+        let mut parser = MidiParser::new();
+        parser.on_midi_in(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Object(Arc::new(RawMidiMessage::new(&[0x90, 60, 64]))),
+        });
+        let note_on = parser.note_on.iter().next().unwrap();
+        assert_eq!(note_on.payload.as_midi(), Some([0x90, 60, 64]));
+    }
+
+    #[test]
+    fn test_voice_handler_accepts_boxed_note_events() {
+        use float_cmp::approx_eq;
+
+        let mut handler = MidiVoiceHandler::new();
+        handler.on_note_on(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Object(Arc::new(NoteOnEvent {
+                note: 69,
+                velocity: 0.5,
+            })),
+        });
+        handler.process();
+        assert!(approx_eq!(f32, handler.frequency, 440.0, ulps = 2));
+
+        handler.on_note_off(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Object(Arc::new(NoteOffEvent { note: 69 })),
+        });
+        let gate_off = handler.gate.iter().last().unwrap();
+        assert!(approx_eq!(
+            f32,
+            gate_off.payload.as_scalar().unwrap(),
+            0.0,
+            ulps = 2
+        ));
+    }
+
+    #[test]
+    fn test_parser_routes_all_notes_off_to_note_off_output() {
+        let mut parser = MidiParser::new();
+
+        // CC 123 (All Notes Off) and CC 120 (All Sound Off) are recognized
+        parser.on_midi_in(&midi_event([0xB0, 123, 0]));
+        parser.on_midi_in(&midi_event([0xB1, 120, 0])); // any channel
+        assert_eq!(parser.note_off.len(), 2);
+        for event in parser.note_off.iter() {
+            assert!(is_all_notes_off(&event.payload));
+        }
+        assert!(parser.note_on.is_empty());
+
+        // Other CC messages are ignored
+        parser.note_off.clear();
+        parser.on_midi_in(&midi_event([0xB0, 1, 64])); // mod wheel
+        assert!(parser.note_off.is_empty());
+    }
+
+    #[test]
+    fn test_all_notes_off_gates_playing_voice() {
+        use float_cmp::approx_eq;
+
+        let mut parser = MidiParser::new();
+        let mut handler = MidiVoiceHandler::new();
+
+        // Note playing
+        parser.on_midi_in(&midi_event([0x90, 60, 100]));
+        handler.on_note_on(&parser.note_on.iter().next().unwrap().clone());
+        assert!(approx_eq!(
+            f32,
+            handler
+                .gate
+                .iter()
+                .last()
+                .unwrap()
+                .payload
+                .as_scalar()
+                .unwrap(),
+            100.0 / 127.0,
+            ulps = 2
+        ));
+        handler.gate.clear();
+
+        // CC 123 (All Notes Off) arrives; gate goes to 0
+        parser.on_midi_in(&midi_event([0xB0, 123, 0]));
+        handler.on_note_off(&parser.note_off.iter().next().unwrap().clone());
+        assert!(approx_eq!(
+            f32,
+            handler
+                .gate
+                .iter()
+                .last()
+                .unwrap()
+                .payload
+                .as_scalar()
+                .unwrap(),
+            0.0,
+            ulps = 2
+        ));
+
+        // A second all-notes-off does nothing (no note playing anymore)
+        handler.gate.clear();
+        handler.on_note_off(&midi_event([0xB0, 120, 0]));
+        assert!(handler.gate.is_empty());
+    }
+
+    #[test]
+    fn test_all_notes_off_without_active_note_emits_nothing() {
+        let mut handler = MidiVoiceHandler::new();
+        handler.on_note_off(&midi_event([0xB0, 123, 0]));
+        assert!(handler.gate.is_empty());
+    }
+
+    #[test]
+    fn test_note_events_from_payload() {
+        use float_cmp::approx_eq;
+
+        let note_on = NoteOnEvent::from_payload(&EventPayload::Midi([0x90, 60, 127])).unwrap();
+        assert_eq!(note_on.note, 60);
+        assert!(approx_eq!(f32, note_on.velocity, 1.0, ulps = 2));
+
+        // Note-on with velocity 0 is a note-off, not a note-on
+        assert!(NoteOnEvent::from_payload(&EventPayload::Midi([0x90, 60, 0])).is_none());
+        assert_eq!(
+            NoteOffEvent::from_payload(&EventPayload::Midi([0x90, 60, 0])),
+            Some(NoteOffEvent { note: 60 })
+        );
+        assert_eq!(
+            NoteOffEvent::from_payload(&EventPayload::Midi([0x80, 60, 64])),
+            Some(NoteOffEvent { note: 60 })
+        );
+
+        // Scalars and unrelated statuses are ignored
+        assert!(NoteOnEvent::from_payload(&EventPayload::Scalar(1.0)).is_none());
+        assert!(NoteOffEvent::from_payload(&EventPayload::Midi([0xB0, 1, 64])).is_none());
     }
 }

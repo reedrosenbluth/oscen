@@ -96,6 +96,10 @@ where
 #[derive(Clone)]
 pub enum EventPayload {
     Scalar(f32),
+    /// Raw 3-byte MIDI message: status, data1, data2.
+    /// `Copy` plain data — safe to construct and clone on the audio thread
+    /// without heap allocation.
+    Midi([u8; 3]),
     Object(Arc<dyn EventObject>),
 }
 
@@ -103,6 +107,7 @@ impl fmt::Debug for EventPayload {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Scalar(v) => f.debug_tuple("Scalar").field(v).finish(),
+            Self::Midi(bytes) => f.debug_tuple("Midi").field(bytes).finish(),
             Self::Object(obj) => f.debug_tuple("Object").field(obj).finish(),
         }
     }
@@ -111,6 +116,10 @@ impl fmt::Debug for EventPayload {
 impl EventPayload {
     pub fn scalar(value: f32) -> Self {
         Self::Scalar(value)
+    }
+
+    pub fn midi(bytes: [u8; 3]) -> Self {
+        Self::Midi(bytes)
     }
 
     pub fn object<T>(value: T) -> Self
@@ -123,13 +132,20 @@ impl EventPayload {
     pub fn as_scalar(&self) -> Option<f32> {
         match self {
             Self::Scalar(v) => Some(*v),
-            Self::Object(_) => None,
+            Self::Midi(_) | Self::Object(_) => None,
+        }
+    }
+
+    pub fn as_midi(&self) -> Option<[u8; 3]> {
+        match self {
+            Self::Midi(bytes) => Some(*bytes),
+            Self::Scalar(_) | Self::Object(_) => None,
         }
     }
 
     pub fn as_object(&self) -> Option<&dyn EventObject> {
         match self {
-            Self::Scalar(_) => None,
+            Self::Scalar(_) | Self::Midi(_) => None,
             Self::Object(obj) => Some(obj.as_ref()),
         }
     }
@@ -510,6 +526,32 @@ mod tests {
             assert_eq!(completed, i == 3);
         }
         assert_eq!(ramp.current, 0.0);
+    }
+}
+
+#[cfg(test)]
+mod event_payload_tests {
+    use super::EventPayload;
+
+    #[test]
+    fn midi_accessors() {
+        let payload = EventPayload::midi([0x90, 60, 100]);
+        assert_eq!(payload.as_midi(), Some([0x90, 60, 100]));
+        assert_eq!(payload.as_scalar(), None);
+        assert!(payload.as_object().is_none());
+    }
+
+    #[test]
+    fn scalar_and_object_are_not_midi() {
+        assert_eq!(EventPayload::scalar(1.0).as_midi(), None);
+        assert_eq!(EventPayload::object(42u8).as_midi(), None);
+    }
+
+    #[test]
+    fn midi_payload_clone_is_copy() {
+        let payload = EventPayload::midi([0x80, 60, 0]);
+        let cloned = payload.clone();
+        assert_eq!(cloned.as_midi(), Some([0x80, 60, 0]));
     }
 }
 
