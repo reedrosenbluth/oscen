@@ -33,6 +33,12 @@ pub struct AdsrEnvelope {
     #[input(value)]
     pub release: f32,
 
+    /// How much note velocity scales the envelope: 1.0 = full velocity
+    /// scaling, 0.0 = velocity-insensitive. Read at gate time only; mid-note
+    /// changes take effect on the next gate.
+    #[input(value)]
+    pub velocity_amount: f32,
+
     #[output(stream)]
     pub output: f32,
 
@@ -42,15 +48,17 @@ pub struct AdsrEnvelope {
     release_samples: u32,
     samples_remaining: u32,
     // Per-sample coefficients for the one-pole approach used by Attack (toward
-    // 1.0) and Decay (toward sustain_level). Release is still linear and uses
-    // `release_increment`.
+    // `peak`) and Decay (toward sustain_level). Release is still linear and
+    // uses `release_increment`.
     attack_coeff: f32,
     decay_coeff: f32,
     release_increment: f32,
     level: f32,
     target_level: f32,
     sustain_level: f32,
-    velocity: f32,
+    // Per-note peak the attack targets, computed from velocity and
+    // `velocity_amount` at gate time.
+    peak: f32,
     sample_rate: SampleRate,
 }
 
@@ -62,6 +70,7 @@ impl AdsrEnvelope {
             decay,
             sustain,
             release,
+            velocity_amount: 1.0,
             output: 0.0,
             stage: Stage::Idle,
             attack_samples: 0,
@@ -74,7 +83,7 @@ impl AdsrEnvelope {
             level: 0.0,
             target_level: 0.0,
             sustain_level: sustain.clamp(0.0, 1.0),
-            velocity: 1.0,
+            peak: 1.0,
             sample_rate: SampleRate::default(),
         };
         envelope.update_sustain_level();
@@ -90,7 +99,7 @@ impl AdsrEnvelope {
     }
 
     fn update_sustain_level(&mut self) {
-        self.sustain_level = (self.sustain * self.velocity).clamp(0.0, 1.0);
+        self.sustain_level = (self.sustain * self.peak).clamp(0.0, 1.0);
         let old_attack_samples = self.attack_samples;
         let old_decay_samples = self.decay_samples;
         let old_release_samples = self.release_samples;
@@ -184,7 +193,7 @@ impl AdsrEnvelope {
     fn complete_stage(&mut self) {
         match self.stage {
             Stage::Attack => {
-                self.level = 1.0;
+                self.level = self.peak;
                 self.set_stage(Stage::Decay, self.sustain_level);
             }
             Stage::Decay => {
@@ -216,12 +225,12 @@ impl AdsrEnvelope {
         match self.stage {
             Stage::Attack => {
                 if self.samples_remaining > 0 {
-                    self.level += (1.0 - self.level) * self.attack_coeff;
+                    self.level += (self.peak - self.level) * self.attack_coeff;
                     self.samples_remaining -= 1;
                     self.level = self.level.clamp(0.0, 1.0);
                 }
                 if self.samples_remaining == 0 {
-                    self.level = 1.0;
+                    self.level = self.peak;
                     self.complete_stage();
                 }
             }
@@ -263,13 +272,15 @@ impl AdsrEnvelope {
         };
 
         if velocity > 0.0 {
-            self.velocity = velocity.clamp(0.0, 1.0);
+            let amount = self.velocity_amount.clamp(0.0, 1.0);
+            let velocity = velocity.clamp(0.0, 1.0);
+            self.peak = (1.0 - amount + amount * velocity).clamp(0.0, 1.0);
             self.update_sustain_level();
             if self.attack <= MIN_TIME_SECONDS {
-                self.level = 1.0;
+                self.level = self.peak;
                 self.set_stage(Stage::Decay, self.sustain_level);
             } else {
-                self.set_stage(Stage::Attack, 1.0);
+                self.set_stage(Stage::Attack, self.peak);
             }
         } else if self.release <= MIN_TIME_SECONDS {
             self.stage = Stage::Idle;
@@ -459,6 +470,175 @@ mod tests {
         assert!(
             env.output >= 0.45 && env.output <= 0.55,
             "value {} not scaled by velocity",
+            env.output
+        );
+    }
+
+    #[test]
+    fn soft_note_peaks_at_velocity() {
+        let mut env = AdsrEnvelope::new(0.01, 0.02, 0.6, 0.05);
+        env.set_sample_rate(48_000.0);
+        env.prepare();
+
+        env.handle_gate_event(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::scalar(0.25),
+        });
+
+        let mut max_output = 0.0f32;
+        for _ in 0..4_800 {
+            env.process();
+            max_output = max_output.max(env.output);
+        }
+
+        assert!(
+            approx_eq!(f32, max_output, 0.25, epsilon = 0.001),
+            "peak {max_output} not scaled by velocity"
+        );
+        assert!(
+            approx_eq!(f32, env.output, 0.25 * 0.6, epsilon = 0.005),
+            "sustain {} not velocity * sustain",
+            env.output
+        );
+    }
+
+    #[test]
+    fn amount_zero_ignores_velocity() {
+        let mut env = AdsrEnvelope::new(0.01, 0.05, 0.6, 0.05);
+        env.set_sample_rate(48_000.0);
+        env.prepare();
+        env.velocity_amount = 0.0;
+
+        env.handle_gate_event(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::scalar(0.2),
+        });
+
+        let mut max_output = 0.0f32;
+        for _ in 0..600 {
+            env.process();
+            max_output = max_output.max(env.output);
+        }
+
+        assert!(
+            approx_eq!(f32, max_output, 1.0, ulps = 2),
+            "peak {max_output} did not reach 1.0 with velocity_amount 0"
+        );
+    }
+
+    #[test]
+    fn half_amount_half_velocity_peaks_at_three_quarters() {
+        let mut env = AdsrEnvelope::new(0.01, 0.05, 0.6, 0.05);
+        env.set_sample_rate(48_000.0);
+        env.prepare();
+        env.velocity_amount = 0.5;
+
+        env.handle_gate_event(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::scalar(0.5),
+        });
+
+        let mut max_output = 0.0f32;
+        for _ in 0..600 {
+            env.process();
+            max_output = max_output.max(env.output);
+        }
+
+        assert!(
+            approx_eq!(f32, max_output, 0.75, epsilon = 0.001),
+            "peak {max_output} not 1 - amount + amount * velocity"
+        );
+    }
+
+    #[test]
+    fn retrigger_at_lower_velocity_descends_smoothly() {
+        let mut env = AdsrEnvelope::new(0.05, 0.02, 0.8, 0.05);
+        env.set_sample_rate(48_000.0);
+        env.prepare();
+
+        env.handle_gate_event(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::scalar(1.0),
+        });
+        for _ in 0..4_800 {
+            env.process();
+        }
+        assert!(
+            approx_eq!(f32, env.output, 0.8, epsilon = 0.001),
+            "level {} not at sustain before retrigger",
+            env.output
+        );
+
+        // Retrigger softer while the level is high: the attack must move
+        // down toward the new peak with no upward jump and no snap.
+        env.handle_gate_event(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::scalar(0.25),
+        });
+
+        let mut previous = env.output;
+        let mut max_step = 0.0f32;
+        for _ in 0..2_400 {
+            env.process();
+            assert!(
+                env.output <= previous + 1.0e-6,
+                "level moved up from {previous} to {} on soft retrigger",
+                env.output
+            );
+            max_step = max_step.max((previous - env.output).abs());
+            previous = env.output;
+        }
+        assert!(
+            approx_eq!(f32, env.output, 0.25, epsilon = 0.001),
+            "level {} not at new peak after retriggered attack",
+            env.output
+        );
+        assert!(
+            max_step < 0.011,
+            "retrigger caused amplitude snap of {max_step}"
+        );
+
+        // Decay then settles at the velocity-scaled sustain.
+        for _ in 0..2_400 {
+            env.process();
+        }
+        assert!(
+            approx_eq!(f32, env.output, 0.8 * 0.25, epsilon = 0.001),
+            "sustain {} not rescaled by retrigger velocity",
+            env.output
+        );
+    }
+
+    #[test]
+    fn instant_attack_retrigger_snaps_to_new_peak() {
+        let mut env = AdsrEnvelope::new(0.0, 0.02, 1.0, 0.05);
+        env.set_sample_rate(48_000.0);
+        env.prepare();
+
+        env.handle_gate_event(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::scalar(1.0),
+        });
+        for _ in 0..2_000 {
+            env.process();
+        }
+        assert!(approx_eq!(f32, env.output, 1.0, ulps = 2));
+
+        env.handle_gate_event(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::scalar(0.5),
+        });
+        for _ in 0..100 {
+            env.process();
+            assert!(
+                env.output <= 0.5 + 1.0e-6,
+                "level {} exceeded new peak after instant-attack retrigger",
+                env.output
+            );
+        }
+        assert!(
+            approx_eq!(f32, env.output, 0.5, epsilon = 0.001),
+            "level {} not at new peak",
             env.output
         );
     }
