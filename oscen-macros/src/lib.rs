@@ -53,11 +53,15 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
                 for attr in field.attrs.iter() {
                     if attr.path().is_ident("input") {
-                        input_type_kind =
-                            Some(parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value));
+                        match parse_endpoint_attr(attr) {
+                            Ok(kind) => input_type_kind = Some(kind),
+                            Err(err) => endpoint_errors.push(err.to_compile_error()),
+                        }
                     } else if attr.path().is_ident("output") {
-                        output_type_kind =
-                            Some(parse_endpoint_attr(attr).unwrap_or(EndpointTypeAttr::Value));
+                        match parse_endpoint_attr(attr) {
+                            Ok(kind) => output_type_kind = Some(kind),
+                            Err(err) => endpoint_errors.push(err.to_compile_error()),
+                        }
                     }
                 }
 
@@ -114,6 +118,19 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
                 }
 
+                // A field cannot serve as both an input and an output endpoint;
+                // silently picking one would misroute (or drop) signals.
+                if input_type_kind.is_some() && output_type_kind.is_some() {
+                    endpoint_errors.push(
+                        syn::Error::new_spanned(
+                            &field_name,
+                            "a field cannot be both #[input] and #[output]",
+                        )
+                        .to_compile_error(),
+                    );
+                    continue;
+                }
+
                 if let Some(kind) = input_type_kind {
                     // Track event inputs for handle_events and process_event_inputs
                     if kind == EndpointTypeAttr::Event {
@@ -136,9 +153,8 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                 }
 
                 // Emit one marker type + EndpointAt impl per endpoint that has a known kind.
-                // A field is classified as either an input or an output (the existing walk
-                // enforces this by checking input then output) — so taking input first, then
-                // output, picks the field's actual endpoint kind.
+                // A field is classified as either an input or an output (the conflict check
+                // above rejects fields with both), so at most one of the two is Some here.
                 let primary_kind = input_type_kind.or(output_type_kind);
                 if let Some(kind) = primary_kind {
                     let marker_ident = format_ident!("{}__{}__Ep", name, field_name);
@@ -269,8 +285,14 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             let handle_method = format_ident!("handle_{}_events", field_name);
             let temp_var = format_ident!("temp_{}_events", field_name);
             handler_calls.push(quote! {
-                let #temp_var: ::arrayvec::ArrayVec<_, 32> =
-                    self.#field_name.iter().cloned().collect();
+                let #temp_var: ::arrayvec::ArrayVec<
+                    _,
+                    { ::oscen::graph::MAX_STATIC_EVENTS_PER_ENDPOINT },
+                > = self.#field_name.iter().cloned().collect();
+                // Drain the queue so events delivered outside a graph
+                // connection (which would overwrite it) are not replayed
+                // on the next frame.
+                self.#field_name.clear();
                 self.#handle_method(&#temp_var);
             });
         }
@@ -326,8 +348,15 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-fn parse_endpoint_attr(attr: &syn::Attribute) -> Option<EndpointTypeAttr> {
-    attr.parse_args::<EndpointTypeAttr>().ok()
+fn parse_endpoint_attr(attr: &syn::Attribute) -> syn::Result<EndpointTypeAttr> {
+    match &attr.meta {
+        // Bare `#[input]` / `#[output]` defaults to a value endpoint.
+        syn::Meta::Path(_) => Ok(EndpointTypeAttr::Value),
+        // Anything with arguments must parse; unknown kinds (e.g. a typo'd
+        // `#[input(strem)]`) are compile errors instead of silently
+        // defaulting to a value endpoint.
+        _ => attr.parse_args::<EndpointTypeAttr>(),
+    }
 }
 
 fn kind_marker_for_attr(kind: EndpointTypeAttr, ty: &syn::Type) -> proc_macro2::TokenStream {

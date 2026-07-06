@@ -1,0 +1,5 @@
+error: a field cannot be both #[input] and #[output]
+ --> tests/ui/input_and_output_field.rs:8:9
+  |
+8 |     pub ev: EventInput,
+  |         ^^

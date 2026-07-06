@@ -105,3 +105,15 @@ fn unknown_node_in_call_arg_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/unknown_node_in_call_arg.rs");
 }
+
+#[test]
+fn unknown_endpoint_kind_is_an_error() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/unknown_endpoint_kind.rs");
+}
+
+#[test]
+fn input_and_output_on_one_field_is_an_error() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/input_and_output_field.rs");
+}

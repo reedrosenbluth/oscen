@@ -619,7 +619,9 @@ impl<'a> CodegenContext<'a> {
                     // process() will route them to internal nodes
                     self.#endpoint_name.clear();
                     for event in events.iter() {
-                        let _ = self.#endpoint_name.try_push(event.clone());
+                        ::oscen::graph::debug_assert_event_pushed(
+                            self.#endpoint_name.try_push(event.clone()),
+                        );
                     }
                 }
             });
@@ -813,7 +815,9 @@ impl<'a> CodegenContext<'a> {
                     let mut #staged_name: ::oscen::graph::StaticEventQueue =
                         ::oscen::graph::StaticEventQueue::new();
                     for __e in self.#name.iter() {
-                        let _ = #staged_name.try_push(__e.clone());
+                        ::oscen::graph::debug_assert_event_pushed(
+                            #staged_name.try_push(__e.clone()),
+                        );
                     }
                     self.#name.clear();
                     #staged_name.sort_unstable_by_key(|__e| __e.frame_offset);
@@ -848,7 +852,9 @@ impl<'a> CodegenContext<'a> {
                     while #cursor_name < #staged_name.len()
                         && #staged_name[#cursor_name].frame_offset == __frame as u32
                     {
-                        let _ = self.#name.try_push(#staged_name[#cursor_name].clone());
+                        ::oscen::graph::debug_assert_event_pushed(
+                            self.#name.try_push(#staged_name[#cursor_name].clone()),
+                        );
                         #cursor_name += 1;
                     }
                 }
