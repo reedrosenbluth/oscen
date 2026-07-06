@@ -1,4 +1,4 @@
-use crate::graph::{EventInput, EventInstance, EventOutput, EventPayload, SignalProcessor};
+use crate::graph::{EventInput, EventInstance, EventOutput, SignalProcessor};
 use crate::midi::{NoteOffEvent, NoteOnEvent};
 use oscen_macros::Node;
 
@@ -110,27 +110,23 @@ impl<const NUM_VOICES: usize> VoiceAllocator<NUM_VOICES> {
     // CMajor-style event handlers (called by Node derive macro)
 
     fn on_note_on(&mut self, event: &EventInstance) {
-        if let EventPayload::Object(obj) = &event.payload {
-            if let Some(note_on) = obj.as_any().downcast_ref::<NoteOnEvent>() {
-                let voice_idx = self.allocate_voice(note_on.note);
-                // Forward the event directly to the allocated voice's EventOutput
-                if voice_idx < NUM_VOICES {
-                    let _ = self.voices[voice_idx].try_push(event.clone());
-                }
+        if let Some(note_on) = NoteOnEvent::from_payload(&event.payload) {
+            let voice_idx = self.allocate_voice(note_on.note);
+            // Forward the event directly to the allocated voice's EventOutput
+            if voice_idx < NUM_VOICES {
+                let _ = self.voices[voice_idx].try_push(event.clone());
             }
         }
     }
 
     fn on_note_off(&mut self, event: &EventInstance) {
-        if let EventPayload::Object(obj) = &event.payload {
-            if let Some(note_off) = obj.as_any().downcast_ref::<NoteOffEvent>() {
-                if let Some(voice_idx) = self.find_voice_for_note(note_off.note) {
-                    // Forward the event directly to the voice's EventOutput
-                    if voice_idx < NUM_VOICES {
-                        let _ = self.voices[voice_idx].try_push(event.clone());
-                    }
-                    self.release_voice(voice_idx);
+        if let Some(note_off) = NoteOffEvent::from_payload(&event.payload) {
+            if let Some(voice_idx) = self.find_voice_for_note(note_off.note) {
+                // Forward the event directly to the voice's EventOutput
+                if voice_idx < NUM_VOICES {
+                    let _ = self.voices[voice_idx].try_push(event.clone());
                 }
+                self.release_voice(voice_idx);
             }
         }
     }

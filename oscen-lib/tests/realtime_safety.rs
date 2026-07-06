@@ -10,6 +10,7 @@ use oscen::asset::{AssetConsumer, AudioAsset};
 use oscen::convolution::{
     Convolver, ConvolverConsumer, DirectConvolver, MultiConvolverEngine, PartitionedConvolver,
 };
+use oscen::graph;
 use oscen::handoff::pair;
 use oscen::spectral::FftPlan;
 use oscen::SignalProcessor;
@@ -208,6 +209,58 @@ fn stereo_sample_player_swap_is_alloc_free() {
         sum
     });
     assert!(sum.is_finite());
+}
+
+graph! {
+    name: MidiNoAllocGraph;
+
+    input midi_in: event;
+    output stream freq_out;
+
+    nodes {
+        midi_parser = oscen::midi::MidiParser::new();
+        voice_handler = oscen::midi::MidiVoiceHandler::new();
+    }
+
+    connections {
+        midi_in -> midi_parser.midi_in;
+        midi_parser.note_on -> voice_handler.note_on;
+        midi_parser.note_off -> voice_handler.note_off;
+        voice_handler.frequency -> freq_out;
+    }
+}
+
+#[test]
+fn midi_note_path_does_not_allocate() {
+    use oscen::graph::{EventInstance, EventPayload};
+
+    let mut graph = MidiNoAllocGraph::new();
+    graph.init(44100.0);
+
+    // Drive repeated note-on/note-off pairs through the MIDI parser and voice
+    // handler; the whole note path must be heap-allocation free.
+    let freq = assert_no_alloc(|| {
+        let mut last = 0.0f32;
+        for i in 0..1024u32 {
+            let note = 60 + (i / 64 % 12) as u8;
+            if i % 64 == 0 {
+                let _ = graph.midi_in.try_push(EventInstance {
+                    frame_offset: 0,
+                    payload: EventPayload::Midi([0x90, note, 100]),
+                });
+            }
+            if i % 64 == 32 {
+                let _ = graph.midi_in.try_push(EventInstance {
+                    frame_offset: 0,
+                    payload: EventPayload::Midi([0x80, note, 0]),
+                });
+            }
+            graph.process();
+            last = graph.freq_out;
+        }
+        last
+    });
+    assert!(freq.is_finite());
 }
 
 #[test]
