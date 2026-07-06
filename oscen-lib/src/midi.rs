@@ -146,6 +146,18 @@ impl MidiVoiceHandler {
     }
 
     fn on_note_off(&mut self, event: &EventInstance) {
+        // CC 120 (All Sound Off) / CC 123 (All Notes Off): gate off whatever
+        // note is playing.
+        if is_all_notes_off(&event.payload) {
+            if self.current_note.take().is_some() {
+                let _ = self.gate.try_push(EventInstance {
+                    frame_offset: event.frame_offset,
+                    payload: EventPayload::Scalar(0.0),
+                });
+            }
+            return;
+        }
+
         if let Some(note_off) = NoteOffEvent::from_payload(&event.payload) {
             // Only turn off gate if this is the current note
             if self.current_note == Some(note_off.note) {
@@ -189,7 +201,7 @@ impl MidiParser {
         }
 
         let status = data[0] & 0xF0;
-        let note = data[1];
+        let note = data[1]; // controller number for CC messages
         let velocity = data[2];
 
         match status {
@@ -202,6 +214,11 @@ impl MidiParser {
                     Some(ParsedMidi::NoteOn { note, velocity })
                 }
             }
+            // CC 120 (All Sound Off) and CC 123 (All Notes Off)
+            0xB0 => match note {
+                120 | 123 => Some(ParsedMidi::AllNotesOff { controller: note }),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -211,6 +228,7 @@ impl MidiParser {
 enum ParsedMidi {
     NoteOn { note: u8, velocity: u8 },
     NoteOff { note: u8 },
+    AllNotesOff { controller: u8 },
 }
 
 impl Default for MidiParser {
@@ -255,9 +273,27 @@ impl MidiParser {
                     payload: EventPayload::Midi([0x80, note, 0]),
                 });
             }
+            Some(ParsedMidi::AllNotesOff { controller }) => {
+                // Routed through the note_off output; consumers recognize it
+                // via is_all_notes_off() and silence all active notes.
+                let _ = self.note_off.try_push(EventInstance {
+                    frame_offset: event.frame_offset,
+                    payload: EventPayload::Midi([0xB0, controller, 0]),
+                });
+            }
             None => {}
         }
     }
+}
+
+/// True if the payload is a MIDI CC 120 (All Sound Off) or CC 123
+/// (All Notes Off) message.
+pub fn is_all_notes_off(payload: &EventPayload) -> bool {
+    matches!(
+        payload.as_midi(),
+        Some([status, controller, _])
+            if status & 0xF0 == 0xB0 && (controller == 120 || controller == 123)
+    )
 }
 
 /// Helper function to create a raw MIDI message event payload.
@@ -413,6 +449,80 @@ mod tests {
             0.0,
             ulps = 2
         ));
+    }
+
+    #[test]
+    fn test_parser_routes_all_notes_off_to_note_off_output() {
+        let mut parser = MidiParser::new();
+
+        // CC 123 (All Notes Off) and CC 120 (All Sound Off) are recognized
+        parser.on_midi_in(&midi_event([0xB0, 123, 0]));
+        parser.on_midi_in(&midi_event([0xB1, 120, 0])); // any channel
+        assert_eq!(parser.note_off.len(), 2);
+        for event in parser.note_off.iter() {
+            assert!(is_all_notes_off(&event.payload));
+        }
+        assert!(parser.note_on.is_empty());
+
+        // Other CC messages are ignored
+        parser.note_off.clear();
+        parser.on_midi_in(&midi_event([0xB0, 1, 64])); // mod wheel
+        assert!(parser.note_off.is_empty());
+    }
+
+    #[test]
+    fn test_all_notes_off_gates_playing_voice() {
+        use float_cmp::approx_eq;
+
+        let mut parser = MidiParser::new();
+        let mut handler = MidiVoiceHandler::new();
+
+        // Note playing
+        parser.on_midi_in(&midi_event([0x90, 60, 100]));
+        handler.on_note_on(&parser.note_on.iter().next().unwrap().clone());
+        assert!(approx_eq!(
+            f32,
+            handler
+                .gate
+                .iter()
+                .last()
+                .unwrap()
+                .payload
+                .as_scalar()
+                .unwrap(),
+            100.0 / 127.0,
+            ulps = 2
+        ));
+        handler.gate.clear();
+
+        // CC 123 (All Notes Off) arrives; gate goes to 0
+        parser.on_midi_in(&midi_event([0xB0, 123, 0]));
+        handler.on_note_off(&parser.note_off.iter().next().unwrap().clone());
+        assert!(approx_eq!(
+            f32,
+            handler
+                .gate
+                .iter()
+                .last()
+                .unwrap()
+                .payload
+                .as_scalar()
+                .unwrap(),
+            0.0,
+            ulps = 2
+        ));
+
+        // A second all-notes-off does nothing (no note playing anymore)
+        handler.gate.clear();
+        handler.on_note_off(&midi_event([0xB0, 120, 0]));
+        assert!(handler.gate.is_empty());
+    }
+
+    #[test]
+    fn test_all_notes_off_without_active_note_emits_nothing() {
+        let mut handler = MidiVoiceHandler::new();
+        handler.on_note_off(&midi_event([0xB0, 123, 0]));
+        assert!(handler.gate.is_empty());
     }
 
     #[test]

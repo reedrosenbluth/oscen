@@ -1,5 +1,5 @@
 use crate::graph::{EventInput, EventInstance, EventOutput, SignalProcessor};
-use crate::midi::{NoteOffEvent, NoteOnEvent};
+use crate::midi::{is_all_notes_off, NoteOffEvent, NoteOnEvent};
 use oscen_macros::Node;
 
 const MAX_VOICES: usize = 24;
@@ -120,6 +120,18 @@ impl<const NUM_VOICES: usize> VoiceAllocator<NUM_VOICES> {
     }
 
     fn on_note_off(&mut self, event: &EventInstance) {
+        // CC 120 (All Sound Off) / CC 123 (All Notes Off): forward to every
+        // sounding voice and release it.
+        if is_all_notes_off(&event.payload) {
+            for i in 0..NUM_VOICES {
+                if self.voice_state[i].active && !self.voice_state[i].released {
+                    let _ = self.voices[i].try_push(event.clone());
+                    self.release_voice(i);
+                }
+            }
+            return;
+        }
+
         if let Some(note_off) = NoteOffEvent::from_payload(&event.payload) {
             if let Some(voice_idx) = self.find_voice_for_note(note_off.note) {
                 // Forward the event directly to the voice's EventOutput
@@ -225,6 +237,51 @@ mod tests {
         assert_eq!(stolen_voice, 1);
         assert_eq!(allocator.voice_state[1].note, Some(76));
         assert!(!allocator.voice_state[1].released); // Reset on allocation
+    }
+
+    #[test]
+    fn test_all_notes_off_releases_all_active_voices() {
+        use crate::graph::EventPayload;
+
+        let mut allocator = VoiceAllocator::<2>::new();
+
+        // Two notes playing on two voices
+        allocator.on_note_on(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Midi([0x90, 60, 100]),
+        });
+        allocator.on_note_on(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Midi([0x90, 64, 100]),
+        });
+        for voice in &mut allocator.voices {
+            assert_eq!(voice.len(), 1);
+            voice.clear();
+        }
+
+        // CC 123 (All Notes Off): both voices receive the event and are released
+        allocator.on_note_off(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Midi([0xB0, 123, 0]),
+        });
+        for voice in &allocator.voices {
+            assert_eq!(voice.len(), 1);
+            assert!(is_all_notes_off(&voice.iter().next().unwrap().payload));
+        }
+        assert!(allocator.voice_state[0].released);
+        assert!(allocator.voice_state[1].released);
+
+        // A repeated all-notes-off is a no-op for already-released voices
+        for voice in &mut allocator.voices {
+            voice.clear();
+        }
+        allocator.on_note_off(&EventInstance {
+            frame_offset: 0,
+            payload: EventPayload::Midi([0xB0, 120, 0]),
+        });
+        for voice in &allocator.voices {
+            assert!(voice.is_empty());
+        }
     }
 
     #[test]
