@@ -12,7 +12,7 @@ pub struct Delay {
     #[input(stream)]
     pub input: f32,
     #[input(value)]
-    delay_samples: f32,
+    pub delay_samples: f32,
     #[input(value)]
     feedback: f32,
 

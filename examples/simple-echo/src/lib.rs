@@ -15,7 +15,7 @@ pub struct EchoChannel {
 
 impl EchoChannel {
     fn new(sample_rate: f32) -> Self {
-        let mut delay = Delay::new(11025.0, 0.0); // 0.25s at 44.1kHz, no internal feedback
+        let mut delay = Delay::from_seconds(0.25, 0.0, sample_rate); // no internal feedback
         delay.set_sample_rate(sample_rate);
         delay.prepare();
 
@@ -39,7 +39,7 @@ impl EchoChannel {
         mix: f32,
     ) -> f32 {
         // Update delay time (convert seconds to samples)
-        let _delay_samples = delay_time * self.sample_rate;
+        self.delay.delay_samples = delay_time * self.sample_rate;
 
         // Get feedback from previous filter output
         let feedback_signal = self.filter.output * feedback;
