@@ -308,6 +308,12 @@ impl AmplitudeSource {
     fn on_gate(&mut self, event: &EventInstance) {
         match &event.payload {
             EventPayload::Scalar(velocity) if *velocity > 0.0 => {
+                // The frequency value input is updated before events are
+                // dispatched, so it holds the triggering note's frequency.
+                // Derive the MIDI note number from it for key scaling.
+                if self.frequency > 0.0 {
+                    self.note_pitch = 69.0 + 12.0 * (self.frequency / 440.0).log2();
+                }
                 self.trigger_note(*velocity);
             }
             _ => {
