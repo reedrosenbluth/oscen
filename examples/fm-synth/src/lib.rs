@@ -226,51 +226,63 @@ impl Plugin for FMSynth {
             None => return ProcessStatus::Normal,
         };
 
-        // Process MIDI events — NIH-plug provides sample-accurate timing
-        while let Some(event) = context.next_event() {
-            match event {
-                NoteEvent::NoteOn {
-                    note,
-                    velocity,
-                    timing,
-                    ..
-                } => {
-                    let vel_byte = (velocity * 127.0).clamp(0.0, 127.0) as u8;
-                    let midi_bytes = [0x90, note, vel_byte];
-                    let msg = RawMidiMessage::new(&midi_bytes);
-                    let event = EventInstance {
-                        frame_offset: timing,
-                        payload: EventPayload::Object(Arc::new(msg)),
-                    };
-                    let _ = synth.midi_in.try_push(event);
-                }
-                NoteEvent::NoteOff { note, timing, .. } => {
-                    let midi_bytes = [0x80, note, 0];
-                    let msg = RawMidiMessage::new(&midi_bytes);
-                    let event = EventInstance {
-                        frame_offset: timing,
-                        payload: EventPayload::Object(Arc::new(msg)),
-                    };
-                    let _ = synth.midi_in.try_push(event);
-                }
-                _ => {}
-            }
-        }
-
-        // Sync parameters once per block
+        // Sync parameters once per buffer
         self.params.sync_to(synth);
 
-        // Block processing — events are dispatched at their sample-accurate positions
-        let frames = buffer.samples();
-        let frames = frames.min(FMGraph::MAX_BLOCK_SIZE);
-        synth.process_block(frames);
+        // The host buffer can be larger than the graph's block buffers, so
+        // process it in chunks of at most MAX_BLOCK_SIZE. MIDI events are
+        // pushed into the chunk they fall in, with frame offsets rebased to
+        // the chunk start — NIH-plug provides sample-accurate timing.
+        let num_samples = buffer.samples();
+        let output = buffer.as_slice();
+        let mut next_event = context.next_event();
+        let mut block_start = 0;
+        while block_start < num_samples {
+            let block_len = (num_samples - block_start).min(FMGraph::MAX_BLOCK_SIZE);
+            let block_end = block_start + block_len;
 
-        // Copy from output block buffer to all channels
-        for (i, mut channel_samples) in buffer.iter_samples().enumerate() {
-            let output = synth.audio_out_block[i];
-            for sample in channel_samples.iter_mut() {
-                *sample = output;
+            while let Some(event) = next_event {
+                let timing = event.timing() as usize;
+                if timing >= block_end {
+                    break;
+                }
+                let frame_offset = timing.saturating_sub(block_start) as u32;
+                match event {
+                    NoteEvent::NoteOn { note, velocity, .. } => {
+                        let vel_byte = (velocity * 127.0).clamp(0.0, 127.0) as u8;
+                        let midi_bytes = [0x90, note, vel_byte];
+                        let msg = RawMidiMessage::new(&midi_bytes);
+                        let event = EventInstance {
+                            frame_offset,
+                            payload: EventPayload::Object(Arc::new(msg)),
+                        };
+                        let _ = synth.midi_in.try_push(event);
+                    }
+                    NoteEvent::NoteOff { note, .. } => {
+                        let midi_bytes = [0x80, note, 0];
+                        let msg = RawMidiMessage::new(&midi_bytes);
+                        let event = EventInstance {
+                            frame_offset,
+                            payload: EventPayload::Object(Arc::new(msg)),
+                        };
+                        let _ = synth.midi_in.try_push(event);
+                    }
+                    _ => {}
+                }
+                next_event = context.next_event();
             }
+
+            synth.process_block(block_len);
+
+            // Copy this chunk from the output block buffer to all channels
+            for (i, sample_idx) in (block_start..block_end).enumerate() {
+                let mono = synth.audio_out_block[i];
+                for channel in output.iter_mut() {
+                    channel[sample_idx] = mono;
+                }
+            }
+
+            block_start = block_end;
         }
 
         ProcessStatus::Normal

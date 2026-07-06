@@ -15,7 +15,7 @@ pub struct EchoChannel {
 
 impl EchoChannel {
     fn new(sample_rate: f32) -> Self {
-        let mut delay = Delay::new(11025.0, 0.0); // 0.25s at 44.1kHz, no internal feedback
+        let mut delay = Delay::from_seconds(0.25, 0.0, sample_rate); // no internal feedback
         delay.set_sample_rate(sample_rate);
         delay.prepare();
 
@@ -39,7 +39,7 @@ impl EchoChannel {
         mix: f32,
     ) -> f32 {
         // Update delay time (convert seconds to samples)
-        let _delay_samples = delay_time * self.sample_rate;
+        self.delay.delay_samples = delay_time * self.sample_rate;
 
         // Get feedback from previous filter output
         let feedback_signal = self.filter.output * feedback;
@@ -257,11 +257,15 @@ impl Plugin for SimpleEcho {
                 let feedback = self.params.feedback.smoothed.next();
                 let mix = self.params.mix.smoothed.next();
 
-                // Get input samples
-                let inputs: Vec<f32> = channel_samples.iter_mut().map(|s| *s).collect();
+                // Get input samples (stack array — no allocation on the audio thread)
+                let num_channels = channel_samples.len();
+                let mut inputs = [0.0f32; 2];
+                for (i, sample) in channel_samples.iter_mut().take(2).enumerate() {
+                    inputs[i] = *sample;
+                }
 
                 // Process based on channel count
-                if inputs.len() >= 2 {
+                if num_channels >= 2 {
                     // Stereo processing
                     let output_left =
                         left.process(inputs[0], delay_time, filter_cutoff, feedback, mix);

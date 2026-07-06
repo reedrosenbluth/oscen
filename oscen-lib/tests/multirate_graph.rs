@@ -104,35 +104,35 @@ fn multirate_matches_reference_low_freq() {
     let warmup = 64;
     let xs = &xs_full[warmup..TOTAL];
     let ys = &ys_full[warmup..TOTAL];
-    // Sinc adds latency we don't account for here. Try a range of lags and
-    // pick the one with smallest MSE.
+    // The sinc downsampler delays xs by its group delay (~8 samples), which
+    // we don't compensate for here. Try a range of lags — advancing xs
+    // relative to ys — and pick the one with smallest MSE.
     let mut best_mse = f32::INFINITY;
+    let mut best_lag = 0;
     for lag in 0..32 {
-        if lag >= xs.len() {
-            break;
-        }
         let n = xs.len().saturating_sub(lag).min(ys.len());
         if n == 0 {
-            continue;
+            break;
         }
         let mse: f32 = (0..n)
             .map(|i| {
-                let d = xs[i] - ys[i + lag];
+                let d = xs[i + lag] - ys[i];
                 d * d
             })
             .sum::<f32>()
             / n as f32;
         if mse < best_mse {
             best_mse = mse;
+            best_lag = lag;
         }
     }
-    // Sine reference yields MSE ~0.010 (residual is dominated by integer-lag
-    // search alignment of the sinc filter's fractional group delay). 0.02 is
-    // 2× headroom — tight enough to catch real resampler regressions without
-    // flapping on micro-changes.
+    println!("best lag = {best_lag}, MSE = {best_mse}");
+    // With the group delay aligned (lag 8) the sine residual is ~9e-6. 1e-4
+    // is ~10× headroom — tight enough to catch real resampler regressions
+    // without flapping on micro-changes.
     assert!(
-        best_mse < 0.02,
-        "MSE between 4×-resampled and reference = {best_mse}"
+        best_mse < 1.0e-4,
+        "MSE between 4×-resampled and reference = {best_mse} (best lag = {best_lag})"
     );
 }
 
