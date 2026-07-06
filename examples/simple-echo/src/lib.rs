@@ -257,11 +257,15 @@ impl Plugin for SimpleEcho {
                 let feedback = self.params.feedback.smoothed.next();
                 let mix = self.params.mix.smoothed.next();
 
-                // Get input samples
-                let inputs: Vec<f32> = channel_samples.iter_mut().map(|s| *s).collect();
+                // Get input samples (stack array — no allocation on the audio thread)
+                let num_channels = channel_samples.len();
+                let mut inputs = [0.0f32; 2];
+                for (i, sample) in channel_samples.iter_mut().take(2).enumerate() {
+                    inputs[i] = *sample;
+                }
 
                 // Process based on channel count
-                if inputs.len() >= 2 {
+                if num_channels >= 2 {
                     // Stereo processing
                     let output_left =
                         left.process(inputs[0], delay_time, filter_cutoff, feedback, mix);
