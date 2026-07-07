@@ -1131,13 +1131,94 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
     }
 
     if sorted.len() != ir.processors.len() {
+        // Reconstruct a concrete cycle among the unsorted (cyclic-component)
+        // nodes so the error names the offending path instead of leaving the
+        // user to bisect their connections by hand.
+        let sorted_set: std::collections::HashSet<NodeId> = sorted.iter().copied().collect();
+        let remaining: Vec<NodeId> = ir
+            .processors
+            .iter()
+            .copied()
+            .filter(|id| !sorted_set.contains(id))
+            .collect();
+        let (cycle_desc, cycle_span) = describe_cycle(ir, &remaining);
         diags.push_error(syn::Error::new(
-            proc_macro2::Span::call_site(),
-            "graph contains a non-feedback cycle (use `-> [N] ->` to insert a delay buffer, or `-> [delay_node] ->` to route through a declared Delay node)",
+            cycle_span,
+            format!(
+                "graph contains a non-feedback cycle: {cycle_desc}. \
+                 If this loop is intentional feedback, break it with an inline \
+                 delay on one edge (`src -> [N] -> dst`, N >= 1 samples) or \
+                 route it through a declared Delay node (`src -> [delay_node] -> dst`). \
+                 If it is unintentional, one of these connections points the \
+                 wrong way."
+            ),
         ));
         return;
     }
     ir.processors = sorted;
+}
+
+/// Walk non-feedback edges among `remaining` (the nodes Kahn's algorithm
+/// could not order) until a node repeats, then render the closed walk as
+/// `a -> b -> ... -> a`. Returns the description plus the span of the first
+/// edge on the cycle for diagnostics.
+fn describe_cycle(ir: &IrGraph, remaining: &[NodeId]) -> (String, proc_macro2::Span) {
+    let remaining_set: std::collections::HashSet<NodeId> = remaining.iter().copied().collect();
+    let Some(&start) = remaining.first() else {
+        return (
+            "(unable to reconstruct the cycle)".to_string(),
+            proc_macro2::Span::call_site(),
+        );
+    };
+
+    // Follow any non-feedback edge that stays inside the cyclic component.
+    // Every node in `remaining` has at least one such outgoing edge, so this
+    // walk must revisit a node within |remaining| + 1 steps.
+    let mut path: Vec<NodeId> = vec![start];
+    let mut first_edge_span: Option<proc_macro2::Span> = None;
+    let mut current = start;
+    loop {
+        let next_hop = ir.nodes[current].outgoing.iter().find_map(|&eid| {
+            let edge = &ir.edges[eid];
+            if edge.is_feedback {
+                return None;
+            }
+            let dst = edge.dest.node;
+            remaining_set.contains(&dst).then_some((dst, edge.span))
+        });
+        let Some((next, span)) = next_hop else {
+            // Shouldn't happen (cyclic component), but degrade gracefully.
+            break;
+        };
+        first_edge_span.get_or_insert(span);
+        if let Some(pos) = path.iter().position(|&n| n == next) {
+            // Found the cycle: path[pos..] ++ next closes the loop.
+            let names: Vec<String> = path[pos..]
+                .iter()
+                .chain(std::iter::once(&next))
+                .map(|&id| format!("`{}`", ir.nodes[id].name))
+                .collect();
+            return (
+                names.join(" -> "),
+                first_edge_span.unwrap_or_else(proc_macro2::Span::call_site),
+            );
+        }
+        path.push(next);
+        current = next;
+        if path.len() > remaining.len() + 1 {
+            break;
+        }
+    }
+
+    // Fallback: list the nodes involved.
+    let names: Vec<String> = remaining
+        .iter()
+        .map(|&id| format!("`{}`", ir.nodes[id].name))
+        .collect();
+    (
+        format!("involving nodes {}", names.join(", ")),
+        first_edge_span.unwrap_or_else(proc_macro2::Span::call_site),
+    )
 }
 
 // ---------------------------------------------------------------------------

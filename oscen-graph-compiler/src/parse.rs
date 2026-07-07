@@ -1217,6 +1217,7 @@ impl Parse for ParamSpec {
         let mut unit = None;
         let mut display_name = None;
         let mut smoother = None;
+        let mut group = None;
 
         // Compact syntax: [min..max, center = X, step = Y, unit = " Hz"]
         // First, check if we start with a range (number or negative number)
@@ -1231,7 +1232,17 @@ impl Parse for ParamSpec {
                     // Not a known keyword
                     !matches!(
                         ident.to_string().as_str(),
-                        "step" | "unit" | "name" | "smooth" | "range" | "linear" | "log" | "ramp"
+                        "step"
+                            | "unit"
+                            | "name"
+                            | "smooth"
+                            | "smoother"
+                            | "range"
+                            | "linear"
+                            | "log"
+                            | "ramp"
+                            | "center"
+                            | "group"
                     )
                 });
 
@@ -1271,6 +1282,11 @@ impl Parse for ParamSpec {
                 content.parse::<Token![=]>()?;
                 let lit: syn::LitStr = content.parse()?;
                 display_name = Some(lit.value());
+            } else if lookahead.peek(kw::group) {
+                content.parse::<kw::group>()?;
+                content.parse::<Token![=]>()?;
+                let lit: syn::LitStr = content.parse()?;
+                group = Some(lit.value());
             } else if lookahead.peek(kw::smoother) {
                 content.parse::<kw::smoother>()?;
                 content.parse::<Token![=]>()?;
@@ -1314,7 +1330,7 @@ impl Parse for ParamSpec {
             smoother,
             step,
             display_name,
-            group: None,
+            group,
         })
     }
 }

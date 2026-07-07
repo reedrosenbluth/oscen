@@ -12,6 +12,7 @@ use helpers::*;
 mod emit_edge;
 mod emit_frame;
 mod emit_node;
+mod emit_params;
 mod emit_struct;
 
 /// The frame type shared by all of a graph's top-level stream endpoints, used
@@ -764,6 +765,46 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
+    /// Generate `push_<name>()` helpers for graph-level event inputs.
+    ///
+    /// These are the supported way to inject events from the host/audio
+    /// callback. `impl Into<EventPayload>` plus the `From<[u8; 3]>` /
+    /// `From<f32>` conversions on `EventPayload` make the allocation-free
+    /// representations the path of least resistance:
+    /// `graph.push_midi_in([0x90, 60, 100], 0)`.
+    fn generate_event_push_methods(&self) -> Vec<TokenStream> {
+        self.inputs()
+            .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Event)))
+            .map(|node| {
+                let name = &node.name;
+                let push_name = syn::Ident::new(&format!("push_{}", name), name.span());
+                let doc = format!(
+                    "Push an event into the `{name}` event input for the next \
+                     `process_block` call. `frame_offset` is relative to the \
+                     start of that block. Allocation-free for scalar and raw \
+                     MIDI payloads (`f32` / `[u8; 3]`). Returns `false` if the \
+                     queue is full (the event is dropped)."
+                );
+                quote! {
+                    #[doc = #doc]
+                    #[inline]
+                    pub fn #push_name(
+                        &mut self,
+                        payload: impl Into<::oscen::graph::EventPayload>,
+                        frame_offset: u32,
+                    ) -> bool {
+                        self.#name
+                            .try_push(::oscen::graph::EventInstance {
+                                frame_offset,
+                                payload: payload.into(),
+                            })
+                            .is_ok()
+                    }
+                }
+            })
+            .collect()
+    }
+
     /// Generate process_event_inputs() method for graph types.
     fn generate_static_process_event_inputs(&self) -> TokenStream {
         quote! {
@@ -1069,20 +1110,7 @@ impl<'a> CodegenContext<'a> {
             let spec = self.input_spec(node);
             let display_name = spec
                 .and_then(|s| s.display_name.clone())
-                .unwrap_or_else(|| {
-                    // Convert snake_case to Title Case
-                    field_name.to_string()
-                        .split('_')
-                        .map(|word| {
-                            let mut chars = word.chars();
-                            match chars.next() {
-                                None => String::new(),
-                                Some(first) => first.to_uppercase().chain(chars).collect(),
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                });
+                .unwrap_or_else(|| helpers::title_case(&field_name.to_string()));
 
             let default_val = self.input_default(node)
                 .map(|expr| quote! { #expr })
@@ -1327,6 +1355,7 @@ impl<'a> CodegenContext<'a> {
         let block_render_impl = self.generate_block_render_impl(name);
         let clear_event_outputs_method = self.generate_static_clear_event_outputs();
         let process_event_inputs_method = self.generate_static_process_event_inputs();
+        let event_push_methods = self.generate_event_push_methods();
         let event_handler_methods = self.generate_static_event_handler_methods();
         let tick_ramps_method = self.generate_tick_ramps_method();
         let value_setter_methods = self.generate_value_setter_methods();
@@ -1335,6 +1364,9 @@ impl<'a> CodegenContext<'a> {
         let node_prepare_calls = self.generate_node_prepare_calls();
         let node_set_rate_calls = self.generate_node_set_sample_rate_calls();
         let resampler_resets = self.generate_resampler_resets();
+
+        // Parameter registry: id enum + descriptor table + dispatchers.
+        let param_registry = self.generate_param_registry();
 
         // Generate NIH-plug params struct if nih_params flag is set
         let nih_params_output = if self.nih_params() {
@@ -1424,6 +1456,8 @@ impl<'a> CodegenContext<'a> {
 
                 #process_event_inputs_method
 
+                #(#event_push_methods)*
+
                 #(#event_handler_methods)*
 
                 #tick_ramps_method
@@ -1450,6 +1484,8 @@ impl<'a> CodegenContext<'a> {
             }
 
             #block_render_impl
+
+            #param_registry
 
             #nih_params_output
         })

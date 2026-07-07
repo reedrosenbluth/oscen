@@ -110,3 +110,17 @@ pub(super) fn gcd(a: u32, b: u32) -> u32 {
 pub(super) fn lcm(a: u32, b: u32) -> u32 {
     a / gcd(a, b) * b
 }
+
+/// snake_case -> "Title Case" for display names (`osc_a_pitch` -> "Osc A Pitch").
+pub(super) fn title_case(name: &str) -> String {
+    name.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}

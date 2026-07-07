@@ -632,6 +632,41 @@ fn plain_arrow_cycle_diagnostic_mentions_bracket_syntax() {
 }
 
 #[test]
+fn cycle_diagnostic_names_the_cycle_path() {
+    // The diagnostic should spell out a concrete cycle path so the user
+    // doesn't have to bisect connections: `a` -> `b` -> `c` -> `a`.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        node c = oscen::Gain::new(1.0);
+        connections {
+            a.output -> b.input;
+            b.output -> c.input;
+            c.output -> a.input;
+        }
+    });
+    assert!(ir.is_none(), "expected lower to fail on 3-node cycle");
+    let msgs: Vec<_> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    let cycle_msg = msgs
+        .iter()
+        .find(|m| m.contains("cycle"))
+        .expect("expected a cycle diagnostic");
+    // All three nodes must be named, joined by arrows, and the path must
+    // close on the node it started from.
+    for node in ["`a`", "`b`", "`c`"] {
+        assert!(
+            cycle_msg.contains(node),
+            "cycle diagnostic should name {node}; got: {cycle_msg}"
+        );
+    }
+    assert!(
+        cycle_msg.contains(" -> "),
+        "cycle diagnostic should render a path; got: {cycle_msg}"
+    );
+}
+
+#[test]
 fn mixed_oversampling_factors_are_rejected() {
     // Two disjoint oversampled chains with different `* N` factors used to
     // compile and panic (index out of bounds) on the first process_block:

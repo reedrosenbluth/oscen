@@ -78,3 +78,26 @@ fn snapshot_oversampled_graph() {
     let tokens = compile(input).expect("compile succeeds").to_string();
     compare_snapshot("oversampled_graph", tokens);
 }
+
+/// A graph with value inputs (plain + ramped + full metadata) exercising the
+/// generated parameter registry: `{Graph}Param` enum, `param_descriptors()`,
+/// and the `set_param`/`set_param_immediate`/`get_param` dispatchers.
+#[test]
+fn snapshot_param_registry_graph() {
+    let input = quote::quote! {
+        name: ParamGraph;
+        input value gain = 0.5;
+        input cutoff: value = 1000.0 [20.0..20000.0, log, unit = "Hz", ramp: 64];
+        input drive: value = 1.0 [0.0..10.0, center = 2.0, step = 0.1, group = "Tone"];
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.6);
+        node filter = TptFilter::new(1000.0, 0.7);
+        connections {
+            cutoff -> filter.cutoff;
+            osc.output * gain * drive -> filter.input;
+            filter.output -> out;
+        }
+    };
+    let tokens = compile(input).expect("compile succeeds").to_string();
+    compare_snapshot("param_registry", tokens);
+}

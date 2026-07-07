@@ -76,6 +76,41 @@ impl EndpointDescriptor {
     }
 }
 
+/// Static metadata for one value input ("parameter") of a generated graph.
+///
+/// `graph!` emits a `param_descriptors()` table alongside every graph that
+/// has value inputs, plus a `{Graph}Param` id enum and `set_param` /
+/// `set_param_immediate` / `get_param` dispatchers. The descriptor table is
+/// the target-independent source of truth for parameter metadata: UIs,
+/// preset systems, and plugin wrappers should consume it rather than
+/// duplicating ranges/defaults by hand.
+#[derive(Clone, Copy, Debug)]
+pub struct ParamDescriptor {
+    /// Declaration-order index; equals `{Graph}Param::index()`.
+    pub index: usize,
+    /// The input's field name in the graph, e.g. `"osc_a_pitch"`.
+    pub name: &'static str,
+    /// Human-readable name: the `name` spec attribute if given, otherwise
+    /// the field name converted to Title Case (`"Osc A Pitch"`).
+    pub display_name: &'static str,
+    /// Declared default value (0.0 when omitted).
+    pub default: f32,
+    /// `[min..max]` range from the input spec, if declared.
+    pub range: Option<(f32, f32)>,
+    /// Value at the normalized midpoint for skewed ranges (`center` attr).
+    pub center: Option<f32>,
+    /// Display unit (`unit = "Hz"`), without a leading space.
+    pub unit: Option<&'static str>,
+    /// Default ramp duration in frames (`ramp: N`), if the input is ramped.
+    pub ramp_frames: Option<u32>,
+    /// Step size (`step` attr), if declared.
+    pub step: Option<f32>,
+    /// Parameter group (`group` attr), if declared.
+    pub group: Option<&'static str>,
+    /// True when the input spec declared a logarithmic curve.
+    pub logarithmic: bool,
+}
+
 pub trait ValueObject: Send + Sync + 'static + fmt::Debug {}
 
 impl<T> ValueObject for T where T: Send + Sync + 'static + fmt::Debug {}
@@ -148,6 +183,23 @@ impl EventPayload {
             Self::Scalar(_) | Self::Midi(_) => None,
             Self::Object(obj) => Some(obj.as_ref()),
         }
+    }
+}
+
+/// Allocation-free conversion: `graph.push_x(0.5, offset)`.
+impl From<f32> for EventPayload {
+    fn from(value: f32) -> Self {
+        Self::Scalar(value)
+    }
+}
+
+/// Allocation-free conversion for raw 3-byte MIDI messages:
+/// `graph.push_midi_in([0x90, 60, 100], offset)`. Prefer this over
+/// `EventPayload::Object(Arc::new(RawMidiMessage::new(..)))`, which heap
+/// allocates and must not be used on the audio thread.
+impl From<[u8; 3]> for EventPayload {
+    fn from(bytes: [u8; 3]) -> Self {
+        Self::Midi(bytes)
     }
 }
 

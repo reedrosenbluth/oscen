@@ -12,6 +12,9 @@ pub use crate::graph;
 // Common endpoint types
 pub use crate::{EventInput, EventOutput};
 
+// Parameter reflection (generated `PARAMS` tables use this descriptor type)
+pub use crate::graph::ParamDescriptor;
+
 // Common nodes
 #[cfg(feature = "convolution")]
 pub use crate::convolution::Convolver;
