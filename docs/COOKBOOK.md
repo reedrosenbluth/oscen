@@ -27,6 +27,13 @@ graph! {
     input voices.cutoff;                   // array: broadcasts to all 8 voices
     input inner.resonance;                 // nested graph!: re-export its input
     input parser.midi_in: event;           // non-value kinds need the annotation
+
+    // Endpoint lists with a `*`-substitution rename pattern — the fix for
+    // per-branch param duplication (env_a_attack, env_b_attack, …):
+    input branch_a.{env_attack, env_decay, env_sustain} a_*;
+    input branch_b.{env_attack, env_decay, env_sustain} b_*;
+    // Patterns: `prefix_*`, `*_suffix`, or `pre_*_post`. No `= default [spec]`
+    // on list hoists — hoist singly when you need per-param metadata.
     ...
 }
 ```

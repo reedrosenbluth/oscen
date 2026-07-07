@@ -135,7 +135,9 @@ impl<'a> CodegenContext<'a> {
                 }
                 let hoist = self.input_hoist(node)?;
                 let child = &hoist.node;
-                let endpoint = &hoist.endpoint;
+                let endpoint = hoist
+                    .single_endpoint()
+                    .expect("list hoists expanded during lowering");
                 let read = if self.get_node_array_size(child).is_some() {
                     quote! {
                         ::oscen::graph::ReadValueEndpoint::read_value(&#child[0].#endpoint)

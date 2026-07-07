@@ -76,6 +76,7 @@ pub fn lower(mut graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph
 /// generic "cannot resolve" error would point at a connection the user
 /// never wrote.
 fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
+    use crate::ast::{HoistEndpoints, HoistSource, InputDecl};
     use std::collections::HashSet;
 
     // Names of declared nodes/arrays, for validation.
@@ -89,6 +90,45 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
         })
         .collect();
 
+    // Pass 1: expand endpoint-list hoists (`input node.{a, b} pat_*;`) into
+    // one single-endpoint hoist InputDecl per endpoint, in place (so
+    // declaration order — and thus param-registry order — is preserved).
+    let items = std::mem::take(&mut graph_def.items);
+    let mut expanded: Vec<GraphItem> = Vec::with_capacity(items.len());
+    for item in items {
+        let GraphItem::Input(input) = item else {
+            expanded.push(item);
+            continue;
+        };
+        let Some(HoistSource {
+            node,
+            endpoints: HoistEndpoints::List { endpoints, rename },
+        }) = input.hoist.clone()
+        else {
+            expanded.push(GraphItem::Input(input));
+            continue;
+        };
+        for endpoint in endpoints {
+            let name = match &rename {
+                Some(pat) => pat.apply(&endpoint),
+                None => endpoint.clone(),
+            };
+            expanded.push(GraphItem::Input(InputDecl {
+                kind: input.kind,
+                name,
+                ty: None,
+                default: None,
+                spec: None,
+                hoist: Some(HoistSource {
+                    node: node.clone(),
+                    endpoints: HoistEndpoints::Single(endpoint),
+                }),
+            }));
+        }
+    }
+    graph_def.items = expanded;
+
+    // Pass 2: validate node names and synthesize the connections.
     let mut synthesized: Vec<GraphItem> = Vec::new();
     for item in &graph_def.items {
         let GraphItem::Input(input) = item else {
@@ -97,6 +137,9 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
         let Some(hoist) = &input.hoist else {
             continue;
         };
+        let endpoint = hoist
+            .single_endpoint()
+            .expect("list hoists expanded in pass 1");
 
         if !node_names.contains(&hoist.node.to_string()) {
             diags.push_error(syn::Error::new(
@@ -105,7 +148,7 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
                     "hoisted input `{}.{}` references unknown node `{}` \
                      (hoists re-export a declared node's endpoint: \
                      `input <node>.<endpoint>;`)",
-                    hoist.node, hoist.endpoint, hoist.node
+                    hoist.node, endpoint, hoist.node
                 ),
             ));
             continue;
@@ -116,7 +159,7 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
             source: ConnectionExpr::Ident(input.name.clone()),
             dest: ConnectionExpr::Field(
                 Box::new(ConnectionExpr::Ident(hoist.node.clone())),
-                hoist.endpoint.clone(),
+                endpoint.clone(),
             ),
             policy: ConnectionPolicy::Default,
             span,
@@ -1167,10 +1210,14 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
         }
     }
 
-    let mut queue: VecDeque<NodeId> = in_degree
+    // Seed the queue in declaration order (not HashMap iteration order) so
+    // the topological sort — and thus generated code — is deterministic for
+    // independent nodes. Ties broken by source order.
+    let mut queue: VecDeque<NodeId> = ir
+        .processors
         .iter()
-        .filter(|(_, &d)| d == 0)
-        .map(|(&id, _)| id)
+        .copied()
+        .filter(|id| in_degree[id] == 0)
         .collect();
     let mut sorted: Vec<NodeId> = Vec::with_capacity(ir.processors.len());
 

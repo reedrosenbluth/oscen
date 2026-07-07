@@ -62,7 +62,51 @@ pub struct InputDecl {
 #[derive(Clone)]
 pub struct HoistSource {
     pub node: Ident,
-    pub endpoint: Ident,
+    pub endpoints: HoistEndpoints,
+}
+
+impl HoistSource {
+    /// The single hoisted endpoint, when this is a single-endpoint hoist.
+    /// List hoists are expanded into singles during lowering (step 0), so
+    /// IR consumers (codegen default-inheritance) only ever see `Single`.
+    pub fn single_endpoint(&self) -> Option<&Ident> {
+        match &self.endpoints {
+            HoistEndpoints::Single(ep) => Some(ep),
+            HoistEndpoints::List { .. } => None,
+        }
+    }
+}
+
+/// Endpoint selection of a hoist declaration.
+#[derive(Clone)]
+pub enum HoistEndpoints {
+    /// `input voices.cutoff;` — one endpoint; the graph input name (after
+    /// any rename) lives in `InputDecl.name`.
+    Single(Ident),
+    /// `input branch_a.{attack, decay} env_a_*;` — several endpoints hoisted
+    /// in one declaration, optionally renamed through a `*`-substitution
+    /// pattern. Expanded to `Single` hoists during lowering.
+    List {
+        endpoints: Vec<Ident>,
+        rename: Option<RenamePattern>,
+    },
+}
+
+/// A `prefix*suffix` rename pattern: `*` is replaced by the endpoint name.
+#[derive(Clone)]
+pub struct RenamePattern {
+    pub prefix: String,
+    pub suffix: String,
+    pub span: proc_macro2::Span,
+}
+
+impl RenamePattern {
+    pub fn apply(&self, endpoint: &Ident) -> Ident {
+        Ident::new(
+            &format!("{}{}{}", self.prefix, endpoint, self.suffix),
+            endpoint.span(),
+        )
+    }
 }
 
 /// `external <name>: <Type>;` declaration. Names a runtime-bindable asset slot

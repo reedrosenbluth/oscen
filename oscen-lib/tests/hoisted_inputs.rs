@@ -205,3 +205,55 @@ fn comma_fanout_drives_all_destinations() {
     assert_eq!(g.osc_a.frequency, 550.0);
     assert_eq!(g.osc_b.frequency, 550.0);
 }
+
+// ---------------------------------------------------------------------------
+// Endpoint-list hoists with rename patterns — the third-stone pattern of
+// duplicating a sub-branch's params per prefix (`env_a_*`, `env_b_*`).
+// ---------------------------------------------------------------------------
+
+graph! {
+    name: HoistList;
+
+    output stream out;
+
+    nodes {
+        osc_a = PolyBlepOscillator::saw(440.0, 0.3);
+        osc_b = PolyBlepOscillator::sine(220.0, 0.4);
+    }
+
+    input osc_a.{frequency, amplitude} a_*;
+    input osc_b.{frequency, amplitude} b_*;
+
+    connections {
+        osc_a.output + osc_b.output -> out;
+    }
+}
+
+#[test]
+fn list_hoist_declares_renamed_inputs_per_branch() {
+    let mut g = HoistList::new();
+    g.init(48_000.0);
+
+    // Defaults inherited per-branch from each constructor.
+    assert_eq!(g.a_frequency, 440.0);
+    assert_eq!(g.b_frequency, 220.0);
+    assert_eq!(g.a_amplitude, 0.3);
+    assert_eq!(g.b_amplitude, 0.4);
+
+    g.set_a_frequency(880.0);
+    g.set_b_amplitude(0.9);
+    g.process();
+    assert_eq!(g.osc_a.frequency, 880.0);
+    assert_eq!(g.osc_b.amplitude, 0.9);
+    // Untouched branch keeps its own value.
+    assert_eq!(g.osc_b.frequency, 220.0);
+}
+
+#[test]
+fn list_hoists_join_param_registry_in_declaration_order() {
+    let names: Vec<&str> = HoistListParam::ALL.iter().map(|p| p.name()).collect();
+    assert_eq!(
+        names,
+        vec!["a_frequency", "a_amplitude", "b_frequency", "b_amplitude"]
+    );
+}

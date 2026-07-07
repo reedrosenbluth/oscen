@@ -1030,3 +1030,108 @@ fn comma_fanout_with_delay_bracket_is_rejected() {
         msgs
     );
 }
+
+// ---------------------------------------------------------------------------
+// Endpoint-list hoists with rename patterns
+// (`input node.{a, b} prefix_*;`)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn list_hoist_expands_each_endpoint_with_rename_pattern() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.{frequency, amplitude} osc_a_*;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    let ir = ir.expect("lower succeeds");
+    let input_names: Vec<String> = ir
+        .inputs
+        .iter()
+        .map(|&id| ir.nodes[id].name.to_string())
+        .collect();
+    assert_eq!(
+        input_names,
+        vec!["osc_a_frequency".to_string(), "osc_a_amplitude".to_string()],
+        "list hoist declares one renamed input per endpoint, in order"
+    );
+    // Each renamed input must have an edge into the child endpoint.
+    for ep in ["frequency", "amplitude"] {
+        assert!(
+            ir.edges.values().any(|e| e.dest.endpoint == ep),
+            "missing synthesized edge into osc.{ep}"
+        );
+    }
+}
+
+#[test]
+fn list_hoist_without_rename_uses_endpoint_names() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.{frequency, amplitude};
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    let ir = ir.expect("lower succeeds");
+    let input_names: Vec<String> = ir
+        .inputs
+        .iter()
+        .map(|&id| ir.nodes[id].name.to_string())
+        .collect();
+    assert_eq!(
+        input_names,
+        vec!["frequency".to_string(), "amplitude".to_string()]
+    );
+}
+
+#[test]
+fn list_hoist_suffix_pattern() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.{frequency} *_hz;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    let ir = ir.expect("lower succeeds");
+    assert!(
+        ir.inputs
+            .iter()
+            .any(|&id| ir.nodes[id].name == "frequency_hz"),
+        "suffix pattern must rename endpoint -> endpoint_hz"
+    );
+}
+
+#[test]
+fn list_hoist_rename_collision_is_reported() {
+    // Two list hoists whose patterns produce the same name collide.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node a = PolyBlepOscillator::saw(440.0, 0.5);
+        node b = PolyBlepOscillator::saw(220.0, 0.5);
+        input a.{frequency} osc_*;
+        input b.{frequency} osc_*;
+        connections {
+            a.output + b.output -> out;
+        }
+    });
+    assert!(ir.is_none());
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("duplicate declaration")),
+        "expected duplicate-declaration error; got {:?}",
+        msgs
+    );
+}

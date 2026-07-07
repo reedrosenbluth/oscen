@@ -401,11 +401,55 @@ impl Parse for InputDecl {
 
         // HOIST SYNTAX (Cmajor-style endpoint re-export):
         //   input <node>.<endpoint> [rename] [: kind] [= default [spec]];
-        // Declares a graph input and synthesizes the `name -> node.endpoint`
-        // connection during lowering. Kind defaults to `value` (the common
+        //   input <node>.{ep1, ep2, ...} [pattern_*] ;
+        // Declares graph input(s) and synthesizes the `name -> node.endpoint`
+        // connection(s) during lowering. Kind defaults to `value` (the common
         // param case); annotate `: event` / `: stream` to hoist those.
         if input.peek(Token![.]) {
             input.parse::<Token![.]>()?;
+
+            // Endpoint-list hoist: `input branch_a.{attack, decay} env_a_*;`
+            if input.peek(token::Brace) {
+                let content;
+                braced!(content in input);
+                let mut endpoints: Vec<Ident> = Vec::new();
+                while !content.is_empty() {
+                    endpoints.push(content.parse()?);
+                    if content.peek(Token![,]) {
+                        content.parse::<Token![,]>()?;
+                    }
+                }
+                if endpoints.is_empty() {
+                    return Err(input.error("endpoint list hoist must name at least one endpoint"));
+                }
+                let rename = parse_rename_pattern(input)?;
+                let kind = if input.peek(Token![:]) {
+                    input.parse::<Token![:]>()?;
+                    input.parse::<EndpointKind>()?
+                } else {
+                    EndpointKind::Value
+                };
+                // No `= default [spec]` on list hoists: with several endpoints
+                // there is no single sensible default/range; hoist singly to
+                // attach metadata.
+                input.parse::<Token![;]>()?;
+
+                // Placeholder name; lowering expands the list into per-endpoint
+                // inputs and never uses this decl's own name.
+                let name = endpoints[0].clone();
+                return Ok(InputDecl {
+                    kind,
+                    name,
+                    ty: None,
+                    default: None,
+                    spec: None,
+                    hoist: Some(crate::ast::HoistSource {
+                        node: first_ident,
+                        endpoints: crate::ast::HoistEndpoints::List { endpoints, rename },
+                    }),
+                });
+            }
+
             let endpoint: Ident = input.parse()?;
             // Optional rename: a bare ident right after the path
             // (`input branch_a.env_attack env_a_attack;`).
@@ -443,7 +487,7 @@ impl Parse for InputDecl {
                 spec,
                 hoist: Some(crate::ast::HoistSource {
                     node: first_ident,
-                    endpoint,
+                    endpoints: crate::ast::HoistEndpoints::Single(endpoint),
                 }),
             });
         }
@@ -492,7 +536,7 @@ impl Parse for InputDecl {
                 spec,
                 hoist: Some(crate::ast::HoistSource {
                     node: name,
-                    endpoint,
+                    endpoints: crate::ast::HoistEndpoints::Single(endpoint),
                 }),
             });
         }
@@ -536,6 +580,44 @@ impl Parse for InputDecl {
             hoist: None,
         })
     }
+}
+
+/// Parse an optional `*`-substitution rename pattern after a list hoist:
+/// `env_a_*`, `*_out`, or `pre_*_post`. Tokenizes as [Ident] `*` [Ident].
+/// Returns `None` when the next token is not part of a pattern (`;`/`:`).
+fn parse_rename_pattern(input: ParseStream) -> Result<Option<crate::ast::RenamePattern>> {
+    let has_prefix = input.peek(Ident) && (input.peek2(Token![*]));
+    let starts_with_star = input.peek(Token![*]);
+    if !has_prefix && !starts_with_star {
+        return Ok(None);
+    }
+
+    let (prefix, span) = if has_prefix {
+        let id: Ident = input.parse()?;
+        (id.to_string(), id.span())
+    } else {
+        (String::new(), input.span())
+    };
+    let star: Token![*] = input.parse()?;
+    let span = if prefix.is_empty() { star.span } else { span };
+    let suffix = if input.peek(Ident) {
+        let id: Ident = input.parse()?;
+        id.to_string()
+    } else {
+        String::new()
+    };
+    if prefix.is_empty() && suffix.is_empty() {
+        return Err(syn::Error::new(
+            star.span,
+            "rename pattern `*` is an identity rename; drop it or add a prefix/suffix \
+             (e.g. `env_a_*`)",
+        ));
+    }
+    Ok(Some(crate::ast::RenamePattern {
+        prefix,
+        suffix,
+        span,
+    }))
 }
 
 impl Parse for ExternalDecl {
