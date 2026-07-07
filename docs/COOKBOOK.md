@@ -50,6 +50,71 @@ Rules of thumb:
 - Name collisions (hoist vs. declared input) are duplicate-declaration
   errors; rename the hoist.
 
+### Wildcard hoists (`input node.*;`)
+
+Hoist *every* input endpoint of a node in one line — value, stream, and
+event kinds alike:
+
+```rust
+graph! {
+    name: MySynth;
+    nodes {
+        voices = [FMVoice::new(); 8];      // derive(Node) type or graph! type
+    }
+
+    input voices.*;                        // hoist everything not otherwise claimed
+    input voices.cutoff bright [0.0..1.0]; // explicit hoist wins; wildcard skips it
+
+    connections {
+        handlers.frequency -> voices.frequency;   // wired manually → skipped too
+        voices.audio_out -> out;
+    }
+}
+```
+
+Semantics:
+
+- Expands to the node's **input** endpoints in the child's declaration
+  order, so param-registry ordinals are stable as long as the child is.
+- **Skips** endpoints that are connection destinations for that node
+  anywhere in the graph, endpoints already hoisted explicitly, and `asset`
+  inputs (those bind via `external`).
+- No rename pattern, default, or `[spec]` on a wildcard — hoist an endpoint
+  individually to rename it or attach metadata (the wildcard then skips it).
+- A collision between an expanded endpoint and any other declaration is a
+  hard error on the `input node.*;` line; rename the other declaration or
+  hoist that endpoint explicitly with a rename.
+- Array nodes broadcast, same as single hoists.
+- Nested `graph!` types hoist through: the inner graph's declared inputs
+  (including its own hoists) are what the wildcard sees.
+
+How it works, and the gotchas that follow: a proc macro can't enumerate
+another type's fields, so `#[derive(Node)]` and `graph!` each export a
+hidden "endpoint manifest" macro named `__oscen_endpoints_<TypeName>`
+alongside the type, and `input node.*;` resolves the node's constructor
+path to that manifest at expansion time (`a::b::FMVoice::new()` →
+`a::b::__oscen_endpoints_FMVoice!`). Consequences:
+
+- **The manifest must be reachable where the node type is named.** A
+  qualified constructor path (`child_crate::FMVoice::new()`) or a glob
+  import (`use child_crate::*;`) both work — the manifest re-export
+  travels next to the type. With a *selective* import (`use
+  child_crate::FMVoice;`) the bare manifest name is not in scope: also
+  import it (`use child_crate::__oscen_endpoints_FMVoice;`) or qualify the
+  constructor. The failure mode is rustc's "cannot find macro
+  `__oscen_endpoints_FMVoice`" at the `graph!` call site.
+- **Manifest names derive from the type name alone**, so two same-named
+  node types in one crate collide on the exported macro (duplicate
+  `macro_rules!` definition), and same-named types from different crates
+  need path-qualified constructors to pick the right manifest. Rename one
+  type if you hit this.
+- Only the node type's `pub` endpoint fields appear in its manifest (a
+  parent graph writes child fields directly; privacy applies).
+- The node's type must be visible syntactically (`T::new()`,
+  `path::T::new()`, `[T::new(); 8]`). A bare constructor call
+  (`node = make_voice()`) can't be resolved — the compiler tells you to
+  name the type or hoist individually.
+
 ### Declare metadata once, consume it everywhere
 
 Every graph with `value` inputs gets a generated parameter registry:
