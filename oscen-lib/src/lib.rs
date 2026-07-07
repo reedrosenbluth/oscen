@@ -44,6 +44,8 @@ pub use gain::*;
 pub use graph::*;
 pub use midi::*;
 pub use oscen_macros::{graph, oversample_variants, Node};
+#[doc(hidden)]
+pub use oscen_macros::__oscen_graph_resume;
 pub use oscillators::*;
 pub use oscilloscope::*;
 pub use sample_player::*;

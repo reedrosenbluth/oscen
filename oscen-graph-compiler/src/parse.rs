@@ -408,6 +408,62 @@ impl Parse for InputDecl {
         if input.peek(Token![.]) {
             input.parse::<Token![.]>()?;
 
+            // Wildcard hoist: `input voices.*;` — hoist every input endpoint
+            // of the node (endpoint set resolved through the node type's
+            // manifest macro). No rename, no kind annotation, no default or
+            // spec: the wildcard inherits everything from the child.
+            if input.peek(Token![*]) {
+                let star: Token![*] = input.parse()?;
+                if input.peek(Ident) {
+                    let rename: Ident = input.parse()?;
+                    return Err(syn::Error::new(
+                        rename.span(),
+                        "wildcard hoists cannot be renamed; hoist endpoints \
+                         individually or as a list to rename them \
+                         (`input node.{a, b} prefix_*;`)",
+                    ));
+                }
+                if input.peek(Token![:]) {
+                    return Err(syn::Error::new(
+                        input.span(),
+                        "wildcard hoists take no kind annotation; every input \
+                         endpoint of the node is hoisted with its own kind",
+                    ));
+                }
+                if input.peek(Token![=]) {
+                    return Err(syn::Error::new(
+                        input.span(),
+                        "wildcard hoists take no default; defaults are inherited \
+                         from the child node (hoist an endpoint individually to \
+                         override: `input node.endpoint = 1.0;`)",
+                    ));
+                }
+                if input.peek(token::Bracket) || input.peek(token::Brace) {
+                    return Err(syn::Error::new(
+                        input.span(),
+                        "wildcard hoists take no param spec; hoist an endpoint \
+                         individually to attach metadata \
+                         (`input node.endpoint [0.0..1.0];`)",
+                    ));
+                }
+                input.parse::<Token![;]>()?;
+
+                // Placeholder name; wildcard expansion replaces this decl
+                // before lowering and never uses its own name.
+                let name = first_ident.clone();
+                return Ok(InputDecl {
+                    kind: EndpointKind::Value,
+                    name,
+                    ty: None,
+                    default: None,
+                    spec: None,
+                    hoist: Some(crate::ast::HoistSource {
+                        node: first_ident,
+                        endpoints: crate::ast::HoistEndpoints::Wildcard { span: star.span },
+                    }),
+                });
+            }
+
             // Endpoint-list hoist: `input branch_a.{attack, decay} env_a_*;`
             if input.peek(token::Brace) {
                 let content;

@@ -1384,6 +1384,11 @@ impl<'a> CodegenContext<'a> {
             quote! {}
         };
 
+        // Endpoint manifest macro: lets a parent `graph!` enumerate this
+        // graph's endpoints at expansion time (wildcard hoists through
+        // nested graphs). Mirrors the manifest `#[derive(Node)]` emits.
+        let endpoint_manifest = self.generate_endpoint_manifest();
+
         // If there are any cross-rate edges we append a leading comma to the
         // tail so the existing `#struct_init` (which has no trailing comma)
         // chains cleanly into the resampler inits.
@@ -1501,7 +1506,78 @@ impl<'a> CodegenContext<'a> {
             #param_registry
 
             #nih_params_output
+
+            #endpoint_manifest
         })
+    }
+
+    /// Emit the endpoint-manifest macro for this graph type: an exported
+    /// `macro_rules!` (`__oscen_endpoints_<GraphName>!`) that invokes a
+    /// caller-supplied continuation with the graph's endpoint list
+    /// appended to arbitrary passthrough state. Inputs are the graph's
+    /// declared inputs (including expanded hoists); outputs are the
+    /// declared outputs. This is what lets a parent graph write
+    /// `input nested.*;` where `nested` is itself a `graph!` type — the
+    /// mechanism `poly` builds on.
+    ///
+    /// The `#[macro_export]` name is mangled
+    /// (`__oscen_endpoints_export_*`) with a `pub use … as …` re-export
+    /// next to the type, so qualified manifest paths mirror the graph
+    /// type's own path. `graph!` invoked inside a function body works
+    /// too (`#[macro_export]` still exports at the crate root; the local
+    /// re-export is allowed but only usable in that scope).
+    fn generate_endpoint_manifest(&self) -> TokenStream {
+        let name = self.name();
+        let export_ident = syn::Ident::new(
+            &format!("__oscen_endpoints_export_{}", name),
+            proc_macro2::Span::call_site(),
+        );
+        let manifest_ident = syn::Ident::new(
+            &format!("__oscen_endpoints_{}", name),
+            proc_macro2::Span::call_site(),
+        );
+        let kind_tokens = |kind: EndpointKind| match kind {
+            EndpointKind::Stream => quote! { stream },
+            EndpointKind::Value => quote! { value },
+            EndpointKind::Event => quote! { event },
+            EndpointKind::Asset => quote! { asset },
+        };
+        let input_entries: Vec<TokenStream> = self
+            .inputs()
+            .map(|node| {
+                let ep_name = &node.name;
+                let kind =
+                    kind_tokens(self.input_kind(ep_name).unwrap_or(EndpointKind::Value));
+                quote! { #ep_name: #kind }
+            })
+            .collect();
+        let output_entries: Vec<TokenStream> = self
+            .outputs()
+            .map(|node| {
+                let ep_name = &node.name;
+                let kind =
+                    kind_tokens(self.output_kind(ep_name).unwrap_or(EndpointKind::Stream));
+                quote! { #ep_name: #kind }
+            })
+            .collect();
+        quote! {
+            #[doc(hidden)]
+            #[allow(non_local_definitions)]
+            #[macro_export]
+            macro_rules! #export_ident {
+                ($callback:path => ( $($passthrough:tt)* )) => {
+                    $callback! {
+                        $($passthrough)*
+                        node_type #name
+                        inputs [ #(#input_entries),* ]
+                        outputs [ #(#output_entries),* ]
+                    }
+                };
+            }
+            #[doc(hidden)]
+            #[allow(unused_imports)]
+            pub use #export_ident as #manifest_ident;
+        }
     }
 }
 

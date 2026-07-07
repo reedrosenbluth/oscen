@@ -137,9 +137,20 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
         let Some(hoist) = &input.hoist else {
             continue;
         };
-        let endpoint = hoist
-            .single_endpoint()
-            .expect("list hoists expanded in pass 1");
+        let Some(endpoint) = hoist.single_endpoint() else {
+            // List hoists were expanded in pass 1; wildcard hoists are
+            // expanded (or rejected) before lowering by
+            // `manifest::expand_wildcards`. A leftover here means a caller
+            // bypassed that pass — report instead of panicking.
+            diags.push_error(syn::Error::new(
+                hoist.node.span(),
+                format!(
+                    "internal error: unexpanded hoist on node `{}` reached lowering",
+                    hoist.node
+                ),
+            ));
+            continue;
+        };
 
         if !node_names.contains(&hoist.node.to_string()) {
             diags.push_error(syn::Error::new(

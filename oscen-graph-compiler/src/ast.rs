@@ -67,12 +67,14 @@ pub struct HoistSource {
 
 impl HoistSource {
     /// The single hoisted endpoint, when this is a single-endpoint hoist.
-    /// List hoists are expanded into singles during lowering (step 0), so
-    /// IR consumers (codegen default-inheritance) only ever see `Single`.
+    /// List hoists are expanded into singles during lowering (step 0), and
+    /// wildcard hoists are expanded into singles before lowering (after
+    /// manifest resolution), so IR consumers (codegen default-inheritance)
+    /// only ever see `Single`.
     pub fn single_endpoint(&self) -> Option<&Ident> {
         match &self.endpoints {
             HoistEndpoints::Single(ep) => Some(ep),
-            HoistEndpoints::List { .. } => None,
+            HoistEndpoints::List { .. } | HoistEndpoints::Wildcard { .. } => None,
         }
     }
 }
@@ -90,6 +92,17 @@ pub enum HoistEndpoints {
         endpoints: Vec<Ident>,
         rename: Option<RenamePattern>,
     },
+    /// `input voices.*;` — hoist every input endpoint of the node. The
+    /// endpoint set comes from the node type's exported manifest macro
+    /// (`__oscen_endpoints_<Type>!`), resolved through a two-stage
+    /// continuation-passing expansion in `oscen-macros`; the compiler
+    /// substitutes the resolved endpoints as a `List` hoist before
+    /// lowering. No rename pattern and no default/spec are allowed.
+    ///
+    /// `span` covers the `*` token so diagnostics about the wildcard
+    /// point at the parent's `input node.*;` statement, never at
+    /// child-crate manifest tokens.
+    Wildcard { span: proc_macro2::Span },
 }
 
 /// A `prefix*suffix` rename pattern: `*` is replaced by the endpoint name.

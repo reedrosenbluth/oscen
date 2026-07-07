@@ -7,6 +7,7 @@ pub mod ast;
 pub mod codegen;
 pub mod diagnostics;
 pub mod ir;
+pub mod manifest;
 pub mod parse;
 
 pub use diagnostics::{Diagnostic, Diagnostics, Severity};
@@ -19,9 +20,32 @@ pub use diagnostics::{Diagnostic, Diagnostics, Severity};
 /// `node {}` / `connection {}` blocks. Type-mismatch and
 /// rate-analysis errors are accumulated across all connections in a
 /// single compile cycle.
+///
+/// Wildcard hoists (`input node.*;`) require resolved endpoint manifests;
+/// use [`compile_with_manifests`] (the `graph!` proc macro's two-stage
+/// expansion collects them). Calling `compile` on a body with wildcards
+/// reports a "no endpoint manifest resolved" diagnostic per wildcard.
 pub fn compile(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenStream, Diagnostics> {
+    compile_with_manifests(input, &std::collections::HashMap::new())
+}
+
+/// Compile a `graph!` body whose wildcard hoists (`input node.*;`) have
+/// their endpoint manifests resolved in `manifests` (keyed by node name).
+///
+/// This is the re-entry point for the two-stage wildcard expansion: the
+/// `graph!` proc macro detects wildcards with [`manifest::scan_wildcards`],
+/// chains the child types' manifest macros in continuation-passing style,
+/// and the final continuation calls this with the collected manifests.
+pub fn compile_with_manifests(
+    input: proc_macro2::TokenStream,
+    manifests: &std::collections::HashMap<String, manifest::NodeManifest>,
+) -> Result<proc_macro2::TokenStream, Diagnostics> {
     let mut diags = Diagnostics::new();
-    let graph_def = parse::parse_graph_def(input, &mut diags);
+    let mut graph_def = parse::parse_graph_def(input, &mut diags);
+    if !diags.is_empty() {
+        return Err(diags);
+    }
+    manifest::expand_wildcards(&mut graph_def, manifests, &mut diags);
     if !diags.is_empty() {
         return Err(diags);
     }

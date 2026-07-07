@@ -13,6 +13,11 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
     let mut input_idents = Vec::new();
     let mut output_idents = Vec::new();
+
+    // (name, kind) pairs in declaration order, for the endpoint manifest
+    // macro (`__oscen_endpoints_<TypeName>!`). See `emit_endpoint_manifest`.
+    let mut manifest_inputs: Vec<(syn::Ident, EndpointTypeAttr)> = Vec::new();
+    let mut manifest_outputs: Vec<(syn::Ident, EndpointTypeAttr)> = Vec::new();
     let mut sample_rate_fields: Vec<syn::Ident> = Vec::new();
 
     // Errors for removed wrapper endpoint types, emitted alongside the
@@ -138,6 +143,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
 
                     input_idents.push(field_name.clone());
+                    manifest_inputs.push((field_name.clone(), kind));
                     input_idx += 1;
                 }
 
@@ -149,6 +155,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
 
                     output_idents.push(field_name.clone());
+                    manifest_outputs.push((field_name.clone(), output_kind));
                     _output_idx += 1;
                 }
 
@@ -316,10 +323,26 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Endpoint manifest macro: an exported macro_rules "manifest" carrying
+    // the node's endpoint list, invoked in continuation-passing style by a
+    // parent `graph!` that needs this type's endpoints at expansion time
+    // (wildcard hoists: `input voices.*;`). The `#[macro_export]` name is
+    // mangled (`__oscen_endpoints_export_*`) so the pretty
+    // `__oscen_endpoints_<TypeName>` re-export next to the type never
+    // collides with the crate-root export when the type itself lives at the
+    // crate root; the re-export travels with `pub use module::*` chains so
+    // qualified manifest paths mirror the type's path.
+    //
+    // NOTE: two same-named node types in one crate collide on the exported
+    // macro name (documented limitation; see docs/COOKBOOK.md).
+    let manifest = emit_endpoint_manifest(&name, &manifest_inputs, &manifest_outputs);
+
     let expanded = quote! {
         #(#endpoint_errors)*
 
         #(#endpoint_at_emissions)*
+
+        #manifest
 
         #sample_rate_error
 
@@ -346,6 +369,76 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
+}
+
+/// Emit the endpoint-manifest macro for a node type: an exported
+/// `macro_rules!` that invokes a caller-supplied continuation with the
+/// type's endpoint list appended to arbitrary passthrough state:
+///
+/// ```ignore
+/// __oscen_endpoints_<TypeName>!($callback:path => ( <passthrough> ));
+/// // expands to:
+/// $callback! {
+///     <passthrough>
+///     node_type <TypeName>
+///     inputs [ name1: value, name2: stream, name3: event ]
+///     outputs [ out1: stream ]
+/// }
+/// ```
+///
+/// Kinds come from the same classification the derive already performs;
+/// no defaults are carried (hoists inherit defaults from the constructed
+/// child at runtime).
+fn emit_endpoint_manifest(
+    type_name: &syn::Ident,
+    inputs: &[(syn::Ident, EndpointTypeAttr)],
+    outputs: &[(syn::Ident, EndpointTypeAttr)],
+) -> proc_macro2::TokenStream {
+    let export_ident = format_ident!("__oscen_endpoints_export_{}", type_name);
+    let manifest_ident = format_ident!("__oscen_endpoints_{}", type_name);
+    let input_entries: Vec<_> = inputs
+        .iter()
+        .map(|(n, k)| {
+            let kind = manifest_kind_ident(*k);
+            quote! { #n: #kind }
+        })
+        .collect();
+    let output_entries: Vec<_> = outputs
+        .iter()
+        .map(|(n, k)| {
+            let kind = manifest_kind_ident(*k);
+            quote! { #n: #kind }
+        })
+        .collect();
+    quote! {
+        #[doc(hidden)]
+        #[allow(non_local_definitions)]
+        #[macro_export]
+        macro_rules! #export_ident {
+            ($callback:path => ( $($passthrough:tt)* )) => {
+                $callback! {
+                    $($passthrough)*
+                    node_type #type_name
+                    inputs [ #(#input_entries),* ]
+                    outputs [ #(#output_entries),* ]
+                }
+            };
+        }
+        #[doc(hidden)]
+        #[allow(unused_imports)]
+        pub use #export_ident as #manifest_ident;
+    }
+}
+
+/// The bare kind ident (`value` / `stream` / `event` / `asset`) used in
+/// manifest endpoint entries.
+fn manifest_kind_ident(kind: EndpointTypeAttr) -> proc_macro2::TokenStream {
+    match kind {
+        EndpointTypeAttr::Stream => quote! { stream },
+        EndpointTypeAttr::Value => quote! { value },
+        EndpointTypeAttr::Event => quote! { event },
+        EndpointTypeAttr::Asset => quote! { asset },
+    }
 }
 
 fn parse_endpoint_attr(attr: &syn::Attribute) -> syn::Result<EndpointTypeAttr> {
@@ -474,7 +567,37 @@ impl syn::parse::Parse for EndpointTypeAttr {
 /// ```
 #[proc_macro]
 pub fn graph(input: TokenStream) -> TokenStream {
-    match oscen_graph_compiler::compile(input.into()) {
+    // Two-stage expansion: graphs with wildcard hoists (`input node.*;`)
+    // expand to a chain of endpoint-manifest macro invocations with
+    // `__oscen_graph_resume` as the continuation; graphs without compile
+    // directly (zero behavior change).
+    match oscen_graph_compiler::manifest::expand_graph_entry(input.into(), &resume_path()) {
+        Ok(ts) => ts.into(),
+        Err(diags) => diags.into_compile_errors().into(),
+    }
+}
+
+/// Path of the resume continuation as seen from downstream crates.
+/// `oscen-lib` re-exports the proc macro next to `graph`, so
+/// `::oscen::__oscen_graph_resume` resolves everywhere `::oscen::graph`
+/// does.
+fn resume_path() -> syn::Path {
+    syn::parse_quote!(::oscen::__oscen_graph_resume)
+}
+
+/// Internal continuation for wildcard hoists (`input node.*;`) — not part
+/// of the public API.
+///
+/// A `graph!` with wildcard hoists expands to an invocation of the first
+/// wildcard node type's endpoint-manifest macro with this proc macro as
+/// the continuation; the manifest appends the node's endpoint list to the
+/// passthrough state. This macro then chains the next pending manifest
+/// or, when all wildcards are resolved, resumes normal graph compilation
+/// with the collected endpoint sets.
+#[doc(hidden)]
+#[proc_macro]
+pub fn __oscen_graph_resume(input: TokenStream) -> TokenStream {
+    match oscen_graph_compiler::manifest::resume(input.into(), &resume_path()) {
         Ok(ts) => ts.into(),
         Err(diags) => diags.into_compile_errors().into(),
     }
