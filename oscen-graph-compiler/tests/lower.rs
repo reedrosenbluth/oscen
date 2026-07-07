@@ -975,3 +975,58 @@ fn primary_source_node(edge: &ir::graph::IrEdge) -> Option<ir::graph::NodeId> {
         _ => None,
     }
 }
+
+// ---------------------------------------------------------------------------
+// Comma fan-out (`src -> dest1, dest2;`)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn comma_fanout_expands_to_one_edge_per_destination() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        input stream s;
+        output stream out;
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        connections {
+            s -> a.input, b.input;
+            a.output + b.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    let ir = ir.expect("lower succeeds");
+    let dest_endpoints: Vec<String> = ir
+        .edges
+        .values()
+        .filter(|e| e.dest.endpoint == "input")
+        .map(|e| ir.nodes[e.dest.node].name.to_string())
+        .collect();
+    assert!(
+        dest_endpoints.contains(&"a".to_string())
+            && dest_endpoints.contains(&"b".to_string()),
+        "fan-out must create an edge into both destinations; got {:?}",
+        dest_endpoints
+    );
+}
+
+#[test]
+fn comma_fanout_with_delay_bracket_is_rejected() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        input stream s;
+        output stream out;
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        connections {
+            s -> [1] -> a.input, b.input;
+            a.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "delay bracket + fan-out must be an error");
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("comma fan-out")),
+        "expected the dedicated fan-out/delay error; got {:?}",
+        msgs
+    );
+}

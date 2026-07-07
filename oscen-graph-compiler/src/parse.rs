@@ -178,7 +178,7 @@ fn parse_connection_block_with_diags(
     let mut stmts = Vec::new();
     for stmt_chunk in split_statement_chunks(group.stream()) {
         match syn::parse::Parser::parse2(parse_connection_stmt_body, stmt_chunk) {
-            Ok(stmt) => stmts.push(stmt),
+            Ok(stmt) => stmts.extend(stmt),
             Err(e) => diags.push_error(e),
         }
     }
@@ -287,7 +287,15 @@ impl Parse for GraphItem {
             parse_node_decl_body(input).map(GraphItem::Node)
         } else if lookahead.peek(kw::connection) {
             input.parse::<kw::connection>()?;
-            parse_connection_stmt_body(input).map(GraphItem::Connection)
+            // A single `connection` statement may still expand to several
+            // (comma fan-out); wrap in a block when it does.
+            parse_connection_stmt_body(input).map(|mut stmts| {
+                if stmts.len() == 1 {
+                    GraphItem::Connection(stmts.pop().expect("len checked"))
+                } else {
+                    GraphItem::ConnectionBlock(crate::ast::ConnectionBlock(stmts))
+                }
+            })
         } else {
             Err(lookahead.error())
         }
@@ -1017,7 +1025,7 @@ fn parse_connection_policy(input: ParseStream) -> Result<ConnectionPolicy> {
 /// `connection` first) and `parse_connection_block_with_diags` (which
 /// uses it on per-statement chunks inside `connection {}` /
 /// `connections {}` block contents).
-fn parse_connection_stmt_body(input: ParseStream) -> Result<ConnectionStmt> {
+fn parse_connection_stmt_body(input: ParseStream) -> Result<Vec<ConnectionStmt>> {
     let policy = parse_connection_policy(input)?;
     let source = parse_connection_expr(input)?;
 
@@ -1050,27 +1058,52 @@ fn parse_connection_stmt_body(input: ParseStream) -> Result<ConnectionStmt> {
         None
     };
 
-    let dest = parse_connection_expr(input)?;
+    // Comma fan-out: `src -> dest1, dest2, dest3;` expands to one
+    // statement per destination (same source, policy, and via).
+    let mut dests = vec![parse_connection_expr(input)?];
+    while input.peek(Token![,]) {
+        let comma: Token![,] = input.parse()?;
+        if via.is_some() {
+            return Err(syn::Error::new(
+                comma.span,
+                "comma fan-out cannot be combined with a `-> […] ->` delay \
+                 bracket (each destination would need its own delay); write \
+                 separate connection statements",
+            ));
+        }
+        dests.push(parse_connection_expr(input)?);
+    }
     input.parse::<Token![;]>()?;
 
-    let span = source
-        .span()
-        .join(dest.span())
-        .unwrap_or_else(|| source.span());
-
-    Ok(ConnectionStmt {
-        source,
-        dest,
-        policy,
-        span,
-        via,
-    })
+    Ok(dests
+        .into_iter()
+        .map(|dest| {
+            let span = source
+                .span()
+                .join(dest.span())
+                .unwrap_or_else(|| source.span());
+            ConnectionStmt {
+                source: source.clone(),
+                dest,
+                policy,
+                span,
+                via: via.clone(),
+            }
+        })
+        .collect())
 }
 
 impl Parse for ConnectionStmt {
     fn parse(input: ParseStream) -> Result<Self> {
         input.parse::<kw::connection>()?;
-        parse_connection_stmt_body(input)
+        let mut stmts = parse_connection_stmt_body(input)?;
+        if stmts.len() != 1 {
+            return Err(input.error(
+                "comma fan-out is not supported in this context; use a \
+                 `connections {}` block",
+            ));
+        }
+        Ok(stmts.pop().expect("len checked"))
     }
 }
 

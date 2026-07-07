@@ -173,3 +173,35 @@ fn hoist_through_nested_graph() {
     g.process();
     assert_eq!(g.voice.osc.frequency, 550.0);
 }
+
+// ---------------------------------------------------------------------------
+// Comma fan-out: one source driving several destinations in one statement.
+// ---------------------------------------------------------------------------
+
+graph! {
+    name: FanOutGraph;
+
+    input value freq = 220.0;
+    output stream out;
+
+    nodes {
+        osc_a = PolyBlepOscillator::saw(440.0, 0.3);
+        osc_b = PolyBlepOscillator::sine(440.0, 0.3);
+    }
+
+    connections {
+        freq -> osc_a.frequency, osc_b.frequency;
+        osc_a.output + osc_b.output -> out;
+    }
+}
+
+#[test]
+fn comma_fanout_drives_all_destinations() {
+    let mut g = FanOutGraph::new();
+    g.init(48_000.0);
+
+    g.set_freq(550.0);
+    g.process();
+    assert_eq!(g.osc_a.frequency, 550.0);
+    assert_eq!(g.osc_b.frequency, 550.0);
+}

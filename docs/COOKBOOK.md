@@ -134,6 +134,17 @@ When converting host note events (e.g. nih-plug `NoteEvent`) to MIDI bytes,
 round velocity with `(v * 127.0).round() as u8` — truncation audibly drops
 full-velocity notes to 126.
 
+## Connections
+
+- **Fan-in sums**: several stream sources into the same destination add
+  (`branch_a.output -> mix.input; branch_b.output -> mix.input;`), Cmajor
+  semantics. Array outputs wired to a graph output also sum.
+- **Comma fan-out**: `freq -> osc_a.frequency, osc_b.frequency;` is one
+  statement per destination. Not combinable with a `-> […] ->` delay
+  bracket (each destination would need its own delay).
+- **Expressions**: `osc.output * gain * 0.3536 -> out;` — keep gain staging
+  and headroom visible inside the graph instead of post-processing buffers.
+
 ## Feedback & cycles
 
 A plain-`->` cycle is a compile error; the diagnostic names the cycle path.
