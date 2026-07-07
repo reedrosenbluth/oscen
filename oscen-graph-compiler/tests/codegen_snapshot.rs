@@ -101,3 +101,25 @@ fn snapshot_param_registry_graph() {
     let tokens = compile(input).expect("compile succeeds").to_string();
     compare_snapshot("param_registry", tokens);
 }
+
+/// Hoisted endpoint declarations: `input <node>.<endpoint> [rename] ...;`
+/// declares the graph input, synthesizes the connection, inherits the
+/// initial value from the child when no `= default` is given, and joins the
+/// param registry.
+#[test]
+fn snapshot_hoisted_inputs() {
+    let input = quote::quote! {
+        name: HoistGraph;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.6);
+        node voices = [PolyBlepOscillator::saw(110.0, 0.2); 4];
+        input osc.frequency;
+        input osc.amplitude level = 0.5 [0.0..1.0, ramp: 8];
+        input voices.amplitude gain;
+        connections {
+            osc.output -> out;
+        }
+    };
+    let tokens = compile(input).expect("compile succeeds").to_string();
+    compare_snapshot("hoisted_inputs", tokens);
+}

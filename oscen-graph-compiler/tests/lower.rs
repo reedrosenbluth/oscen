@@ -836,3 +836,142 @@ fn indexed_endpoints_classify_as_scalar_fanout() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Hoisted endpoint declarations (`input <node>.<endpoint> [rename] ...;`)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn hoist_synthesizes_connection_edge() {
+    // `input osc.frequency;` must declare an input named `frequency` and
+    // create the `frequency -> osc.frequency` edge.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.frequency;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    let ir = ir.expect("lower succeeds");
+    let input_id = *ir
+        .inputs
+        .iter()
+        .find(|&&id| ir.nodes[id].name == "frequency")
+        .expect("hoist declares an input named after the endpoint");
+    // Exactly one edge from the hoist input into osc.frequency.
+    let edge = ir
+        .edges
+        .values()
+        .find(|e| {
+            e.dest.endpoint == "frequency" && crate::primary_source_node(e) == Some(input_id)
+        })
+        .or_else(|| ir.edges.values().find(|e| e.dest.endpoint == "frequency"));
+    assert!(edge.is_some(), "hoist must synthesize the connection");
+}
+
+#[test]
+fn hoist_rename_declares_renamed_input() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.amplitude level = 0.5;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    let ir = ir.expect("lower succeeds");
+    assert!(
+        ir.inputs.iter().any(|&id| ir.nodes[id].name == "level"),
+        "rename must declare the graph input under the new name"
+    );
+    assert!(
+        !ir.inputs.iter().any(|&id| ir.nodes[id].name == "amplitude"),
+        "the original endpoint name must not leak as a graph input"
+    );
+}
+
+#[test]
+fn hoist_unknown_node_is_a_dedicated_error() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input oscx.frequency;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(ir.is_none());
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("unknown node `oscx`")),
+        "expected dedicated hoist error naming the node; got: {:?}",
+        msgs
+    );
+}
+
+#[test]
+fn hoist_event_endpoint_with_kind_annotation() {
+    // `input node.endpoint: event;` hoists an event input (kind defaults to
+    // value otherwise).
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node parser = oscen::midi::MidiParser::new();
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input parser.midi_in: event;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    let ir = ir.expect("lower succeeds");
+    let input_id = *ir
+        .inputs
+        .iter()
+        .find(|&&id| ir.nodes[id].name == "midi_in")
+        .expect("event hoist declares input");
+    let node = &ir.nodes[input_id];
+    let kind = node.endpoints.get(&node.name).map(|e| e.kind);
+    assert_eq!(kind, Some(oscen_graph_compiler::ast::EndpointKind::Event));
+}
+
+#[test]
+fn hoist_name_collision_is_duplicate_declaration() {
+    // A hoist whose (renamed) name collides with a declared input reports
+    // the existing duplicate-declaration diagnostic.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        input value level = 1.0;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.amplitude level;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(ir.is_none());
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("duplicate declaration")),
+        "expected duplicate-declaration error; got: {:?}",
+        msgs
+    );
+}
+
+fn diag_msgs(diags: &Diagnostics) -> Vec<String> {
+    diags.items.iter().map(|d| d.message.to_string()).collect()
+}
+
+/// Root node of an edge's source expression, if it is a simple endpoint.
+fn primary_source_node(edge: &ir::graph::IrEdge) -> Option<ir::graph::NodeId> {
+    match &edge.source.kind {
+        ir::expr::IrExprKind::Endpoint(ep) => Some(ep.node),
+        _ => None,
+    }
+}

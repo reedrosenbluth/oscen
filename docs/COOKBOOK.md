@@ -6,6 +6,43 @@ plugin, and keep it updated when you discover a new gotcha.
 
 ## Parameters
 
+### Hoist child endpoints instead of hand-forwarding
+
+`input <node>.<endpoint> [rename] [= default [spec]];` declares a graph
+input *and* wires it to the child endpoint — one line replaces the
+declare + connect + setter-forwarding pattern:
+
+```rust
+graph! {
+    name: MySynth;
+    nodes {
+        osc    = PolyBlepOscillator::saw(440.0, 0.6);
+        voices = [Voice::new(); 8];
+        inner  = FilterSection::new();     // another graph! type
+    }
+
+    input osc.frequency;                   // input named `frequency`,
+                                           // default inherited from the ctor (440.0)
+    input osc.amplitude level = 0.5 [0.0..1.0, group = "Mix"];  // rename + metadata
+    input voices.cutoff;                   // array: broadcasts to all 8 voices
+    input inner.resonance;                 // nested graph!: re-export its input
+    input parser.midi_in: event;           // non-value kinds need the annotation
+    ...
+}
+```
+
+Rules of thumb:
+
+- Without `= default`, the initial value is read from the constructed child
+  node — the child stays the single source of truth.
+- A hoist is a real input: it gets setters, ramp plumbing (`ramp:` in the
+  spec), a param-registry entry, and `nih_params` treatment like any other.
+- Hoisting through a nested `graph!`'s ramped input drives the child's ramp
+  state directly (no double smoothing); put the ramp at whichever level you
+  hoist from, not both.
+- Name collisions (hoist vs. declared input) are duplicate-declaration
+  errors; rename the hoist.
+
 ### Declare metadata once, consume it everywhere
 
 Every graph with `value` inputs gets a generated parameter registry:

@@ -391,6 +391,55 @@ impl Parse for InputDecl {
         // Try to parse: either "name: kind" (new CMajor-style) or "kind name" (old style)
         let first_ident = input.parse::<Ident>()?;
 
+        // HOIST SYNTAX (Cmajor-style endpoint re-export):
+        //   input <node>.<endpoint> [rename] [: kind] [= default [spec]];
+        // Declares a graph input and synthesizes the `name -> node.endpoint`
+        // connection during lowering. Kind defaults to `value` (the common
+        // param case); annotate `: event` / `: stream` to hoist those.
+        if input.peek(Token![.]) {
+            input.parse::<Token![.]>()?;
+            let endpoint: Ident = input.parse()?;
+            // Optional rename: a bare ident right after the path
+            // (`input branch_a.env_attack env_a_attack;`).
+            let rename: Option<Ident> = if input.peek(Ident) {
+                Some(input.parse()?)
+            } else {
+                None
+            };
+            let kind = if input.peek(Token![:]) {
+                input.parse::<Token![:]>()?;
+                input.parse::<EndpointKind>()?
+            } else {
+                EndpointKind::Value
+            };
+
+            let mut default = None;
+            let mut spec = None;
+            if input.peek(Token![=]) {
+                input.parse::<Token![=]>()?;
+                default = Some(parse_simple_expr(input)?);
+            }
+            if input.peek(token::Bracket) {
+                spec = Some(input.parse()?);
+            } else if input.peek(token::Brace) {
+                spec = Some(parse_brace_param_spec(input)?);
+            }
+            input.parse::<Token![;]>()?;
+
+            let name = rename.unwrap_or_else(|| endpoint.clone());
+            return Ok(InputDecl {
+                kind,
+                name,
+                ty: None,
+                default,
+                spec,
+                hoist: Some(crate::ast::HoistSource {
+                    node: first_ident,
+                    endpoint,
+                }),
+            });
+        }
+
         let (name, kind) = if input.peek(Token![:]) {
             // NEW SYNTAX: input name: kind
             input.parse::<Token![:]>()?;
@@ -403,6 +452,42 @@ impl Parse for InputDecl {
             let name = input.parse::<Ident>()?;
             (name, kind)
         };
+
+        // OLD SYNTAX hoist: `input value voices.cutoff [rename] ...;`
+        if input.peek(Token![.]) {
+            input.parse::<Token![.]>()?;
+            let endpoint: Ident = input.parse()?;
+            let rename: Option<Ident> = if input.peek(Ident) {
+                Some(input.parse()?)
+            } else {
+                None
+            };
+            let mut default = None;
+            let mut spec = None;
+            if input.peek(Token![=]) {
+                input.parse::<Token![=]>()?;
+                default = Some(parse_simple_expr(input)?);
+            }
+            if input.peek(token::Bracket) {
+                spec = Some(input.parse()?);
+            } else if input.peek(token::Brace) {
+                spec = Some(parse_brace_param_spec(input)?);
+            }
+            input.parse::<Token![;]>()?;
+
+            let hoist_name = rename.unwrap_or_else(|| endpoint.clone());
+            return Ok(InputDecl {
+                kind,
+                name: hoist_name,
+                ty: None,
+                default,
+                spec,
+                hoist: Some(crate::ast::HoistSource {
+                    node: name,
+                    endpoint,
+                }),
+            });
+        }
 
         // Parse optional type annotation: `: Type` (for array types like [f32; 32])
         // This is a SECOND colon for the new syntax: input name: event: [Type; N]
@@ -440,6 +525,7 @@ impl Parse for InputDecl {
             ty,
             default,
             spec,
+            hoist: None,
         })
     }
 }

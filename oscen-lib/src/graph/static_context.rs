@@ -76,6 +76,41 @@ impl<T: Copy> ConnectEndpoints<&T, T> for () {
     }
 }
 
+// f32 → ramped value input (hoisting a nested graph's ramped input, or any
+// per-frame value edge into a `ValueRampState` field). The write is a
+// per-frame stream of already-conditioned values (the parent's own ramp
+// smooths setter calls), so the destination follows exactly rather than
+// re-ramping — a ramp on top of a ramp would double the lag.
+impl ConnectEndpoints<f32, super::types::ValueRampState> for () {
+    #[inline]
+    fn connect(src: &f32, dst: &mut super::types::ValueRampState) {
+        dst.set_immediate(*src);
+    }
+}
+
+/// Read the effective `f32` of a value endpoint regardless of its storage:
+/// a plain `f32` field or a ramped `ValueRampState`. Used by generated code
+/// to inherit a hoisted input's initial value from the child node it hoists
+/// (`input voices.cutoff;` with no `= default`), where the macro cannot know
+/// the child field's concrete type at expansion time.
+pub trait ReadValueEndpoint {
+    fn read_value(&self) -> f32;
+}
+
+impl ReadValueEndpoint for f32 {
+    #[inline]
+    fn read_value(&self) -> f32 {
+        *self
+    }
+}
+
+impl ReadValueEndpoint for super::types::ValueRampState {
+    #[inline]
+    fn read_value(&self) -> f32 {
+        self.current
+    }
+}
+
 // Event → Event (StaticEventQueue to StaticEventQueue)
 impl ConnectEndpoints<super::types::StaticEventQueue, super::types::StaticEventQueue> for () {
     #[inline]

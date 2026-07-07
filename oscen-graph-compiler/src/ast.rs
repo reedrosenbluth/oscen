@@ -50,6 +50,19 @@ pub struct InputDecl {
     pub ty: Option<syn::Type>, // Optional type annotation (e.g., [f32; 32])
     pub default: Option<Expr>,
     pub spec: Option<ParamSpec>,
+    /// `Some` when this input hoists a child node endpoint
+    /// (`input voices.cutoff;`): the compiler declares the graph input *and*
+    /// synthesizes the `name -> node.endpoint` connection. Value hoists
+    /// without an explicit `= default` inherit their initial value from the
+    /// constructed child node at runtime.
+    pub hoist: Option<HoistSource>,
+}
+
+/// The `node.endpoint` path of a hoisted endpoint declaration.
+#[derive(Clone)]
+pub struct HoistSource {
+    pub node: Ident,
+    pub endpoint: Ident,
 }
 
 /// `external <name>: <Type>;` declaration. Names a runtime-bindable asset slot

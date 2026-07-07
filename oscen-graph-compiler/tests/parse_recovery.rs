@@ -201,3 +201,26 @@ fn tilde_arrow_no_longer_parses() {
         msg
     );
 }
+
+#[test]
+fn malformed_hoist_recovers_and_reports() {
+    // A hoist missing its endpoint after the dot must produce a parse error
+    // without swallowing later errors in the same graph.
+    let input = quote! {
+        name: G;
+        node osc = Foo::new();
+        input osc.;
+        input stream s2
+        output stream out;
+    };
+    let diags = compile(input).expect_err("expected diagnostics; got Ok");
+    assert!(
+        error_count(&diags) >= 2,
+        "expected both the hoist error and the missing-semicolon error; got {:?}",
+        diags
+            .items
+            .iter()
+            .map(|d| d.message.to_string())
+            .collect::<Vec<_>>()
+    );
+}

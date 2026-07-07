@@ -6,7 +6,9 @@
 //! mutation API. Accumulates diagnostics across all steps and returns
 //! `None` if any errors landed.
 
-use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, GraphDef, GraphItem, NodeRate};
+use crate::ast::{
+    ConnectionExpr, ConnectionPolicy, ConnectionStmt, EndpointKind, GraphDef, GraphItem, NodeRate,
+};
 use crate::diagnostics::Diagnostics;
 use crate::ir::expr::{primary_node, IrEndpoint, IrExpr, IrExprKind};
 use crate::ir::graph::{
@@ -17,7 +19,8 @@ use proc_macro2::Span;
 use std::collections::HashMap;
 use syn::Ident;
 
-pub fn lower(graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
+pub fn lower(mut graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
+    expand_hoists(&mut graph_def, diags);
     let name = match graph_def.name.clone() {
         Some(n) => n,
         None => {
@@ -59,6 +62,70 @@ pub fn lower(graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
     }
 }
 
+/// Step 0: Expand hoisted endpoint declarations.
+///
+/// `input voices.cutoff;` declares a graph input *and* re-exports the child
+/// endpoint, so each hoist synthesizes the corresponding connection
+/// statement (`cutoff -> voices.cutoff`) as if the user had written it in a
+/// `connections {}` block. Everything downstream (type inference,
+/// broadcast-to-array fan-out, edge building, ramp plumbing) treats the
+/// synthesized statement identically to a hand-written one.
+///
+/// Also validates that the hoisted node name refers to a declared node —
+/// with a dedicated message, because at connection-lowering time the
+/// generic "cannot resolve" error would point at a connection the user
+/// never wrote.
+fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
+    use std::collections::HashSet;
+
+    // Names of declared nodes/arrays, for validation.
+    let node_names: HashSet<String> = graph_def
+        .items
+        .iter()
+        .flat_map(|item| match item {
+            GraphItem::Node(n) => vec![n.name.to_string()],
+            GraphItem::NodeBlock(b) => b.0.iter().map(|n| n.name.to_string()).collect(),
+            _ => vec![],
+        })
+        .collect();
+
+    let mut synthesized: Vec<GraphItem> = Vec::new();
+    for item in &graph_def.items {
+        let GraphItem::Input(input) = item else {
+            continue;
+        };
+        let Some(hoist) = &input.hoist else {
+            continue;
+        };
+
+        if !node_names.contains(&hoist.node.to_string()) {
+            diags.push_error(syn::Error::new(
+                hoist.node.span(),
+                format!(
+                    "hoisted input `{}.{}` references unknown node `{}` \
+                     (hoists re-export a declared node's endpoint: \
+                     `input <node>.<endpoint>;`)",
+                    hoist.node, hoist.endpoint, hoist.node
+                ),
+            ));
+            continue;
+        }
+
+        let span = input.name.span();
+        synthesized.push(GraphItem::Connection(ConnectionStmt {
+            source: ConnectionExpr::Ident(input.name.clone()),
+            dest: ConnectionExpr::Field(
+                Box::new(ConnectionExpr::Ident(hoist.node.clone())),
+                hoist.endpoint.clone(),
+            ),
+            policy: ConnectionPolicy::Default,
+            span,
+            via: None,
+        }));
+    }
+    graph_def.items.extend(synthesized);
+}
+
 /// Step 1: Walk `graph_def.items`, create `IrNode`s for inputs, outputs,
 /// processors, and node arrays. Populates `name_to_id` for later steps
 /// to resolve endpoint references.
@@ -76,6 +143,7 @@ fn collect_declarations(
                     kind: IrNodeKind::Input {
                         spec: input.spec.clone(),
                         default: input.default.clone(),
+                        hoist: input.hoist.clone(),
                     },
                     name: input.name.clone(),
                     rate: NodeRate::Same,

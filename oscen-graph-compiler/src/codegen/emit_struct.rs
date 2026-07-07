@@ -110,6 +110,54 @@ impl<'a> CodegenContext<'a> {
             .collect()
     }
 
+    /// Generate the shadowing re-binds that make hoisted value inputs
+    /// without an explicit `= default` inherit their initial value from the
+    /// child node they hoist (`input voices.cutoff;` starts at whatever the
+    /// voice constructor set `cutoff` to — single source of truth stays with
+    /// the child). Runs after node init in `new()`, shadowing the
+    /// placeholder binding from `generate_static_input_params`.
+    ///
+    /// The child field's storage may be a plain `f32` or a `ValueRampState`;
+    /// `ReadValueEndpoint` dispatches at compile time. For array nodes the
+    /// value is read from element 0 (all elements are constructed by the
+    /// same expression).
+    pub(super) fn generate_hoist_default_inherits(&self) -> Vec<TokenStream> {
+        self.inputs()
+            .filter_map(|node| {
+                let name = &node.name;
+                let kind = node
+                    .endpoints
+                    .get(name)
+                    .map(|e| e.kind)
+                    .unwrap_or(EndpointKind::Value);
+                if kind != EndpointKind::Value || self.input_default(node).is_some() {
+                    return None;
+                }
+                let hoist = self.input_hoist(node)?;
+                let child = &hoist.node;
+                let endpoint = &hoist.endpoint;
+                let read = if self.get_node_array_size(child).is_some() {
+                    quote! {
+                        ::oscen::graph::ReadValueEndpoint::read_value(&#child[0].#endpoint)
+                    }
+                } else {
+                    quote! {
+                        ::oscen::graph::ReadValueEndpoint::read_value(&#child.#endpoint)
+                    }
+                };
+                Some(if self.is_ramped_input(name).is_some() {
+                    quote! {
+                        let #name = ::oscen::graph::ValueRampState::new(#read);
+                    }
+                } else {
+                    quote! {
+                        let #name = #read;
+                    }
+                })
+            })
+            .collect()
+    }
+
     /// Generate static initialization for nodes (direct constructor calls).
     pub(super) fn generate_static_node_init(&self) -> Vec<TokenStream> {
         // Asset-bound nodes need a `mut` binding so the generated wiring can

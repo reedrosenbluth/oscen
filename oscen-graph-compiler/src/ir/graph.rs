@@ -137,6 +137,11 @@ pub enum IrNodeKind {
     Input {
         spec: Option<crate::ast::ParamSpec>,
         default: Option<Expr>,
+        /// `Some` when this input was declared as a hoist
+        /// (`input voices.cutoff;`). Lowering synthesizes the connection;
+        /// codegen uses this to inherit the initial value from the child
+        /// node when no explicit `= default` was given.
+        hoist: Option<crate::ast::HoistSource>,
     },
     Output,
     Processor {

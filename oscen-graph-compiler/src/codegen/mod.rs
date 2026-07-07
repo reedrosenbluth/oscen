@@ -279,6 +279,14 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
+    /// Hoist source (`input <node>.<endpoint>;`) for an input node.
+    fn input_hoist<'b>(&self, node: &'b IrNode) -> Option<&'b crate::ast::HoistSource> {
+        match &node.kind {
+            IrNodeKind::Input { hoist, .. } => hoist.as_ref(),
+            _ => None,
+        }
+    }
+
     /// Check if an input has a ramp annotation and return the default ramp frames.
     fn is_ramped_input(&self, name: &syn::Ident) -> Option<usize> {
         let node = self.find_node_by_ident(name)?;
@@ -1335,6 +1343,7 @@ impl<'a> CodegenContext<'a> {
         fields.extend(self.generate_asset_handle_fields());
 
         let input_params = self.generate_static_input_params();
+        let hoist_inherits = self.generate_hoist_default_inherits();
         let output_params = self.generate_static_output_params();
         let node_init = self.generate_static_node_init();
         let asset_wiring = self.generate_asset_wiring();
@@ -1415,6 +1424,10 @@ impl<'a> CodegenContext<'a> {
 
                     // Wire up asset load handles (handoff pair + install).
                     #(#asset_wiring)*
+
+                    // Hoisted inputs without an explicit `= default` inherit
+                    // their initial value from the child node they hoist.
+                    #(#hoist_inherits)*
 
                     Self {
                         #struct_init

@@ -26,12 +26,41 @@ pub fn run(ir: &mut IrGraph) {
     // Asset-bound nodes are also live roots: their external load handle is
     // part of the graph's public API, and removing the node would leave its
     // `AssetBinding` pointing at a freed key (codegen would panic).
+    //
+    // Likewise nodes referenced by hoisted inputs (`input voices.cutoff;`):
+    // the hoist's setter writes into the child node's field and its default
+    // may be inherited from that field in `new()`, so the node must survive
+    // even when its outputs don't reach a graph output.
+    let hoist_roots: Vec<NodeId> = ir
+        .inputs
+        .iter()
+        .filter_map(|&input_id| {
+            let IrNodeKind::Input {
+                hoist: Some(h), ..
+            } = &ir.nodes[input_id].kind
+            else {
+                return None;
+            };
+            let target = h.node.to_string();
+            ir.nodes
+                .iter()
+                .find(|(_, n)| {
+                    matches!(
+                        n.kind,
+                        IrNodeKind::Processor { .. } | IrNodeKind::NodeArray { .. }
+                    ) && n.name == target
+                })
+                .map(|(id, _)| id)
+        })
+        .collect();
+
     let mut live: HashSet<NodeId> = HashSet::new();
     let mut queue: VecDeque<NodeId> = ir
         .outputs
         .iter()
         .copied()
         .chain(ir.asset_bindings.iter().map(|b| b.node))
+        .chain(hoist_roots)
         .collect();
     while let Some(id) = queue.pop_front() {
         if !live.insert(id) {
@@ -90,6 +119,7 @@ mod tests {
             kind: IrNodeKind::Input {
                 spec: None,
                 default: None,
+                hoist: None,
             },
             name: format_ident!("{}", name),
             rate: NodeRate::Same,
