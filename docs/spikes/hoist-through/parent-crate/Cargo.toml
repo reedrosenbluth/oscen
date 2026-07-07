@@ -1,0 +1,8 @@
+[package]
+name = "parent-crate"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pm = { version = "0.1.0", path = "../pm" }
+voice-crate = { version = "0.1.0", path = "../voice-crate" }

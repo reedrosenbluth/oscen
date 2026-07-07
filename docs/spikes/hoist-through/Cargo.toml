@@ -1,0 +1,3 @@
+[workspace]
+members=["voice-crate","parent-crate", "pm"]
+resolver="2"
