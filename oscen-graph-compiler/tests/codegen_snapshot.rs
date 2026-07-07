@@ -123,3 +123,42 @@ fn snapshot_hoisted_inputs() {
     let tokens = compile(input).expect("compile succeeds").to_string();
     compare_snapshot("hoisted_inputs", tokens);
 }
+
+/// A graph with a wildcard hoist (`input voices.*;`), compiled through
+/// `compile_with_manifests` with a hand-built manifest — snapshots both
+/// the wildcard expansion (hoisted inputs, skip rules) and the graph's
+/// own emitted endpoint manifest.
+#[test]
+fn snapshot_wildcard_hoist_graph() {
+    use oscen_graph_compiler::compile_with_manifests;
+    use oscen_graph_compiler::manifest::NodeManifest;
+    use std::collections::HashMap;
+
+    let input = quote::quote! {
+        name: WildcardGraph;
+        input event midi_in;
+        output stream out;
+        nodes {
+            voices = [FMVoice::new(); 4];
+        }
+        input voices.*;
+        connections {
+            midi_in -> voices.midi;
+            voices.audio_out -> out;
+        }
+    };
+    let mut manifests: HashMap<String, NodeManifest> = HashMap::new();
+    manifests.insert(
+        "voices".to_string(),
+        syn::parse2(quote::quote! {
+            node_type FMVoice
+            inputs [ midi: event, frequency: value, gate: value, op3_ratio: value ]
+            outputs [ audio_out: stream ]
+        })
+        .expect("manifest parses"),
+    );
+    let tokens = compile_with_manifests(input, &manifests)
+        .expect("compile succeeds")
+        .to_string();
+    compare_snapshot("wildcard_hoist_graph", tokens);
+}

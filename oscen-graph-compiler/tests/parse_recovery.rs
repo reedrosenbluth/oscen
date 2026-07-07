@@ -224,3 +224,64 @@ fn malformed_hoist_recovers_and_reports() {
             .collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn wildcard_hoist_parses_cleanly() {
+    // `input node.*;` is valid; compile fails later (no manifest), but
+    // parsing must not report errors — assert the only diagnostic is the
+    // unresolved-manifest one.
+    let input = quote! {
+        name: G;
+        node voice = Foo::new();
+        output stream out;
+        input voice.*;
+        connection voice.audio_out -> out;
+    };
+    let diags = compile(input).expect_err("no manifest -> diagnostics");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert_eq!(error_count(&diags), 1, "got {msgs:?}");
+    assert!(msgs[0].contains("no endpoint manifest resolved"), "got {msgs:?}");
+}
+
+#[test]
+fn wildcard_hoist_rejects_rename_default_and_spec() {
+    // Rename, default, and spec are each targeted errors on a wildcard,
+    // and errors accumulate across statements.
+    let input = quote! {
+        name: G;
+        node voice = Foo::new();
+        output stream out;
+        input voice.* renamed;
+        input voice.* = 1.0;
+        input voice.* [0.0..1.0];
+        connection voice.audio_out -> out;
+    };
+    let diags = compile(input).expect_err("expected diagnostics");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert_eq!(error_count(&diags), 3, "got {msgs:?}");
+    assert!(msgs.iter().any(|m| m.contains("cannot be renamed")));
+    assert!(msgs.iter().any(|m| m.contains("no default")));
+    assert!(msgs.iter().any(|m| m.contains("no param spec")));
+}
+
+#[test]
+fn wildcard_hoist_error_recovers_alongside_other_errors() {
+    // A malformed wildcard must not swallow later parse errors.
+    let input = quote! {
+        name: G;
+        node voice = Foo::new();
+        input voice.* : value;
+        input stream s2
+        output stream out;
+    };
+    let diags = compile(input).expect_err("expected diagnostics; got Ok");
+    assert!(
+        error_count(&diags) >= 2,
+        "expected the wildcard error and the missing-semicolon error; got {:?}",
+        diags
+            .items
+            .iter()
+            .map(|d| d.message.to_string())
+            .collect::<Vec<_>>()
+    );
+}

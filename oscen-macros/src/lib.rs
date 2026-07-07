@@ -48,6 +48,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             for field in fields.named {
                 let field_name = field.ident.unwrap();
                 let field_ty = field.ty.clone();
+                let field_is_pub = matches!(field.vis, syn::Visibility::Public(_));
 
                 if last_segment_ident(&field_ty).as_deref() == Some("SampleRate") {
                     sample_rate_fields.push(field_name.clone());
@@ -143,7 +144,12 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
 
                     input_idents.push(field_name.clone());
-                    manifest_inputs.push((field_name.clone(), kind));
+                    // Manifests only carry `pub` endpoints: a parent graph
+                    // hoisting `input node.*;` writes the child's field
+                    // directly, which privacy forbids for non-pub fields.
+                    if field_is_pub {
+                        manifest_inputs.push((field_name.clone(), kind));
+                    }
                     input_idx += 1;
                 }
 
@@ -155,7 +161,9 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
 
                     output_idents.push(field_name.clone());
-                    manifest_outputs.push((field_name.clone(), output_kind));
+                    if field_is_pub {
+                        manifest_outputs.push((field_name.clone(), output_kind));
+                    }
                     _output_idx += 1;
                 }
 
