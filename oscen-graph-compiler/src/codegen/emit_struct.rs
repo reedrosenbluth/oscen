@@ -13,7 +13,7 @@ use quote::quote;
 use std::collections::HashSet;
 use syn::Expr;
 
-use super::helpers::{kernel_down_type, kernel_up_type, policy_marker_path, resampler_field_name};
+use super::helpers::{ident_base, kernel_down_type, kernel_up_type, policy_marker_path, resampler_field_name};
 use super::CodegenContext;
 
 impl<'a> CodegenContext<'a> {
@@ -66,7 +66,7 @@ impl<'a> CodegenContext<'a> {
                             let #name = #init;
                         });
                         // Block buffer for stream inputs (typed to the frame type)
-                        let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                        let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                         stmts.push(quote! {
                             let #block_name = #block_init;
                         });
@@ -99,7 +99,7 @@ impl<'a> CodegenContext<'a> {
                             let #name = #init;
                         });
                         // Block buffer for stream outputs (typed to the frame type)
-                        let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                        let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                         stmts.push(quote! {
                             let #block_name = #block_init;
                         });
@@ -256,7 +256,7 @@ impl<'a> CodegenContext<'a> {
                     .unwrap_or(EndpointKind::Value);
                 let mut fields = vec![quote! { #name }];
                 if kind == EndpointKind::Stream {
-                    let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                    let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                     fields.push(quote! { #block_name });
                 }
                 fields
@@ -274,7 +274,7 @@ impl<'a> CodegenContext<'a> {
                     .unwrap_or(EndpointKind::Stream);
                 let mut fields = vec![quote! { #name }];
                 if kind == EndpointKind::Stream {
-                    let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                    let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                     fields.push(quote! { #block_name });
                 }
                 fields

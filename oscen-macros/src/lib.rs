@@ -54,7 +54,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             for field in fields.named {
                 let field_name = field.ident.unwrap();
                 let field_ty = field.ty.clone();
-                let field_is_pub = matches!(field.vis, syn::Visibility::Public(_));
+                let field_vis = FieldVis::of(&field.vis);
 
                 if last_segment_ident(&field_ty).as_deref() == Some("SampleRate") {
                     sample_rate_fields.push(field_name.clone());
@@ -151,14 +151,15 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
                     input_idents.push(field_name.clone());
                     // Every endpoint joins the manifest — non-pub fields are
-                    // real endpoints, marked `priv` so consumers (e.g.
-                    // wildcard hoists, which skip them) can distinguish
-                    // visibility from absence.
+                    // real endpoints, marked `priv` (skipped by wildcard
+                    // hoists) or `restricted` (`pub(crate)`/`pub(super)`,
+                    // hoistable from the visibility scope) so consumers can
+                    // distinguish visibility from absence.
                     manifest_inputs.push(manifest_entry(
                         &field_name,
                         kind,
                         &field_ty,
-                        field_is_pub,
+                        field_vis,
                     ));
                     input_idx += 1;
                 }
@@ -175,7 +176,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         &field_name,
                         output_kind,
                         &field_ty,
-                        field_is_pub,
+                        field_vis,
                     ));
                     _output_idx += 1;
                 }
@@ -414,11 +415,34 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 /// - `ramped` for value inputs stored as `ValueRampState` (the ramp length
 ///   is a runtime value the derive cannot see).
 /// - `priv` for non-pub fields.
+/// Endpoint-field visibility, as far as the manifest cares: `pub` hoists
+/// anywhere, `pub(crate)`/`pub(super)`/`pub(in …)` hoists from within the
+/// visibility scope (rustc rejects a cross-scope hoist with its own
+/// field-privacy error), private never hoists. The restriction level is
+/// collapsed to one marker — the consuming graph's crate identity isn't
+/// knowable at expansion time, so finer granularity would be unusable.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FieldVis {
+    Public,
+    Restricted,
+    Private,
+}
+
+impl FieldVis {
+    fn of(vis: &syn::Visibility) -> Self {
+        match vis {
+            syn::Visibility::Public(_) => FieldVis::Public,
+            syn::Visibility::Restricted(_) => FieldVis::Restricted,
+            syn::Visibility::Inherited => FieldVis::Private,
+        }
+    }
+}
+
 fn manifest_entry(
     field_name: &syn::Ident,
     kind: EndpointTypeAttr,
     field_ty: &syn::Type,
-    field_is_pub: bool,
+    field_vis: FieldVis,
 ) -> ManifestEndpoint {
     let manifest_kind = match kind {
         EndpointTypeAttr::Stream => EndpointKind::Stream,
@@ -427,7 +451,8 @@ fn manifest_entry(
         EndpointTypeAttr::Asset => EndpointKind::Asset,
     };
     let mut entry = ManifestEndpoint::new(field_name.clone(), manifest_kind);
-    entry.private = !field_is_pub;
+    entry.private = field_vis == FieldVis::Private;
+    entry.restricted = field_vis == FieldVis::Restricted;
     match kind {
         EndpointTypeAttr::Stream => {
             if quote!(#field_ty).to_string() != "f32" {

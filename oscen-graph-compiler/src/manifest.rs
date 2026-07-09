@@ -248,6 +248,30 @@ fn manifest_entry_tokens(ep: &ManifestEndpoint) -> TokenStream {
     if ep.private {
         annotations.push(quote::quote! { priv });
     }
+    if ep.restricted {
+        annotations.push(quote::quote! { restricted });
+    }
+    if let Some((min, max)) = &ep.range {
+        annotations.push(quote::quote! { range = #min .. #max });
+    }
+    if ep.log {
+        annotations.push(quote::quote! { log });
+    }
+    if let Some(center) = &ep.center {
+        annotations.push(quote::quote! { center = #center });
+    }
+    if let Some(unit) = &ep.unit {
+        annotations.push(quote::quote! { unit = #unit });
+    }
+    if let Some(step) = &ep.step {
+        annotations.push(quote::quote! { step = #step });
+    }
+    if let Some(group) = &ep.group {
+        annotations.push(quote::quote! { group = #group });
+    }
+    if let Some(display) = &ep.display_name {
+        annotations.push(quote::quote! { display = #display });
+    }
     if annotations.is_empty() {
         quote::quote! { #name: #kind }
     } else {
@@ -294,7 +318,9 @@ pub enum ManifestRamp {
 }
 
 /// One endpoint entry of a manifest: `name: kind`, plus optional
-/// annotations (`ty = …`, `ramp = N`, `ramped`, `priv`).
+/// annotations (`ty = …`, `ramp = N`, `ramped`, `priv`, and the param
+/// metadata set: `range = a..b`, `log`, `center = e`, `unit = "s"`,
+/// `step = e`, `group = "s"`, `display = "s"`).
 pub struct ManifestEndpoint {
     pub name: Ident,
     pub kind: EndpointKind,
@@ -309,6 +335,23 @@ pub struct ManifestEndpoint {
     /// privacy applies) — the marker distinguishes present-but-private
     /// from absent.
     pub private: bool,
+    /// `restricted`: the field is `pub(crate)`/`pub(super)`/`pub(in …)`.
+    /// Wildcard expansion INCLUDES it — the common case is a same-crate
+    /// parent graph, which may legally write the field; a cross-scope
+    /// hoist fails with rustc's own field-privacy error at the hoist line.
+    pub restricted: bool,
+    /// Param-spec metadata declared on a `graph!` child's value input,
+    /// carried so wildcard hoists through nested graphs keep range/curve/
+    /// display metadata instead of silently stripping it. Range/center/
+    /// step are raw expression tokens resolved at the parent's call site
+    /// (same hygiene caveat as `ty = …`).
+    pub range: Option<(syn::Expr, syn::Expr)>,
+    pub log: bool,
+    pub center: Option<syn::Expr>,
+    pub unit: Option<String>,
+    pub step: Option<syn::Expr>,
+    pub group: Option<String>,
+    pub display_name: Option<String>,
 }
 
 impl ManifestEndpoint {
@@ -320,7 +363,45 @@ impl ManifestEndpoint {
             ty: None,
             ramp: ManifestRamp::None,
             private: false,
+            restricted: false,
+            range: None,
+            log: false,
+            center: None,
+            unit: None,
+            step: None,
+            group: None,
+            display_name: None,
         }
+    }
+
+    /// Reconstruct the child's `ParamSpec` from the carried metadata, for
+    /// re-declaring a wildcard-hoisted input on the parent. `None` when the
+    /// entry carries no spec-relevant metadata at all.
+    pub fn to_param_spec(&self) -> Option<crate::ast::ParamSpec> {
+        let ramp = match self.ramp {
+            ManifestRamp::Frames(frames) => Some(frames),
+            ManifestRamp::None | ManifestRamp::Declared => None,
+        };
+        let spec = crate::ast::ParamSpec {
+            range: self.range.clone().map(|(min, max)| crate::ast::RangeSpec { min, max }),
+            curve: self.log.then_some(crate::ast::Curve::Logarithmic),
+            ramp,
+            center: self.center.clone(),
+            unit: self.unit.clone(),
+            smoother: None,
+            step: self.step.clone(),
+            display_name: self.display_name.clone(),
+            group: self.group.clone(),
+        };
+        let empty = spec.range.is_none()
+            && spec.curve.is_none()
+            && spec.ramp.is_none()
+            && spec.center.is_none()
+            && spec.unit.is_none()
+            && spec.step.is_none()
+            && spec.display_name.is_none()
+            && spec.group.is_none();
+        (!empty).then_some(spec)
     }
 }
 
@@ -374,13 +455,61 @@ fn parse_endpoint_entries(input: ParseStream) -> syn::Result<Vec<ManifestEndpoin
                         "ramped" => {
                             entry.ramp = ManifestRamp::Declared;
                         }
+                        "restricted" => {
+                            entry.restricted = true;
+                        }
+                        "range" => {
+                            annotations.parse::<Token![=]>()?;
+                            let expr: syn::Expr = annotations.parse()?;
+                            let syn::Expr::Range(range) = expr else {
+                                return Err(syn::Error::new(
+                                    key.span(),
+                                    "`range` annotation expects `min..max`",
+                                ));
+                            };
+                            let (Some(min), Some(max)) = (range.start, range.end) else {
+                                return Err(syn::Error::new(
+                                    key.span(),
+                                    "`range` annotation expects both bounds (`min..max`)",
+                                ));
+                            };
+                            entry.range = Some((*min, *max));
+                        }
+                        "log" => {
+                            entry.log = true;
+                        }
+                        "center" => {
+                            annotations.parse::<Token![=]>()?;
+                            entry.center = Some(annotations.parse()?);
+                        }
+                        "unit" => {
+                            annotations.parse::<Token![=]>()?;
+                            let lit: syn::LitStr = annotations.parse()?;
+                            entry.unit = Some(lit.value());
+                        }
+                        "step" => {
+                            annotations.parse::<Token![=]>()?;
+                            entry.step = Some(annotations.parse()?);
+                        }
+                        "group" => {
+                            annotations.parse::<Token![=]>()?;
+                            let lit: syn::LitStr = annotations.parse()?;
+                            entry.group = Some(lit.value());
+                        }
+                        "display" => {
+                            annotations.parse::<Token![=]>()?;
+                            let lit: syn::LitStr = annotations.parse()?;
+                            entry.display_name = Some(lit.value());
+                        }
                         other => {
                             return Err(syn::Error::new(
                                 key.span(),
                                 format!(
                                     "unknown endpoint annotation `{other}` in endpoint \
                                      manifest (expected `ty = <Type>`, `ramp = <frames>`, \
-                                     `ramped`, or `priv`)"
+                                     `ramped`, `priv`, `restricted`, `range = <min>..<max>`, \
+                                     `log`, `center = <expr>`, `unit = <str>`, \
+                                     `step = <expr>`, `group = <str>`, or `display = <str>`)"
                                 ),
                             ))
                         }
@@ -541,6 +670,10 @@ pub(crate) fn expand_wildcards(
                 // A hoist writes the child's field directly; privacy
                 // forbids that for non-pub fields. Skip, same as when
                 // private endpoints were absent from manifests entirely.
+                // `restricted` (pub(crate)/pub(super)) endpoints are NOT
+                // skipped: the common case is a same-crate parent, and a
+                // cross-scope hoist gets rustc's field-privacy error at
+                // the hoist line rather than silent parameter loss.
                 continue;
             }
             let ep_key = ep.name.to_string();
@@ -581,29 +714,23 @@ pub(crate) fn expand_wildcards(
                 ));
                 continue;
             }
-            // A child ramp with a known length re-declares the hoisted
-            // input with the same `[ramp: N]` spec: the parent input gets
-            // its own ValueRampState (the existing explicit
-            // hoist-with-ramp path) instead of silently stripping the
-            // child's declared smoothing.
-            let spec = match ep.ramp {
-                ManifestRamp::Frames(frames) => Some(crate::ast::ParamSpec {
-                    range: None,
-                    curve: None,
-                    ramp: Some(frames),
-                    center: None,
-                    unit: None,
-                    smoother: None,
-                    step: None,
-                    display_name: None,
-                    group: None,
-                }),
-                ManifestRamp::None | ManifestRamp::Declared => None,
-            };
+            // Re-declare the hoisted input with the child's full param
+            // spec: a `ramp = N` becomes the parent's own `[ramp: N]`
+            // ValueRampState (the existing explicit hoist-with-ramp path),
+            // and range/curve/unit/center/step/group/display metadata
+            // carried by the manifest survives into the parent's param
+            // registry instead of being silently stripped.
+            let spec = ep.to_param_spec();
             // Re-span to the wildcard statement: errors about this input
             // must point at the parent's `input node.*;`, not at the
-            // child crate's manifest tokens.
-            let name = Ident::new(&ep_key, *span);
+            // child crate's manifest tokens. Clone + set_span instead of
+            // `Ident::new(&ep_key, ..)`: a raw-ident endpoint stringifies
+            // as `r#loop`, which Ident::new rejects with a panic.
+            let name = {
+                let mut name = ep.name.clone();
+                name.set_span(*span);
+                name
+            };
             expanded.push(GraphItem::Input(InputDecl {
                 kind: ep.kind,
                 name: name.clone(),
@@ -614,7 +741,11 @@ pub(crate) fn expand_wildcards(
                 default: None,
                 spec,
                 hoist: Some(HoistSource {
-                    node: Ident::new(&node_key, *span),
+                    node: {
+                        let mut node_ident = node.clone();
+                        node_ident.set_span(*span);
+                        node_ident
+                    },
                     endpoints: HoistEndpoints::Single(name),
                 }),
             }));

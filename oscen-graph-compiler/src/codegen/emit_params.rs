@@ -25,8 +25,34 @@ use quote::quote;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use super::helpers::{camel_case, title_case};
+use super::helpers::{camel_case, ident_base, title_case};
 use super::CodegenContext;
+
+/// The param-enum variant for a value input: its UpperCamelCase form,
+/// validated. `camel_case` can produce non-identifiers — `""` from `__`,
+/// the keyword `Self` from `self_`/`_self` — which used to panic
+/// `Ident::new` or emit invalid Rust; both are spanned errors instead.
+/// A raw-ident input (`r#loop`) camel-cases its bare name (`Loop`).
+fn variant_ident(name: &syn::Ident) -> syn::Result<syn::Ident> {
+    let base = name.to_string();
+    let base = base.strip_prefix("r#").unwrap_or(&base);
+    let camel = camel_case(base);
+    syn::parse_str::<syn::Ident>(&camel)
+        .map(|mut id| {
+            id.set_span(name.span());
+            id
+        })
+        .map_err(|_| {
+            syn::Error::new(
+                name.span(),
+                format!(
+                    "value input `{name}` maps to parameter enum variant `{camel}`, \
+                     which is not a valid identifier; rename the input so its \
+                     UpperCamelCase form is a plain Rust identifier"
+                ),
+            )
+        })
+}
 
 impl<'a> CodegenContext<'a> {
     /// Emit the parameter registry items (enum + descriptor table +
@@ -50,11 +76,23 @@ impl<'a> CodegenContext<'a> {
         let enum_name = syn::Ident::new(&format!("{}Param", graph_name), graph_name.span());
         let count = value_inputs.len();
 
-        let variants: Vec<syn::Ident> = value_inputs
-            .iter()
-            .map(|n| syn::Ident::new(&camel_case(&n.name.to_string()), n.name.span()))
-            .collect();
-        let name_strs: Vec<String> = value_inputs.iter().map(|n| n.name.to_string()).collect();
+        let mut variants: Vec<syn::Ident> = Vec::with_capacity(value_inputs.len());
+        let mut variant_err: Option<syn::Error> = None;
+        for n in &value_inputs {
+            match variant_ident(&n.name) {
+                Ok(v) => variants.push(v),
+                Err(e) => match variant_err.as_mut() {
+                    Some(acc) => acc.combine(e),
+                    None => variant_err = Some(e),
+                },
+            }
+        }
+        if let Some(err) = variant_err {
+            return Err(err);
+        }
+        // Bare names (no `r#`): the registry's string surface (`name()`,
+        // `from_name`) matches the setter/variant naming.
+        let name_strs: Vec<String> = value_inputs.iter().map(|n| ident_base(&n.name)).collect();
 
         // `camel_case` collapses underscore placement, so distinct input
         // names (e.g. `oscA_pitch` and `osc_a_pitch`) can map to the same
@@ -108,7 +146,7 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .enumerate()
             .map(|(idx, node)| {
-                let name_str = node.name.to_string();
+                let name_str = ident_base(&node.name);
                 let spec = self.input_spec(node);
                 let display_name = spec
                     .and_then(|s| s.display_name.clone())
@@ -170,6 +208,37 @@ impl<'a> CodegenContext<'a> {
                 }
             })
             .collect();
+        // The probe graph can be multi-megabyte (voice arrays, block
+        // buffers) and `param_descriptors()` is reached implicitly from
+        // arbitrary host threads (nih-plug's `Params::default()`), whose
+        // stacks are often ~1 MB. Build the table on a dedicated big-stack
+        // thread; fall back inline where spawning isn't available (wasm).
+        // `Box::new(new())` would not help: the argument is still
+        // constructed on the caller's stack first.
+        let descriptor_init = if needs_probe {
+            quote! {
+                fn __build() -> [::oscen::graph::ParamDescriptor; #count] {
+                    #probe_init
+                    [
+                        #(#descriptors,)*
+                    ]
+                }
+                ::std::thread::Builder::new()
+                    .name("oscen-param-descriptors".into())
+                    .stack_size(16 * 1024 * 1024)
+                    .spawn(__build)
+                    .ok()
+                    .and_then(|h| h.join().ok())
+                    .unwrap_or_else(__build)
+            }
+        } else {
+            quote! {
+                #probe_init
+                [
+                    #(#descriptors,)*
+                ]
+            }
+        };
 
         // ---- dispatch arms -----------------------------------------------
         let set_arms: Vec<TokenStream> = value_inputs
@@ -177,7 +246,7 @@ impl<'a> CodegenContext<'a> {
             .zip(&variants)
             .map(|(node, variant)| {
                 let name = &node.name;
-                let set_name = syn::Ident::new(&format!("set_{}", name), name.span());
+                let set_name = syn::Ident::new(&format!("set_{}", ident_base(name)), name.span());
                 quote! { #enum_name::#variant => self.#set_name(value), }
             })
             .collect();
@@ -188,9 +257,9 @@ impl<'a> CodegenContext<'a> {
             .map(|(node, variant)| {
                 let name = &node.name;
                 let setter = if self.is_ramped_input(name).is_some() {
-                    syn::Ident::new(&format!("set_{}_immediate", name), name.span())
+                    syn::Ident::new(&format!("set_{}_immediate", ident_base(name)), name.span())
                 } else {
-                    syn::Ident::new(&format!("set_{}", name), name.span())
+                    syn::Ident::new(&format!("set_{}", ident_base(name)), name.span())
                 };
                 quote! { #enum_name::#variant => self.#setter(value), }
             })
@@ -272,15 +341,15 @@ impl<'a> CodegenContext<'a> {
                 /// Metadata for every value input ("parameter") of this graph,
                 /// in declaration order. Built lazily on first call — call it
                 /// off the audio thread (e.g. during editor/preset setup).
+                /// Graphs with hoist-inherited defaults build the table on an
+                /// internal big-stack thread, so small-stack host threads are
+                /// safe.
                 pub fn param_descriptors() -> &'static [::oscen::graph::ParamDescriptor] {
                     static DESCRIPTORS: ::std::sync::OnceLock<
                         [::oscen::graph::ParamDescriptor; #count],
                     > = ::std::sync::OnceLock::new();
                     DESCRIPTORS.get_or_init(|| {
-                        #probe_init
-                        [
-                            #(#descriptors,)*
-                        ]
+                        #descriptor_init
                     })
                 }
 

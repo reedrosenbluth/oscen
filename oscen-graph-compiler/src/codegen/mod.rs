@@ -14,6 +14,7 @@ mod emit_frame;
 mod emit_node;
 mod emit_params;
 mod emit_struct;
+mod validate_names;
 
 /// The frame type shared by all of a graph's top-level stream endpoints, used
 /// to type the `BlockRender<F>` impl and the stream block buffers.
@@ -39,6 +40,8 @@ pub fn generate(
     // lower()), so we just emit. `source_tokens` is the original `graph!`
     // body, hashed into the endpoint-manifest export name.
     let ctx = CodegenContext::new(ir, source_tokens);
+    ctx.check_generated_name_collisions()
+        .map_err(Diagnostics::from)?;
     ctx.generate_static_struct().map_err(Diagnostics::from)
 }
 
@@ -667,7 +670,7 @@ impl<'a> CodegenContext<'a> {
                 continue;
             }
             let method_name = syn::Ident::new(
-                &format!("handle_{}_events", endpoint_name),
+                &format!("handle_{}_events", ident_base(endpoint_name)),
                 endpoint_name.span(),
             );
 
@@ -758,7 +761,7 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.input_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name = syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+            let block_name = syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
             input_arms.push(quote! { #n_in => &mut self.#block_name });
             n_in += 1;
         }
@@ -770,7 +773,7 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.output_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name = syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+            let block_name = syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
             output_arms.push(quote! { #n_out => &self.#block_name });
             n_out += 1;
         }
@@ -837,7 +840,7 @@ impl<'a> CodegenContext<'a> {
             .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Event)))
             .map(|node| {
                 let name = &node.name;
-                let push_name = syn::Ident::new(&format!("push_{}", name), name.span());
+                let push_name = syn::Ident::new(&format!("push_{}", ident_base(name)), name.span());
                 let doc = format!(
                     "Push an event into the `{name}` event input for the next \
                      `process_block` call. `frame_offset` is relative to the \
@@ -1078,13 +1081,13 @@ impl<'a> CodegenContext<'a> {
             .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Value)))
             .map(|node| {
                 let name = &node.name;
-                let set_name = syn::Ident::new(&format!("set_{}", name), name.span());
+                let set_name = syn::Ident::new(&format!("set_{}", ident_base(name)), name.span());
 
                 if let Some(default_frames) = self.is_ramped_input(name) {
                     let set_ramp_name =
-                        syn::Ident::new(&format!("set_{}_with_ramp", name), name.span());
+                        syn::Ident::new(&format!("set_{}_with_ramp", ident_base(name)), name.span());
                     let set_immediate_name =
-                        syn::Ident::new(&format!("set_{}_immediate", name), name.span());
+                        syn::Ident::new(&format!("set_{}_immediate", ident_base(name)), name.span());
                     quote! {
                         /// Set the value with the default ramp duration.
                         /// No-op if target is already the same (safe to call every frame).
@@ -1276,7 +1279,7 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let field_name = &node.name;
-                let set_name = syn::Ident::new(&format!("set_{}", field_name), field_name.span());
+                let set_name = syn::Ident::new(&format!("set_{}", ident_base(field_name)), field_name.span());
                 if self.is_ramped_input(field_name).is_some() {
                     quote! {
                         graph.#set_name(self.#field_name.value());
@@ -1355,7 +1358,7 @@ impl<'a> CodegenContext<'a> {
             // Block buffer for stream inputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
                 let block_name =
-                    syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+                    syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
                 let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
                     quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
@@ -1383,7 +1386,7 @@ impl<'a> CodegenContext<'a> {
             // Block buffer for stream outputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
                 let block_name =
-                    syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+                    syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
                 let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
                     quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
@@ -1624,8 +1627,27 @@ impl<'a> CodegenContext<'a> {
                         // resolve at the consuming graph's call site — same
                         // hygiene caveat as `#[derive(Node)]` manifests).
                         ep.ty = Some(ty.clone());
-                    } else if let Some(frames) = self.is_ramped_input(&ep.name) {
-                        ep.ramp = ManifestRamp::Frames(frames);
+                    } else {
+                        if let Some(frames) = self.is_ramped_input(&ep.name) {
+                            ep.ramp = ManifestRamp::Frames(frames);
+                        }
+                        // Carry the input's param-spec metadata so a parent
+                        // wildcard hoist re-declares it intact (range/curve/
+                        // unit/center/step/group/display). Expressions ride
+                        // as raw tokens, resolving at the parent's call
+                        // site — same hygiene caveat as `ty = …`.
+                        if let Some(spec) = self
+                            .find_node_by_ident(&ep.name)
+                            .and_then(|node| self.input_spec(node))
+                        {
+                            ep.range = spec.range.as_ref().map(|r| (r.min.clone(), r.max.clone()));
+                            ep.log = spec.curve == Some(crate::ast::Curve::Logarithmic);
+                            ep.center = spec.center.clone();
+                            ep.unit = spec.unit.clone();
+                            ep.step = spec.step.clone();
+                            ep.group = spec.group.clone();
+                            ep.display_name = spec.display_name.clone();
+                        }
                     }
                 }
                 EndpointKind::Event | EndpointKind::Asset => {}
