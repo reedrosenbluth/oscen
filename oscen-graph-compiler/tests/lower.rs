@@ -667,6 +667,49 @@ fn cycle_diagnostic_names_the_cycle_path() {
 }
 
 #[test]
+fn cycle_diagnostic_skips_nodes_downstream_of_the_cycle() {
+    // Kahn's algorithm leaves acyclic nodes *downstream* of a cycle unsorted
+    // too (their in-degree never reaches 0). Reconstructing the cycle used to
+    // start the walk at the first unsorted node in declaration order — here
+    // `c`, which dead-ends immediately — so the diagnostic named innocent
+    // nodes instead of the actual `a` <-> `b` loop.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node c = oscen::Gain::new(1.0);
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        connections {
+            a.output -> b.input;
+            b.output -> a.input;
+            b.output -> c.input;
+            c.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "expected lower to fail on 2-node cycle");
+    let msgs: Vec<_> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    let cycle_msg = msgs
+        .iter()
+        .find(|m| m.contains("cycle"))
+        .expect("expected a cycle diagnostic");
+    // The path must name the cycle members, not the downstream node `c`.
+    for node in ["`a`", "`b`"] {
+        assert!(
+            cycle_msg.contains(node),
+            "cycle diagnostic should name {node}; got: {cycle_msg}"
+        );
+    }
+    assert!(
+        !cycle_msg.contains("`c`"),
+        "cycle diagnostic should not name the downstream node `c`; got: {cycle_msg}"
+    );
+    assert!(
+        cycle_msg.contains(" -> "),
+        "cycle diagnostic should render a path; got: {cycle_msg}"
+    );
+}
+
+#[test]
 fn mixed_oversampling_factors_are_rejected() {
     // Two disjoint oversampled chains with different `* N` factors used to
     // compile and panic (index out of bounds) on the first process_block:
@@ -854,7 +897,11 @@ fn hoist_synthesizes_connection_edge() {
             osc.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
     let ir = ir.expect("lower succeeds");
     let input_id = *ir
         .inputs
@@ -865,9 +912,7 @@ fn hoist_synthesizes_connection_edge() {
     let edge = ir
         .edges
         .values()
-        .find(|e| {
-            e.dest.endpoint == "frequency" && crate::primary_source_node(e) == Some(input_id)
-        })
+        .find(|e| e.dest.endpoint == "frequency" && crate::primary_source_node(e) == Some(input_id))
         .or_else(|| ir.edges.values().find(|e| e.dest.endpoint == "frequency"));
     assert!(edge.is_some(), "hoist must synthesize the connection");
 }
@@ -883,7 +928,11 @@ fn hoist_rename_declares_renamed_input() {
             osc.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
     let ir = ir.expect("lower succeeds");
     assert!(
         ir.inputs.iter().any(|&id| ir.nodes[id].name == "level"),
@@ -929,7 +978,11 @@ fn hoist_event_endpoint_with_kind_annotation() {
             osc.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
     let ir = ir.expect("lower succeeds");
     let input_id = *ir
         .inputs
@@ -993,7 +1046,11 @@ fn comma_fanout_expands_to_one_edge_per_destination() {
             a.output + b.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
     let ir = ir.expect("lower succeeds");
     let dest_endpoints: Vec<String> = ir
         .edges
@@ -1002,8 +1059,7 @@ fn comma_fanout_expands_to_one_edge_per_destination() {
         .map(|e| ir.nodes[e.dest.node].name.to_string())
         .collect();
     assert!(
-        dest_endpoints.contains(&"a".to_string())
-            && dest_endpoints.contains(&"b".to_string()),
+        dest_endpoints.contains(&"a".to_string()) && dest_endpoints.contains(&"b".to_string()),
         "fan-out must create an edge into both destinations; got {:?}",
         dest_endpoints
     );
@@ -1047,7 +1103,11 @@ fn list_hoist_expands_each_endpoint_with_rename_pattern() {
             osc.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
     let ir = ir.expect("lower succeeds");
     let input_names: Vec<String> = ir
         .inputs
@@ -1079,7 +1139,11 @@ fn list_hoist_without_rename_uses_endpoint_names() {
             osc.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
     let ir = ir.expect("lower succeeds");
     let input_names: Vec<String> = ir
         .inputs
@@ -1103,7 +1167,11 @@ fn list_hoist_suffix_pattern() {
             osc.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
     let ir = ir.expect("lower succeeds");
     assert!(
         ir.inputs

@@ -61,7 +61,12 @@ fn descriptors_capture_spec_metadata() {
     assert!(!gain.logarithmic);
 
     let cutoff = RegistryGraphParam::Cutoff.descriptor();
-    assert_eq!(cutoff.index, 1);
+    // `descriptor()` resolves to the table slot at the enum's index.
+    assert!(std::ptr::eq(
+        cutoff,
+        &descs[RegistryGraphParam::Cutoff.index()]
+    ));
+    assert_eq!(RegistryGraphParam::Cutoff.index(), 1);
     assert_eq!(cutoff.range, Some((20.0, 20000.0)));
     assert_eq!(cutoff.unit, Some("Hz"));
     assert_eq!(cutoff.ramp_frames, Some(64));

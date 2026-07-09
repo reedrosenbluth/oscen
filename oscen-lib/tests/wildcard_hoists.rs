@@ -206,14 +206,22 @@ macro_rules! collect_manifest {
     (
         probe
         node_type $ty:ident
-        inputs [ $($in_name:ident : $in_kind:ident),* ]
-        outputs [ $($out_name:ident : $out_kind:ident),* ]
+        inputs [ $($in_name:ident : $in_kind:ident $(( $($in_meta:tt)* ))?),* ]
+        outputs [ $($out_name:ident : $out_kind:ident $(( $($out_meta:tt)* ))?),* ]
     ) => {
         const MANIFEST_TYPE: &str = stringify!($ty);
-        const MANIFEST_INPUTS: &[(&str, &str)] =
-            &[ $( (stringify!($in_name), stringify!($in_kind)) ),* ];
-        const MANIFEST_OUTPUTS: &[(&str, &str)] =
-            &[ $( (stringify!($out_name), stringify!($out_kind)) ),* ];
+        const MANIFEST_INPUTS: &[(&str, &str, &str)] =
+            &[ $( (
+                stringify!($in_name),
+                stringify!($in_kind),
+                stringify!($($($in_meta)*)?),
+            ) ),* ];
+        const MANIFEST_OUTPUTS: &[(&str, &str, &str)] =
+            &[ $( (
+                stringify!($out_name),
+                stringify!($out_kind),
+                stringify!($($($out_meta)*)?),
+            ) ),* ];
     };
 }
 
@@ -222,20 +230,24 @@ macro_rules! collect_manifest {
 ::oscen::__oscen_endpoints_PolyBlepOscillator!(collect_manifest => (probe));
 
 #[test]
-fn manifest_reachable_through_crate_path_and_lists_pub_endpoints() {
+fn manifest_reachable_through_crate_path_and_lists_all_endpoints() {
     assert_eq!(MANIFEST_TYPE, "PolyBlepOscillator");
-    // Declaration order, kinds preserved; the private `pulse_width` input
-    // is absent (a parent graph could not write a non-pub field).
+    // Declaration order, kinds preserved. The private `pulse_width` input
+    // is listed with a `priv` marker (it's a real endpoint — the marker
+    // tells visibility apart from absence), and wildcard expansion skips
+    // it (a parent graph cannot write a non-pub field).
+    // Mono `f32` stream endpoints carry no `ty` annotation.
     assert_eq!(
         MANIFEST_INPUTS,
         &[
-            ("phase_mod", "stream"),
-            ("frequency", "value"),
-            ("frequency_mod", "stream"),
-            ("amplitude", "value"),
+            ("phase_mod", "stream", ""),
+            ("frequency", "value", ""),
+            ("frequency_mod", "stream", ""),
+            ("amplitude", "value", ""),
+            ("pulse_width", "value", "priv"),
         ]
     );
-    assert_eq!(MANIFEST_OUTPUTS, &[("output", "stream")]);
+    assert_eq!(MANIFEST_OUTPUTS, &[("output", "stream", "")]);
 }
 
 // ---------------------------------------------------------------------------

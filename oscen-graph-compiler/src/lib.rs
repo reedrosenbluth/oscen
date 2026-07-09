@@ -41,10 +41,37 @@ pub fn compile_with_manifests(
     manifests: &std::collections::HashMap<String, manifest::NodeManifest>,
 ) -> Result<proc_macro2::TokenStream, Diagnostics> {
     let mut diags = Diagnostics::new();
-    let mut graph_def = parse::parse_graph_def(input, &mut diags);
+    // Keep the original body tokens: codegen hashes them into the graph's
+    // endpoint-manifest `#[macro_export]` name so same-named graph types
+    // with different bodies don't collide on the crate-global export.
+    let source_tokens = input.clone();
+    let graph_def = parse::parse_graph_def(input, &mut diags);
     if !diags.is_empty() {
         return Err(diags);
     }
+    compile_parsed(graph_def, source_tokens, manifests)
+}
+
+/// Compile an already-parsed `graph!` body. Shared tail of
+/// [`compile_with_manifests`] and `manifest::expand_graph_entry`'s
+/// wildcard-free path (which has already parsed the body once for the
+/// manifest scan and reuses the AST instead of re-parsing).
+///
+/// `source_tokens` must be the ORIGINAL body tokens: codegen hashes them
+/// into the graph's endpoint-manifest `#[macro_export]` name.
+pub(crate) fn compile_parsed(
+    mut graph_def: ast::GraphDef,
+    source_tokens: proc_macro2::TokenStream,
+    manifests: &std::collections::HashMap<String, manifest::NodeManifest>,
+) -> Result<proc_macro2::TokenStream, Diagnostics> {
+    let mut diags = Diagnostics::new();
+    // Endpoint-list hoists expand to single-endpoint hoists up front, so
+    // everything after this point only ever sees `Single` and `Wildcard`
+    // hoists. Manifests (resolved for wildcard-hoisted nodes) thread the
+    // child endpoints' declared types into the expansion, so typed value /
+    // frame-typed list hoists don't collapse to mono `f32` when the
+    // manifest is available.
+    ir::lower::expand_list_hoists(&mut graph_def, manifests);
     manifest::expand_wildcards(&mut graph_def, manifests, &mut diags);
     if !diags.is_empty() {
         return Err(diags);
@@ -54,5 +81,5 @@ pub fn compile_with_manifests(
         None => return Err(diags),
     };
     ir::passes::dead_nodes::run(&mut ir);
-    codegen::generate(&ir)
+    codegen::generate(&ir, &source_tokens)
 }

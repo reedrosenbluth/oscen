@@ -241,11 +241,19 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Step 4: Per-edge upsample warmup declarations for `EdgeKernel::Up` edges.
+    ///
+    /// TYPED value edges skip the upsampler: the latch copy emitted here
+    /// (once per outer tick) is the whole transfer — the dest field holds
+    /// the value across the inner iterations.
     fn emit_all_up_warmups(&self) -> Vec<TokenStream> {
         let mut decls = Vec::new();
         for (idx, edge) in self.edges() {
             if let EdgeKernel::Up { factor, .. } = edge.kernel {
-                decls.push(self.emit_up_warmup_for_edge(idx, edge, factor));
+                if self.edge_is_typed_value(edge) {
+                    decls.push(self.emit_typed_value_latch(edge));
+                } else {
+                    decls.push(self.emit_up_warmup_for_edge(idx, edge, factor));
+                }
             }
         }
         decls
@@ -307,9 +315,14 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Step 5: Per-edge accumulator buffer declarations for `EdgeKernel::Down` edges.
+    /// TYPED value edges have no accumulator: their latch copy happens in
+    /// the finalize step, after the inner loop.
     fn emit_all_down_buffer_decls(&self) -> Vec<TokenStream> {
         let mut decls = Vec::new();
         for (idx, edge) in self.edges() {
+            if self.edge_is_typed_value(edge) {
+                continue;
+            }
             if let EdgeKernel::Down { factor, .. } = edge.kernel {
                 decls.push(self.emit_down_buffer_decl_for_edge(idx, edge, factor));
             }
@@ -385,9 +398,13 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Step 6 (inner loop part A): Write upsampled data into inner-rate node inputs.
+    /// TYPED value edges were latched in the warmup step — nothing per-inner-tick.
     fn emit_all_inner_writes(&self) -> Vec<TokenStream> {
         let mut writes = Vec::new();
         for (idx, edge) in self.edges() {
+            if self.edge_is_typed_value(edge) {
+                continue;
+            }
             if let EdgeKernel::Up { .. } = edge.kernel {
                 let buf = up_buf_name(idx);
 
@@ -426,9 +443,14 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Step 6 (inner loop part C): Capture inner-rate outputs into down-accumulator buffers.
+    /// TYPED value edges capture nothing — the finalize step reads the
+    /// source field directly (the last inner value latches out).
     fn emit_all_down_captures(&self) -> Vec<TokenStream> {
         let mut captures = Vec::new();
         for (idx, edge) in self.edges() {
+            if self.edge_is_typed_value(edge) {
+                continue;
+            }
             if let EdgeKernel::Down { .. } = edge.kernel {
                 let buf = down_buf_name(idx);
 
@@ -461,11 +483,17 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Step 7: Finalize `Down` edges: run downsampler and write to dest fields.
+    /// TYPED value edges latch instead: one copy of the source's
+    /// last-inner-iteration value at the outer-block boundary.
     fn emit_all_down_finalizes(&self) -> Vec<TokenStream> {
         let mut finalizes = Vec::new();
         for (idx, edge) in self.edges() {
             if let EdgeKernel::Down { .. } = edge.kernel {
-                finalizes.push(self.emit_down_finalize_for_edge(idx, edge));
+                if self.edge_is_typed_value(edge) {
+                    finalizes.push(self.emit_typed_value_latch(edge));
+                } else {
+                    finalizes.push(self.emit_down_finalize_for_edge(idx, edge));
+                }
             }
         }
         finalizes

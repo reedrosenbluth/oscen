@@ -9,11 +9,7 @@ use oscen_graph_compiler::{compile, Diagnostics};
 use quote::quote;
 
 fn error_messages(diags: &Diagnostics) -> Vec<String> {
-    diags
-        .items
-        .iter()
-        .map(|d| d.message.to_string())
-        .collect()
+    diags.items.iter().map(|d| d.message.to_string()).collect()
 }
 
 fn resume_path() -> syn::Path {
@@ -344,6 +340,263 @@ fn expansion_collision_with_declared_input_is_error() {
 }
 
 #[test]
+fn expansion_carries_child_stream_frame_type() {
+    // A child stream endpoint typed `Frame<2>` (manifest `ty = …`
+    // annotation) hoists as a `Frame<2>` parent input, not mono f32.
+    let input = quote! {
+        name: FrameWild;
+        output stream out: ::oscen::frame::Frame<2>;
+        nodes { g = StereoGain::new(); }
+        input g.*;
+        connections { g.out -> out; }
+    };
+    let manifests = manifests_for(&[(
+        "g",
+        quote! {
+            node_type StereoGain
+            inputs [ inp: stream (ty = ::oscen::frame::Frame<2>), gain: value ]
+            outputs [ out: stream (ty = ::oscen::frame::Frame<2>) ]
+        },
+    )]);
+    let tokens = oscen_graph_compiler::compile_with_manifests(input, &manifests)
+        .expect("compiles")
+        .to_string();
+    // The hoisted stream input's field and block buffer carry the frame type.
+    assert!(
+        tokens.contains("pub inp : :: oscen :: frame :: Frame < 2 >"),
+        "hoisted stream input must keep the child's frame type; got: {}",
+        &tokens[..tokens.len().min(400)]
+    );
+    assert!(tokens.contains("pub inp_block : [:: oscen :: frame :: Frame < 2 >"));
+    // The value input stays a plain f32.
+    assert!(tokens.contains("pub gain : f32"));
+}
+
+#[test]
+fn expansion_carries_child_typed_value_ty() {
+    // A child TYPED value endpoint (manifest `ty = …` annotation) hoists
+    // as a typed parent input: typed field + setter, excluded from the
+    // param registry; the f32 sibling still hoists as a plain param.
+    let input = quote! {
+        name: TypedWild;
+        output stream out;
+        nodes { f = ModeShaper::new(); }
+        input f.*;
+        connections { f.out -> out; }
+    };
+    let manifests = manifests_for(&[(
+        "f",
+        quote! {
+            node_type ModeShaper
+            inputs [ mode: value (ty = FilterMode), gain: value ]
+            outputs [ out: stream ]
+        },
+    )]);
+    let tokens = oscen_graph_compiler::compile_with_manifests(input, &manifests)
+        .expect("compiles")
+        .to_string();
+    assert!(
+        tokens.contains("pub mode : FilterMode"),
+        "hoisted typed input must keep the child's payload type"
+    );
+    assert!(
+        tokens.contains("pub fn set_mode (& mut self , value : FilterMode)"),
+        "typed setter takes the payload type"
+    );
+    assert!(tokens.contains("pub gain : f32"), "f32 sibling stays plain");
+    // Registry covers only the f32 param.
+    assert!(
+        tokens.contains("pub enum TypedWildParam { Gain , }"),
+        "typed input must not enter the param registry"
+    );
+    assert!(!tokens.contains("TypedWildParam :: Mode"));
+}
+
+#[test]
+fn list_hoist_inherits_typed_value_ty_from_resolved_manifest() {
+    // An endpoint-list hoist on a node whose manifest is resolved (here: a
+    // wildcard on the same node forces resolution) threads the child's
+    // declared type, like the wildcard does.
+    let input = quote! {
+        name: TypedList;
+        output stream out;
+        nodes { f = ModeShaper::new(); }
+        input f.{mode, gain} cfg_*;
+        input f.*;
+        connections { f.out -> out; }
+    };
+    let manifests = manifests_for(&[(
+        "f",
+        quote! {
+            node_type ModeShaper
+            inputs [ mode: value (ty = FilterMode), gain: value, drive: value ]
+            outputs [ out: stream ]
+        },
+    )]);
+    let tokens = oscen_graph_compiler::compile_with_manifests(input, &manifests)
+        .expect("compiles")
+        .to_string();
+    assert!(
+        tokens.contains("pub cfg_mode : FilterMode"),
+        "list-hoisted typed endpoint keeps the payload type"
+    );
+    assert!(
+        tokens.contains("pub fn set_cfg_mode (& mut self , value : FilterMode)"),
+        "typed setter on the renamed hoist"
+    );
+    assert!(tokens.contains("pub cfg_gain : f32"));
+    // The wildcard skips the list-hoisted endpoints and picks up `drive`;
+    // the registry covers only the f32 params.
+    assert!(tokens.contains("pub drive : f32"));
+    assert!(
+        tokens.contains("pub enum TypedListParam { CfgGain , Drive , }"),
+        "typed list hoist must not enter the param registry; got:\n{}",
+        &tokens[tokens.find("enum TypedListParam").unwrap_or(0)..][..120.min(tokens.len())]
+    );
+}
+
+#[test]
+fn list_hoist_without_manifest_stays_f32() {
+    // List hoists alone don't trigger manifest resolution: without one the
+    // expansion is untyped, as before (a typed child endpoint then fails
+    // rustc's ConnectEndpoints<f32, T> check — the documented remedy is an
+    // explicit `input node.ep: value: T;` hoist).
+    let input = quote! {
+        name: PlainList;
+        output stream out;
+        nodes { f = ModeShaper::new(); }
+        input f.{mode, gain};
+        connections { f.out -> out; }
+    };
+    let tokens = compile(input).expect("compiles").to_string();
+    assert!(tokens.contains("pub mode : f32"));
+    assert!(tokens.contains("pub gain : f32"));
+}
+
+#[test]
+fn expansion_carries_child_ramp_length() {
+    // A child value input declared `[ramp: N]` (manifest `ramp = N`)
+    // hoists as a ramped parent input with the same default ramp.
+    let input = quote! {
+        name: RampWild;
+        output stream out;
+        nodes { voice = InnerVoice::new(); }
+        input voice.*;
+        connections { voice.audio -> out; }
+    };
+    let manifests = manifests_for(&[(
+        "voice",
+        quote! {
+            node_type InnerVoice
+            inputs [ cutoff: value (ramp = 8), level: value ]
+            outputs [ audio: stream ]
+        },
+    )]);
+    let tokens = oscen_graph_compiler::compile_with_manifests(input, &manifests)
+        .expect("compiles")
+        .to_string();
+    // Ramped parent storage + default-ramp setter with the child's length.
+    assert!(tokens.contains("pub cutoff : :: oscen :: graph :: ValueRampState"));
+    assert!(tokens.contains("set_cutoff_with_ramp"));
+    assert!(
+        tokens.contains("self . cutoff . set_with_ramp (value , 8usize as u32)"),
+        "hoisted input must default to the child's declared ramp length"
+    );
+    // Unramped sibling stays plain.
+    assert!(tokens.contains("pub level : f32"));
+}
+
+#[test]
+fn expansion_rejects_runtime_ramped_endpoint() {
+    // A derive-type child whose value endpoint is a `ValueRampState` field
+    // (manifest `ramped` — length unknown at compile time) cannot be
+    // wildcard-hoisted: a plain hoist would silently strip the smoothing.
+    let input = quote! {
+        name: RampedWild;
+        output stream out;
+        nodes { voice = SmoothVoice::new(); }
+        input voice.*;
+        connections { voice.audio -> out; }
+    };
+    let manifests = manifests_for(&[(
+        "voice",
+        quote! {
+            node_type SmoothVoice
+            inputs [ level: value (ramped), pan: value ]
+            outputs [ audio: stream ]
+        },
+    )]);
+    let diags = oscen_graph_compiler::compile_with_manifests(input, &manifests)
+        .expect_err("runtime-ramped endpoint must error");
+    let msgs = error_messages(&diags);
+    assert_eq!(msgs.len(), 1, "got: {msgs:?}");
+    assert!(msgs[0].contains("`level`"), "got: {}", msgs[0]);
+    assert!(msgs[0].contains("ramp smoothing"), "got: {}", msgs[0]);
+    assert!(
+        msgs[0].contains("input voice.level [ramp: N];"),
+        "must suggest the explicit hoist form; got: {}",
+        msgs[0]
+    );
+}
+
+#[test]
+fn explicit_hoist_of_runtime_ramped_endpoint_silences_wildcard() {
+    // Explicitly hoisting the ramped endpoint (with a parent ramp) makes
+    // the wildcard skip it — no error, and the rest still expands.
+    let input = quote! {
+        name: RampedExplicit;
+        output stream out;
+        nodes { voice = SmoothVoice::new(); }
+        input voice.level [ramp: 16];
+        input voice.*;
+        connections { voice.audio -> out; }
+    };
+    let manifests = manifests_for(&[(
+        "voice",
+        quote! {
+            node_type SmoothVoice
+            inputs [ level: value (ramped), pan: value ]
+            outputs [ audio: stream ]
+        },
+    )]);
+    let tokens = oscen_graph_compiler::compile_with_manifests(input, &manifests)
+        .expect("explicit hoist satisfies the ramped endpoint")
+        .to_string();
+    assert!(tokens.contains("pub level : :: oscen :: graph :: ValueRampState"));
+    assert!(tokens.contains("pub pan : f32"));
+}
+
+#[test]
+fn expansion_skips_private_endpoints() {
+    // `priv`-marked endpoints are real endpoints but a wildcard cannot
+    // hoist them: a hoist writes the child's field directly, which
+    // privacy forbids.
+    let input = quote! {
+        name: PrivWild;
+        output stream out;
+        nodes { voice = FMVoice::new(); }
+        input voice.*;
+        connections { voice.audio_out -> out; }
+    };
+    let manifests = manifests_for(&[(
+        "voice",
+        quote! {
+            node_type FMVoice
+            inputs [ frequency: value, pulse_width: value (priv) ]
+            outputs [ audio_out: stream ]
+        },
+    )]);
+    let tokens = oscen_graph_compiler::compile_with_manifests(input, &manifests)
+        .expect("compiles")
+        .to_string();
+    assert!(tokens.contains("pub frequency : f32"));
+    assert!(
+        !tokens.contains("pub pulse_width"),
+        "private endpoints must not hoist"
+    );
+}
+
+#[test]
 fn compile_without_manifests_reports_unresolved_wildcard() {
     let input = quote! {
         name: NoManifest;
@@ -355,7 +608,8 @@ fn compile_without_manifests_reports_unresolved_wildcard() {
     let diags = compile(input).expect_err("must error");
     let msgs = error_messages(&diags);
     assert!(
-        msgs.iter().any(|m| m.contains("no endpoint manifest resolved")),
+        msgs.iter()
+            .any(|m| m.contains("no endpoint manifest resolved")),
         "got: {msgs:?}"
     );
 }

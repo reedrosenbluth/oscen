@@ -364,3 +364,31 @@ fn zero_frame_ramp_setter_decrements_active_ramps() {
         body
     );
 }
+
+// ---------------------------------------------------------------------------
+// Param-enum variant collisions must be a spanned diagnostic, not an E0428
+// on a mangled identifier the user never wrote.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn camel_case_param_variant_collision_is_reported() {
+    // `oscA_pitch` and `osc_a_pitch` are distinct input names but both
+    // camel-case to `OscAPitch`, which would duplicate an enum variant.
+    let err = compile(quote! {
+        name: Collide;
+        input value oscA_pitch = 1.0;
+        input value osc_a_pitch = 2.0;
+        output value level;
+        connections {
+            oscA_pitch -> level;
+        }
+    })
+    .expect_err("colliding variant names must fail to compile");
+    let msgs: Vec<String> = err.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter().any(|m| m.contains("oscA_pitch")
+            && m.contains("osc_a_pitch")
+            && m.contains("CollideParam::OscAPitch")),
+        "diagnostic should name both inputs and the shared variant; got: {msgs:?}"
+    );
+}

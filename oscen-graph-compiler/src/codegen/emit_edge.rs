@@ -200,6 +200,39 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
+    /// Emit the outer-block-boundary latch for a TYPED cross-rate value
+    /// edge: a plain `ConnectEndpoints` copy, emitted once per outer tick
+    /// (before the inner loop for `Up` edges — the dest field holds the
+    /// value across inner iterations; after it for `Down` edges — the last
+    /// inner value latches out). No `as f32`, no kernel state: the typed
+    /// payload can't be interpolated, and mismatched payload types surface
+    /// as `ConnectEndpoints` trait errors. Broadcast fan-out (scalar graph
+    /// input into a node array's endpoint) writes each element.
+    pub(super) fn emit_typed_value_latch(&self, edge: &crate::ir::graph::IrEdge) -> TokenStream {
+        let src_toks = self.emit_expr(&edge.source);
+        let dest = &edge.dest;
+        if let crate::ir::graph::FanoutShape::Broadcast { n } = edge.fanout {
+            let dest_node = &self.ir.nodes[dest.node].name;
+            let dest_field = &dest.endpoint;
+            quote! {
+                for __k in 0..#n {
+                    <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                        &#src_toks,
+                        &mut self.#dest_node[__k].#dest_field,
+                    );
+                }
+            }
+        } else {
+            let dst_toks = self.emit_endpoint(dest);
+            quote! {
+                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                    &#src_toks,
+                    &mut #dst_toks,
+                );
+            }
+        }
+    }
+
     /// Build an `f32`-valued expression for a connection's source.
     pub(super) fn connection_source_value_expr(
         &self,

@@ -12,41 +12,39 @@
 //! consume it instead of re-declaring ranges by hand. It is built lazily in a
 //! `OnceLock` so default/range expressions may be arbitrary runtime `Expr`s
 //! (call `param_descriptors()` off the audio thread; the enum dispatchers are
-//! allocation-free).
+//! allocation-free). Hoisted value inputs without an explicit `= default`
+//! inherit their initial value from the child constructor in `new()`
+//! (`generate_hoist_default_inherits`); the descriptor table reports the same
+//! value by constructing a probe graph inside the lazy init and reading it
+//! back via `get_param`.
 
-use crate::ast::{Curve, EndpointKind};
+use crate::ast::Curve;
 use crate::ir::graph::IrNode;
 use proc_macro2::TokenStream;
 use quote::quote;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 
-use super::helpers::title_case;
+use super::helpers::{camel_case, title_case};
 use super::CodegenContext;
-
-/// snake_case -> UpperCamelCase for enum variant names.
-fn camel_case(name: &str) -> String {
-    name.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect()
-}
 
 impl<'a> CodegenContext<'a> {
     /// Emit the parameter registry items (enum + descriptor table +
-    /// dispatchers). Returns an empty stream when the graph has no value
-    /// inputs.
-    pub(super) fn generate_param_registry(&self) -> TokenStream {
+    /// dispatchers). Returns an empty stream when the graph has no f32
+    /// value inputs, and an error when two input names collapse to the same
+    /// UpperCamelCase enum variant.
+    ///
+    /// The registry is built from the *params* partition of the value
+    /// inputs only (`param_value_inputs`): TYPED value inputs (declared
+    /// with a non-f32 type) have no enum variant, descriptor, or
+    /// `set_param`/`get_param` arm — their only surface is the typed
+    /// setter. The nih-plug wrapper indexes `param_descriptors()`
+    /// positionally, so it must (and does) use the same filtered list.
+    pub(super) fn generate_param_registry(&self) -> syn::Result<TokenStream> {
         let graph_name = self.name();
-        let value_inputs: Vec<&IrNode> = self
-            .inputs()
-            .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Value)))
-            .collect();
+        let value_inputs: Vec<&IrNode> = self.param_value_inputs();
         if value_inputs.is_empty() {
-            return quote! {};
+            return Ok(quote! {});
         }
 
         let enum_name = syn::Ident::new(&format!("{}Param", graph_name), graph_name.span());
@@ -58,6 +56,53 @@ impl<'a> CodegenContext<'a> {
             .collect();
         let name_strs: Vec<String> = value_inputs.iter().map(|n| n.name.to_string()).collect();
 
+        // `camel_case` collapses underscore placement, so distinct input
+        // names (e.g. `oscA_pitch` and `osc_a_pitch`) can map to the same
+        // enum variant. Catch that here with a spanned error instead of
+        // letting rustc report a duplicate variant the user never wrote.
+        let mut seen_variants: HashMap<String, &syn::Ident> = HashMap::new();
+        let mut collision_err: Option<syn::Error> = None;
+        for (node, variant) in value_inputs.iter().zip(&variants) {
+            match seen_variants.entry(variant.to_string()) {
+                Entry::Occupied(first) => {
+                    let msg = format!(
+                        "value inputs `{}` and `{}` both map to parameter enum variant \
+                         `{}::{}`; rename one so their UpperCamelCase forms differ",
+                        first.get(),
+                        node.name,
+                        enum_name,
+                        variant,
+                    );
+                    let mut err = syn::Error::new(node.name.span(), &msg);
+                    err.combine(syn::Error::new(first.get().span(), &msg));
+                    match collision_err.as_mut() {
+                        Some(acc) => acc.combine(err),
+                        None => collision_err = Some(err),
+                    }
+                }
+                Entry::Vacant(slot) => {
+                    slot.insert(&node.name);
+                }
+            }
+        }
+        if let Some(err) = collision_err {
+            return Err(err);
+        }
+
+        // Hoisted inputs without an explicit `= default` inherit their
+        // initial value from the child constructor in `new()`. The
+        // descriptor table must report that same value, so when any such
+        // input exists the lazy init constructs a probe graph and reads
+        // the inherited defaults back through `get_param`.
+        let needs_probe = value_inputs
+            .iter()
+            .any(|n| self.input_default(n).is_none() && self.input_hoist(n).is_some());
+        let probe_init = if needs_probe {
+            quote! { let __probe = #graph_name::new(); }
+        } else {
+            quote! {}
+        };
+
         // ---- descriptor table entries -----------------------------------
         let descriptors: Vec<TokenStream> = value_inputs
             .iter()
@@ -68,10 +113,17 @@ impl<'a> CodegenContext<'a> {
                 let display_name = spec
                     .and_then(|s| s.display_name.clone())
                     .unwrap_or_else(|| title_case(&name_str));
-                let default = self
-                    .input_default(node)
-                    .map(|e| quote! { (#e) as f32 })
-                    .unwrap_or_else(|| quote! { 0.0f32 });
+                let default = match self.input_default(node) {
+                    Some(e) => quote! { (#e) as f32 },
+                    None if self.input_hoist(node).is_some() => {
+                        // Inherited from the child constructor: read it off
+                        // the probe instance so the descriptor matches what
+                        // `get_param` returns right after `new()`.
+                        let variant = &variants[idx];
+                        quote! { __probe.get_param(#enum_name::#variant) }
+                    }
+                    None => quote! { 0.0f32 },
+                };
                 let range = spec
                     .and_then(|s| s.range.as_ref())
                     .map(|r| {
@@ -100,14 +152,10 @@ impl<'a> CodegenContext<'a> {
                     .and_then(|s| s.group.as_ref())
                     .map(|g| quote! { Some(#g) })
                     .unwrap_or_else(|| quote! { None });
-                let logarithmic = matches!(
-                    spec.and_then(|s| s.curve),
-                    Some(Curve::Logarithmic)
-                );
+                let logarithmic = matches!(spec.and_then(|s| s.curve), Some(Curve::Logarithmic));
 
                 quote! {
                     ::oscen::graph::ParamDescriptor {
-                        index: #idx,
                         name: #name_str,
                         display_name: #display_name,
                         default: #default,
@@ -167,16 +215,16 @@ impl<'a> CodegenContext<'a> {
             .map(|(s, v)| quote! { #s => Some(#enum_name::#v), })
             .collect();
 
-        let indices: Vec<usize> = (0..count).collect();
-
-        quote! {
+        Ok(quote! {
             /// Parameter identifiers for the value inputs of the generated
             /// graph, in declaration order. Generated by `graph!`.
+            /// `#[repr(usize)]` assigns discriminants 0..N in declaration
+            /// order, which is also each parameter's descriptor-table index.
             #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
             #[repr(usize)]
             #[allow(dead_code)]
             pub enum #enum_name {
-                #(#variants = #indices,)*
+                #(#variants,)*
             }
 
             #[allow(dead_code)]
@@ -228,9 +276,12 @@ impl<'a> CodegenContext<'a> {
                     static DESCRIPTORS: ::std::sync::OnceLock<
                         [::oscen::graph::ParamDescriptor; #count],
                     > = ::std::sync::OnceLock::new();
-                    DESCRIPTORS.get_or_init(|| [
-                        #(#descriptors,)*
-                    ])
+                    DESCRIPTORS.get_or_init(|| {
+                        #probe_init
+                        [
+                            #(#descriptors,)*
+                        ]
+                    })
                 }
 
                 /// Set a parameter by id (uses the input's default ramp when
@@ -259,6 +310,6 @@ impl<'a> CodegenContext<'a> {
                     }
                 }
             }
-        }
+        })
     }
 }

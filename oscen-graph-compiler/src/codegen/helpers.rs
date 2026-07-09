@@ -111,8 +111,11 @@ pub(super) fn lcm(a: u32, b: u32) -> u32 {
     a / gcd(a, b) * b
 }
 
-/// snake_case -> "Title Case" for display names (`osc_a_pitch` -> "Osc A Pitch").
-pub(super) fn title_case(name: &str) -> String {
+/// Shared word transform behind `title_case` / `camel_case`: split on `_`,
+/// uppercase each word's first char, and join with `sep`. Empty segments
+/// (leading/trailing/double underscores) become empty words, preserving the
+/// historical behavior of both wrappers.
+fn convert_case(name: &str, sep: &str) -> String {
     name.split('_')
         .map(|word| {
             let mut chars = word.chars();
@@ -122,5 +125,15 @@ pub(super) fn title_case(name: &str) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(sep)
+}
+
+/// snake_case -> "Title Case" for display names (`osc_a_pitch` -> "Osc A Pitch").
+pub(super) fn title_case(name: &str) -> String {
+    convert_case(name, " ")
+}
+
+/// snake_case -> UpperCamelCase for enum variant names (`osc_a_pitch` -> "OscAPitch").
+pub(super) fn camel_case(name: &str) -> String {
+    convert_case(name, "")
 }

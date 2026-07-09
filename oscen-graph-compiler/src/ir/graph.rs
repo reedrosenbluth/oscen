@@ -175,6 +175,41 @@ impl EndpointInfo {
     pub fn new(kind: EndpointKind) -> Self {
         Self { kind, ty: None }
     }
+
+    /// TYPED value classification — the single definition used by lowering
+    /// diagnostics and codegen alike. A value endpoint is TYPED iff it was
+    /// declared with a type annotation that is not literally `f32`
+    /// (`input mode: value: FilterMode;`). A `: f32` annotation is
+    /// normalized away: it declares a plain parameter, byte-identical to an
+    /// unannotated one. Typed value endpoints are real fields of their
+    /// declared type: connected per-frame by copy, excluded from the param
+    /// registry / nih-plug params, never ramped, and latch-only across rate
+    /// boundaries.
+    pub fn typed_value_ty(&self) -> Option<&syn::Type> {
+        if self.kind != EndpointKind::Value {
+            return None;
+        }
+        let ty = self.ty.as_ref()?;
+        if is_f32_type(ty) {
+            None
+        } else {
+            Some(ty)
+        }
+    }
+}
+
+/// True for a type annotation that spells the plain `f32` primitive
+/// (normalizing trivial wrappers: parens and macro-expansion groups).
+/// Qualified spellings (`::core::primitive::f32`) are deliberately *not*
+/// recognized — an exotic spelling opts into the typed path, which is
+/// semantically identical for f32 payloads minus the param registry.
+fn is_f32_type(ty: &syn::Type) -> bool {
+    match ty {
+        syn::Type::Paren(t) => is_f32_type(&t.elem),
+        syn::Type::Group(t) => is_f32_type(&t.elem),
+        syn::Type::Path(tp) => tp.qself.is_none() && tp.path.is_ident("f32"),
+        _ => false,
+    }
 }
 
 pub struct IrEdge {
@@ -219,6 +254,36 @@ impl IrGraph {
             externals: Vec::new(),
             asset_bindings: Vec::new(),
         }
+    }
+
+    /// The declared payload type of a TYPED graph value endpoint, addressed
+    /// by `(node, endpoint)`. Returns `Some` only for graph-boundary
+    /// input/output nodes — node endpoints never carry a declared type in
+    /// the IR (their field types are checked by rustc through
+    /// `ConnectEndpoints`). See [`EndpointInfo::typed_value_ty`].
+    pub fn typed_value_endpoint_ty(&self, node: NodeId, endpoint: &Ident) -> Option<&syn::Type> {
+        let n = &self.nodes[node];
+        if !matches!(n.kind, IrNodeKind::Input { .. } | IrNodeKind::Output) {
+            return None;
+        }
+        n.endpoints.get(endpoint)?.typed_value_ty()
+    }
+
+    /// True when an edge moves a TYPED value payload: its source is a plain
+    /// reference to a typed graph value endpoint, or its destination is one.
+    /// Node-to-node edges always report `false` — typedness of node fields
+    /// is only visible to rustc.
+    pub fn edge_is_typed_value(&self, edge: &IrEdge) -> bool {
+        let src_typed = match &edge.source.kind {
+            crate::ir::expr::IrExprKind::Endpoint(ep) => self
+                .typed_value_endpoint_ty(ep.node, &ep.endpoint)
+                .is_some(),
+            _ => false,
+        };
+        src_typed
+            || self
+                .typed_value_endpoint_ty(edge.dest.node, &edge.dest.endpoint)
+                .is_some()
     }
 
     /// Remove an edge. Updates source and dest node adjacency lists.

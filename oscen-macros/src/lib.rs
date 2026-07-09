@@ -1,3 +1,5 @@
+use oscen_graph_compiler::ast::EndpointKind;
+use oscen_graph_compiler::manifest::{ManifestEndpoint, ManifestRamp};
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DeriveInput, Fields};
@@ -6,6 +8,10 @@ mod oversample_variants_macro;
 
 #[proc_macro_derive(Node, attributes(input, output))]
 pub fn derive_node(input: TokenStream) -> TokenStream {
+    // Keep the item's raw tokens: they're hashed into the endpoint
+    // manifest's `#[macro_export]` name so same-named node types with
+    // different definitions don't collide on the crate-global export.
+    let manifest_source = proc_macro2::TokenStream::from(input.clone());
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
     let generics = input.generics;
@@ -14,10 +20,10 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let mut input_idents = Vec::new();
     let mut output_idents = Vec::new();
 
-    // (name, kind) pairs in declaration order, for the endpoint manifest
-    // macro (`__oscen_endpoints_<TypeName>!`). See `emit_endpoint_manifest`.
-    let mut manifest_inputs: Vec<(syn::Ident, EndpointTypeAttr)> = Vec::new();
-    let mut manifest_outputs: Vec<(syn::Ident, EndpointTypeAttr)> = Vec::new();
+    // Manifest entries in declaration order, for the endpoint manifest
+    // macro (`__oscen_endpoints_<TypeName>!`). See `emit_manifest_export`.
+    let mut manifest_inputs: Vec<ManifestEndpoint> = Vec::new();
+    let mut manifest_outputs: Vec<ManifestEndpoint> = Vec::new();
     let mut sample_rate_fields: Vec<syn::Ident> = Vec::new();
 
     // Errors for removed wrapper endpoint types, emitted alongside the
@@ -144,12 +150,16 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
 
                     input_idents.push(field_name.clone());
-                    // Manifests only carry `pub` endpoints: a parent graph
-                    // hoisting `input node.*;` writes the child's field
-                    // directly, which privacy forbids for non-pub fields.
-                    if field_is_pub {
-                        manifest_inputs.push((field_name.clone(), kind));
-                    }
+                    // Every endpoint joins the manifest — non-pub fields are
+                    // real endpoints, marked `priv` so consumers (e.g.
+                    // wildcard hoists, which skip them) can distinguish
+                    // visibility from absence.
+                    manifest_inputs.push(manifest_entry(
+                        &field_name,
+                        kind,
+                        &field_ty,
+                        field_is_pub,
+                    ));
                     input_idx += 1;
                 }
 
@@ -161,9 +171,12 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
 
                     output_idents.push(field_name.clone());
-                    if field_is_pub {
-                        manifest_outputs.push((field_name.clone(), output_kind));
-                    }
+                    manifest_outputs.push(manifest_entry(
+                        &field_name,
+                        output_kind,
+                        &field_ty,
+                        field_is_pub,
+                    ));
                     _output_idx += 1;
                 }
 
@@ -335,15 +348,23 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     // the node's endpoint list, invoked in continuation-passing style by a
     // parent `graph!` that needs this type's endpoints at expansion time
     // (wildcard hoists: `input voices.*;`). The `#[macro_export]` name is
-    // mangled (`__oscen_endpoints_export_*`) so the pretty
-    // `__oscen_endpoints_<TypeName>` re-export next to the type never
-    // collides with the crate-root export when the type itself lives at the
-    // crate root; the re-export travels with `pub use module::*` chains so
-    // qualified manifest paths mirror the type's path.
+    // mangled (`__oscen_endpoints_export_<TypeName>_<hash>`, hashing the
+    // item's tokens) so the pretty `__oscen_endpoints_<TypeName>` re-export
+    // next to the type never collides with the crate-root export, and two
+    // same-named node types in different modules of one crate don't collide
+    // on the crate-global export either; the re-export travels with
+    // `pub use module::*` chains so qualified manifest paths mirror the
+    // type's path.
     //
-    // NOTE: two same-named node types in one crate collide on the exported
-    // macro name (documented limitation; see docs/COOKBOOK.md).
-    let manifest = emit_endpoint_manifest(&name, &manifest_inputs, &manifest_outputs);
+    // NOTE: two byte-identical same-named node type definitions in one
+    // crate still collide on the exported macro name (documented
+    // limitation; see docs/COOKBOOK.md).
+    let manifest = oscen_graph_compiler::manifest::emit_manifest_export(
+        &name,
+        &manifest_inputs,
+        &manifest_outputs,
+        &manifest_source,
+    );
 
     let expanded = quote! {
         #(#endpoint_errors)*
@@ -379,74 +400,53 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-/// Emit the endpoint-manifest macro for a node type: an exported
-/// `macro_rules!` that invokes a caller-supplied continuation with the
-/// type's endpoint list appended to arbitrary passthrough state:
+/// Build one manifest entry for a `#[derive(Node)]` endpoint field,
+/// carrying the metadata the manifest grammar supports:
 ///
-/// ```ignore
-/// __oscen_endpoints_<TypeName>!($callback:path => ( <passthrough> ));
-/// // expands to:
-/// $callback! {
-///     <passthrough>
-///     node_type <TypeName>
-///     inputs [ name1: value, name2: stream, name3: event ]
-///     outputs [ out1: stream ]
-/// }
-/// ```
-///
-/// Kinds come from the same classification the derive already performs;
-/// no defaults are carried (hoists inherit defaults from the constructed
-/// child at runtime).
-fn emit_endpoint_manifest(
-    type_name: &syn::Ident,
-    inputs: &[(syn::Ident, EndpointTypeAttr)],
-    outputs: &[(syn::Ident, EndpointTypeAttr)],
-) -> proc_macro2::TokenStream {
-    let export_ident = format_ident!("__oscen_endpoints_export_{}", type_name);
-    let manifest_ident = format_ident!("__oscen_endpoints_{}", type_name);
-    let input_entries: Vec<_> = inputs
-        .iter()
-        .map(|(n, k)| {
-            let kind = manifest_kind_ident(*k);
-            quote! { #n: #kind }
-        })
-        .collect();
-    let output_entries: Vec<_> = outputs
-        .iter()
-        .map(|(n, k)| {
-            let kind = manifest_kind_ident(*k);
-            quote! { #n: #kind }
-        })
-        .collect();
-    quote! {
-        #[doc(hidden)]
-        #[allow(non_local_definitions)]
-        #[macro_export]
-        macro_rules! #export_ident {
-            ($callback:path => ( $($passthrough:tt)* )) => {
-                $callback! {
-                    $($passthrough)*
-                    node_type #type_name
-                    inputs [ #(#input_entries),* ]
-                    outputs [ #(#output_entries),* ]
-                }
-            };
-        }
-        #[doc(hidden)]
-        #[allow(unused_imports)]
-        pub use #export_ident as #manifest_ident;
-    }
-}
-
-/// The bare kind ident (`value` / `stream` / `event` / `asset`) used in
-/// manifest endpoint entries.
-fn manifest_kind_ident(kind: EndpointTypeAttr) -> proc_macro2::TokenStream {
+/// - `ty = <field type>` for stream endpoints whose type isn't literally
+///   `f32` (so wildcard hoists preserve frame types like `Frame<2>`), and
+///   likewise for value endpoints carrying a typed payload (any type other
+///   than `f32`/`ValueRampState`, e.g. a `ValuePayload` enum). The derive
+///   cannot rewrite arbitrary user types to fully-qualified paths, so the
+///   literal tokens are carried — they resolve at the consuming graph's
+///   call site, which must have the type name in scope (documented
+///   limitation).
+/// - `ramped` for value inputs stored as `ValueRampState` (the ramp length
+///   is a runtime value the derive cannot see).
+/// - `priv` for non-pub fields.
+fn manifest_entry(
+    field_name: &syn::Ident,
+    kind: EndpointTypeAttr,
+    field_ty: &syn::Type,
+    field_is_pub: bool,
+) -> ManifestEndpoint {
+    let manifest_kind = match kind {
+        EndpointTypeAttr::Stream => EndpointKind::Stream,
+        EndpointTypeAttr::Value => EndpointKind::Value,
+        EndpointTypeAttr::Event => EndpointKind::Event,
+        EndpointTypeAttr::Asset => EndpointKind::Asset,
+    };
+    let mut entry = ManifestEndpoint::new(field_name.clone(), manifest_kind);
+    entry.private = !field_is_pub;
     match kind {
-        EndpointTypeAttr::Stream => quote! { stream },
-        EndpointTypeAttr::Value => quote! { value },
-        EndpointTypeAttr::Event => quote! { event },
-        EndpointTypeAttr::Asset => quote! { asset },
+        EndpointTypeAttr::Stream => {
+            if quote!(#field_ty).to_string() != "f32" {
+                entry.ty = Some(field_ty.clone());
+            }
+        }
+        EndpointTypeAttr::Value => {
+            if last_segment_ident(field_ty).as_deref() == Some("ValueRampState") {
+                entry.ramp = ManifestRamp::Declared;
+            } else if quote!(#field_ty).to_string() != "f32" {
+                // Typed value payload (a `ValuePayload` type such as an
+                // enum or bool): carry the field's literal type tokens,
+                // same hygiene caveat as the stream branch above.
+                entry.ty = Some(field_ty.clone());
+            }
+        }
+        EndpointTypeAttr::Event | EndpointTypeAttr::Asset => {}
     }
+    entry
 }
 
 fn parse_endpoint_attr(attr: &syn::Attribute) -> syn::Result<EndpointTypeAttr> {

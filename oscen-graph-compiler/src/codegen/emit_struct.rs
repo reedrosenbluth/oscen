@@ -32,6 +32,18 @@ impl<'a> CodegenContext<'a> {
                 let mut stmts = Vec::new();
                 match kind {
                     EndpointKind::Value => {
+                        if let Some(ty) = self.typed_value_ty(name) {
+                            // TYPED value input: the `= expr` initializer is
+                            // used as-is (no f32 coercion); without one the
+                            // field starts at the payload's Default.
+                            let default = default_val.map(|d| quote! { #d }).unwrap_or_else(
+                                || quote! { <#ty as ::core::default::Default>::default() },
+                            );
+                            stmts.push(quote! {
+                                let #name = #default;
+                            });
+                            return stmts;
+                        }
                         let default = default_val.map(|d| quote! { #d }).unwrap_or(quote! { 0.0 });
                         if self.is_ramped_input(name).is_some() {
                             stmts.push(quote! {
@@ -93,9 +105,16 @@ impl<'a> CodegenContext<'a> {
                         });
                     }
                     EndpointKind::Value => {
-                        stmts.push(quote! {
-                            let #name = 0.0f32;
-                        });
+                        if let Some(ty) = self.typed_value_ty(name) {
+                            // TYPED value output: starts at the payload's Default.
+                            stmts.push(quote! {
+                                let #name = <#ty as ::core::default::Default>::default();
+                            });
+                        } else {
+                            stmts.push(quote! {
+                                let #name = 0.0f32;
+                            });
+                        }
                     }
                     EndpointKind::Event => {
                         stmts.push(quote! {
@@ -328,6 +347,14 @@ impl<'a> CodegenContext<'a> {
     pub(super) fn generate_kind_assertions(&self) -> Vec<TokenStream> {
         let mut out = Vec::new();
         for (_, edge) in self.edges() {
+            // TYPED value edges bypass the CrossRateKernel machinery (they
+            // latch); their payload compatibility is checked by the
+            // ConnectEndpoints bound on the emitted copy. (Also implied by
+            // the marker checks below — a typed edge always has a graph
+            // endpoint side, which has no EndpointAt marker.)
+            if self.edge_is_typed_value(edge) {
+                continue;
+            }
             let (factor, dir, policy) = match edge.kernel {
                 EdgeKernel::Up { factor, kind } => (
                     factor,
@@ -377,9 +404,14 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Generate one struct field per cross-rate stream/value connection.
+    /// TYPED value edges carry no kernel state: they are latched (copied at
+    /// the outer-block boundary) rather than resampled.
     pub(super) fn generate_resampler_fields(&self) -> Vec<TokenStream> {
         let mut fields = Vec::new();
         for (idx, edge) in self.edges() {
+            if self.edge_is_typed_value(edge) {
+                continue;
+            }
             let ty = match self.cross_rate_kernel_state_type(edge) {
                 Some(t) => t,
                 None => match edge.kernel {
@@ -403,6 +435,9 @@ impl<'a> CodegenContext<'a> {
     pub(super) fn generate_resampler_inits(&self) -> Vec<TokenStream> {
         let mut inits = Vec::new();
         for (idx, edge) in self.edges() {
+            if self.edge_is_typed_value(edge) {
+                continue;
+            }
             let projection = self.cross_rate_kernel_state_type(edge);
             let (ty_for_init, init_via_default) = match (&projection, edge.kernel) {
                 (Some(t), _) => (t.clone(), true),
@@ -550,6 +585,9 @@ impl<'a> CodegenContext<'a> {
     pub(super) fn generate_resampler_resets(&self) -> Vec<TokenStream> {
         let mut resets = Vec::new();
         for (idx, edge) in self.edges() {
+            if self.edge_is_typed_value(edge) {
+                continue;
+            }
             let f = resampler_field_name(idx);
             let projected = self.cross_rate_kernel_state_type(edge).is_some();
             let access = if projected {
@@ -584,6 +622,7 @@ impl<'a> CodegenContext<'a> {
     pub(super) fn generate_latency_method(&self) -> TokenStream {
         let down_latencies: Vec<_> = self
             .edges()
+            .filter(|(_, e)| !self.edge_is_typed_value(e))
             .filter_map(|(idx, e)| match e.kernel {
                 EdgeKernel::Down { factor, .. } => {
                     let f = resampler_field_name(idx);

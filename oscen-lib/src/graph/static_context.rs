@@ -26,21 +26,27 @@
 /// this trait only moves payloads between already-validated endpoints.
 #[diagnostic::on_unimplemented(
     message = "no connection from {Src} to {Dst}",
-    note = "supported: matching Copy payloads (f32, Frame<N>, arrays), EventOutput -> EventInput/StaticEventQueue",
+    note = "supported: matching payloads (ValuePayload types like f32, Frame<N>, arrays), EventOutput -> EventInput/StaticEventQueue",
     label = "incompatible endpoint pair"
 )]
 pub trait ConnectEndpoints<Src, Dst> {
     fn connect(src: &Src, dst: &mut Dst);
 }
 
-// Matching plain payloads: f32 → f32, Frame<C> → Frame<C>, and arrays of
-// each. Covers node-to-node edges, graph inputs, and graph outputs alike,
-// since plain endpoint fields and graph buffers share the same types.
-// (These are enumerated concretely rather than as a blanket `T: Copy` impl,
-// which would overlap the event-queue impls below under coherence rules.)
-impl ConnectEndpoints<f32, f32> for () {
+// Matching plain payloads: any `ValuePayload` (f32 and other Copy value
+// types), Frame<C> → Frame<C>, and arrays of each. Covers node-to-node
+// edges, graph inputs, and graph outputs alike, since plain endpoint fields
+// and graph buffers share the same types.
+//
+// The `ValuePayload` blanket is safe where a blanket `T: Copy` impl would
+// not be: `ValuePayload` is a local opt-in marker, so coherence can prove
+// the event-queue and reference impls below disjoint from it (none of those
+// types implement — or can implement — `ValuePayload`). `Frame<C>` stays a
+// concrete impl and is deliberately *not* a `ValuePayload`: making it one
+// would overlap this blanket.
+impl<T: super::types::ValuePayload> ConnectEndpoints<T, T> for () {
     #[inline]
-    fn connect(src: &f32, dst: &mut f32) {
+    fn connect(src: &T, dst: &mut T) {
         *dst = *src;
     }
 }
@@ -88,23 +94,29 @@ impl ConnectEndpoints<f32, super::types::ValueRampState> for () {
     }
 }
 
-/// Read the effective `f32` of a value endpoint regardless of its storage:
-/// a plain `f32` field or a ramped `ValueRampState`. Used by generated code
-/// to inherit a hoisted input's initial value from the child node it hoists
-/// (`input voices.cutoff;` with no `= default`), where the macro cannot know
-/// the child field's concrete type at expansion time.
+/// Read the effective payload of a value endpoint regardless of its storage:
+/// a plain payload field (`f32` or any other [`ValuePayload`]) or a ramped
+/// `ValueRampState` (which reads as its current `f32`). Used by generated
+/// code to inherit a hoisted input's initial value from the child node it
+/// hoists (`input voices.cutoff;` with no `= default`), where the macro
+/// cannot know the child field's concrete type at expansion time.
+///
+/// [`ValuePayload`]: super::types::ValuePayload
 pub trait ReadValueEndpoint {
-    fn read_value(&self) -> f32;
+    type Value: super::types::ValuePayload;
+    fn read_value(&self) -> Self::Value;
 }
 
-impl ReadValueEndpoint for f32 {
+impl<T: super::types::ValuePayload> ReadValueEndpoint for T {
+    type Value = T;
     #[inline]
-    fn read_value(&self) -> f32 {
+    fn read_value(&self) -> T {
         *self
     }
 }
 
 impl ReadValueEndpoint for super::types::ValueRampState {
+    type Value = f32;
     #[inline]
     fn read_value(&self) -> f32 {
         self.current

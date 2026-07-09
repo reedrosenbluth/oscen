@@ -83,6 +83,27 @@ fn hoisted_inputs_join_param_registry() {
     assert_eq!(g.osc.amplitude, 0.25);
 }
 
+#[test]
+fn descriptor_default_matches_get_param_after_new() {
+    // `input osc.frequency;` has no explicit `= default`: new() inherits
+    // 440.0 from the child constructor, and the descriptor table must
+    // report that same value (not a 0.0 placeholder).
+    let g = HoistBasic::new();
+    let freq = HoistBasicParam::from_name("frequency").expect("frequency registered");
+    assert_eq!(freq.descriptor().default, 440.0);
+    assert_eq!(freq.descriptor().default, g.get_param(freq));
+
+    // Explicit-default hoists keep the declared default.
+    let level = HoistBasicParam::from_name("level").expect("level registered");
+    assert_eq!(level.descriptor().default, 0.5);
+    assert_eq!(level.descriptor().default, g.get_param(level));
+
+    // Ramped explicit-default hoist agrees too.
+    let res = HoistBasicParam::from_name("resonance").expect("resonance registered");
+    assert_eq!(res.descriptor().default, 0.7);
+    assert_eq!(res.descriptor().default, g.get_param(res));
+}
+
 // ---------------------------------------------------------------------------
 // Array broadcast: hoisting through a node array reuses input -> voices.x
 // fan-out (write to every element).
@@ -117,6 +138,14 @@ fn hoist_through_array_broadcasts() {
     for v in &g.voices {
         assert_eq!(v.amplitude, 0.9);
     }
+}
+
+#[test]
+fn array_hoist_descriptor_default_matches_element_zero() {
+    let g = HoistArray::new();
+    let gain = HoistArrayParam::from_name("gain").expect("gain registered");
+    assert_eq!(gain.descriptor().default, 0.2);
+    assert_eq!(gain.descriptor().default, g.get_param(gain));
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +201,14 @@ fn hoist_through_nested_graph() {
     assert_eq!(g.voice.tune.current, 550.0);
     g.process();
     assert_eq!(g.voice.osc.frequency, 550.0);
+}
+
+#[test]
+fn nested_hoist_descriptor_default_matches_child_default() {
+    let g = HoistNested::new();
+    let tune = HoistNestedParam::from_name("tune").expect("tune registered");
+    assert_eq!(tune.descriptor().default, 330.0);
+    assert_eq!(tune.descriptor().default, g.get_param(tune));
 }
 
 // ---------------------------------------------------------------------------

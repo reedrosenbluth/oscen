@@ -51,6 +51,7 @@ pub fn lower(mut graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph
     refine_kernels(&mut ir);
     topo_sort(&mut ir, diags);
     validate_cross_rate_kinds(&ir, diags);
+    validate_typed_value_endpoints(&ir, diags);
 
     #[cfg(debug_assertions)]
     crate::ir::validate::validate(&ir);
@@ -75,24 +76,29 @@ pub fn lower(mut graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph
 /// with a dedicated message, because at connection-lowering time the
 /// generic "cannot resolve" error would point at a connection the user
 /// never wrote.
-fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
+/// Expand endpoint-list hoists (`input node.{a, b} pat_*;`) into one
+/// single-endpoint hoist InputDecl per endpoint, in place (so declaration
+/// order — and thus param-registry order — is preserved).
+///
+/// Runs as a pre-pass in `compile_parsed` and again as part of hoist
+/// expansion here (idempotent — a no-op when the pre-pass already ran —
+/// so direct `lower` callers keep working).
+///
+/// When the hoisted node's endpoint manifest happens to be resolved
+/// (`manifests` is populated for nodes that are wildcard-hoisted
+/// elsewhere in the graph), the child endpoint's declared `ty` is threaded
+/// into the synthesized decl — same rule as wildcard expansion — so a
+/// typed value endpoint (or a `Frame<N>` stream) hoists with its type
+/// instead of collapsing to mono `f32`. List hoists alone don't trigger
+/// manifest resolution, so without one the decl stays untyped (`f32`) and
+/// a typed child endpoint surfaces as rustc's `ConnectEndpoints<f32, T>`
+/// error — hoist such endpoints explicitly (`input node.ep: value: T;`).
+pub(crate) fn expand_list_hoists(
+    graph_def: &mut GraphDef,
+    manifests: &HashMap<String, crate::manifest::NodeManifest>,
+) {
     use crate::ast::{HoistEndpoints, HoistSource, InputDecl};
-    use std::collections::HashSet;
 
-    // Names of declared nodes/arrays, for validation.
-    let node_names: HashSet<String> = graph_def
-        .items
-        .iter()
-        .flat_map(|item| match item {
-            GraphItem::Node(n) => vec![n.name.to_string()],
-            GraphItem::NodeBlock(b) => b.0.iter().map(|n| n.name.to_string()).collect(),
-            _ => vec![],
-        })
-        .collect();
-
-    // Pass 1: expand endpoint-list hoists (`input node.{a, b} pat_*;`) into
-    // one single-endpoint hoist InputDecl per endpoint, in place (so
-    // declaration order — and thus param-registry order — is preserved).
     let items = std::mem::take(&mut graph_def.items);
     let mut expanded: Vec<GraphItem> = Vec::with_capacity(items.len());
     for item in items {
@@ -108,15 +114,21 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
             expanded.push(GraphItem::Input(input));
             continue;
         };
+        let manifest = manifests.get(&node.to_string());
         for endpoint in endpoints {
             let name = match &rename {
                 Some(pat) => pat.apply(&endpoint),
                 None => endpoint.clone(),
             };
+            // Inherit the child endpoint's declared type from the manifest
+            // where one is resolved; `None` stays mono `f32`, as before.
+            let ty = manifest
+                .and_then(|m| m.inputs.iter().find(|ep| ep.name == endpoint))
+                .and_then(|ep| ep.ty.clone());
             expanded.push(GraphItem::Input(InputDecl {
                 kind: input.kind,
                 name,
-                ty: None,
+                ty,
                 default: None,
                 spec: None,
                 hoist: Some(HoistSource {
@@ -127,6 +139,17 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
         }
     }
     graph_def.items = expanded;
+}
+
+fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
+    // Names of declared nodes/arrays, for validation.
+    let node_names = graph_def.node_decl_names();
+
+    // Pass 1: expand endpoint-list hoists into single-endpoint hoists.
+    // No manifests here: `compile_parsed` already ran the manifest-aware
+    // pre-pass, so this call is a no-op for it; direct `lower` callers
+    // get the untyped (`f32`) expansion, as before.
+    expand_list_hoists(graph_def, &HashMap::new());
 
     // Pass 2: validate node names and synthesize the connections.
     let mut synthesized: Vec<GraphItem> = Vec::new();
@@ -1290,60 +1313,69 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
 /// edge on the cycle for diagnostics.
 fn describe_cycle(ir: &IrGraph, remaining: &[NodeId]) -> (String, proc_macro2::Span) {
     let remaining_set: std::collections::HashSet<NodeId> = remaining.iter().copied().collect();
-    let Some(&start) = remaining.first() else {
+    if remaining.is_empty() {
         return (
             "(unable to reconstruct the cycle)".to_string(),
             proc_macro2::Span::call_site(),
         );
-    };
+    }
 
-    // Follow any non-feedback edge that stays inside the cyclic component.
-    // Every node in `remaining` has at least one such outgoing edge, so this
-    // walk must revisit a node within |remaining| + 1 steps.
-    let mut path: Vec<NodeId> = vec![start];
-    let mut first_edge_span: Option<proc_macro2::Span> = None;
-    let mut current = start;
-    loop {
-        let next_hop = ir.nodes[current].outgoing.iter().find_map(|&eid| {
-            let edge = &ir.edges[eid];
-            if edge.is_feedback {
-                return None;
+    // `remaining` holds every node Kahn's algorithm could not order, which
+    // includes acyclic nodes strictly *downstream* of a cycle (their
+    // in-degree never reaches 0 either). A walk started from such a node
+    // dead-ends without closing a loop, so try each node in turn: any node
+    // actually on a cycle is guaranteed to walk into one, because every hop
+    // stays inside `remaining` and a cycle node's successors chain around
+    // the cycle. O(n^2) worst case is fine on this error path.
+    'starts: for &start in remaining {
+        // Follow any non-feedback edge that stays inside the unsorted set
+        // until a node repeats within |remaining| + 1 steps.
+        let mut path: Vec<NodeId> = vec![start];
+        let mut first_edge_span: Option<proc_macro2::Span> = None;
+        let mut current = start;
+        loop {
+            let next_hop = ir.nodes[current].outgoing.iter().find_map(|&eid| {
+                let edge = &ir.edges[eid];
+                if edge.is_feedback {
+                    return None;
+                }
+                let dst = edge.dest.node;
+                remaining_set.contains(&dst).then_some((dst, edge.span))
+            });
+            let Some((next, span)) = next_hop else {
+                // Dead end: `start` is downstream of the cycle, not on it.
+                continue 'starts;
+            };
+            first_edge_span.get_or_insert(span);
+            if let Some(pos) = path.iter().position(|&n| n == next) {
+                // Found the cycle: path[pos..] ++ next closes the loop.
+                let names: Vec<String> = path[pos..]
+                    .iter()
+                    .chain(std::iter::once(&next))
+                    .map(|&id| format!("`{}`", ir.nodes[id].name))
+                    .collect();
+                return (
+                    names.join(" -> "),
+                    first_edge_span.unwrap_or_else(proc_macro2::Span::call_site),
+                );
             }
-            let dst = edge.dest.node;
-            remaining_set.contains(&dst).then_some((dst, edge.span))
-        });
-        let Some((next, span)) = next_hop else {
-            // Shouldn't happen (cyclic component), but degrade gracefully.
-            break;
-        };
-        first_edge_span.get_or_insert(span);
-        if let Some(pos) = path.iter().position(|&n| n == next) {
-            // Found the cycle: path[pos..] ++ next closes the loop.
-            let names: Vec<String> = path[pos..]
-                .iter()
-                .chain(std::iter::once(&next))
-                .map(|&id| format!("`{}`", ir.nodes[id].name))
-                .collect();
-            return (
-                names.join(" -> "),
-                first_edge_span.unwrap_or_else(proc_macro2::Span::call_site),
-            );
-        }
-        path.push(next);
-        current = next;
-        if path.len() > remaining.len() + 1 {
-            break;
+            path.push(next);
+            current = next;
+            if path.len() > remaining.len() + 1 {
+                continue 'starts;
+            }
         }
     }
 
-    // Fallback: list the nodes involved.
+    // Fallback: list the nodes involved. Unreachable when a true cycle
+    // exists (some start must close a loop), but kept as a safety net.
     let names: Vec<String> = remaining
         .iter()
         .map(|&id| format!("`{}`", ir.nodes[id].name))
         .collect();
     (
         format!("involving nodes {}", names.join(", ")),
-        first_edge_span.unwrap_or_else(proc_macro2::Span::call_site),
+        proc_macro2::Span::call_site(),
     )
 }
 
@@ -1390,6 +1422,118 @@ fn validate_cross_rate_kinds(ir: &IrGraph, diags: &mut Diagnostics) {
                 endpoint_kind_name(dst),
             ),
         ));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Step 9: Typed value endpoint validation
+// ---------------------------------------------------------------------------
+
+/// Step 9: Validate the constraints on TYPED value endpoints (graph value
+/// inputs/outputs declared with a non-`f32` type; see
+/// [`EndpointInfo::typed_value_ty`]):
+///
+/// - **(a) No param specs.** Typed inputs are excluded from the param
+///   registry, so ramps, ranges, and display metadata have nothing to attach
+///   to (and typed payloads cannot interpolate).
+/// - **(b) No fan-in.** Values don't sum (Cmajor precedent): a typed dest
+///   slot takes exactly one source, and an array fan-in (`voices.mode ->
+///   out_mode` summing all elements) is likewise rejected.
+/// - **(c) Latch-only across rate boundaries.** A cross-rate typed value
+///   edge is emitted as a copy at the outer-block boundary; interpolating
+///   policies (`[linear]`, `[sinc]`, ...) are meaningless for opaque
+///   payloads.
+///
+/// Only graph-boundary endpoints carry declared types in the IR; typed
+/// *node* fields are invisible here and enforced by rustc through the
+/// `ConnectEndpoints` bounds. All violations are reported, none bail early.
+fn validate_typed_value_endpoints(ir: &IrGraph, diags: &mut Diagnostics) {
+    // (a) Param specs on typed value inputs.
+    for &id in &ir.inputs {
+        let node = &ir.nodes[id];
+        let Some(ty) = ir.typed_value_endpoint_ty(id, &node.name) else {
+            continue;
+        };
+        let has_spec = matches!(&node.kind, IrNodeKind::Input { spec: Some(_), .. });
+        if has_spec {
+            let ty_str = quote::quote!(#ty).to_string().replace(' ', "");
+            diags.push_error(syn::Error::new(
+                node.span,
+                format!(
+                    "typed value input `{}` cannot carry a param spec: `{}` is not an \
+                     f32 parameter, so ranges, ramps, and display metadata do not \
+                     apply; drop the `[...]`/`{{...}}` spec or declare the input as f32",
+                    node.name, ty_str,
+                ),
+            ));
+        }
+    }
+
+    // (b) Fan-in into a typed value dest, and (c) non-latch cross-rate
+    // policies on typed value edges. Group edges by dest slot; a bucket is
+    // "typed" if any of its edges touches a typed graph endpoint.
+    let mut buckets: HashMap<(NodeId, String, Option<usize>), (Vec<EdgeId>, bool)> = HashMap::new();
+    for &eid in &ir.edge_order {
+        let edge = &ir.edges[eid];
+        // Every edge participates in dest buckets so that a typed source
+        // fanning in alongside an untyped one is still caught; the checks
+        // below only fire on buckets that contain at least one typed edge.
+        let dest = &edge.dest;
+        let bucket = buckets
+            .entry((dest.node, dest.endpoint.to_string(), dest.index))
+            .or_default();
+        bucket.0.push(eid);
+        let typed = ir.edge_is_typed_value(edge);
+        bucket.1 |= typed;
+        if !typed {
+            continue;
+        }
+
+        // (c) latch-only across rate boundaries.
+        match edge.kernel {
+            EdgeKernel::Up { kind, .. } | EdgeKernel::Down { kind, .. }
+                if !matches!(kind, ConnectionPolicy::Latch) =>
+            {
+                diags.push_error(syn::Error::new(
+                    edge.span,
+                    "typed value connections are latch-only across rate boundaries \
+                     (the value is copied once per outer block); remove the resampling \
+                     policy annotation",
+                ));
+            }
+            _ => {}
+        }
+
+        // Array fan-in shape sums element values — impossible for typed
+        // payloads.
+        if let FanoutShape::FanIn { .. } = edge.fanout {
+            diags.push_error(syn::Error::new(
+                edge.span,
+                "typed values cannot fan in from a node array: values don't sum; \
+                 index one element (`voices[0].mode`) or restructure",
+            ));
+        }
+    }
+    for ((dest_node, dest_endpoint, _), (edges, has_typed)) in buckets {
+        if !has_typed || edges.len() < 2 {
+            continue;
+        }
+        let dest_name = &ir.nodes[dest_node].name;
+        let dest_desc = if dest_name.to_string() == dest_endpoint {
+            dest_name.to_string()
+        } else {
+            format!("{dest_name}.{dest_endpoint}")
+        };
+        for &eid in &edges[1..] {
+            diags.push_error(syn::Error::new(
+                ir.edges[eid].span,
+                format!(
+                    "typed value endpoint `{dest_desc}` has {} sources, but typed \
+                     values cannot fan in (values don't sum); keep a single source",
+                    edges.len(),
+                ),
+            ));
+        }
     }
 }
 

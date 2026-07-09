@@ -6,7 +6,7 @@
 
 use crate::ir::expr::primary_node;
 use crate::ir::graph::{IrGraph, IrNodeKind, NodeId};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub fn run(ir: &mut IrGraph) {
     // Conservative guard: if a graph has no declared outputs, leave every
@@ -31,26 +31,27 @@ pub fn run(ir: &mut IrGraph) {
     // the hoist's setter writes into the child node's field and its default
     // may be inherited from that field in `new()`, so the node must survive
     // even when its outputs don't reach a graph output.
+    //
+    // Resolve hoist targets through a name -> id map built once (mirroring
+    // `name_to_id` in lower.rs) so each hoist costs an O(1) lookup rather
+    // than a scan over every node.
+    let mut name_to_id: HashMap<String, NodeId> = HashMap::new();
+    for (id, node) in ir.nodes.iter() {
+        if matches!(
+            node.kind,
+            IrNodeKind::Processor { .. } | IrNodeKind::NodeArray { .. }
+        ) {
+            name_to_id.entry(node.name.to_string()).or_insert(id);
+        }
+    }
     let hoist_roots: Vec<NodeId> = ir
         .inputs
         .iter()
         .filter_map(|&input_id| {
-            let IrNodeKind::Input {
-                hoist: Some(h), ..
-            } = &ir.nodes[input_id].kind
-            else {
+            let IrNodeKind::Input { hoist: Some(h), .. } = &ir.nodes[input_id].kind else {
                 return None;
             };
-            let target = h.node.to_string();
-            ir.nodes
-                .iter()
-                .find(|(_, n)| {
-                    matches!(
-                        n.kind,
-                        IrNodeKind::Processor { .. } | IrNodeKind::NodeArray { .. }
-                    ) && n.name == target
-                })
-                .map(|(id, _)| id)
+            name_to_id.get(&h.node.to_string()).copied()
         })
         .collect();
 

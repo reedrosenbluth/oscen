@@ -36,11 +36,9 @@ pub struct WildcardRequest {
     pub node: Ident,
     /// Path of the manifest macro: the node type's path with the last
     /// segment `T` replaced by `__oscen_endpoints_T` (generics stripped).
+    /// Its idents carry the requesting statement's span (the wildcard's
+    /// `*` token), so resolution errors point at the parent's statement.
     pub manifest_path: syn::Path,
-    /// Span of the `*` token in the wildcard statement. All wildcard
-    /// diagnostics and generated idents use this span so errors point at
-    /// the parent's `input node.*;` statement.
-    pub span: Span,
 }
 
 /// Parse a `graph!` body and collect its wildcard hoists in declaration
@@ -56,22 +54,20 @@ pub fn scan_wildcards(input: TokenStream) -> Result<Vec<WildcardRequest>, Diagno
     if !diags.is_empty() {
         return Err(diags);
     }
+    scan_wildcards_parsed(&graph_def)
+}
+
+/// [`scan_wildcards`] over an already-parsed body — used by
+/// [`expand_graph_entry`], which parses once and reuses the AST for the
+/// wildcard-free compile path.
+fn scan_wildcards_parsed(graph_def: &GraphDef) -> Result<Vec<WildcardRequest>, Diagnostics> {
+    let mut diags = Diagnostics::new();
 
     // Node name -> declaration, for type-path resolution.
-    let mut node_decls: HashMap<String, &NodeDecl> = HashMap::new();
-    for item in &graph_def.items {
-        match item {
-            GraphItem::Node(n) => {
-                node_decls.insert(n.name.to_string(), n);
-            }
-            GraphItem::NodeBlock(b) => {
-                for n in &b.0 {
-                    node_decls.insert(n.name.to_string(), n);
-                }
-            }
-            _ => {}
-        }
-    }
+    let node_decls: HashMap<String, &NodeDecl> = graph_def
+        .node_decls()
+        .map(|n| (n.name.to_string(), n))
+        .collect();
 
     let mut requests = Vec::new();
     for item in &graph_def.items {
@@ -110,7 +106,6 @@ pub fn scan_wildcards(input: TokenStream) -> Result<Vec<WildcardRequest>, Diagno
         requests.push(WildcardRequest {
             node: node.clone(),
             manifest_path: manifest_path_for(ty, *span),
-            span: *span,
         });
     }
 
@@ -136,17 +131,204 @@ fn manifest_path_for(ty: &syn::Path, span: Span) -> syn::Path {
     path
 }
 
-/// One endpoint entry of a manifest: `name: kind`.
+/// Emit the endpoint-manifest macro for a node or graph type: an exported
+/// `macro_rules!` that invokes a caller-supplied continuation with the
+/// type's endpoint list appended to arbitrary passthrough state:
+///
+/// ```ignore
+/// __oscen_endpoints_<TypeName>!($callback:path => ( <passthrough> ));
+/// // expands to:
+/// $callback! {
+///     <passthrough>
+///     node_type <TypeName>
+///     inputs [ name1: value, name2: stream, name3: event ]
+///     outputs [ out1: stream ]
+/// }
+/// ```
+///
+/// Each `name: kind` entry may carry an optional parenthesized annotation
+/// list — additive metadata consumed by wildcard expansion (entries
+/// without annotations parse exactly as before):
+///
+/// ```ignore
+/// inputs [
+///     inp: stream (ty = ::oscen::frame::Frame<2>),  // declared frame type
+///     cutoff: value (ramp = 256),   // graph!-declared ramp length (frames)
+///     level: value (ramped),        // smoothed, length known only at runtime
+///     pulse_width: value (priv),    // real endpoint, but not `pub`
+/// ]
+/// ```
+///
+/// Annotations may combine (comma-separated, any order). Type tokens in
+/// `ty = …` resolve at the *consuming* graph's call site (`macro_rules!`
+/// item-path hygiene): `graph!` emitters canonicalize recognized frame
+/// types to fully-qualified `::oscen::frame::…` paths, but
+/// `#[derive(Node)]` carries the field's literal type tokens, so a bare
+/// `Frame<2>` requires the parent to have `Frame` in scope.
+///
+/// This is the single emitter shared by `#[derive(Node)]` (in
+/// `oscen-macros`) and `graph!` codegen; the payload skeleton must stay
+/// parseable by [`NodeManifest`]'s `Parse` impl below.
+///
+/// `#[macro_export]` names are crate-global, so the exported name is
+/// mangled `__oscen_endpoints_export_<TypeName>_<hash>`, where `<hash>` is
+/// a deterministic FNV-1a digest of the type name plus `definition_tokens`
+/// (the derive passes the item's tokens; `graph!` passes the graph body).
+/// That keeps two same-named types in different modules of one crate from
+/// colliding on the export (only byte-identical same-named definitions
+/// still would). Consumers never see the hashed name: the module-local
+/// re-export `pub use … as __oscen_endpoints_<TypeName>;` is what
+/// `manifest_path_for`-derived paths resolve, it travels with
+/// `pub use module::*` chains, and module-local aliases can't collide
+/// across modules.
+pub fn emit_manifest_export(
+    type_name: &Ident,
+    inputs: &[ManifestEndpoint],
+    outputs: &[ManifestEndpoint],
+    definition_tokens: &TokenStream,
+) -> TokenStream {
+    let hash = export_disambiguator(type_name, definition_tokens);
+    let export_ident = Ident::new(
+        &format!("__oscen_endpoints_export_{type_name}_{hash}"),
+        Span::call_site(),
+    );
+    let manifest_ident = Ident::new(&format!("__oscen_endpoints_{type_name}"), Span::call_site());
+    let input_entries: Vec<TokenStream> = inputs.iter().map(manifest_entry_tokens).collect();
+    let output_entries: Vec<TokenStream> = outputs.iter().map(manifest_entry_tokens).collect();
+    quote::quote! {
+        #[doc(hidden)]
+        #[allow(non_local_definitions)]
+        #[macro_export]
+        macro_rules! #export_ident {
+            ($callback:path => ( $($passthrough:tt)* )) => {
+                $callback! {
+                    $($passthrough)*
+                    node_type #type_name
+                    inputs [ #(#input_entries),* ]
+                    outputs [ #(#output_entries),* ]
+                }
+            };
+        }
+        #[doc(hidden)]
+        #[allow(unused_imports)]
+        pub use #export_ident as #manifest_ident;
+    }
+}
+
+/// The bare kind ident (`value` / `stream` / `event` / `asset`) used in
+/// manifest endpoint entries — the inverse of `EndpointKind`'s `Parse`.
+fn manifest_kind_tokens(kind: EndpointKind) -> TokenStream {
+    match kind {
+        EndpointKind::Stream => quote::quote! { stream },
+        EndpointKind::Value => quote::quote! { value },
+        EndpointKind::Event => quote::quote! { event },
+        EndpointKind::Asset => quote::quote! { asset },
+    }
+}
+
+/// One manifest entry: `name: kind` plus the optional parenthesized
+/// annotation list (`ty = …`, `ramp = N`, `ramped`, `priv`) — the inverse
+/// of [`parse_endpoint_entries`]. Entries without metadata keep the bare
+/// `name: kind` form so the grammar stays additive.
+fn manifest_entry_tokens(ep: &ManifestEndpoint) -> TokenStream {
+    let name = &ep.name;
+    let kind = manifest_kind_tokens(ep.kind);
+    let mut annotations: Vec<TokenStream> = Vec::new();
+    if let Some(ty) = &ep.ty {
+        annotations.push(quote::quote! { ty = #ty });
+    }
+    match ep.ramp {
+        ManifestRamp::None => {}
+        ManifestRamp::Frames(n) => {
+            let lit = proc_macro2::Literal::usize_unsuffixed(n);
+            annotations.push(quote::quote! { ramp = #lit });
+        }
+        ManifestRamp::Declared => annotations.push(quote::quote! { ramped }),
+    }
+    if ep.private {
+        annotations.push(quote::quote! { priv });
+    }
+    if annotations.is_empty() {
+        quote::quote! { #name: #kind }
+    } else {
+        quote::quote! { #name: #kind ( #(#annotations),* ) }
+    }
+}
+
+/// 16-hex-char disambiguator for the crate-global `#[macro_export]` name:
+/// FNV-1a (64-bit) over the type name and the definition's token stream.
+/// Purely a function of source tokens — deterministic across builds (no
+/// time, randomness, or environment).
+fn export_disambiguator(type_name: &Ident, definition_tokens: &TokenStream) -> String {
+    const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut hash = FNV_OFFSET;
+    let mut feed = |bytes: &[u8]| {
+        for &b in bytes {
+            hash ^= u64::from(b);
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+    };
+    feed(type_name.to_string().as_bytes());
+    // Separator so (name, tokens) pairs can't collide by shifting bytes
+    // between the two parts (idents never contain NUL).
+    feed(&[0]);
+    feed(definition_tokens.to_string().as_bytes());
+    format!("{hash:016x}")
+}
+
+/// Ramp metadata of a manifest endpoint.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ManifestRamp {
+    /// No declared smoothing.
+    None,
+    /// `ramp = N`: a `graph!`-declared ramp of N frames (`[ramp: N]` on the
+    /// child's input spec). Wildcard expansion re-declares the hoisted
+    /// parent input with the same `[ramp: N]` spec.
+    Frames(usize),
+    /// `ramped`: the endpoint is smoothed (a `ValueRampState` field on a
+    /// `#[derive(Node)]` type) but the ramp length is a runtime value the
+    /// derive cannot see. Wildcard expansion rejects these with a spanned
+    /// error telling the user to hoist explicitly with `[ramp: N]`.
+    Declared,
+}
+
+/// One endpoint entry of a manifest: `name: kind`, plus optional
+/// annotations (`ty = …`, `ramp = N`, `ramped`, `priv`).
 pub struct ManifestEndpoint {
     pub name: Ident,
     pub kind: EndpointKind,
+    /// Declared endpoint type tokens, where known and non-mono (`ty = …`).
+    /// Carried for stream endpoints so wildcard hoists preserve frame
+    /// types (`Frame<2>`); `None` means mono `f32`, as before.
+    pub ty: Option<syn::Type>,
+    /// Declared smoothing (`ramp = N` / `ramped`).
+    pub ramp: ManifestRamp,
+    /// `priv`: the endpoint exists but its field is not `pub`. Wildcard
+    /// expansion skips it (a parent graph writes child fields directly;
+    /// privacy applies) — the marker distinguishes present-but-private
+    /// from absent.
+    pub private: bool,
+}
+
+impl ManifestEndpoint {
+    /// An annotation-free entry (`name: kind`).
+    pub fn new(name: Ident, kind: EndpointKind) -> Self {
+        ManifestEndpoint {
+            name,
+            kind,
+            ty: None,
+            ramp: ManifestRamp::None,
+            private: false,
+        }
+    }
 }
 
 /// The parsed payload of one endpoint-manifest invocation:
 ///
 /// ```ignore
 /// node_type <TypeName>
-/// inputs [ name1: value, name2: stream, name3: event ]
+/// inputs [ name1: value, name2: stream (ty = Frame<2>), name3: event ]
 /// outputs [ out1: stream ]
 /// ```
 pub struct NodeManifest {
@@ -169,7 +351,47 @@ fn parse_endpoint_entries(input: ParseStream) -> syn::Result<Vec<ManifestEndpoin
         let name: Ident = content.parse()?;
         content.parse::<Token![:]>()?;
         let kind: EndpointKind = content.parse()?;
-        entries.push(ManifestEndpoint { name, kind });
+        let mut entry = ManifestEndpoint::new(name, kind);
+        if content.peek(syn::token::Paren) {
+            let annotations;
+            syn::parenthesized!(annotations in content);
+            while !annotations.is_empty() {
+                if annotations.peek(Token![priv]) {
+                    annotations.parse::<Token![priv]>()?;
+                    entry.private = true;
+                } else {
+                    let key: Ident = annotations.parse()?;
+                    match key.to_string().as_str() {
+                        "ty" => {
+                            annotations.parse::<Token![=]>()?;
+                            entry.ty = Some(annotations.parse()?);
+                        }
+                        "ramp" => {
+                            annotations.parse::<Token![=]>()?;
+                            let lit: syn::LitInt = annotations.parse()?;
+                            entry.ramp = ManifestRamp::Frames(lit.base10_parse()?);
+                        }
+                        "ramped" => {
+                            entry.ramp = ManifestRamp::Declared;
+                        }
+                        other => {
+                            return Err(syn::Error::new(
+                                key.span(),
+                                format!(
+                                    "unknown endpoint annotation `{other}` in endpoint \
+                                     manifest (expected `ty = <Type>`, `ramp = <frames>`, \
+                                     `ramped`, or `priv`)"
+                                ),
+                            ))
+                        }
+                    }
+                }
+                if annotations.peek(Token![,]) {
+                    annotations.parse::<Token![,]>()?;
+                }
+            }
+        }
+        entries.push(entry);
         if content.peek(Token![,]) {
             content.parse::<Token![,]>()?;
         }
@@ -252,57 +474,31 @@ pub(crate) fn expand_wildcards(
 
     // (node, endpoint) pairs hoisted explicitly (single or list).
     let mut explicit_hoists: HashSet<(String, String)> = HashSet::new();
-    // Every non-wildcard declared name (inputs, outputs, nodes): the
-    // namespace wildcard expansions must not collide with.
-    let mut taken_names: HashSet<String> = HashSet::new();
     for item in &graph_def.items {
-        match item {
-            GraphItem::Input(input) => match &input.hoist {
-                Some(HoistSource {
-                    node,
-                    endpoints: HoistEndpoints::Single(ep),
-                }) => {
+        let GraphItem::Input(input) = item else {
+            continue;
+        };
+        match &input.hoist {
+            Some(HoistSource {
+                node,
+                endpoints: HoistEndpoints::Single(ep),
+            }) => {
+                explicit_hoists.insert((node.to_string(), ep.to_string()));
+            }
+            Some(HoistSource {
+                node,
+                endpoints: HoistEndpoints::List { endpoints, .. },
+            }) => {
+                for ep in endpoints {
                     explicit_hoists.insert((node.to_string(), ep.to_string()));
-                    taken_names.insert(input.name.to_string());
                 }
-                Some(HoistSource {
-                    node,
-                    endpoints: HoistEndpoints::List { endpoints, rename },
-                }) => {
-                    for ep in endpoints {
-                        explicit_hoists.insert((node.to_string(), ep.to_string()));
-                        let name = match rename {
-                            Some(pat) => pat.apply(ep).to_string(),
-                            None => ep.to_string(),
-                        };
-                        taken_names.insert(name);
-                    }
-                }
-                Some(HoistSource {
-                    endpoints: HoistEndpoints::Wildcard { .. },
-                    ..
-                }) => {}
-                None => {
-                    taken_names.insert(input.name.to_string());
-                }
-            },
-            GraphItem::Output(output) => {
-                taken_names.insert(output.name.to_string());
-            }
-            GraphItem::Node(n) => {
-                taken_names.insert(n.name.to_string());
-            }
-            GraphItem::NodeBlock(b) => {
-                for n in &b.0 {
-                    taken_names.insert(n.name.to_string());
-                }
-            }
-            GraphItem::External(e) => {
-                taken_names.insert(e.name.to_string());
             }
             _ => {}
         }
     }
+    // Every non-wildcard declared name (inputs, outputs, nodes, externals):
+    // the namespace wildcard expansions must not collide with.
+    let mut taken_names = graph_def.declared_names();
 
     let items = std::mem::take(&mut graph_def.items);
     let mut expanded: Vec<GraphItem> = Vec::with_capacity(items.len());
@@ -341,11 +537,36 @@ pub(crate) fn expand_wildcards(
                 // graph inputs.
                 continue;
             }
+            if ep.private {
+                // A hoist writes the child's field directly; privacy
+                // forbids that for non-pub fields. Skip, same as when
+                // private endpoints were absent from manifests entirely.
+                continue;
+            }
             let ep_key = ep.name.to_string();
             if connected.contains(&(node_key.clone(), ep_key.clone())) {
                 continue;
             }
             if explicit_hoists.contains(&(node_key.clone(), ep_key.clone())) {
+                continue;
+            }
+            if ep.ramp == ManifestRamp::Declared {
+                // The child endpoint is smoothed, but the ramp length is a
+                // runtime value the manifest cannot carry. A plain hoisted
+                // input would silently strip the smoothing; make the user
+                // pick a parent ramp explicitly (the wildcard then skips
+                // the explicitly hoisted endpoint).
+                diags.push_error(syn::Error::new(
+                    *span,
+                    format!(
+                        "wildcard hoist `input {node}.*;` cannot hoist `{ep_key}`: the \
+                         child endpoint declares ramp smoothing whose length is only \
+                         known at runtime, and a plain hoisted input would silently \
+                         drop it; hoist it explicitly with a parent ramp \
+                         (`input {node}.{ep_key} [ramp: N];`) — the wildcard then \
+                         skips the explicitly hoisted endpoint",
+                    ),
+                ));
                 continue;
             }
             if !taken_names.insert(ep_key.clone()) {
@@ -360,6 +581,25 @@ pub(crate) fn expand_wildcards(
                 ));
                 continue;
             }
+            // A child ramp with a known length re-declares the hoisted
+            // input with the same `[ramp: N]` spec: the parent input gets
+            // its own ValueRampState (the existing explicit
+            // hoist-with-ramp path) instead of silently stripping the
+            // child's declared smoothing.
+            let spec = match ep.ramp {
+                ManifestRamp::Frames(frames) => Some(crate::ast::ParamSpec {
+                    range: None,
+                    curve: None,
+                    ramp: Some(frames),
+                    center: None,
+                    unit: None,
+                    smoother: None,
+                    step: None,
+                    display_name: None,
+                    group: None,
+                }),
+                ManifestRamp::None | ManifestRamp::Declared => None,
+            };
             // Re-span to the wildcard statement: errors about this input
             // must point at the parent's `input node.*;`, not at the
             // child crate's manifest tokens.
@@ -367,9 +607,12 @@ pub(crate) fn expand_wildcards(
             expanded.push(GraphItem::Input(InputDecl {
                 kind: ep.kind,
                 name: name.clone(),
-                ty: None,
+                // Carry the child's declared endpoint type (e.g. a stream's
+                // `Frame<2>`) so the hoisted parent input matches; `None`
+                // stays mono `f32`, as before.
+                ty: ep.ty.clone(),
                 default: None,
-                spec: None,
+                spec,
                 hoist: Some(HoistSource {
                     node: Ident::new(&node_key, *span),
                     endpoints: HoistEndpoints::Single(name),
@@ -398,9 +641,17 @@ pub fn expand_graph_entry(
     input: TokenStream,
     resume_path: &syn::Path,
 ) -> Result<TokenStream, Diagnostics> {
-    let requests = scan_wildcards(input.clone())?;
+    let mut diags = Diagnostics::new();
+    let graph_def = crate::parse::parse_graph_def(input.clone(), &mut diags);
+    if !diags.is_empty() {
+        return Err(diags);
+    }
+    let requests = scan_wildcards_parsed(&graph_def)?;
     if requests.is_empty() {
-        return crate::compile(input);
+        // No manifests needed: reuse the parsed AST instead of re-parsing.
+        // `input` (the original body tokens) still feeds codegen's
+        // manifest-export hash.
+        return crate::compile_parsed(graph_def, input, &HashMap::new());
     }
     let (first, rest) = requests.split_first().expect("non-empty checked");
     Ok(emit_manifest_invocation(
@@ -496,11 +747,9 @@ impl Parse for ResumeState {
             let name: Ident = pending_content.parse()?;
             pending_content.parse::<Token![=]>()?;
             let path: syn::Path = pending_content.parse()?;
-            let span = name.span();
             pending.push(WildcardRequest {
                 node: name,
                 manifest_path: path,
-                span,
             });
             if pending_content.peek(Token![,]) {
                 pending_content.parse::<Token![,]>()?;

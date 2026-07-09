@@ -240,7 +240,10 @@ fn wildcard_hoist_parses_cleanly() {
     let diags = compile(input).expect_err("no manifest -> diagnostics");
     let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
     assert_eq!(error_count(&diags), 1, "got {msgs:?}");
-    assert!(msgs[0].contains("no endpoint manifest resolved"), "got {msgs:?}");
+    assert!(
+        msgs[0].contains("no endpoint manifest resolved"),
+        "got {msgs:?}"
+    );
 }
 
 #[test]

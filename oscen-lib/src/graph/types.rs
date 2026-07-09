@@ -84,16 +84,19 @@ impl EndpointDescriptor {
 /// the target-independent source of truth for parameter metadata: UIs,
 /// preset systems, and plugin wrappers should consume it rather than
 /// duplicating ranges/defaults by hand.
+/// A descriptor's position in the `param_descriptors()` table is its
+/// declaration-order index, equal to `{Graph}Param::index()`.
 #[derive(Clone, Copy, Debug)]
 pub struct ParamDescriptor {
-    /// Declaration-order index; equals `{Graph}Param::index()`.
-    pub index: usize,
     /// The input's field name in the graph, e.g. `"osc_a_pitch"`.
     pub name: &'static str,
     /// Human-readable name: the `name` spec attribute if given, otherwise
     /// the field name converted to Title Case (`"Osc A Pitch"`).
     pub display_name: &'static str,
-    /// Declared default value (0.0 when omitted).
+    /// The parameter's initial value: the declared `= default`, or — for
+    /// hoisted inputs without one — the value inherited from the child
+    /// node's constructor (matches `get_param` right after `new()`).
+    /// 0.0 for plain inputs with no default.
     pub default: f32,
     /// `[min..max]` range from the input spec, if declared.
     pub range: Option<(f32, f32)>,
@@ -114,6 +117,63 @@ pub struct ParamDescriptor {
 pub trait ValueObject: Send + Sync + 'static + fmt::Debug {}
 
 impl<T> ValueObject for T where T: Send + Sync + 'static + fmt::Debug {}
+
+/// Marker trait for types a **value endpoint** may carry.
+///
+/// `f32` values are first-class parameters: they join the param registry,
+/// get DAW automation, ramping (`ValueRampState`), and cross-rate
+/// resampling. Every other `ValuePayload` type (enums, bools, small config
+/// structs) is a *typed value*: it flows between nodes as a plain `Copy`
+/// per-frame propagation — the destination field is overwritten with the
+/// source field each frame, which is a latch (the last written value holds)
+/// and costs nothing beyond the copy when the value hasn't changed. Typed
+/// values never enter the param registry and are never ramped or resampled;
+/// across rate boundaries they simply latch.
+///
+/// # Opting in
+///
+/// Implement the (empty) trait for your own plain-data type:
+///
+/// ```
+/// use oscen::graph::ValuePayload;
+///
+/// #[derive(Clone, Copy, Default, Debug, PartialEq)]
+/// enum FilterMode {
+///     #[default]
+///     Lowpass,
+///     Highpass,
+/// }
+///
+/// impl ValuePayload for FilterMode {}
+/// ```
+///
+/// The type can then be used as a `#[input(value)]` / `#[output(value)]`
+/// field on a `#[derive(Node)]` struct and connected between endpoints of
+/// the same type.
+///
+/// # Why `Default`?
+///
+/// Graph value outputs are zero-initialized before the first frame runs
+/// (`0.0` for `f32`); a typed value output needs an equivalent "no value
+/// yet" state, which is `T::default()`. Real-time safety additionally
+/// requires `Copy` (no drop glue, no allocation on the audio thread).
+///
+/// [`Frame`](crate::frame::Frame) is deliberately **not** a `ValuePayload`:
+/// frames are stream payloads with their own concrete `ConnectEndpoints`
+/// impls, and a blanket `ValuePayload` connection impl would overlap them
+/// under coherence rules. `ValueRampState` is storage for a ramped `f32`
+/// parameter, not a payload, and must not implement this trait (the
+/// `ReadValueEndpoint` blanket impl relies on it).
+pub trait ValuePayload: Copy + Default + Send + 'static {}
+
+impl ValuePayload for f32 {}
+impl ValuePayload for f64 {}
+impl ValuePayload for i32 {}
+impl ValuePayload for i64 {}
+impl ValuePayload for u32 {}
+impl ValuePayload for u64 {}
+impl ValuePayload for usize {}
+impl ValuePayload for bool {}
 
 pub trait EventObject: Send + Sync + 'static + fmt::Debug {
     fn as_any(&self) -> &dyn Any;

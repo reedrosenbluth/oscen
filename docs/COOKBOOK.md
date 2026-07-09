@@ -49,6 +49,10 @@ Rules of thumb:
   hoist from, not both.
 - Name collisions (hoist vs. declared input) are duplicate-declaration
   errors; rename the hoist.
+- A typed value endpoint (see "Typed value endpoints" below) hoists with
+  the annotation: `input filter.mode: value: FilterMode;`. Wildcards
+  infer the type from the manifest; explicit single hoists always need
+  the annotation.
 
 ### Wildcard hoists (`input node.*;`)
 
@@ -81,6 +85,18 @@ Semantics:
   inputs (those bind via `external`).
 - No rename pattern, default, or `[spec]` on a wildcard — hoist an endpoint
   individually to rename it or attach metadata (the wildcard then skips it).
+- Endpoint metadata is inherited from the child: a stream endpoint typed
+  `Frame<2>` hoists as a `Frame<2>` input, a typed value endpoint (a
+  `ValuePayload` field like a `FilterMode` enum) hoists as an input of
+  that type (typed setter, no param-registry entry), and a child `graph!`
+  input declared `[ramp: N]` hoists as a parent input with the same
+  `[ramp: N]` (the parent ramps; the child follows per frame). One
+  exception: a
+  `#[derive(Node)]` child that stores a value input as a `ValueRampState`
+  field ramps with a length known only at runtime, which the wildcard
+  cannot reproduce — it errors and tells you to hoist that endpoint
+  explicitly with `input node.endpoint [ramp: N];` (the wildcard then
+  skips it).
 - A collision between an expanded endpoint and any other declaration is a
   hard error on the `input node.*;` line; rename the other declaration or
   hoist that endpoint explicitly with a rename.
@@ -103,13 +119,34 @@ path to that manifest at expansion time (`a::b::FMVoice::new()` →
   import it (`use child_crate::__oscen_endpoints_FMVoice;`) or qualify the
   constructor. The failure mode is rustc's "cannot find macro
   `__oscen_endpoints_FMVoice`" at the `graph!` call site.
-- **Manifest names derive from the type name alone**, so two same-named
-  node types in one crate collide on the exported macro (duplicate
-  `macro_rules!` definition), and same-named types from different crates
-  need path-qualified constructors to pick the right manifest. Rename one
-  type if you hit this.
-- Only the node type's `pub` endpoint fields appear in its manifest (a
-  parent graph writes child fields directly; privacy applies).
+- **Manifest names derive from the type name alone.** The crate-global
+  `#[macro_export]` behind the manifest also hashes the definition's
+  tokens, so two same-named node types in *different modules* of one crate
+  coexist; only two byte-identical same-named definitions in one crate
+  still collide on the exported macro (duplicate `macro_rules!`
+  definition). Same-named types from different crates need path-qualified
+  constructors to pick the right manifest. Rename one type if you hit
+  either case.
+- **What the manifest carries.** Every endpoint's name and kind, plus
+  optional metadata: the declared type of non-f32 endpoints (`ty = …` —
+  the frame type of non-mono streams like `Frame<2>`, and the payload
+  type of typed value endpoints like `FilterMode`, so hoists don't
+  collapse to mono/f32), the declared ramp length of ramped `graph!`
+  value inputs (`ramp = N`), a `ramped` marker for `ValueRampState`
+  fields on derive types (length unknown at compile time), and a `priv`
+  marker for non-`pub` endpoint fields.
+- Non-`pub` endpoint fields are listed in the manifest (with `priv`) but
+  wildcards skip them: a parent graph writes child fields directly, so
+  privacy applies. The marker is what tells "present but not `pub`" apart
+  from "missing".
+- Frame-type tokens from a `graph!` child are fully qualified
+  (`::oscen::frame::Frame<2>`) and resolve anywhere. A `#[derive(Node)]`
+  child carries the field's *literal* type tokens, which resolve at the
+  parent's call site — a child field typed with a bare `Frame<2>` (or any
+  custom frame or `ValuePayload` type) requires that name to be in scope
+  where the parent `graph!` is written. Typed value tokens from a `graph!`
+  child are literal too (`FilterMode`, however the child spelled it) —
+  same rule.
 - The node's type must be visible syntactically (`T::new()`,
   `path::T::new()`, `[T::new(); 8]`). A bare constructor call
   (`node = make_voice()`) can't be resolved — the compiler tells you to
@@ -160,6 +197,86 @@ sample rate yet). A ramped input generates `set_x` (default ramp),
 `set_x_with_ramp(v, frames)`, and `set_x_immediate`. After construction,
 ramps start from the declared default; if you apply a preset before playing,
 run a few `process_block` calls to settle ramps before asserting on output.
+
+### Typed value endpoints
+
+Value endpoints carry any plain data, not just `f32` (Cmajor's "value
+endpoints carry any data"). The model is two-tier:
+
+- **`f32` value inputs are params**: automatable knobs with a registry
+  entry, descriptors, `set_param` dispatch, ramps, and `nih_params`
+  treatment.
+- **Every other payload type is a typed value**: structural configuration
+  (a filter mode, a waveform selector, a small config struct) that flows
+  through the graph as a plain `Copy` — no registry entry, no ramping, no
+  resampling.
+
+Declaring them:
+
+```rust
+// The payload: plain data, opted in with the empty marker trait
+// (which requires Copy + Default + Send + 'static).
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub enum FilterMode { #[default] Lowpass, Highpass, Bandpass }
+impl ValuePayload for FilterMode {}
+
+// On a #[derive(Node)] type: a value field of any ValuePayload type.
+#[derive(Node)]
+pub struct ModeFilter {
+    #[input(value)]
+    pub mode: FilterMode,
+    ...
+}
+
+graph! {
+    name: MySynth;
+    input mode: value: FilterMode;                 // typed graph input
+    input tuned: value: FilterMode = FilterMode::Highpass;  // explicit initial value
+    output active: value: FilterMode;              // typed graph output
+    input filter.mode: value: FilterMode;          // typed hoist (annotation required)
+    connections { mode -> filter.mode; ... }
+}
+```
+
+Semantics:
+
+- A typed input/output is a **real field of the declared type** with a
+  typed setter (`set_mode(FilterMode)`). Without `= default` it starts at
+  `T::default()`; a typed *hoist* without a default inherits the child
+  constructor's value.
+- **Write-wins, latched reads**: connections copy the source field into
+  the destination each frame, so the destination always holds the last
+  written value — a latch that costs one copy whether or not the value
+  changed. There is no interpolation between writes.
+- **Excluded from the param registry and `nih_params`** by design: params
+  are automatable f32 knobs; typed values are structural config. If you
+  want an enum-ish knob the DAW can automate, declare it as an f32 param
+  with `step`/labels instead and map it to the enum inside the node.
+- **No param spec, no ramp** — `input mode: value: FilterMode [ramp: 64];`
+  is a compile error (there's nothing to interpolate). `: f32` is
+  normalized away: it declares a plain param, byte-identical to an
+  unannotated one.
+- **No fan-in**: two sources into one typed endpoint is a compile error —
+  values don't sum. (f32 value fan-in is rejected the same way; only
+  streams sum.)
+- **Cross-rate boundaries latch**: a typed edge into or out of an
+  oversampled node copies once per outer tick at the block boundary — the
+  inner node sees the latched value for the whole inner block. Only the
+  default `[latch]` policy is legal on typed cross-rate edges;
+  `[linear]`/`[sinc]` are compile errors.
+- **Hoisting**: wildcard hoists (`input node.*;`) inherit the payload type
+  through the endpoint manifest, for derive and nested `graph!` children
+  alike; explicit single hoists need the `: value: T` annotation. List
+  hoists (`input node.{a, b};`) inherit the type only when the node's
+  manifest is resolved anyway (a node that also has a wildcard) —
+  otherwise they expand as `f32` and a typed endpoint fails
+  rustc's `ConnectEndpoints<f32, T>` check; hoist it explicitly with the
+  annotation.
+- **Type tokens resolve at the parent's call site** (same hygiene caveat
+  as frame types): a `#[derive(Node)]` child's manifest carries the
+  field's literal tokens, so hoisting `mode: FilterMode` through a
+  wildcard requires `FilterMode` to be in scope where the parent `graph!`
+  is written.
 
 ## Events & MIDI
 

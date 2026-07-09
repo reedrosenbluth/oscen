@@ -48,7 +48,7 @@ error[E0277]: no connection from EventOutput to f32
    | |_^ incompatible endpoint pair
    |
    = help: the trait `ConnectEndpoints<EventOutput, f32>` is not implemented for `()`
-   = note: supported: matching Copy payloads (f32, Frame<N>, arrays), EventOutput -> EventInput/StaticEventQueue
+   = note: supported: matching payloads (ValuePayload types like f32, Frame<N>, arrays), EventOutput -> EventInput/StaticEventQueue
    = help: the following other types implement trait `ConnectEndpoints<Src, Dst>`:
              `()` implements `ConnectEndpoints<&T, T>`
              `()` implements `ConnectEndpoints<EventInput<S>, EventInput<D>>`

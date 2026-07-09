@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use syn::spanned::Spanned;
 use syn::{Expr, Ident};
 
@@ -9,6 +10,77 @@ use syn::{Expr, Ident};
 pub struct GraphDef {
     pub name: Option<syn::Ident>,
     pub items: Vec<GraphItem>,
+}
+
+impl GraphDef {
+    /// Every node declaration — top-level and inside `nodes {}` blocks —
+    /// in declaration order.
+    pub fn node_decls(&self) -> impl Iterator<Item = &NodeDecl> {
+        self.items.iter().flat_map(|item| match item {
+            GraphItem::Node(n) => std::slice::from_ref(n).iter(),
+            GraphItem::NodeBlock(b) => b.0.iter(),
+            _ => [].iter(),
+        })
+    }
+
+    /// The name of every node declaration (see [`Self::node_decls`]).
+    pub fn node_decl_names(&self) -> HashSet<String> {
+        self.node_decls().map(|n| n.name.to_string()).collect()
+    }
+
+    /// The name claimed by every named declaration: inputs (by declared
+    /// name; endpoint-list hoists claim one rename-applied name per
+    /// endpoint), outputs, externals, and nodes. Wildcard-hoist inputs
+    /// contribute nothing — their `InputDecl.name` is a parse placeholder
+    /// and the names they expand to aren't known until manifest
+    /// resolution.
+    pub fn declared_names(&self) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for item in &self.items {
+            match item {
+                GraphItem::Input(input) => match &input.hoist {
+                    Some(HoistSource {
+                        endpoints: HoistEndpoints::Wildcard { .. },
+                        ..
+                    }) => {}
+                    Some(HoistSource {
+                        endpoints: HoistEndpoints::List { endpoints, rename },
+                        ..
+                    }) => {
+                        for ep in endpoints {
+                            let name = match rename {
+                                Some(pat) => pat.apply(ep).to_string(),
+                                None => ep.to_string(),
+                            };
+                            names.insert(name);
+                        }
+                    }
+                    _ => {
+                        names.insert(input.name.to_string());
+                    }
+                },
+                GraphItem::Output(output) => {
+                    names.insert(output.name.to_string());
+                }
+                GraphItem::External(ext) => {
+                    names.insert(ext.name.to_string());
+                }
+                GraphItem::Node(n) => {
+                    names.insert(n.name.to_string());
+                }
+                GraphItem::NodeBlock(b) => {
+                    for n in &b.0 {
+                        names.insert(n.name.to_string());
+                    }
+                }
+                GraphItem::Connection(_)
+                | GraphItem::ConnectionBlock(_)
+                | GraphItem::NihParams
+                | GraphItem::Name(_) => {}
+            }
+        }
+        names
+    }
 }
 
 /// Top-level items in a graph definition
