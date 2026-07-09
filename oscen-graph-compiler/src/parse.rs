@@ -415,12 +415,37 @@ impl Parse for InputDecl {
             if input.peek(Token![*]) {
                 let star: Token![*] = input.parse()?;
                 if input.peek(Ident) {
-                    let rename: Ident = input.parse()?;
+                    // Statement chunks are sliced at top-level `;`, so a
+                    // missing semicolon merges the NEXT statement into this
+                    // chunk. Only an ident immediately followed by `;` (or
+                    // end of chunk) has the shape of a rename attempt;
+                    // anything else — a statement keyword, `x.y -> ...` —
+                    // is the next statement leaking in.
+                    let fork = input.fork();
+                    let ident: Ident = fork.parse()?;
+                    let is_stmt_keyword = matches!(
+                        ident.to_string().as_str(),
+                        "input"
+                            | "output"
+                            | "node"
+                            | "nodes"
+                            | "connection"
+                            | "connections"
+                            | "external"
+                            | "nih_params"
+                            | "name"
+                    );
+                    if !is_stmt_keyword && (fork.is_empty() || fork.peek(Token![;])) {
+                        return Err(syn::Error::new(
+                            ident.span(),
+                            "wildcard hoists cannot be renamed; hoist endpoints \
+                             individually or as a list to rename them \
+                             (`input node.{a, b} prefix_*;`)",
+                        ));
+                    }
                     return Err(syn::Error::new(
-                        rename.span(),
-                        "wildcard hoists cannot be renamed; hoist endpoints \
-                         individually or as a list to rename them \
-                         (`input node.{a, b} prefix_*;`)",
+                        ident.span(),
+                        format!("missing `;` after wildcard hoist `input {first_ident}.*`"),
                     ));
                 }
                 if input.peek(Token![:]) {
@@ -471,9 +496,16 @@ impl Parse for InputDecl {
                 let mut endpoints: Vec<Ident> = Vec::new();
                 while !content.is_empty() {
                     endpoints.push(content.parse()?);
-                    if content.peek(Token![,]) {
-                        content.parse::<Token![,]>()?;
+                    if content.is_empty() {
+                        break;
                     }
+                    if !content.peek(Token![,]) {
+                        // Without this, `{freq amp}` silently parses as TWO
+                        // hoisted endpoints (e.g. a rename put inside the
+                        // braces by analogy with the single-hoist syntax).
+                        return Err(content.error("expected `,` between hoisted endpoints"));
+                    }
+                    content.parse::<Token![,]>()?;
                 }
                 if endpoints.is_empty() {
                     return Err(input.error("endpoint list hoist must name at least one endpoint"));

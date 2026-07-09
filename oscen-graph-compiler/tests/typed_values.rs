@@ -368,3 +368,69 @@ fn non_latch_policy_on_typed_cross_rate_edge_errors() {
         "expected latch-only error; got: {msgs:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// f32 value fan-in rejection (adversarial-review fix A4)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn f32_value_fan_in_errors() {
+    // COOKBOOK: only streams sum. Two sources into one f32 value endpoint
+    // used to compile silently with last-write-wins.
+    let msgs = compile_errors(quote! {
+        name: G;
+        input value a;
+        input value b;
+        output value out;
+        connections {
+            a -> out;
+            b -> out;
+        }
+    });
+    assert!(
+        msgs.iter().any(|m| m.contains("values cannot fan in")),
+        "expected value fan-in error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn f32_value_fan_in_into_node_endpoint_errors() {
+    // Fan-in into a node's value endpoint whose kind is known through
+    // inference from the graph value input.
+    let msgs = compile_errors(quote! {
+        name: G;
+        input value cutoff;
+        input stream s;
+        output stream out;
+        nodes {
+            lfo = PolyBlepOscillator::sine(2.0, 0.5);
+            flt = TptFilter::new(1000.0, 0.7);
+        }
+        connections {
+            s -> flt.input;
+            cutoff -> flt.cutoff;
+            lfo.output -> flt.cutoff;
+            flt.output -> out;
+        }
+    });
+    assert!(
+        msgs.iter().any(|m| m.contains("cannot fan in")),
+        "expected value fan-in error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn stream_fan_in_still_sums() {
+    // The fan-in rejection is value-only: stream fan-in keeps summing.
+    let tokens = compile_to_string(quote! {
+        name: G;
+        input stream a;
+        input stream b;
+        output stream out;
+        connections {
+            a -> out;
+            b -> out;
+        }
+    });
+    assert!(!tokens.is_empty());
+}

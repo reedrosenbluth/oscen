@@ -288,3 +288,97 @@ fn wildcard_hoist_error_recovers_alongside_other_errors() {
             .collect::<Vec<_>>()
     );
 }
+
+// ---------------------------------------------------------------------------
+// Endpoint-list comma enforcement (adversarial-review fix A6)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn endpoint_list_hoist_requires_commas() {
+    // `{freq amp}` used to silently parse as TWO hoisted endpoints (e.g. a
+    // rename placed inside the braces by analogy with single-hoist syntax).
+    let input = quote! {
+        name: G;
+        output stream out;
+        node branch = Envelope::new();
+        input branch.{freq amp} p_*;
+        connections {
+            branch.output -> out;
+        }
+    };
+    let diags = compile(input).expect_err("expected diagnostics; got Ok");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("expected `,` between hoisted endpoints")),
+        "expected missing-comma error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn endpoint_list_hoist_allows_trailing_comma() {
+    let input = quote! {
+        name: G;
+        output stream out;
+        node branch = Envelope::new();
+        input branch.{freq, amp,} p_*;
+        connections {
+            branch.output -> out;
+        }
+    };
+    assert!(
+        compile(input).is_ok(),
+        "trailing comma in endpoint list should parse"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Missing `;` after wildcard hoist (adversarial-review fix A7)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn missing_semicolon_after_wildcard_hoist_is_reported_as_such() {
+    // Chunks are sliced at top-level `;`, so a missing semicolon merges the
+    // next statement into the wildcard chunk; the old parser misreported its
+    // leading keyword as an illegal rename and swallowed the statement.
+    let input = quote! {
+        name: G;
+        output stream out;
+        node voice = Envelope::new();
+        input voice.*
+        input gain: value;
+        connections {
+            voice.output -> out;
+        }
+    };
+    let diags = compile(input).expect_err("expected diagnostics; got Ok");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("missing `;` after wildcard hoist")),
+        "expected missing-semicolon error; got {msgs:?}"
+    );
+    assert!(
+        !msgs.iter().any(|m| m.contains("cannot be renamed")),
+        "must not misreport the next statement as a rename; got {msgs:?}"
+    );
+}
+
+#[test]
+fn missing_semicolon_before_connection_stmt_is_reported_as_such() {
+    let input = quote! {
+        name: G;
+        input stream s;
+        output stream out;
+        node voice = Envelope::new();
+        input voice.*
+        s -> out;
+    };
+    let diags = compile(input).expect_err("expected diagnostics; got Ok");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("missing `;` after wildcard hoist")),
+        "expected missing-semicolon error; got {msgs:?}"
+    );
+}

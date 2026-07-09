@@ -49,7 +49,7 @@ impl GraphDef {
                     }) => {
                         for ep in endpoints {
                             let name = match rename {
-                                Some(pat) => pat.apply(ep).to_string(),
+                                Some(pat) => pat.apply_str(ep),
                                 None => ep.to_string(),
                             };
                             names.insert(name);
@@ -186,11 +186,48 @@ pub struct RenamePattern {
 }
 
 impl RenamePattern {
-    pub fn apply(&self, endpoint: &Ident) -> Ident {
-        Ident::new(
-            &format!("{}{}{}", self.prefix, endpoint, self.suffix),
-            endpoint.span(),
-        )
+    /// The renamed endpoint as a string. Raw-ident endpoints (`r#loop`)
+    /// contribute their bare name (`loop`), so `env_*` on `r#loop` yields
+    /// `env_loop`, never the invalid `env_r#loop`.
+    pub fn apply_str(&self, endpoint: &Ident) -> String {
+        format!("{}{}{}", self.prefix, ident_base(endpoint), self.suffix)
+    }
+
+    /// The renamed endpoint as an ident, or a spanned error when the result
+    /// cannot be an identifier (e.g. a pattern that produces `Self`).
+    pub fn try_apply(&self, endpoint: &Ident) -> syn::Result<Ident> {
+        let name = self.apply_str(endpoint);
+        make_ident(&name, endpoint.span()).ok_or_else(|| {
+            syn::Error::new(
+                self.span,
+                format!(
+                    "rename pattern produces `{name}` for endpoint `{endpoint}`, \
+                     which cannot be used as an identifier; choose a different \
+                     prefix/suffix"
+                ),
+            )
+        })
+    }
+}
+
+/// An ident's name without any raw-ident prefix.
+fn ident_base(ident: &Ident) -> String {
+    let s = ident.to_string();
+    s.strip_prefix("r#").map(str::to_owned).unwrap_or(s)
+}
+
+/// Build an ident from an arbitrary string: plain idents pass through,
+/// keywords become raw idents, and the handful of names that cannot be raw
+/// (`crate`, `self`, `Self`, `super`, `_`) yield `None`.
+pub(crate) fn make_ident(name: &str, span: proc_macro2::Span) -> Option<Ident> {
+    if syn::parse_str::<Ident>(name).is_ok() {
+        Some(Ident::new(name, span))
+    } else if matches!(name, "crate" | "self" | "Self" | "super" | "_") || name.is_empty() {
+        None
+    } else if syn::parse_str::<Ident>(&format!("r#{name}")).is_ok() {
+        Some(Ident::new_raw(name, span))
+    } else {
+        None
     }
 }
 

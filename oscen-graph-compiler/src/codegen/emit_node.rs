@@ -44,7 +44,9 @@ impl<'a> CodegenContext<'a> {
         //   * an unknown-kind *value* f32 fan-in is summed rather than
         //     last-write-wins. There is no kind info to tell it apart from a
         //     stream f32 fan-in; summing matches Cmajor's rule and is the same
-        //     tradeoff that makes the node-to-node stream case work.
+        //     tradeoff that makes the node-to-node stream case work. (Fan-in
+        //     into a *known* Value dest never reaches codegen — lowering's
+        //     `validate_typed_value_endpoints` rejects it.)
         let kind = self.ir.nodes[dest.node]
             .endpoints
             .get(&dest.endpoint)

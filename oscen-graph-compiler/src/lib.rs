@@ -71,7 +71,7 @@ pub(crate) fn compile_parsed(
     // child endpoints' declared types into the expansion, so typed value /
     // frame-typed list hoists don't collapse to mono `f32` when the
     // manifest is available.
-    ir::lower::expand_list_hoists(&mut graph_def, manifests);
+    ir::lower::expand_list_hoists(&mut graph_def, manifests, &mut diags);
     manifest::expand_wildcards(&mut graph_def, manifests, &mut diags);
     if !diags.is_empty() {
         return Err(diags);
