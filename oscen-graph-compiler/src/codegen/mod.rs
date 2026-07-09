@@ -1517,8 +1517,7 @@ impl<'a> CodegenContext<'a> {
     /// appended to arbitrary passthrough state. Inputs are the graph's
     /// declared inputs (including expanded hoists); outputs are the
     /// declared outputs. This is what lets a parent graph write
-    /// `input nested.*;` where `nested` is itself a `graph!` type — the
-    /// mechanism `poly` builds on.
+    /// `input nested.*;` where `nested` is itself a `graph!` type.
     ///
     /// The `#[macro_export]` name is mangled
     /// (`__oscen_endpoints_export_*`) with a `pub use … as …` re-export

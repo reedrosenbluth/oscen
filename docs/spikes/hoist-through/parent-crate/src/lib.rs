@@ -1,6 +1,6 @@
 // Simulates the parent graph crate. The real graph! proc macro, upon
-// seeing `input voices.*;` with `voices = poly::<8>(FMVoice::new())`,
-// cannot know FMVoice's endpoints. Instead it expands to an invocation
+// seeing `input voices.*;` where `voices` is a node type defined in
+// another crate, cannot know FMVoice's endpoints. Instead it expands to an invocation
 // of the manifest macro with a continuation that receives the endpoint
 // list and performs final codegen. Here the "continuation" is a
 // macro_rules stand-in that generates a struct with one field per
