@@ -47,8 +47,12 @@ Rules of thumb:
 - Hoisting through a nested `graph!`'s ramped input drives the child's ramp
   state directly (no double smoothing); put the ramp at whichever level you
   hoist from, not both.
-- Name collisions (hoist vs. declared input) are duplicate-declaration
-  errors; rename the hoist.
+- Name collisions (hoist vs. declared input, output, node, or `external`)
+  are duplicate-declaration errors; rename the hoist.
+- A hoist is the endpoint's *driver*: it synthesizes `name ->
+  node.endpoint`. Hoisting an endpoint that also has an explicit
+  connection (or a second hoist) is a duplicate-driver compile error —
+  remove one.
 - A typed value endpoint (see "Typed value endpoints" below) hoists with
   the annotation: `input filter.mode: value: FilterMode;`. Wildcards
   infer the type from the manifest; explicit single hoists always need
@@ -88,9 +92,13 @@ Semantics:
 - Endpoint metadata is inherited from the child: a stream endpoint typed
   `Frame<2>` hoists as a `Frame<2>` input, a typed value endpoint (a
   `ValuePayload` field like a `FilterMode` enum) hoists as an input of
-  that type (typed setter, no param-registry entry), and a child `graph!`
+  that type (typed setter, no param-registry entry), a child `graph!`
   input declared `[ramp: N]` hoists as a parent input with the same
-  `[ramp: N]` (the parent ramps; the child follows per frame). One
+  `[ramp: N]` (the parent ramps; the child follows per frame), and a
+  child `graph!` input's param spec (range, `log`, `unit`, `center`,
+  `step`, `group`, display name) survives into the parent's param
+  registry. `#[derive(Node)]` children carry no param spec (the derive
+  has no attribute surface for one). One
   exception: a
   `#[derive(Node)]` child that stores a value input as a `ValueRampState`
   field ramps with a length known only at runtime, which the wildcard
@@ -119,6 +127,17 @@ path to that manifest at expansion time (`a::b::FMVoice::new()` →
   import it (`use child_crate::__oscen_endpoints_FMVoice;`) or qualify the
   constructor. The failure mode is rustc's "cannot find macro
   `__oscen_endpoints_FMVoice`" at the `graph!` call site.
+- **Globs and locally-defined nodes don't mix on bare paths.** Under
+  `use oscen::prelude::*;` (or any glob that exports manifest aliases), a
+  node type you `#[derive(Node)]` in the *same crate* can't be
+  wildcard-hoisted by its bare name: the derive's manifest alias is a
+  macro-expanded name, and rustc refuses to resolve macro-expanded names
+  alongside glob imports — "cannot find macro `__oscen_endpoints_T`", or
+  E0659 "ambiguous name" if your type also shadows a prelude name
+  (`Gain`, `Oscillator`, `Delay`, `Value`, …). Escapes, any one of:
+  qualify the constructor path (`dsp::Gain::new()` — put your node types
+  in a module), rename your type, or replace the glob with selective
+  imports.
 - **Manifest names derive from the type name alone.** The crate-global
   `#[macro_export]` behind the manifest also hashes the definition's
   tokens, so two same-named node types in *different modules* of one crate
@@ -133,12 +152,20 @@ path to that manifest at expansion time (`a::b::FMVoice::new()` →
   type of typed value endpoints like `FilterMode`, so hoists don't
   collapse to mono/f32), the declared ramp length of ramped `graph!`
   value inputs (`ramp = N`), a `ramped` marker for `ValueRampState`
-  fields on derive types (length unknown at compile time), and a `priv`
-  marker for non-`pub` endpoint fields.
-- Non-`pub` endpoint fields are listed in the manifest (with `priv`) but
-  wildcards skip them: a parent graph writes child fields directly, so
-  privacy applies. The marker is what tells "present but not `pub`" apart
-  from "missing".
+  fields on derive types (length unknown at compile time), the param
+  spec of `graph!` value inputs (`range = a..b`, `log`, `center`,
+  `unit`, `step`, `group`, `display`), and visibility markers (`priv`,
+  `restricted`). Range/center/step ride as raw expression tokens
+  resolved at the parent's call site — a range referencing a
+  child-crate-private const won't resolve in the parent (same hygiene
+  caveat as `ty = …`).
+- Endpoint-field visibility: *private* fields (no `pub`) are listed with
+  `priv` and wildcards skip them — a parent graph writes child fields
+  directly, so privacy applies; the marker tells "present but not `pub`"
+  apart from "missing". `pub(crate)`/`pub(super)` fields are marked
+  `restricted` and hoist normally — the common case is a same-crate
+  parent; a cross-scope hoist fails with rustc's own "field is private"
+  error at the hoist line.
 - Frame-type tokens from a `graph!` child are fully qualified
   (`::oscen::frame::Frame<2>`) and resolve anywhere. A `#[derive(Node)]`
   child carries the field's *literal* type tokens, which resolve at the
@@ -188,7 +215,16 @@ Use the enum, not per-param plumbing:
 
 `param_descriptors()` builds its table lazily on first call — call it once
 during setup, **off** the audio thread. The enum dispatchers are
-allocation-free and audio-thread safe.
+allocation-free and audio-thread safe. Graphs with hoist-inherited
+defaults construct a probe instance to read the defaults back; that build
+runs on an internal big-stack thread, so calling `param_descriptors()`
+from a small-stack host thread (e.g. nih-plug's `Params::default()`) is
+safe even for multi-megabyte voice-array graphs.
+
+Input names may not shadow the generated API: an input named `param`,
+`sample_rate`, or a stream input named `process` (whose `process_block`
+accessor collides with the built-in) is a compile error naming the
+collision — rename the input.
 
 ### Ramps
 
@@ -325,9 +361,12 @@ full-velocity notes to 126.
 
 ## Connections
 
-- **Fan-in sums**: several stream sources into the same destination add
-  (`branch_a.output -> mix.input; branch_b.output -> mix.input;`), Cmajor
-  semantics. Array outputs wired to a graph output also sum.
+- **Fan-in sums — streams only**: several stream sources into the same
+  destination add (`branch_a.output -> mix.input; branch_b.output ->
+  mix.input;`), Cmajor semantics. Array outputs wired to a graph output
+  also sum. Two sources into one *value* endpoint is a compile error
+  (values don't sum); combine them explicitly (`a + b -> amp.gain;`) or
+  keep a single source.
 - **Comma fan-out**: `freq -> osc_a.frequency, osc_b.frequency;` is one
   statement per destination. Not combinable with a `-> […] ->` delay
   bracket (each destination would need its own delay).
