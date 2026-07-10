@@ -60,9 +60,10 @@ pub enum FanoutShape {
 /// Classify a connection edge given the array sizes of its source and dest
 /// nodes (`None` for scalar nodes or graph endpoints).
 ///
-/// For mismatched-but-nonzero array sizes, parity with the same-rate path's
-/// existing behavior: silently truncate to `min(N, M)` (`Parallel { n: min }`).
-/// Promoting this to a hard error is reserved for a future task.
+/// Mismatched array sizes are diagnosed as an error by `analyze_rates` (the
+/// sole caller with span/name context); the `Parallel { n: min }` returned
+/// here is only a placeholder on the already-errored edge — codegen never
+/// sees it because lowering bails on any error.
 pub fn classify_fanout(
     src_array_size: Option<usize>,
     dst_array_size: Option<usize>,

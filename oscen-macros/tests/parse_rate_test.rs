@@ -129,3 +129,9 @@ fn wildcard_over_runtime_ramped_field_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/wildcard_ramped_field.rs");
 }
+
+#[test]
+fn array_size_mismatch_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/array_size_mismatch.rs");
+}
