@@ -1,2 +1,4 @@
 [toolchain]
-channel = "nightly"
+# Pinned so trybuild .stderr snapshots don't drift with the daily nightly;
+# bump deliberately and regenerate snapshots with TRYBUILD=overwrite.
+channel = "nightly-2026-01-22"

@@ -9,6 +9,7 @@
 use crate::ast::{
     ConnectionExpr, ConnectionPolicy, ConnectionStmt, EndpointKind, GraphDef, GraphItem, NodeRate,
 };
+use crate::codegen::helpers::ident_base;
 use crate::diagnostics::Diagnostics;
 use crate::ir::expr::{primary_node, IrEndpoint, IrExpr, IrExprKind};
 use crate::ir::graph::{
@@ -163,7 +164,9 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
     // an endpoint that is also a connection dest would give it two drivers
     // — and since synthesized statements run last, the user's edge would
     // silently lose. Indexed roots unwrap so `voices[0].freq` conflicts
-    // with a broadcast hoist of `voices.freq`.
+    // with a broadcast hoist of `voices.freq`. Keys are r#-stripped: Rust
+    // treats `foo` and `r#foo` as the same field, so the raw spelling must
+    // not slip past the check.
     let mut driven: HashSet<(String, String)> = HashSet::new();
     let record_dest = |driven: &mut HashSet<(String, String)>, dest: &ConnectionExpr| {
         if let ConnectionExpr::Field(root, endpoint) = dest {
@@ -172,7 +175,7 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
                 inner = next;
             }
             if let ConnectionExpr::Ident(node) = inner {
-                driven.insert((node.to_string(), endpoint.to_string()));
+                driven.insert((ident_base(node), ident_base(endpoint)));
             }
         }
     };
@@ -225,7 +228,7 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
             continue;
         }
 
-        if !driven.insert((hoist.node.to_string(), endpoint.to_string())) {
+        if !driven.insert((ident_base(&hoist.node), ident_base(endpoint))) {
             diags.push_error(syn::Error::new(
                 input.name.span(),
                 format!(
@@ -1580,12 +1583,32 @@ fn validate_typed_value_endpoints(ir: &IrGraph, diags: &mut Diagnostics) {
         bucket.0.push(eid);
         let typed = ir.edge_is_typed_value(edge);
         bucket.1 |= typed;
+        let dest_kind = ir.nodes[dest.node]
+            .endpoints
+            .get(&dest.endpoint)
+            .map(|ei| ei.kind);
         if bucket.2.is_none() {
-            bucket.2 = ir.nodes[dest.node]
-                .endpoints
-                .get(&dest.endpoint)
-                .map(|ei| ei.kind);
+            bucket.2 = dest_kind;
         }
+
+        // Array fan-in shape sums element values — impossible for typed
+        // payloads and equally disallowed for plain f32 value dests.
+        if let FanoutShape::FanIn { .. } = edge.fanout {
+            if typed {
+                diags.push_error(syn::Error::new(
+                    edge.span,
+                    "typed values cannot fan in from a node array: values don't sum; \
+                     index one element (`voices[0].mode`) or restructure",
+                ));
+            } else if matches!(dest_kind, Some(EndpointKind::Value)) {
+                diags.push_error(syn::Error::new(
+                    edge.span,
+                    "values cannot fan in from a node array (streams sum; values \
+                     don't); index one element (`voices[0].out`) or restructure",
+                ));
+            }
+        }
+
         if !typed {
             continue;
         }
@@ -1604,14 +1627,36 @@ fn validate_typed_value_endpoints(ir: &IrGraph, diags: &mut Diagnostics) {
             }
             _ => {}
         }
+    }
 
-        // Array fan-in shape sums element values — impossible for typed
-        // payloads.
-        if let FanoutShape::FanIn { .. } = edge.fanout {
+    // A broadcast dest (`voices.gain`) drives every element, so it overlaps
+    // any indexed dest (`voices[0].gain`) on the same endpoint: that element
+    // gets two drivers and connection order decides which wins — the same
+    // silent clobber the per-slot rule below rejects.
+    let mut broadcasts: HashMap<(NodeId, &str), (bool, Option<EndpointKind>)> = HashMap::new();
+    for ((node, endpoint, index), (_, has_typed, kind)) in &buckets {
+        if index.is_none() {
+            broadcasts.insert((*node, endpoint.as_str()), (*has_typed, *kind));
+        }
+    }
+    for ((node, endpoint, index), (edges, has_typed, kind)) in &buckets {
+        let Some(i) = index else { continue };
+        let Some((b_typed, b_kind)) = broadcasts.get(&(*node, endpoint.as_str())) else {
+            continue;
+        };
+        let is_value = matches!(kind.or(*b_kind), Some(EndpointKind::Value));
+        if !(*has_typed || *b_typed || is_value) {
+            continue;
+        }
+        let dest_name = &ir.nodes[*node].name;
+        for &eid in edges {
             diags.push_error(syn::Error::new(
-                edge.span,
-                "typed values cannot fan in from a node array: values don't sum; \
-                 index one element (`voices[0].mode`) or restructure",
+                ir.edges[eid].span,
+                format!(
+                    "value endpoint `{dest_name}[{i}].{endpoint}` is driven both directly \
+                     and by a broadcast connection to `{dest_name}.{endpoint}` (values \
+                     cannot fan in); drop one of the two drivers",
+                ),
             ));
         }
     }

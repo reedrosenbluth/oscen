@@ -449,6 +449,36 @@ fn raw_ident_value_input_gets_valid_variant() {
     );
 }
 
+#[test]
+fn raw_ident_graph_name_does_not_panic() {
+    // A graph legally named `r#type` derives `typeParam`, `typeParams`, and
+    // the `__oscen_endpoints_type` manifest — all from the bare name; the
+    // raw spelling used to panic `Ident::new` mid-expansion.
+    let tokens = compile_to_string(quote! {
+        name: r#type;
+        input value gain = 0.5;
+        output stream out;
+    });
+    assert!(tokens.contains("struct r#type"));
+    assert!(tokens.contains("__oscen_endpoints_type"));
+}
+
+#[test]
+fn raw_ident_event_input_does_not_panic() {
+    // Event input `r#loop` derives `__staged_loop`/`__cursor_loop` staging
+    // locals from the bare name; the raw spelling used to panic `Ident::new`.
+    let tokens = compile_to_string(quote! {
+        name: G;
+        input r#loop: event;
+        input stream signal;
+        output stream out;
+        connections {
+            signal -> out;
+        }
+    });
+    assert!(tokens.contains("__staged_loop"));
+}
+
 // ---------------------------------------------------------------------------
 // Reserved generated-name collisions (adversarial-review fix B2)
 // ---------------------------------------------------------------------------
@@ -497,10 +527,11 @@ fn input_named_active_ramps_collides_with_builtin_field() {
 }
 
 #[test]
-fn stream_input_block_accessor_collision_is_rejected() {
-    // Stream input `process` derives the `process_block` accessor, which
-    // collides with the graph's built-in `process_block` method.
-    let msgs = compile_errors(quote! {
+fn stream_input_named_process_is_valid() {
+    // Stream input `process` derives the `process_block` buffer FIELD, which
+    // coexists with the graph's built-in `process_block` method (separate
+    // Rust namespaces). Rejecting this was a false positive.
+    let tokens = compile_to_string(quote! {
         name: G;
         input stream process;
         output stream out;
@@ -508,11 +539,48 @@ fn stream_input_block_accessor_collision_is_rejected() {
             process -> out;
         }
     });
+    assert!(tokens.contains("pub process_block"));
+}
+
+#[test]
+fn derived_block_field_collision_with_declared_input_is_rejected() {
+    // Stream input `signal` derives the `signal_block` buffer field, which
+    // collides with the FIELD declared for value input `signal_block` —
+    // previously surfaced as rustc E0124 in generated code.
+    let msgs = compile_errors(quote! {
+        name: G;
+        input stream signal;
+        input value signal_block = 0.5;
+        output stream out;
+        connections {
+            signal -> out;
+        }
+    });
     assert!(
         msgs.iter()
-            .any(|m| m.contains("process_block") && m.contains("collides")),
-        "expected reserved-name error; got {msgs:?}"
+            .any(|m| m.contains("signal_block") && m.contains("collides")),
+        "expected field-collision error; got {msgs:?}"
     );
+}
+
+#[test]
+fn typed_only_graph_may_use_registry_method_names() {
+    // A graph with no f32 param inputs emits no param registry, so a typed
+    // value input named `param` (whose only surface is the typed setter
+    // `set_param`) does not collide with anything.
+    let tokens = compile_to_string(quote! {
+        name: G;
+        input param: value: FilterMode;
+        input stream signal;
+        output stream out;
+        node f = ModeFilter::new();
+        connections {
+            param -> f.mode;
+            signal -> f.input;
+            f.out -> out;
+        }
+    });
+    assert!(tokens.contains("set_param"));
 }
 
 #[test]

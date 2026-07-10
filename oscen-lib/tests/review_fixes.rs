@@ -35,7 +35,10 @@ pub struct Looper {
 
 impl Looper {
     pub fn new() -> Self {
-        Self { r#loop: 0.25, out: 0.0 }
+        Self {
+            r#loop: 0.25,
+            out: 0.0,
+        }
     }
 }
 
@@ -192,7 +195,11 @@ graph! {
 fn nested_graph_hoist_preserves_param_metadata() {
     let p = OuterMetaParam::from_name("cutoff").expect("hoisted param exists");
     let d = p.descriptor();
-    assert_eq!(d.range, Some((20.0, 20000.0)), "range must survive the hoist");
+    assert_eq!(
+        d.range,
+        Some((20.0, 20000.0)),
+        "range must survive the hoist"
+    );
     assert!(d.logarithmic, "log curve must survive the hoist");
     assert_eq!(d.unit, Some("Hz"), "unit must survive the hoist");
     assert_eq!(d.group, Some("Filter"), "group must survive the hoist");
@@ -213,7 +220,10 @@ pub struct CrateGain {
 
 impl CrateGain {
     pub fn new() -> Self {
-        Self { amount: 0.5, out: 0.0 }
+        Self {
+            amount: 0.5,
+            out: 0.0,
+        }
     }
 }
 
@@ -250,7 +260,10 @@ graph! {
 fn pub_crate_endpoint_wildcard_hoists_in_crate() {
     let mut g = CrateVisHoist::new();
     g.init(RATE);
-    assert_eq!(g.amount, 0.5, "pub(crate) endpoint must hoist, not be skipped");
+    assert_eq!(
+        g.amount, 0.5,
+        "pub(crate) endpoint must hoist, not be skipped"
+    );
     g.set_amount(0.9);
     g.process();
     assert_eq!(g.get_stream_output(0), Some(0.9));
@@ -277,7 +290,10 @@ mod prelude_shadow {
 
         impl Gain {
             pub fn new() -> Self {
-                Self { level: 0.3, out: 0.0 }
+                Self {
+                    level: 0.3,
+                    out: 0.0,
+                }
             }
         }
 

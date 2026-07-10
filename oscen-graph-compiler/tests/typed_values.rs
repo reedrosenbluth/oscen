@@ -420,6 +420,92 @@ fn f32_value_fan_in_into_node_endpoint_errors() {
 }
 
 #[test]
+fn f32_array_value_fan_in_errors() {
+    // An array of plain f32 value outputs feeding one value dest sums the
+    // elements — held to the same no-fan-in rule as typed payloads.
+    let msgs = compile_errors(quote! {
+        name: ArrayFaninF32;
+        output value m;
+        output stream out;
+        node voices = [ModeFilter::new(); 4];
+        connections {
+            voices.gain_out -> m;
+            voices[0].out -> out;
+        }
+    });
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("values cannot fan in from a node array")),
+        "expected array value fan-in error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn broadcast_and_indexed_value_dest_errors() {
+    // `all -> voices.gain` drives every element, so `one -> voices[0].gain`
+    // gives element 0 two drivers with connection order deciding.
+    let msgs = compile_errors(quote! {
+        name: BroadcastIndexed;
+        input value all;
+        input value one;
+        output stream out;
+        node voices = [ModeFilter::new(); 4];
+        connections {
+            all -> voices.gain;
+            one -> voices[0].gain;
+            voices[0].out -> out;
+        }
+    });
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("driven both directly and by a broadcast connection")),
+        "expected broadcast/indexed conflict error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn broadcast_and_indexed_typed_dest_errors() {
+    // Same conflict through typed graph inputs: caught via the typed edges
+    // even when the node endpoint's kind is unknown to the IR.
+    let msgs = compile_errors(quote! {
+        name: BroadcastIndexedTyped;
+        input all: value: FilterMode;
+        input one: value: FilterMode;
+        output stream out;
+        node voices = [ModeFilter::new(); 4];
+        connections {
+            all -> voices.mode;
+            one -> voices[0].mode;
+            voices[0].out -> out;
+        }
+    });
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("driven both directly and by a broadcast connection")),
+        "expected broadcast/indexed conflict error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn broadcast_and_indexed_stream_dest_still_compiles() {
+    // The conflict rule is value-only: overlapping stream drivers keep the
+    // summing semantics streams already have.
+    let tokens = compile_to_string(quote! {
+        name: BroadcastIndexedStream;
+        input stream a;
+        input stream b;
+        output stream out;
+        node voices = [ModeFilter::new(); 4];
+        connections {
+            a -> voices.input;
+            b -> voices[0].input;
+            voices[0].out -> out;
+        }
+    });
+    assert!(!tokens.is_empty());
+}
+
+#[test]
 fn stream_fan_in_still_sums() {
     // The fan-in rejection is value-only: stream fan-in keeps summing.
     let tokens = compile_to_string(quote! {

@@ -802,7 +802,14 @@ fn extract_array_and_embedded_rate(expr: Expr) -> Result<(Expr, Option<usize>, O
             lit: Lit::Int(c), ..
         }) = &*repeat.len
         {
-            Some(c.base10_parse::<usize>()?)
+            let n = c.base10_parse::<usize>()?;
+            if n == 0 {
+                return Err(syn::Error::new_spanned(
+                    &repeat.len,
+                    "node array size must be at least 1",
+                ));
+            }
+            Some(n)
         } else {
             return Err(syn::Error::new_spanned(
                 &repeat.len,

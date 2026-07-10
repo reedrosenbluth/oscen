@@ -10,7 +10,9 @@ use quote::quote;
 use std::collections::HashSet;
 use syn::Result;
 
-use super::helpers::{down_buf_name, ident_base, is_same_rate_kernel, resampler_field_name, up_buf_name};
+use super::helpers::{
+    down_buf_name, ident_base, is_same_rate_kernel, resampler_field_name, up_buf_name,
+};
 use super::CodegenContext;
 
 impl<'a> CodegenContext<'a> {
@@ -35,7 +37,8 @@ impl<'a> CodegenContext<'a> {
             .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Stream)))
             .map(|n| {
                 let name = &n.name;
-                let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                let block_name =
+                    syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                 quote! { self.#name = self.#block_name[__frame]; }
             })
             .collect();
@@ -46,7 +49,8 @@ impl<'a> CodegenContext<'a> {
             .filter(|n| matches!(self.output_kind(&n.name), Some(EndpointKind::Stream)))
             .map(|n| {
                 let name = &n.name;
-                let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                let block_name =
+                    syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                 quote! { self.#block_name[__frame] = self.#name; }
             })
             .collect();
@@ -77,7 +81,8 @@ impl<'a> CodegenContext<'a> {
             .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Stream)))
             .map(|n| {
                 let name = &n.name;
-                let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                let block_name =
+                    syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                 quote! { self.#name = self.#block_name[__frame]; }
             })
             .collect();
@@ -87,7 +92,8 @@ impl<'a> CodegenContext<'a> {
             .filter(|n| matches!(self.output_kind(&n.name), Some(EndpointKind::Stream)))
             .map(|n| {
                 let name = &n.name;
-                let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                let block_name =
+                    syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                 quote! { self.#block_name[__frame] = self.#name; }
             })
             .collect();

@@ -143,7 +143,7 @@ pub(super) fn camel_case(name: &str) -> String {
 /// `r#loop`; splicing that into `format!` + `Ident::new` panics. The
 /// derived name (`set_loop`) is never itself a keyword, so `Ident::new`
 /// on the stripped form is safe.
-pub(super) fn ident_base(ident: &syn::Ident) -> String {
+pub(crate) fn ident_base(ident: &syn::Ident) -> String {
     let s = ident.to_string();
     s.strip_prefix("r#").map(str::to_owned).unwrap_or(s)
 }

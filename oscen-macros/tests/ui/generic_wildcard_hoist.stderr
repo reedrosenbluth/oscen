@@ -1,0 +1,14 @@
+error: wildcard hoist `input holder.*;` cannot hoist `setting`: its declared type is generic on the node type, and manifests cannot carry the constructor's type arguments; wire it with an explicit connection (`some_input -> holder.setting;`) — the wildcard skips endpoints that are connection destinations
+  --> tests/ui/generic_wildcard_hoist.rs:42:18
+   |
+42 |     input holder.*;
+   |                  ^
+
+warning: the feature `inherent_associated_types` is incomplete and may not be safe to use and/or cause compiler crashes
+ --> tests/ui/generic_wildcard_hoist.rs:1:12
+  |
+1 | #![feature(inherent_associated_types)]
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: see issue #8995 <https://github.com/rust-lang/rust/issues/8995> for more information
+  = note: `#[warn(incomplete_features)]` on by default

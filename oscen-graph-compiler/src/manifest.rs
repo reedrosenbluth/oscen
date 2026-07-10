@@ -22,6 +22,7 @@ use crate::ast::{
     ConnectionExpr, EndpointKind, GraphDef, GraphItem, HoistEndpoints, HoistSource, InputDecl,
     NodeDecl,
 };
+use crate::codegen::helpers::ident_base;
 use crate::diagnostics::Diagnostics;
 use proc_macro2::{Span, TokenStream};
 use std::collections::{HashMap, HashSet};
@@ -125,7 +126,10 @@ fn scan_wildcards_parsed(graph_def: &GraphDef) -> Result<Vec<WildcardRequest>, D
 fn manifest_path_for(ty: &syn::Path, span: Span) -> syn::Path {
     let mut path = ty.clone();
     if let Some(last) = path.segments.last_mut() {
-        last.ident = Ident::new(&format!("__oscen_endpoints_{}", last.ident), span);
+        last.ident = Ident::new(
+            &format!("__oscen_endpoints_{}", ident_base(&last.ident)),
+            span,
+        );
         last.arguments = syn::PathArguments::None;
     }
     path
@@ -188,11 +192,12 @@ pub fn emit_manifest_export(
     definition_tokens: &TokenStream,
 ) -> TokenStream {
     let hash = export_disambiguator(type_name, definition_tokens);
+    let type_base = ident_base(type_name);
     let export_ident = Ident::new(
-        &format!("__oscen_endpoints_export_{type_name}_{hash}"),
+        &format!("__oscen_endpoints_export_{type_base}_{hash}"),
         Span::call_site(),
     );
-    let manifest_ident = Ident::new(&format!("__oscen_endpoints_{type_name}"), Span::call_site());
+    let manifest_ident = Ident::new(&format!("__oscen_endpoints_{type_base}"), Span::call_site());
     let input_entries: Vec<TokenStream> = inputs.iter().map(manifest_entry_tokens).collect();
     let output_entries: Vec<TokenStream> = outputs.iter().map(manifest_entry_tokens).collect();
     quote::quote! {
@@ -236,6 +241,9 @@ fn manifest_entry_tokens(ep: &ManifestEndpoint) -> TokenStream {
     let mut annotations: Vec<TokenStream> = Vec::new();
     if let Some(ty) = &ep.ty {
         annotations.push(quote::quote! { ty = #ty });
+    }
+    if ep.generic {
+        annotations.push(quote::quote! { generic });
     }
     match ep.ramp {
         ManifestRamp::None => {}
@@ -328,6 +336,12 @@ pub struct ManifestEndpoint {
     /// Carried for stream endpoints so wildcard hoists preserve frame
     /// types (`Frame<2>`); `None` means mono `f32`, as before.
     pub ty: Option<syn::Type>,
+    /// `generic`: the endpoint's declared type mentions one of the node
+    /// type's generic parameters (`F`, `T`, ...). The manifest is expanded
+    /// before the constructor's type arguments are known, so the carried
+    /// `ty` tokens cannot be resolved; wildcard expansion rejects these
+    /// with a spanned error instead of emitting unresolved type tokens.
+    pub generic: bool,
     /// Declared smoothing (`ramp = N` / `ramped`).
     pub ramp: ManifestRamp,
     /// `priv`: the endpoint exists but its field is not `pub`. Wildcard
@@ -361,6 +375,7 @@ impl ManifestEndpoint {
             name,
             kind,
             ty: None,
+            generic: false,
             ramp: ManifestRamp::None,
             private: false,
             restricted: false,
@@ -383,7 +398,10 @@ impl ManifestEndpoint {
             ManifestRamp::None | ManifestRamp::Declared => None,
         };
         let spec = crate::ast::ParamSpec {
-            range: self.range.clone().map(|(min, max)| crate::ast::RangeSpec { min, max }),
+            range: self
+                .range
+                .clone()
+                .map(|(min, max)| crate::ast::RangeSpec { min, max }),
             curve: self.log.then_some(crate::ast::Curve::Logarithmic),
             ramp,
             center: self.center.clone(),
@@ -455,6 +473,9 @@ fn parse_endpoint_entries(input: ParseStream) -> syn::Result<Vec<ManifestEndpoin
                         "ramped" => {
                             entry.ramp = ManifestRamp::Declared;
                         }
+                        "generic" => {
+                            entry.generic = true;
+                        }
                         "restricted" => {
                             entry.restricted = true;
                         }
@@ -506,10 +527,11 @@ fn parse_endpoint_entries(input: ParseStream) -> syn::Result<Vec<ManifestEndpoin
                                 key.span(),
                                 format!(
                                     "unknown endpoint annotation `{other}` in endpoint \
-                                     manifest (expected `ty = <Type>`, `ramp = <frames>`, \
-                                     `ramped`, `priv`, `restricted`, `range = <min>..<max>`, \
-                                     `log`, `center = <expr>`, `unit = <str>`, \
-                                     `step = <expr>`, `group = <str>`, or `display = <str>`)"
+                                     manifest (expected `ty = <Type>`, `generic`, \
+                                     `ramp = <frames>`, `ramped`, `priv`, `restricted`, \
+                                     `range = <min>..<max>`, `log`, `center = <expr>`, \
+                                     `unit = <str>`, `step = <expr>`, `group = <str>`, \
+                                     or `display = <str>`)"
                                 ),
                             ))
                         }
@@ -585,7 +607,7 @@ pub(crate) fn expand_wildcards(
                 inner = next;
             }
             if let ConnectionExpr::Ident(node) = inner {
-                connected.insert((node.to_string(), endpoint.to_string()));
+                connected.insert((ident_base(node), ident_base(endpoint)));
             }
         }
     };
@@ -612,14 +634,14 @@ pub(crate) fn expand_wildcards(
                 node,
                 endpoints: HoistEndpoints::Single(ep),
             }) => {
-                explicit_hoists.insert((node.to_string(), ep.to_string()));
+                explicit_hoists.insert((ident_base(node), ident_base(ep)));
             }
             Some(HoistSource {
                 node,
                 endpoints: HoistEndpoints::List { endpoints, .. },
             }) => {
                 for ep in endpoints {
-                    explicit_hoists.insert((node.to_string(), ep.to_string()));
+                    explicit_hoists.insert((ident_base(node), ident_base(ep)));
                 }
             }
             _ => {}
@@ -647,6 +669,8 @@ pub(crate) fn expand_wildcards(
             unreachable!("is_wildcard_item only matches wildcard hoists");
         };
         let node_key = node.to_string();
+        // Membership tests against the r#-stripped sets above.
+        let node_base = ident_base(node);
         let Some(manifest) = manifests.get(&node_key) else {
             diags.push_error(syn::Error::new(
                 *span,
@@ -676,11 +700,11 @@ pub(crate) fn expand_wildcards(
                 // the hoist line rather than silent parameter loss.
                 continue;
             }
-            let ep_key = ep.name.to_string();
-            if connected.contains(&(node_key.clone(), ep_key.clone())) {
+            let ep_key = ident_base(&ep.name);
+            if connected.contains(&(node_base.clone(), ep_key.clone())) {
                 continue;
             }
-            if explicit_hoists.contains(&(node_key.clone(), ep_key.clone())) {
+            if explicit_hoists.contains(&(node_base.clone(), ep_key.clone())) {
                 continue;
             }
             if ep.ramp == ManifestRamp::Declared {
@@ -698,6 +722,25 @@ pub(crate) fn expand_wildcards(
                          drop it; hoist it explicitly with a parent ramp \
                          (`input {node}.{ep_key} [ramp: N];`) — the wildcard then \
                          skips the explicitly hoisted endpoint",
+                    ),
+                ));
+                continue;
+            }
+            if ep.generic {
+                // The endpoint's declared type mentions a generic parameter
+                // of the node type; the manifest cannot see the
+                // constructor's type arguments, so the carried type tokens
+                // are unresolvable here. Expanding anyway emits unresolved
+                // type names (or degrades a stream to f32) deep in
+                // generated code.
+                diags.push_error(syn::Error::new(
+                    *span,
+                    format!(
+                        "wildcard hoist `input {node}.*;` cannot hoist `{ep_key}`: its \
+                         declared type is generic on the node type, and manifests \
+                         cannot carry the constructor's type arguments; wire it with \
+                         an explicit connection (`some_input -> {node}.{ep_key};`) — \
+                         the wildcard skips endpoints that are connection destinations",
                     ),
                 ));
                 continue;

@@ -73,7 +73,10 @@ impl<'a> CodegenContext<'a> {
             return Ok(quote! {});
         }
 
-        let enum_name = syn::Ident::new(&format!("{}Param", graph_name), graph_name.span());
+        let enum_name = syn::Ident::new(
+            &format!("{}Param", ident_base(graph_name)),
+            graph_name.span(),
+        );
         let count = value_inputs.len();
 
         let mut variants: Vec<syn::Ident> = Vec::with_capacity(value_inputs.len());

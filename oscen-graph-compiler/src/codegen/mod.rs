@@ -6,7 +6,7 @@ use quote::quote;
 use std::collections::HashMap;
 use syn::{Expr, Result};
 
-mod helpers;
+pub(crate) mod helpers;
 use helpers::*;
 
 mod emit_edge;
@@ -761,7 +761,10 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.input_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name = syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
+            let block_name = syn::Ident::new(
+                &format!("{}_block", ident_base(field_name)),
+                field_name.span(),
+            );
             input_arms.push(quote! { #n_in => &mut self.#block_name });
             n_in += 1;
         }
@@ -773,7 +776,10 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.output_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name = syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
+            let block_name = syn::Ident::new(
+                &format!("{}_block", ident_base(field_name)),
+                field_name.span(),
+            );
             output_arms.push(quote! { #n_out => &self.#block_name });
             n_out += 1;
         }
@@ -913,8 +919,10 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let name = &node.name;
-                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
-                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                let staged_name =
+                    syn::Ident::new(&format!("__staged_{}", ident_base(name)), name.span());
+                let cursor_name =
+                    syn::Ident::new(&format!("__cursor_{}", ident_base(name)), name.span());
                 quote! {
                     let mut #staged_name: ::oscen::graph::StaticEventQueue =
                         ::oscen::graph::StaticEventQueue::new();
@@ -934,8 +942,10 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let name = &node.name;
-                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
-                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                let staged_name =
+                    syn::Ident::new(&format!("__staged_{}", ident_base(name)), name.span());
+                let cursor_name =
+                    syn::Ident::new(&format!("__cursor_{}", ident_base(name)), name.span());
                 quote! {
                     if #cursor_name < #staged_name.len() {
                         __next_event = __next_event.min(
@@ -950,8 +960,10 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let name = &node.name;
-                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
-                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                let staged_name =
+                    syn::Ident::new(&format!("__staged_{}", ident_base(name)), name.span());
+                let cursor_name =
+                    syn::Ident::new(&format!("__cursor_{}", ident_base(name)), name.span());
                 quote! {
                     while #cursor_name < #staged_name.len()
                         && #staged_name[#cursor_name].frame_offset == __frame as u32
@@ -969,8 +981,10 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let name = &node.name;
-                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
-                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                let staged_name =
+                    syn::Ident::new(&format!("__staged_{}", ident_base(name)), name.span());
+                let cursor_name =
+                    syn::Ident::new(&format!("__cursor_{}", ident_base(name)), name.span());
                 quote! {
                     while #cursor_name < #staged_name.len() {
                         let mut __e = #staged_name[#cursor_name].clone();
@@ -1084,10 +1098,14 @@ impl<'a> CodegenContext<'a> {
                 let set_name = syn::Ident::new(&format!("set_{}", ident_base(name)), name.span());
 
                 if let Some(default_frames) = self.is_ramped_input(name) {
-                    let set_ramp_name =
-                        syn::Ident::new(&format!("set_{}_with_ramp", ident_base(name)), name.span());
-                    let set_immediate_name =
-                        syn::Ident::new(&format!("set_{}_immediate", ident_base(name)), name.span());
+                    let set_ramp_name = syn::Ident::new(
+                        &format!("set_{}_with_ramp", ident_base(name)),
+                        name.span(),
+                    );
+                    let set_immediate_name = syn::Ident::new(
+                        &format!("set_{}_immediate", ident_base(name)),
+                        name.span(),
+                    );
                     quote! {
                         /// Set the value with the default ramp duration.
                         /// No-op if target is already the same (safe to call every frame).
@@ -1152,7 +1170,10 @@ impl<'a> CodegenContext<'a> {
 
     /// Generate the NIH-plug params struct and its implementations
     fn generate_nih_params_struct(&self, graph_name: &syn::Ident) -> TokenStream {
-        let params_name = syn::Ident::new(&format!("{}Params", graph_name), graph_name.span());
+        let params_name = syn::Ident::new(
+            &format!("{}Params", ident_base(graph_name)),
+            graph_name.span(),
+        );
 
         // Collect value inputs for parameter generation. TYPED value inputs
         // are excluded: they are not DAW parameters (no FloatParam, no
@@ -1279,7 +1300,10 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let field_name = &node.name;
-                let set_name = syn::Ident::new(&format!("set_{}", ident_base(field_name)), field_name.span());
+                let set_name = syn::Ident::new(
+                    &format!("set_{}", ident_base(field_name)),
+                    field_name.span(),
+                );
                 if self.is_ramped_input(field_name).is_some() {
                     quote! {
                         graph.#set_name(self.#field_name.value());
@@ -1357,8 +1381,10 @@ impl<'a> CodegenContext<'a> {
 
             // Block buffer for stream inputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
-                let block_name =
-                    syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
+                let block_name = syn::Ident::new(
+                    &format!("{}_block", ident_base(field_name)),
+                    field_name.span(),
+                );
                 let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
                     quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
@@ -1385,8 +1411,10 @@ impl<'a> CodegenContext<'a> {
 
             // Block buffer for stream outputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
-                let block_name =
-                    syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
+                let block_name = syn::Ident::new(
+                    &format!("{}_block", ident_base(field_name)),
+                    field_name.span(),
+                );
                 let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
                     quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },

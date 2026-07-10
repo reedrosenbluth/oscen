@@ -830,6 +830,31 @@ fn non_literal_node_array_size_is_rejected() {
 }
 
 #[test]
+fn zero_length_node_array_is_rejected() {
+    // `[Gain::new(0.5); 0]` used to lower to an empty array; a hoist default
+    // inheriting from element `[0]` then emitted an out-of-bounds index in
+    // generated code.
+    let (ir, diags) = lower_quote(quote! {
+        name: ZeroLen;
+        input stream s;
+        output stream out;
+        node voices = [Gain::new(0.5); 0];
+        connections {
+            s -> voices.input;
+            voices.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "zero-length array should be an error");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("node array size must be at least 1")),
+        "expected array-size error; got: {:?}",
+        msgs
+    );
+}
+
+#[test]
 fn indexed_endpoints_classify_as_scalar_fanout() {
     // `voices[0].output -> fx.input` addresses one element; it must not be
     // classified as an array fan-in (and an indexed destination must not be
@@ -1219,7 +1244,8 @@ fn external_colliding_with_input_is_duplicate_declaration() {
     assert!(ir.is_none(), "expected duplicate-declaration failure");
     let msgs = diag_msgs(&diags);
     assert!(
-        msgs.iter().any(|m| m.contains("duplicate declaration of `buf`")),
+        msgs.iter()
+            .any(|m| m.contains("duplicate declaration of `buf`")),
         "expected duplicate-declaration error; got {msgs:?}"
     );
 }
@@ -1241,7 +1267,8 @@ fn hoist_colliding_with_external_is_duplicate_declaration() {
     assert!(ir.is_none(), "expected duplicate-declaration failure");
     let msgs = diag_msgs(&diags);
     assert!(
-        msgs.iter().any(|m| m.contains("duplicate declaration of `buf`")),
+        msgs.iter()
+            .any(|m| m.contains("duplicate declaration of `buf`")),
         "expected duplicate-declaration error; got {msgs:?}"
     );
 }
@@ -1257,7 +1284,8 @@ fn duplicate_external_declaration_errors() {
     assert!(ir.is_none(), "expected duplicate-declaration failure");
     let msgs = diag_msgs(&diags);
     assert!(
-        msgs.iter().any(|m| m.contains("duplicate declaration of `buf`")),
+        msgs.iter()
+            .any(|m| m.contains("duplicate declaration of `buf`")),
         "expected duplicate-declaration error; got {msgs:?}"
     );
 }
@@ -1312,6 +1340,28 @@ fn two_hoists_of_same_endpoint_error() {
 }
 
 #[test]
+fn raw_spelled_hoist_of_same_endpoint_errors() {
+    // Rust treats `cutoff` and `r#cutoff` as the same field, so the raw
+    // spelling must not slip past the duplicate-driver check.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node flt = TptFilter::new(1000.0, 0.7);
+        input flt.cutoff;
+        input flt.r#cutoff cut2;
+        connections {
+            flt.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "expected duplicate-driver failure");
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("two drivers")),
+        "expected hoist duplicate-driver error; got {msgs:?}"
+    );
+}
+
+#[test]
 fn hoist_conflicts_with_indexed_connection() {
     // An indexed write (`voices[0].freq`) still conflicts with a broadcast
     // hoist of the same endpoint.
@@ -1353,7 +1403,11 @@ fn list_hoist_renames_raw_ident_endpoint() {
             env.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
     let ir = ir.expect("lower succeeds");
     let input_names: Vec<String> = ir
         .inputs
@@ -1380,7 +1434,11 @@ fn list_hoist_rename_producing_keyword_becomes_raw_ident() {
             env.output -> out;
         }
     });
-    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
     let ir = ir.expect("lower succeeds");
     let input_names: Vec<String> = ir
         .inputs
@@ -1405,7 +1463,8 @@ fn list_hoist_rename_producing_reserved_word_errors() {
     assert!(ir.is_none(), "expected rename failure");
     let msgs = diag_msgs(&diags);
     assert!(
-        msgs.iter().any(|m| m.contains("cannot be used as an identifier")),
+        msgs.iter()
+            .any(|m| m.contains("cannot be used as an identifier")),
         "expected rename-pattern error; got {msgs:?}"
     );
 }
