@@ -8,6 +8,12 @@
 
 use proc_macro2::TokenStream;
 
+/// Diagnostic severity. Nothing constructs `Warning` today — the output
+/// surface (`into_compile_errors`) drops non-errors, so a pushed warning
+/// would vanish silently; the dead `warning` constructors were removed for
+/// that reason. The variant itself stays so `severity` filters in tests and
+/// downstream consumers keep compiling if warnings ever get a real
+/// emission path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Error,
@@ -28,12 +34,6 @@ impl Diagnostic {
         }
     }
 
-    pub fn warning(error: syn::Error) -> Self {
-        Self {
-            message: error,
-            severity: Severity::Warning,
-        }
-    }
 }
 
 #[derive(Debug, Default)]
@@ -48,10 +48,6 @@ impl Diagnostics {
 
     pub fn push_error(&mut self, e: syn::Error) {
         self.items.push(Diagnostic::error(e));
-    }
-
-    pub fn push_warning(&mut self, e: syn::Error) {
-        self.items.push(Diagnostic::warning(e));
     }
 
     pub fn extend_from_syn(&mut self, errs: impl IntoIterator<Item = syn::Error>) {

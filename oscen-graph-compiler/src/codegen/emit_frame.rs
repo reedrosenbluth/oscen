@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use syn::Result;
 
 use super::helpers::{
-    down_buf_name, ident_base, is_same_rate_kernel, resampler_field_name, up_buf_name,
+    block_field_name, down_buf_name, is_same_rate_kernel, resampler_field_name, up_buf_name,
 };
 use super::CodegenContext;
 
@@ -61,8 +61,7 @@ impl<'a> CodegenContext<'a> {
             .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Stream)))
             .map(|n| {
                 let name = &n.name;
-                let block_name =
-                    syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                let block_name = block_field_name(name);
                 quote! { self.#name = self.#block_name[__frame]; }
             })
             .collect();
@@ -72,8 +71,7 @@ impl<'a> CodegenContext<'a> {
             .filter(|n| matches!(self.output_kind(&n.name), Some(EndpointKind::Stream)))
             .map(|n| {
                 let name = &n.name;
-                let block_name =
-                    syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                let block_name = block_field_name(name);
                 quote! { self.#block_name[__frame] = self.#name; }
             })
             .collect();
@@ -203,18 +201,18 @@ impl<'a> CodegenContext<'a> {
 
     /// Step 3: Outer-rate (pre-inner) node process calls.
     fn emit_outer_processes(&self, node_names: &[syn::Ident]) -> Vec<TokenStream> {
-        let mut out = Vec::new();
-        for node_name in node_names {
-            let assignments = self
-                .generate_connection_assignments_for_node_filtered(node_name, is_same_rate_kernel);
-            out.extend(assignments);
-            out.push(self.emit_node_process_call(node_name));
-        }
-        out
+        self.emit_same_rate_processes(node_names)
     }
 
-    /// Step 7.5: Post-inner outer-rate node process calls.
+    /// Step 7.5: Post-inner outer-rate node process calls. Identical emission
+    /// to step 3 (`emit_outer_processes`) — only the schedule position of the
+    /// listed nodes differs.
     fn emit_post_inner_processes(&self, node_names: &[syn::Ident]) -> Vec<TokenStream> {
+        self.emit_same_rate_processes(node_names)
+    }
+
+    /// Same-rate connection assignments + process call for each listed node.
+    fn emit_same_rate_processes(&self, node_names: &[syn::Ident]) -> Vec<TokenStream> {
         let mut out = Vec::new();
         for node_name in node_names {
             let assignments = self
@@ -253,12 +251,7 @@ impl<'a> CodegenContext<'a> {
         let factor_us = factor as usize;
         let buf = up_buf_name(idx);
         let field = resampler_field_name(idx);
-        let projected = self.cross_rate_kernel_state_type(edge).is_some();
-        let access = if projected {
-            quote! { .kernel }
-        } else {
-            quote! {}
-        };
+        let access = self.edge_kernel_access(edge);
 
         if let FanoutShape::Parallel { n } = edge.fanout {
             let source_ident = self
@@ -491,12 +484,7 @@ impl<'a> CodegenContext<'a> {
     ) -> TokenStream {
         let buf = down_buf_name(idx);
         let field = resampler_field_name(idx);
-        let projected = self.cross_rate_kernel_state_type(edge).is_some();
-        let access = if projected {
-            quote! { .kernel }
-        } else {
-            quote! {}
-        };
+        let access = self.edge_kernel_access(edge);
 
         if let FanoutShape::Parallel { n } = edge.fanout {
             let dest_node = &self.ir.nodes[edge.dest.node].name;

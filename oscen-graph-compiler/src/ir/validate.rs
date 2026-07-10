@@ -6,31 +6,8 @@
 
 use crate::ir::expr::primary_node;
 use crate::ir::graph::{EdgeId, IrGraph, NodeId};
+use crate::ir::lower::collect_referenced_node_ids;
 use std::collections::HashSet;
-
-/// Collect all `NodeId`s referenced by an `IrExpr` source expression.
-fn collect_source_node_ids_for_validate(expr: &crate::ir::expr::IrExpr) -> Vec<NodeId> {
-    use crate::ir::expr::IrExprKind;
-    let mut ids = Vec::new();
-    fn walk(expr: &crate::ir::expr::IrExpr, ids: &mut Vec<NodeId>) {
-        match &expr.kind {
-            IrExprKind::Endpoint(ep) => ids.push(ep.node),
-            IrExprKind::Binary { left, right, .. } => {
-                walk(left, ids);
-                walk(right, ids);
-            }
-            IrExprKind::MethodCall { receiver, .. } => walk(receiver, ids),
-            IrExprKind::Call { function: _, args } => {
-                for arg in args {
-                    walk(arg, ids);
-                }
-            }
-            IrExprKind::Literal(_) => {}
-        }
-    }
-    walk(expr, &mut ids);
-    ids
-}
 
 pub fn validate(ir: &IrGraph) {
     let edge_set: HashSet<EdgeId> = ir.edges.keys().collect();
@@ -78,7 +55,7 @@ pub fn validate(ir: &IrGraph) {
     let node_set: HashSet<NodeId> = ir.nodes.keys().collect();
     for (eid, edge) in &ir.edges {
         // Check that every NodeId referenced by the source IrExpr is live.
-        let source_refs = collect_source_node_ids_for_validate(&edge.source);
+        let source_refs = collect_referenced_node_ids(&edge.source);
         for src_nid in &source_refs {
             assert!(
                 node_set.contains(src_nid),

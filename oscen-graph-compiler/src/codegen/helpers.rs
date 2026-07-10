@@ -138,6 +138,12 @@ pub(super) fn camel_case(name: &str) -> String {
     convert_case(name, "")
 }
 
+/// Field name of the per-stream block buffer companion to a graph stream
+/// input/output (`audio_in` -> `audio_in_block`).
+pub(super) fn block_field_name(name: &syn::Ident) -> Ident {
+    syn::Ident::new(&format!("{}_block", ident_base(name)), name.span())
+}
+
 /// An ident's name without any raw-ident prefix, for embedding in derived
 /// names (`set_<name>`, `<name>_block`, ...). A raw ident stringifies as
 /// `r#loop`; splicing that into `format!` + `Ident::new` panics. The

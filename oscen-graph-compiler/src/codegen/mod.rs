@@ -390,6 +390,17 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
+    /// Field-access tokens to reach an edge's resampler kernel: `.kernel`
+    /// when the resampler field is a projected `CrossRateKernel` state
+    /// wrapper, empty when it is the concrete kernel type directly.
+    fn edge_kernel_access(&self, edge: &IrEdge) -> TokenStream {
+        if self.cross_rate_kernel_state_type(edge).is_some() {
+            quote! { .kernel }
+        } else {
+            quote! {}
+        }
+    }
+
     /// Emit the `<() as CrossRateKernel<SrcKind, DstKind, Policy, N, Dir>>::State`
     /// projection for an edge. Returns `None` if either endpoint can't be
     /// projected (e.g., compound source like `osc.output * 2.0`, or a graph
@@ -738,10 +749,7 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.input_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name = syn::Ident::new(
-                &format!("{}_block", ident_base(field_name)),
-                field_name.span(),
-            );
+            let block_name = block_field_name(field_name);
             input_arms.push(quote! { #n_in => &mut self.#block_name });
             n_in += 1;
         }
@@ -753,10 +761,7 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.output_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name = syn::Ident::new(
-                &format!("{}_block", ident_base(field_name)),
-                field_name.span(),
-            );
+            let block_name = block_field_name(field_name);
             output_arms.push(quote! { #n_out => &self.#block_name });
             n_out += 1;
         }
@@ -1329,8 +1334,11 @@ impl<'a> CodegenContext<'a> {
         })
     }
 
-    fn generate_static_struct(&self) -> Result<TokenStream> {
-        let name = self.name();
+    /// Collect every field of the generated struct, in declaration order:
+    /// `sample_rate` (+ `active_ramps`), inputs (+ stream block buffers),
+    /// outputs (+ stream block buffers), node instances, asset load handles.
+    /// Resampler fields are appended separately by the caller.
+    fn collect_struct_fields(&self) -> Vec<TokenStream> {
         let mut fields = vec![quote! { sample_rate: f32 }];
 
         // Add active_ramps counter if there are ramped inputs
@@ -1362,10 +1370,7 @@ impl<'a> CodegenContext<'a> {
 
             // Block buffer for stream inputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
-                let block_name = syn::Ident::new(
-                    &format!("{}_block", ident_base(field_name)),
-                    field_name.span(),
-                );
+                let block_name = block_field_name(field_name);
                 let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
                     quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
@@ -1392,10 +1397,7 @@ impl<'a> CodegenContext<'a> {
 
             // Block buffer for stream outputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
-                let block_name = syn::Ident::new(
-                    &format!("{}_block", ident_base(field_name)),
-                    field_name.span(),
-                );
+                let block_name = block_field_name(field_name);
                 let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
                     quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
@@ -1423,6 +1425,17 @@ impl<'a> CodegenContext<'a> {
 
         // Asset load-handle fields (one per `external -> node.asset` binding).
         fields.extend(self.generate_asset_handle_fields());
+
+        fields
+    }
+
+    /// Assemble the complete generated item set: struct declaration,
+    /// inherent impl (constructor, process entry points, setters, params),
+    /// and trait impls. Every constituent comes from a dedicated
+    /// `generate_*` / `collect_*` method; this is pure orchestration.
+    fn generate_static_struct(&self) -> Result<TokenStream> {
+        let name = self.name();
+        let fields = self.collect_struct_fields();
 
         let input_params = self.generate_static_input_params();
         let hoist_inherits = self.generate_hoist_default_inherits();

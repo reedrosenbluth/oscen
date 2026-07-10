@@ -603,61 +603,7 @@ fn build_edges(
     let external_names: std::collections::HashSet<String> =
         ir.externals.iter().map(|e| e.name.to_string()).collect();
 
-    // Pre-pass: resolve `external -> node.asset` bindings. These are not signal
-    // edges — they carry no kernel, impose no processing order, and create no
-    // `IrEdge`. Recording them up front (and marking the destination endpoint
-    // `Asset`) lets the main pass reject any *other* edge into an asset input.
-    let mut binding_stmts: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    for (i, p) in prelowered.iter().enumerate() {
-        let stmt = p.stmt;
-        let src_ident = match &stmt.source {
-            ConnectionExpr::Ident(id) if external_names.contains(&id.to_string()) => id,
-            _ => continue,
-        };
-        // This statement is an asset binding regardless of how it resolves.
-        binding_stmts.insert(i);
-
-        let (dst_node, dst_ep) = match p.dst_ep.clone() {
-            Some(d) => d,
-            None => {
-                diags.push_error(syn::Error::new(
-                    stmt.span,
-                    format!(
-                        "external `{}` can only be bound to a node's asset input \
-                         (`{} -> node.asset`)",
-                        src_ident, src_ident
-                    ),
-                ));
-                continue;
-            }
-        };
-        // The target must be a single processor node with a known type so the
-        // `AssetEndpoint` trait can be projected during codegen.
-        if !matches!(
-            ir.nodes[dst_node].kind,
-            IrNodeKind::Processor { ty: Some(_), .. }
-        ) {
-            diags.push_error(syn::Error::new(
-                stmt.span,
-                format!(
-                    "external `{}` must be bound to a single node with a known type",
-                    src_ident
-                ),
-            ));
-            continue;
-        }
-
-        // Mark the endpoint `Asset` so a stray signal edge into it is caught.
-        ir.nodes[dst_node]
-            .endpoints
-            .insert(dst_ep.clone(), EndpointInfo::new(EndpointKind::Asset));
-
-        ir.asset_bindings.push(AssetBinding {
-            external_name: src_ident.clone(),
-            node: dst_node,
-            endpoint: dst_ep,
-        });
-    }
+    let binding_stmts = resolve_asset_bindings(prelowered, &external_names, ir, diags);
 
     let mut synth_counter: u32 = 0;
     let mut via_used_nodes: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
@@ -743,158 +689,265 @@ fn build_edges(
                 );
             }
 
-            // -----------------------------------------------------------------
-            // Node via: expand `src -> [name] -> dst` into two edges:
-            //   Edge 1: src   → via.input   (non-feedback)
-            //   Edge 2: via.output → dst    (feedback)
-            // -----------------------------------------------------------------
+            // Node via: `src -> [name] -> dst`.
             Some(crate::ast::DelayVia::Node { name }) => {
-                let via_id = match name_to_id.get(&name.to_string()) {
-                    Some(&id) => id,
-                    None => {
-                        diags.push_error(syn::Error::new(
-                            name.span(),
-                            format!("unknown node `{}` in delay-route bracket", name),
-                        ));
-                        continue;
-                    }
-                };
-
-                if !via_used_nodes.insert(via_id) {
-                    diags.push_error(syn::Error::new(
-                        name.span(),
-                        format!(
-                            "node `{}` is already wired by another `[{}]` reference",
-                            name, name
-                        ),
-                    ));
-                    continue;
-                }
-
-                // Edge 1: src → via.input
-                let via_input = IrEndpoint {
-                    node: via_id,
-                    endpoint: Ident::new("input", name.span()),
-                    index: None,
-                    span: name.span(),
-                    bare: false,
-                };
-                insert_edge(
+                expand_via_node(
                     ir,
+                    name,
+                    name_to_id,
+                    &mut via_used_nodes,
                     ir_source,
-                    via_input,
-                    stmt.policy,
-                    stmt.span,
-                    /*is_feedback=*/ false,
-                    diags,
-                );
-
-                // Edge 2: via.output → dst  (feedback — breaks the cycle)
-                let via_output_expr = IrExpr {
-                    kind: IrExprKind::Endpoint(IrEndpoint {
-                        node: via_id,
-                        endpoint: Ident::new("output", name.span()),
-                        index: None,
-                        span: name.span(),
-                        bare: false,
-                    }),
-                    span: name.span(),
-                };
-                insert_edge(
-                    ir,
-                    via_output_expr,
                     ir_dest,
-                    stmt.policy,
-                    stmt.span,
-                    /*is_feedback=*/ true,
+                    stmt,
                     diags,
                 );
             }
 
-            // -----------------------------------------------------------------
-            // Samples via: synthesise an anonymous ::oscen::Delay node with N
-            // samples and expand into two edges through it:
-            //   Edge 1: src        → synth.input   (non-feedback)
-            //   Edge 2: synth.output → dst          (feedback — breaks the cycle)
-            // -----------------------------------------------------------------
+            // Samples via: `src -> [N] -> dst`.
             Some(crate::ast::DelayVia::Samples { value, span }) => {
-                let span = *span;
-                // Parse the literal sample count.
-                let n: u32 = match value.base10_parse::<u32>() {
-                    Ok(n) => n,
-                    Err(err) => {
-                        diags.push_error(err);
-                        continue;
-                    }
-                };
-
-                // Unique synthetic name for this inline delay.
-                let synth_name = Ident::new(&format!("__inline_delay_{}", synth_counter), span);
-                synth_counter += 1;
-
-                // Build the constructor expression: ::oscen::Delay::new(N as f32, 0.0)
-                let n_lit = proc_macro2::Literal::u32_unsuffixed(n);
-                let ctor_expr: syn::Expr =
-                    syn::parse_quote!(::oscen::Delay::new(#n_lit as f32, 0.0));
-                let ty: syn::Path = syn::parse_quote!(::oscen::Delay);
-
-                let synth_id = ir.nodes.insert_with_key(|id| IrNode {
-                    id,
-                    kind: IrNodeKind::Processor {
-                        ty: Some(ty),
-                        ctor_expr,
-                    },
-                    name: synth_name,
-                    rate: crate::ast::NodeRate::Same,
-                    latency_samples: 0,
-                    span,
-                    endpoints: synth_delay_endpoints(span),
-                    incoming: Vec::new(),
-                    outgoing: Vec::new(),
-                });
-                ir.processors.push(synth_id);
-
-                // Edge 1: src → synth.input  (non-feedback)
-                let synth_input = IrEndpoint {
-                    node: synth_id,
-                    endpoint: Ident::new("input", span),
-                    index: None,
-                    span,
-                    bare: false,
-                };
-                insert_edge(
+                expand_via_samples(
                     ir,
+                    value,
+                    *span,
+                    &mut synth_counter,
                     ir_source,
-                    synth_input,
-                    stmt.policy,
-                    stmt.span,
-                    /*is_feedback=*/ false,
-                    diags,
-                );
-
-                // Edge 2: synth.output → dst  (feedback — breaks the cycle)
-                let synth_output_expr = IrExpr {
-                    kind: IrExprKind::Endpoint(IrEndpoint {
-                        node: synth_id,
-                        endpoint: Ident::new("output", span),
-                        index: None,
-                        span,
-                        bare: false,
-                    }),
-                    span,
-                };
-                insert_edge(
-                    ir,
-                    synth_output_expr,
                     ir_dest,
-                    stmt.policy,
-                    stmt.span,
-                    /*is_feedback=*/ true,
+                    stmt,
                     diags,
                 );
             }
         }
     }
+}
+
+/// Pre-pass of `build_edges`: resolve `external -> node.asset` bindings.
+/// These are not signal edges — they carry no kernel, impose no processing
+/// order, and create no `IrEdge`. Recording them up front (and marking the
+/// destination endpoint `Asset`) lets the main pass reject any *other* edge
+/// into an asset input. Returns the statement indices consumed as bindings.
+fn resolve_asset_bindings(
+    prelowered: &[PreloweredStmt],
+    external_names: &HashSet<String>,
+    ir: &mut IrGraph,
+    diags: &mut Diagnostics,
+) -> HashSet<usize> {
+    let mut binding_stmts: HashSet<usize> = HashSet::new();
+    for (i, p) in prelowered.iter().enumerate() {
+        let stmt = p.stmt;
+        let src_ident = match &stmt.source {
+            ConnectionExpr::Ident(id) if external_names.contains(&id.to_string()) => id,
+            _ => continue,
+        };
+        // This statement is an asset binding regardless of how it resolves.
+        binding_stmts.insert(i);
+
+        let (dst_node, dst_ep) = match p.dst_ep.clone() {
+            Some(d) => d,
+            None => {
+                diags.push_error(syn::Error::new(
+                    stmt.span,
+                    format!(
+                        "external `{}` can only be bound to a node's asset input \
+                         (`{} -> node.asset`)",
+                        src_ident, src_ident
+                    ),
+                ));
+                continue;
+            }
+        };
+        // The target must be a single processor node with a known type so the
+        // `AssetEndpoint` trait can be projected during codegen.
+        if !matches!(
+            ir.nodes[dst_node].kind,
+            IrNodeKind::Processor { ty: Some(_), .. }
+        ) {
+            diags.push_error(syn::Error::new(
+                stmt.span,
+                format!(
+                    "external `{}` must be bound to a single node with a known type",
+                    src_ident
+                ),
+            ));
+            continue;
+        }
+
+        // Mark the endpoint `Asset` so a stray signal edge into it is caught.
+        ir.nodes[dst_node]
+            .endpoints
+            .insert(dst_ep.clone(), EndpointInfo::new(EndpointKind::Asset));
+
+        ir.asset_bindings.push(AssetBinding {
+            external_name: src_ident.clone(),
+            node: dst_node,
+            endpoint: dst_ep,
+        });
+    }
+    binding_stmts
+}
+
+/// Expand `src -> [name] -> dst` into two edges through the declared node:
+///   Edge 1: src → via.input    (non-feedback)
+///   Edge 2: via.output → dst   (feedback — breaks the cycle)
+#[allow(clippy::too_many_arguments)]
+fn expand_via_node(
+    ir: &mut IrGraph,
+    name: &Ident,
+    name_to_id: &HashMap<String, NodeId>,
+    via_used_nodes: &mut HashSet<NodeId>,
+    ir_source: IrExpr,
+    ir_dest: IrEndpoint,
+    stmt: &crate::ast::ConnectionStmt,
+    diags: &mut Diagnostics,
+) {
+    let via_id = match name_to_id.get(&name.to_string()) {
+        Some(&id) => id,
+        None => {
+            diags.push_error(syn::Error::new(
+                name.span(),
+                format!("unknown node `{}` in delay-route bracket", name),
+            ));
+            return;
+        }
+    };
+
+    if !via_used_nodes.insert(via_id) {
+        diags.push_error(syn::Error::new(
+            name.span(),
+            format!(
+                "node `{}` is already wired by another `[{}]` reference",
+                name, name
+            ),
+        ));
+        return;
+    }
+
+    // Edge 1: src → via.input
+    let via_input = IrEndpoint {
+        node: via_id,
+        endpoint: Ident::new("input", name.span()),
+        index: None,
+        span: name.span(),
+        bare: false,
+    };
+    insert_edge(
+        ir,
+        ir_source,
+        via_input,
+        stmt.policy,
+        stmt.span,
+        /*is_feedback=*/ false,
+        diags,
+    );
+
+    // Edge 2: via.output → dst  (feedback — breaks the cycle)
+    let via_output_expr = IrExpr {
+        kind: IrExprKind::Endpoint(IrEndpoint {
+            node: via_id,
+            endpoint: Ident::new("output", name.span()),
+            index: None,
+            span: name.span(),
+            bare: false,
+        }),
+        span: name.span(),
+    };
+    insert_edge(
+        ir,
+        via_output_expr,
+        ir_dest,
+        stmt.policy,
+        stmt.span,
+        /*is_feedback=*/ true,
+        diags,
+    );
+}
+
+/// Expand `src -> [N] -> dst`: synthesise an anonymous `::oscen::Delay` node
+/// with N samples and route two edges through it:
+///   Edge 1: src → synth.input    (non-feedback)
+///   Edge 2: synth.output → dst   (feedback — breaks the cycle)
+#[allow(clippy::too_many_arguments)]
+fn expand_via_samples(
+    ir: &mut IrGraph,
+    value: &syn::LitInt,
+    span: proc_macro2::Span,
+    synth_counter: &mut u32,
+    ir_source: IrExpr,
+    ir_dest: IrEndpoint,
+    stmt: &crate::ast::ConnectionStmt,
+    diags: &mut Diagnostics,
+) {
+    // Parse the literal sample count.
+    let n: u32 = match value.base10_parse::<u32>() {
+        Ok(n) => n,
+        Err(err) => {
+            diags.push_error(err);
+            return;
+        }
+    };
+
+    // Unique synthetic name for this inline delay.
+    let synth_name = Ident::new(&format!("__inline_delay_{}", synth_counter), span);
+    *synth_counter += 1;
+
+    // Build the constructor expression: ::oscen::Delay::new(N as f32, 0.0)
+    let n_lit = proc_macro2::Literal::u32_unsuffixed(n);
+    let ctor_expr: syn::Expr = syn::parse_quote!(::oscen::Delay::new(#n_lit as f32, 0.0));
+    let ty: syn::Path = syn::parse_quote!(::oscen::Delay);
+
+    let synth_id = ir.nodes.insert_with_key(|id| IrNode {
+        id,
+        kind: IrNodeKind::Processor {
+            ty: Some(ty),
+            ctor_expr,
+        },
+        name: synth_name,
+        rate: crate::ast::NodeRate::Same,
+        latency_samples: 0,
+        span,
+        endpoints: synth_delay_endpoints(span),
+        incoming: Vec::new(),
+        outgoing: Vec::new(),
+    });
+    ir.processors.push(synth_id);
+
+    // Edge 1: src → synth.input  (non-feedback)
+    let synth_input = IrEndpoint {
+        node: synth_id,
+        endpoint: Ident::new("input", span),
+        index: None,
+        span,
+        bare: false,
+    };
+    insert_edge(
+        ir,
+        ir_source,
+        synth_input,
+        stmt.policy,
+        stmt.span,
+        /*is_feedback=*/ false,
+        diags,
+    );
+
+    // Edge 2: synth.output → dst  (feedback — breaks the cycle)
+    let synth_output_expr = IrExpr {
+        kind: IrExprKind::Endpoint(IrEndpoint {
+            node: synth_id,
+            endpoint: Ident::new("output", span),
+            index: None,
+            span,
+            bare: false,
+        }),
+        span,
+    };
+    insert_edge(
+        ir,
+        synth_output_expr,
+        ir_dest,
+        stmt.policy,
+        stmt.span,
+        /*is_feedback=*/ true,
+        diags,
+    );
 }
 
 /// Insert one `IrEdge` into `ir`, updating adjacency lists and edge order.
