@@ -124,3 +124,41 @@ fn generic_apply_loop() {
         }
     }
 }
+
+// Hoist-inherited defaults: descriptors must report the same value
+// `get_param` returns right after `new()` (the child constructor's field
+// value), for both scalar and array hoist sources.
+graph! {
+    name: HoistDefaultsGraph;
+
+    input osc.frequency;
+    input voices.amplitude vol;
+
+    output stream out;
+
+    nodes {
+        osc = PolyBlepOscillator::saw(220.0, 0.6);
+        voices = [PolyBlepOscillator::saw(110.0, 0.25); 4];
+    }
+
+    connections {
+        osc.output -> out;
+    }
+}
+
+#[test]
+fn hoisted_defaults_match_get_param_after_new() {
+    let g = HoistDefaultsGraph::new();
+    for (i, param) in HoistDefaultsGraphParam::ALL.iter().enumerate() {
+        let descriptor = &HoistDefaultsGraph::param_descriptors()[i];
+        assert_eq!(
+            descriptor.default,
+            g.get_param(*param),
+            "descriptor default for `{}` must match get_param after new()",
+            descriptor.name
+        );
+    }
+    // The inherited values themselves come from the child constructors.
+    assert_eq!(g.get_param(HoistDefaultsGraphParam::Frequency), 220.0);
+    assert_eq!(g.get_param(HoistDefaultsGraphParam::Vol), 0.25);
+}

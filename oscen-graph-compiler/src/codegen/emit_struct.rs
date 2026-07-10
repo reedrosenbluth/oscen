@@ -11,7 +11,6 @@ use crate::ir::graph::{EdgeKernel, FanoutShape, IrNodeKind, NodeId};
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::collections::HashSet;
-use syn::Expr;
 
 use super::helpers::{
     ident_base, kernel_down_type, kernel_up_type, policy_marker_path, resampler_field_name,
@@ -197,25 +196,9 @@ impl<'a> CodegenContext<'a> {
                 } else {
                     quote! { let #name }
                 };
-                let constructor_expr = self
-                    .node_ctor_expr(node)
+                let constructor = self
+                    .node_ctor_tokens(node)
                     .expect("processor/array node must have a constructor expression");
-                // For static graphs:
-                // - If constructor is a path (Type), call Type::new() (Pattern 2)
-                // - If constructor is already a call, use it as-is
-                let constructor = match constructor_expr {
-                    Expr::Path(path) => {
-                        // Pattern 2: call new() without arguments
-                        // init(sample_rate) will be called later
-                        quote! { #path::new() }
-                    }
-                    Expr::Call(_) => {
-                        quote! { #constructor_expr }
-                    }
-                    _ => {
-                        quote! { #constructor_expr }
-                    }
-                };
 
                 let array_size = match &node.kind {
                     IrNodeKind::NodeArray { len, .. } => Some(*len),

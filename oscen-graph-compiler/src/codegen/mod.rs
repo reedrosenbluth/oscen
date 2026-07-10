@@ -279,6 +279,19 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
+    /// Constructor call tokens for a single element of a processor/array
+    /// node: a bare path constructor (`Type`) becomes `Type::new()`, any
+    /// other expression is used as written. Shared by `new()`'s node init
+    /// and the param-descriptor probe so a probe can never drift from the
+    /// value `new()` actually constructs.
+    fn node_ctor_tokens(&self, node: &IrNode) -> Option<TokenStream> {
+        let ctor_expr = self.node_ctor_expr(node)?;
+        Some(match ctor_expr {
+            Expr::Path(path) => quote! { #path::new() },
+            _ => quote! { #ctor_expr },
+        })
+    }
+
     /// Get the node type path for a processor/array node.
     fn node_type_path<'b>(&self, node: &'b IrNode) -> Option<&'b syn::Path> {
         match &node.kind {

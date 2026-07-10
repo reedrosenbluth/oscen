@@ -15,8 +15,8 @@
 //! allocation-free). Hoisted value inputs without an explicit `= default`
 //! inherit their initial value from the child constructor in `new()`
 //! (`generate_hoist_default_inherits`); the descriptor table reports the same
-//! value by constructing a probe graph inside the lazy init and reading it
-//! back via `get_param`.
+//! value by constructing a probe of each hoist-source child node inside the
+//! lazy init and reading the endpoint directly.
 
 use crate::ast::Curve;
 use crate::ir::graph::IrNode;
@@ -33,6 +33,11 @@ use super::CodegenContext;
 /// the keyword `Self` from `self_`/`_self` — which used to panic
 /// `Ident::new` or emit invalid Rust; both are spanned errors instead.
 /// A raw-ident input (`r#loop`) camel-cases its bare name (`Loop`).
+/// Binding name for the descriptor-init probe of one hoist-source child.
+fn probe_ident(child: &syn::Ident) -> syn::Ident {
+    syn::Ident::new(&format!("__probe_{}", ident_base(child)), child.span())
+}
+
 fn variant_ident(name: &syn::Ident) -> syn::Result<syn::Ident> {
     let base = name.to_string();
     let base = base.strip_prefix("r#").unwrap_or(&base);
@@ -132,38 +137,62 @@ impl<'a> CodegenContext<'a> {
 
         // Hoisted inputs without an explicit `= default` inherit their
         // initial value from the child constructor in `new()`. The
-        // descriptor table must report that same value, so when any such
-        // input exists the lazy init constructs a probe graph and reads
-        // the inherited defaults back through `get_param`.
-        let needs_probe = value_inputs
-            .iter()
-            .any(|n| self.input_default(n).is_none() && self.input_hoist(n).is_some());
-        let probe_init = if needs_probe {
-            quote! { let __probe = #graph_name::new(); }
-        } else {
-            quote! {}
-        };
+        // descriptor table must report that same value, so the lazy init
+        // constructs a probe of each *hoist-source child node* — not the
+        // whole graph — and reads the default straight off its endpoint,
+        // mirroring `generate_hoist_default_inherits`. A single element
+        // stands in for an array child (every element is built by the same
+        // constructor expression), so probes stay small even for graphs
+        // whose own struct is multi-megabyte. A hoist from a nested
+        // `graph!` child still constructs that child graph, but never the
+        // parent with its per-stream block buffers.
+        let mut probe_inits: Vec<TokenStream> = Vec::new();
+        let mut probed: HashMap<String, syn::Ident> = HashMap::new();
+        for node in &value_inputs {
+            if self.input_default(node).is_some() {
+                continue;
+            }
+            let Some(hoist) = self.input_hoist(node) else {
+                continue;
+            };
+            let child = &hoist.node;
+            if let Entry::Vacant(slot) = probed.entry(child.to_string()) {
+                let child_node = self
+                    .find_node_by_ident(child)
+                    .expect("hoist source node validated during lowering");
+                let ctor = self
+                    .node_ctor_tokens(child_node)
+                    .expect("hoist source must be a processor/array node");
+                let probe = probe_ident(child);
+                probe_inits.push(quote! { let #probe = #ctor; });
+                slot.insert(probe);
+            }
+        }
 
         // ---- descriptor table entries -----------------------------------
         let descriptors: Vec<TokenStream> = value_inputs
             .iter()
-            .enumerate()
-            .map(|(idx, node)| {
+            .map(|node| {
                 let name_str = ident_base(&node.name);
                 let spec = self.input_spec(node);
                 let display_name = spec
                     .and_then(|s| s.display_name.clone())
                     .unwrap_or_else(|| title_case(&name_str));
-                let default = match self.input_default(node) {
-                    Some(e) => quote! { (#e) as f32 },
-                    None if self.input_hoist(node).is_some() => {
+                let default = match (self.input_default(node), self.input_hoist(node)) {
+                    (Some(e), _) => quote! { (#e) as f32 },
+                    (None, Some(hoist)) => {
                         // Inherited from the child constructor: read it off
-                        // the probe instance so the descriptor matches what
+                        // the child probe so the descriptor matches what
                         // `get_param` returns right after `new()`.
-                        let variant = &variants[idx];
-                        quote! { __probe.get_param(#enum_name::#variant) }
+                        let endpoint = hoist
+                            .single_endpoint()
+                            .expect("list hoists expanded during lowering");
+                        let probe = &probed[&hoist.node.to_string()];
+                        quote! {
+                            ::oscen::graph::ReadValueEndpoint::read_value(&#probe.#endpoint)
+                        }
                     }
-                    None => quote! { 0.0f32 },
+                    (None, None) => quote! { 0.0f32 },
                 };
                 let range = spec
                     .and_then(|s| s.range.as_ref())
@@ -211,36 +240,16 @@ impl<'a> CodegenContext<'a> {
                 }
             })
             .collect();
-        // The probe graph can be multi-megabyte (voice arrays, block
-        // buffers) and `param_descriptors()` is reached implicitly from
-        // arbitrary host threads (nih-plug's `Params::default()`), whose
-        // stacks are often ~1 MB. Build the table on a dedicated big-stack
-        // thread; fall back inline where spawning isn't available (wasm).
-        // `Box::new(new())` would not help: the argument is still
-        // constructed on the caller's stack first.
-        let descriptor_init = if needs_probe {
-            quote! {
-                fn __build() -> [::oscen::graph::ParamDescriptor; #count] {
-                    #probe_init
-                    [
-                        #(#descriptors,)*
-                    ]
-                }
-                ::std::thread::Builder::new()
-                    .name("oscen-param-descriptors".into())
-                    .stack_size(16 * 1024 * 1024)
-                    .spawn(__build)
-                    .ok()
-                    .and_then(|h| h.join().ok())
-                    .unwrap_or_else(__build)
-            }
-        } else {
-            quote! {
-                #probe_init
-                [
-                    #(#descriptors,)*
-                ]
-            }
+        // Child probes are individual nodes (single elements for arrays),
+        // so even on a small host thread stack (nih-plug's
+        // `Params::default()` runs on ~1 MB stacks) the init is safe — the
+        // old whole-graph probe needed a dedicated 16 MB thread because the
+        // parent struct carries per-stream block buffers and voice arrays.
+        let descriptor_init = quote! {
+            #(#probe_inits)*
+            [
+                #(#descriptors,)*
+            ]
         };
 
         // ---- dispatch arms -----------------------------------------------
@@ -344,9 +353,6 @@ impl<'a> CodegenContext<'a> {
                 /// Metadata for every value input ("parameter") of this graph,
                 /// in declaration order. Built lazily on first call — call it
                 /// off the audio thread (e.g. during editor/preset setup).
-                /// Graphs with hoist-inherited defaults build the table on an
-                /// internal big-stack thread, so small-stack host threads are
-                /// safe.
                 pub fn param_descriptors() -> &'static [::oscen::graph::ParamDescriptor] {
                     static DESCRIPTORS: ::std::sync::OnceLock<
                         [::oscen::graph::ParamDescriptor; #count],
