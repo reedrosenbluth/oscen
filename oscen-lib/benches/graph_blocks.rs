@@ -305,12 +305,63 @@ fn bench_array_fanin(c: &mut Criterion) {
     group.finish();
 }
 
+// ---------------------------------------------------------------------------
+// Serial chain: one source through 8 filters in series. Every other shape
+// here is shallow-and-wide; this isolates per-node overhead along a deep
+// dependency chain (no two nodes can be reordered or merged).
+// ---------------------------------------------------------------------------
+
+graph! {
+    name: ChainGraph;
+
+    output audio_out: stream;
+
+    nodes {
+        osc = PolyBlepOscillator::saw(220.0, 0.8);
+        f1 = TptFilter::new(400.0, 0.6);
+        f2 = TptFilter::new(600.0, 0.6);
+        f3 = TptFilter::new(800.0, 0.6);
+        f4 = TptFilter::new(1000.0, 0.6);
+        f5 = TptFilter::new(1200.0, 0.6);
+        f6 = TptFilter::new(1400.0, 0.6);
+        f7 = TptFilter::new(1600.0, 0.6);
+        f8 = TptFilter::new(1800.0, 0.6);
+    }
+
+    connections {
+        osc.output -> f1.input;
+        f1.output -> f2.input;
+        f2.output -> f3.input;
+        f3.output -> f4.input;
+        f4.output -> f5.input;
+        f5.output -> f6.input;
+        f6.output -> f7.input;
+        f7.output -> f8.input;
+        f8.output -> audio_out;
+    }
+}
+
+fn bench_chain(c: &mut Criterion) {
+    let mut group = c.benchmark_group("block/chain");
+    group.throughput(Throughput::Elements(512));
+    group.bench_function("filters8", |b| {
+        let mut g = ChainGraph::new();
+        g.init(48_000.0);
+        b.iter(|| {
+            g.process_block(512);
+            black_box(g.audio_out_block[511]);
+        });
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_passthrough,
     bench_voice,
     bench_events,
     bench_multirate,
-    bench_array_fanin
+    bench_array_fanin,
+    bench_chain
 );
 criterion_main!(benches);

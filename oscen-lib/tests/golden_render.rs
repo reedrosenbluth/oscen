@@ -10,9 +10,13 @@
 //! To re-record after an *intentional* audio change, run with
 //! `OSCEN_PRINT_GOLDEN=1 cargo test -p oscen --test golden_render -- --nocapture`
 //! and update the constants, justifying the diff in the commit message.
+#![feature(inherent_associated_types)]
 
 use oscen::graph::{EventInstance, EventPayload};
 use oscen::{graph, oversample_variants, AdsrEnvelope, Gain, PolyBlepOscillator, TptFilter};
+
+#[path = "../benches/support/poly_synth.rs"]
+mod poly_synth;
 
 const RENDER_FRAMES: usize = 2048;
 const BLOCK: usize = 512;
@@ -246,6 +250,63 @@ graph! {
         oscs.output -> filter.input;
         filter.output -> audio_out;
     }
+}
+
+// --- Poly synth app (shape shared with benches/synth_app.rs) -----------------
+
+#[test]
+fn golden_poly_synth() {
+    use oscen::midi::raw_midi_event;
+
+    let mut g = poly_synth::PolySynth8::new();
+    g.init(48_000.0);
+    let mut out = Vec::with_capacity(RENDER_FRAMES * 2);
+    for block in 0..RENDER_FRAMES / BLOCK {
+        match block {
+            // Chord on, spread across the block.
+            0 => {
+                for (k, note) in [48u8, 52, 55, 59].into_iter().enumerate() {
+                    g.midi_in
+                        .try_push(EventInstance {
+                            frame_offset: k as u32 * 100,
+                            payload: raw_midi_event(&[0x90, note, 100]),
+                        })
+                        .unwrap();
+                }
+            }
+            // Host automation mid-render (ramped params).
+            1 => {
+                g.set_cutoff(800.0);
+                g.set_route(0.7);
+            }
+            // Partial release.
+            2 => {
+                for note in [48u8, 52] {
+                    g.midi_in
+                        .try_push(EventInstance {
+                            frame_offset: 50,
+                            payload: raw_midi_event(&[0x80, note, 0]),
+                        })
+                        .unwrap();
+                }
+            }
+            _ => {}
+        }
+        g.process_block(BLOCK);
+        for frame in &g.out_block[..BLOCK] {
+            out.push(frame.0[0]);
+            out.push(frame.0[1]);
+        }
+    }
+    assert!(
+        out.iter().any(|v| v.abs() > 1e-3),
+        "poly synth rendered silence; the MIDI drive is broken"
+    );
+    check(
+        "poly_synth",
+        0xcb60a38abd1cb3cf,
+        fnv1a64(out.iter().map(|v| v.to_bits())),
+    );
 }
 
 #[test]

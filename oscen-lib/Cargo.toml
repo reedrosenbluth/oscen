@@ -30,6 +30,10 @@ harness = false
 name = "graph_blocks"
 harness = false
 
+[[bench]]
+name = "synth_app"
+harness = false
+
 # [[bin]]
 # name = "profile_graph"
 # path = "perf/profile_graph.rs"
