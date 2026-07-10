@@ -1513,3 +1513,85 @@ fn cycle_diagnostic_survives_unlucky_edge_order() {
         "cycle diagnostic should render a path; got: {cycle_msg}"
     );
 }
+
+#[test]
+fn repeated_source_node_registers_edge_once() {
+    // `a.output * b.output + a.output` references `a` twice non-adjacently.
+    // The edge must anchor on `a` exactly once: `a` must not reappear in
+    // `extra_source_nodes` (Vec::dedup only removed *consecutive* repeats),
+    // and `a.outgoing` must list the edge exactly once.
+    let (ir, diags) = lower_quote(quote! {
+        name: RepeatedSrc;
+        input stream s;
+        output stream out;
+        node a = Gain::new(0.5);
+        node b = Gain::new(0.5);
+        connections {
+            s -> a.input;
+            s -> b.input;
+            a.output * b.output + a.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diagnostics: {:?}",
+        diags.items
+    );
+    let ir = ir.expect("lower should produce an IrGraph");
+
+    let node_id = |name: &str| {
+        ir.nodes
+            .iter()
+            .find(|(_, n)| n.name == name)
+            .map(|(id, _)| id)
+            .unwrap_or_else(|| panic!("node {name}"))
+    };
+    let (a_id, b_id) = (node_id("a"), node_id("b"));
+    let out_id = ir.outputs[0];
+
+    let compound_eid = ir
+        .edge_order
+        .iter()
+        .copied()
+        .find(|&eid| ir.edges[eid].dest.node == out_id)
+        .expect("compound edge into out");
+    let edge = &ir.edges[compound_eid];
+
+    assert_eq!(
+        edge.extra_source_nodes,
+        vec![b_id],
+        "extras must be the secondary nodes only — no primary, no duplicates"
+    );
+    let a_count = ir.nodes[a_id]
+        .outgoing
+        .iter()
+        .filter(|&&eid| eid == compound_eid)
+        .count();
+    assert_eq!(a_count, 1, "edge must appear in a.outgoing exactly once");
+}
+
+#[test]
+fn mismatched_array_sizes_are_rejected() {
+    // `[Gain; 4].output -> [Gain; 2].input` used to silently truncate to the
+    // smaller array (Parallel { n: 2 }), dropping elements 2 and 3.
+    let (ir, diags) = lower_quote(quote! {
+        name: Mismatch;
+        input stream s;
+        output stream out;
+        node a = [Gain::new(0.5); 4];
+        node b = [Gain::new(0.5); 2];
+        connections {
+            s -> a.input;
+            a.output -> b.input;
+            b[0].output -> out;
+        }
+    });
+    assert!(ir.is_none(), "mismatched array sizes should be an error");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter().any(|m| m.contains("array size mismatch")
+            && m.contains("`a` has 4 elements")
+            && m.contains("`b` has 2")),
+        "expected array-size-mismatch error naming both nodes; got: {msgs:?}"
+    );
+}

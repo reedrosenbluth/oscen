@@ -887,9 +887,14 @@ fn insert_edge(
     is_feedback: bool,
     diags: &mut Diagnostics,
 ) {
-    // Compute primary source NodeId and extras from the IR source.
+    // Compute primary source NodeId and extras from the IR source. The
+    // collected ids can repeat non-adjacently (`a.x * b.y + a.z`), so dedup
+    // with a set — `Vec::dedup` only removes consecutive runs and would let
+    // the primary reappear in `extra_source_nodes`, double-registering the
+    // edge in that node's `outgoing` list.
     let mut refs = collect_referenced_node_ids(&source);
-    refs.dedup();
+    let mut seen = std::collections::HashSet::new();
+    refs.retain(|id| seen.insert(*id));
     let primary_src = match refs.first() {
         Some(&id) => id,
         None => {
@@ -1033,6 +1038,25 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
             array_size_of(&ir.nodes[src_node_id].kind).filter(|_| src_index.is_none());
         let dst_array_size =
             array_size_of(&ir.nodes[dst_node_id].kind).filter(|_| dst_index.is_none());
+        if let (Some(n), Some(m)) = (src_array_size, dst_array_size) {
+            if n != m {
+                let src_name = &ir.nodes[src_node_id].name;
+                let dst_name = &ir.nodes[dst_node_id].name;
+                diags.push_error(syn::Error::new(
+                    span,
+                    format!(
+                        "array size mismatch in connection: source `{src_name}` has {n} \
+                         element{} but destination `{dst_name}` has {m}; make the arrays \
+                         the same size or connect elements explicitly \
+                         (`{src_name}[k].endpoint`)",
+                        if n == 1 { "" } else { "s" },
+                    ),
+                ));
+                // Fall through: classify_fanout's Parallel{min} stands in as a
+                // placeholder on the errored edge; codegen never runs because
+                // `lower()` returns None once diags is non-empty.
+            }
+        }
         let fanout = classify_fanout(src_array_size, dst_array_size);
 
         ir.edges[eid].kernel = kernel;

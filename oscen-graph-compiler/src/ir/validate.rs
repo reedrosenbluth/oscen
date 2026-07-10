@@ -36,6 +36,17 @@ pub fn validate(ir: &IrGraph) {
     let edge_set: HashSet<EdgeId> = ir.edges.keys().collect();
 
     for (nid, node) in &ir.nodes {
+        // Adjacency lists must not register the same edge twice — a duplicate
+        // means in-degree counting (topo sort) and any pass iterating
+        // adjacency sees the edge more than once.
+        for (list, list_name) in [(&node.incoming, "incoming"), (&node.outgoing, "outgoing")] {
+            let unique: HashSet<EdgeId> = list.iter().copied().collect();
+            assert_eq!(
+                unique.len(),
+                list.len(),
+                "node {nid:?}.{list_name} contains duplicate edge ids"
+            );
+        }
         // Adjacency entries point at live edges.
         for &eid in &node.incoming {
             assert!(
@@ -85,6 +96,21 @@ pub fn validate(ir: &IrGraph) {
                 "edge {eid:?}.extra_source_nodes references dead node {extra:?}"
             );
         }
+        // extra_source_nodes holds the *secondary* referenced nodes: the
+        // primary must not reappear there, and extras must be unique —
+        // otherwise adjacency registration double-counts the edge.
+        if let Some(primary) = primary_node(&edge.source) {
+            assert!(
+                !edge.extra_source_nodes.contains(&primary),
+                "edge {eid:?}.extra_source_nodes contains the primary source node {primary:?}"
+            );
+        }
+        let unique_extras: HashSet<NodeId> = edge.extra_source_nodes.iter().copied().collect();
+        assert_eq!(
+            unique_extras.len(),
+            edge.extra_source_nodes.len(),
+            "edge {eid:?}.extra_source_nodes contains duplicates"
+        );
     }
 
     // processors / inputs / outputs vectors reference live nodes.
