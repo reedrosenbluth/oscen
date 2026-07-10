@@ -13,7 +13,7 @@ use quote::quote;
 use std::collections::HashSet;
 use syn::Expr;
 
-use super::helpers::{kernel_down_type, kernel_up_type, policy_marker_path, resampler_field_name};
+use super::helpers::{ident_base, kernel_down_type, kernel_up_type, policy_marker_path, resampler_field_name};
 use super::CodegenContext;
 
 impl<'a> CodegenContext<'a> {
@@ -32,6 +32,18 @@ impl<'a> CodegenContext<'a> {
                 let mut stmts = Vec::new();
                 match kind {
                     EndpointKind::Value => {
+                        if let Some(ty) = self.typed_value_ty(name) {
+                            // TYPED value input: the `= expr` initializer is
+                            // used as-is (no f32 coercion); without one the
+                            // field starts at the payload's Default.
+                            let default = default_val.map(|d| quote! { #d }).unwrap_or_else(
+                                || quote! { <#ty as ::core::default::Default>::default() },
+                            );
+                            stmts.push(quote! {
+                                let #name = #default;
+                            });
+                            return stmts;
+                        }
                         let default = default_val.map(|d| quote! { #d }).unwrap_or(quote! { 0.0 });
                         if self.is_ramped_input(name).is_some() {
                             stmts.push(quote! {
@@ -54,7 +66,7 @@ impl<'a> CodegenContext<'a> {
                             let #name = #init;
                         });
                         // Block buffer for stream inputs (typed to the frame type)
-                        let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                        let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                         stmts.push(quote! {
                             let #block_name = #block_init;
                         });
@@ -87,15 +99,22 @@ impl<'a> CodegenContext<'a> {
                             let #name = #init;
                         });
                         // Block buffer for stream outputs (typed to the frame type)
-                        let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                        let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                         stmts.push(quote! {
                             let #block_name = #block_init;
                         });
                     }
                     EndpointKind::Value => {
-                        stmts.push(quote! {
-                            let #name = 0.0f32;
-                        });
+                        if let Some(ty) = self.typed_value_ty(name) {
+                            // TYPED value output: starts at the payload's Default.
+                            stmts.push(quote! {
+                                let #name = <#ty as ::core::default::Default>::default();
+                            });
+                        } else {
+                            stmts.push(quote! {
+                                let #name = 0.0f32;
+                            });
+                        }
                     }
                     EndpointKind::Event => {
                         stmts.push(quote! {
@@ -106,6 +125,56 @@ impl<'a> CodegenContext<'a> {
                     EndpointKind::Asset => {}
                 }
                 stmts
+            })
+            .collect()
+    }
+
+    /// Generate the shadowing re-binds that make hoisted value inputs
+    /// without an explicit `= default` inherit their initial value from the
+    /// child node they hoist (`input voices.cutoff;` starts at whatever the
+    /// voice constructor set `cutoff` to — single source of truth stays with
+    /// the child). Runs after node init in `new()`, shadowing the
+    /// placeholder binding from `generate_static_input_params`.
+    ///
+    /// The child field's storage may be a plain `f32` or a `ValueRampState`;
+    /// `ReadValueEndpoint` dispatches at compile time. For array nodes the
+    /// value is read from element 0 (all elements are constructed by the
+    /// same expression).
+    pub(super) fn generate_hoist_default_inherits(&self) -> Vec<TokenStream> {
+        self.inputs()
+            .filter_map(|node| {
+                let name = &node.name;
+                let kind = node
+                    .endpoints
+                    .get(name)
+                    .map(|e| e.kind)
+                    .unwrap_or(EndpointKind::Value);
+                if kind != EndpointKind::Value || self.input_default(node).is_some() {
+                    return None;
+                }
+                let hoist = self.input_hoist(node)?;
+                let child = &hoist.node;
+                let endpoint = hoist
+                    .single_endpoint()
+                    .expect("list hoists expanded during lowering");
+                let read = if self.get_node_array_size(child).is_some() {
+                    quote! {
+                        ::oscen::graph::ReadValueEndpoint::read_value(&#child[0].#endpoint)
+                    }
+                } else {
+                    quote! {
+                        ::oscen::graph::ReadValueEndpoint::read_value(&#child.#endpoint)
+                    }
+                };
+                Some(if self.is_ramped_input(name).is_some() {
+                    quote! {
+                        let #name = ::oscen::graph::ValueRampState::new(#read);
+                    }
+                } else {
+                    quote! {
+                        let #name = #read;
+                    }
+                })
             })
             .collect()
     }
@@ -187,7 +256,7 @@ impl<'a> CodegenContext<'a> {
                     .unwrap_or(EndpointKind::Value);
                 let mut fields = vec![quote! { #name }];
                 if kind == EndpointKind::Stream {
-                    let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                    let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                     fields.push(quote! { #block_name });
                 }
                 fields
@@ -205,7 +274,7 @@ impl<'a> CodegenContext<'a> {
                     .unwrap_or(EndpointKind::Stream);
                 let mut fields = vec![quote! { #name }];
                 if kind == EndpointKind::Stream {
-                    let block_name = syn::Ident::new(&format!("{}_block", name), name.span());
+                    let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
                     fields.push(quote! { #block_name });
                 }
                 fields
@@ -278,6 +347,14 @@ impl<'a> CodegenContext<'a> {
     pub(super) fn generate_kind_assertions(&self) -> Vec<TokenStream> {
         let mut out = Vec::new();
         for (_, edge) in self.edges() {
+            // TYPED value edges bypass the CrossRateKernel machinery (they
+            // latch); their payload compatibility is checked by the
+            // ConnectEndpoints bound on the emitted copy. (Also implied by
+            // the marker checks below — a typed edge always has a graph
+            // endpoint side, which has no EndpointAt marker.)
+            if self.edge_is_typed_value(edge) {
+                continue;
+            }
             let (factor, dir, policy) = match edge.kernel {
                 EdgeKernel::Up { factor, kind } => (
                     factor,
@@ -327,9 +404,14 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Generate one struct field per cross-rate stream/value connection.
+    /// TYPED value edges carry no kernel state: they are latched (copied at
+    /// the outer-block boundary) rather than resampled.
     pub(super) fn generate_resampler_fields(&self) -> Vec<TokenStream> {
         let mut fields = Vec::new();
         for (idx, edge) in self.edges() {
+            if self.edge_is_typed_value(edge) {
+                continue;
+            }
             let ty = match self.cross_rate_kernel_state_type(edge) {
                 Some(t) => t,
                 None => match edge.kernel {
@@ -353,6 +435,9 @@ impl<'a> CodegenContext<'a> {
     pub(super) fn generate_resampler_inits(&self) -> Vec<TokenStream> {
         let mut inits = Vec::new();
         for (idx, edge) in self.edges() {
+            if self.edge_is_typed_value(edge) {
+                continue;
+            }
             let projection = self.cross_rate_kernel_state_type(edge);
             let (ty_for_init, init_via_default) = match (&projection, edge.kernel) {
                 (Some(t), _) => (t.clone(), true),
@@ -500,6 +585,9 @@ impl<'a> CodegenContext<'a> {
     pub(super) fn generate_resampler_resets(&self) -> Vec<TokenStream> {
         let mut resets = Vec::new();
         for (idx, edge) in self.edges() {
+            if self.edge_is_typed_value(edge) {
+                continue;
+            }
             let f = resampler_field_name(idx);
             let projected = self.cross_rate_kernel_state_type(edge).is_some();
             let access = if projected {
@@ -534,6 +622,7 @@ impl<'a> CodegenContext<'a> {
     pub(super) fn generate_latency_method(&self) -> TokenStream {
         let down_latencies: Vec<_> = self
             .edges()
+            .filter(|(_, e)| !self.edge_is_typed_value(e))
             .filter_map(|(idx, e)| match e.kernel {
                 EdgeKernel::Down { factor, .. } => {
                     let f = resampler_field_name(idx);

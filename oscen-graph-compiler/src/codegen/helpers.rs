@@ -110,3 +110,40 @@ pub(super) fn gcd(a: u32, b: u32) -> u32 {
 pub(super) fn lcm(a: u32, b: u32) -> u32 {
     a / gcd(a, b) * b
 }
+
+/// Shared word transform behind `title_case` / `camel_case`: split on `_`,
+/// uppercase each word's first char, and join with `sep`. Empty segments
+/// (leading/trailing/double underscores) become empty words, preserving the
+/// historical behavior of both wrappers.
+fn convert_case(name: &str, sep: &str) -> String {
+    name.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(sep)
+}
+
+/// snake_case -> "Title Case" for display names (`osc_a_pitch` -> "Osc A Pitch").
+pub(super) fn title_case(name: &str) -> String {
+    convert_case(name, " ")
+}
+
+/// snake_case -> UpperCamelCase for enum variant names (`osc_a_pitch` -> "OscAPitch").
+pub(super) fn camel_case(name: &str) -> String {
+    convert_case(name, "")
+}
+
+/// An ident's name without any raw-ident prefix, for embedding in derived
+/// names (`set_<name>`, `<name>_block`, ...). A raw ident stringifies as
+/// `r#loop`; splicing that into `format!` + `Ident::new` panics. The
+/// derived name (`set_loop`) is never itself a keyword, so `Ident::new`
+/// on the stripped form is safe.
+pub(super) fn ident_base(ident: &syn::Ident) -> String {
+    let s = ident.to_string();
+    s.strip_prefix("r#").map(str::to_owned).unwrap_or(s)
+}

@@ -117,3 +117,9 @@ fn input_and_output_on_one_field_is_an_error() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/input_and_output_field.rs");
 }
+
+#[test]
+fn wildcard_over_runtime_ramped_field_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/wildcard_ramped_field.rs");
+}

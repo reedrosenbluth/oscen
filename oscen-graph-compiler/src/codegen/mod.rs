@@ -12,7 +12,9 @@ use helpers::*;
 mod emit_edge;
 mod emit_frame;
 mod emit_node;
+mod emit_params;
 mod emit_struct;
+mod validate_names;
 
 /// The frame type shared by all of a graph's top-level stream endpoints, used
 /// to type the `BlockRender<F>` impl and the stream block buffers.
@@ -29,11 +31,17 @@ enum BlockFrameTy {
     Mixed,
 }
 
-pub fn generate(ir: &IrGraph) -> std::result::Result<TokenStream, Diagnostics> {
+pub fn generate(
+    ir: &IrGraph,
+    source_tokens: &TokenStream,
+) -> std::result::Result<TokenStream, Diagnostics> {
     // lower() has already run analysis + validation. Codegen consumes the
     // IR directly. Static graphs require a name (already enforced by
-    // lower()), so we just emit.
-    let ctx = CodegenContext::new(ir);
+    // lower()), so we just emit. `source_tokens` is the original `graph!`
+    // body, hashed into the endpoint-manifest export name.
+    let ctx = CodegenContext::new(ir, source_tokens);
+    ctx.check_generated_name_collisions()
+        .map_err(Diagnostics::from)?;
     ctx.generate_static_struct().map_err(Diagnostics::from)
 }
 
@@ -45,15 +53,23 @@ struct CodegenContext<'a> {
     /// Node name → `NodeId` map. The same name uniqueness invariant that
     /// `lower::collect_declarations` enforces means this is well-defined.
     name_to_id: HashMap<String, NodeId>,
+    /// The original `graph!` body tokens, used only to disambiguate the
+    /// endpoint-manifest `#[macro_export]` name (see
+    /// [`crate::manifest::emit_manifest_export`]).
+    source_tokens: &'a TokenStream,
 }
 
 impl<'a> CodegenContext<'a> {
-    fn new(ir: &'a IrGraph) -> Self {
+    fn new(ir: &'a IrGraph, source_tokens: &'a TokenStream) -> Self {
         let mut name_to_id = HashMap::new();
         for (id, node) in &ir.nodes {
             name_to_id.insert(node.name.to_string(), id);
         }
-        Self { ir, name_to_id }
+        Self {
+            ir,
+            name_to_id,
+            source_tokens,
+        }
     }
 
     // ---------- IR lookup helpers ----------
@@ -197,12 +213,21 @@ impl<'a> CodegenContext<'a> {
         for node in stream_endpoints {
             match self.endpoint_frame_ty(&node.name) {
                 None => saw_mono = true,
-                Some(t) => match &frame {
-                    Some(existing) if quote!(#existing).to_string() != quote!(#t).to_string() => {
-                        return BlockFrameTy::Mixed;
+                // Compare (and emit) the canonical `::oscen::frame::…`
+                // spelling: a wildcard-hoisted endpoint carries its frame
+                // type fully qualified via the child's manifest, and must
+                // compare equal to a locally declared bare `Frame<2>`.
+                Some(t) => {
+                    let t = qualified_frame_ty(&t);
+                    match &frame {
+                        Some(existing)
+                            if quote!(#existing).to_string() != quote!(#t).to_string() =>
+                        {
+                            return BlockFrameTy::Mixed;
+                        }
+                        _ => frame = Some(t),
                     }
-                    _ => frame = Some(t),
-                },
+                }
             }
         }
         match frame {
@@ -276,6 +301,45 @@ impl<'a> CodegenContext<'a> {
             IrNodeKind::Input { spec, .. } => spec.as_ref(),
             _ => None,
         }
+    }
+
+    /// Hoist source (`input <node>.<endpoint>;`) for an input node.
+    fn input_hoist<'b>(&self, node: &'b IrNode) -> Option<&'b crate::ast::HoistSource> {
+        match &node.kind {
+            IrNodeKind::Input { hoist, .. } => hoist.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// The declared payload type of a TYPED graph value endpoint (input or
+    /// output) by name. `None` for plain f32 params and everything else.
+    /// Thin facade over [`crate::ir::graph::EndpointInfo::typed_value_ty`],
+    /// the single definition of the TYPED classification.
+    fn typed_value_ty(&self, name: &syn::Ident) -> Option<&syn::Type> {
+        let node = self.find_node_by_ident(name)?;
+        self.ir.typed_value_endpoint_ty(node.id, name)
+    }
+
+    /// Value inputs that are f32 *parameters* — the partition that drives the
+    /// `{Graph}Param` enum, descriptor table, `set_param`/`get_param`
+    /// dispatch, and the nih-plug params struct. TYPED value inputs are
+    /// excluded everywhere; they only get their typed setter. Both
+    /// `generate_param_registry` and `generate_nih_params_struct` must build
+    /// from this list so positional descriptor indices stay aligned.
+    fn param_value_inputs(&self) -> Vec<&IrNode> {
+        self.inputs()
+            .filter(|n| {
+                matches!(self.input_kind(&n.name), Some(EndpointKind::Value))
+                    && self.typed_value_ty(&n.name).is_none()
+            })
+            .collect()
+    }
+
+    /// True when an edge moves a TYPED value payload (either side is a typed
+    /// graph value endpoint). Such edges bypass the f32 cross-rate kernel
+    /// machinery: they are latched (copied at the outer-block boundary).
+    fn edge_is_typed_value(&self, edge: &IrEdge) -> bool {
+        self.ir.edge_is_typed_value(edge)
     }
 
     /// Check if an input has a ramp annotation and return the default ramp frames.
@@ -606,7 +670,7 @@ impl<'a> CodegenContext<'a> {
                 continue;
             }
             let method_name = syn::Ident::new(
-                &format!("handle_{}_events", endpoint_name),
+                &format!("handle_{}_events", ident_base(endpoint_name)),
                 endpoint_name.span(),
             );
 
@@ -697,7 +761,7 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.input_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name = syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+            let block_name = syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
             input_arms.push(quote! { #n_in => &mut self.#block_name });
             n_in += 1;
         }
@@ -709,7 +773,7 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.output_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name = syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+            let block_name = syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
             output_arms.push(quote! { #n_out => &self.#block_name });
             n_out += 1;
         }
@@ -762,6 +826,46 @@ impl<'a> CodegenContext<'a> {
                 #(#clear_stmts)*
             }
         }
+    }
+
+    /// Generate `push_<name>()` helpers for graph-level event inputs.
+    ///
+    /// These are the supported way to inject events from the host/audio
+    /// callback. `impl Into<EventPayload>` plus the `From<[u8; 3]>` /
+    /// `From<f32>` conversions on `EventPayload` make the allocation-free
+    /// representations the path of least resistance:
+    /// `graph.push_midi_in([0x90, 60, 100], 0)`.
+    fn generate_event_push_methods(&self) -> Vec<TokenStream> {
+        self.inputs()
+            .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Event)))
+            .map(|node| {
+                let name = &node.name;
+                let push_name = syn::Ident::new(&format!("push_{}", ident_base(name)), name.span());
+                let doc = format!(
+                    "Push an event into the `{name}` event input for the next \
+                     `process_block` call. `frame_offset` is relative to the \
+                     start of that block. Allocation-free for scalar and raw \
+                     MIDI payloads (`f32` / `[u8; 3]`). Returns `false` if the \
+                     queue is full (the event is dropped)."
+                );
+                quote! {
+                    #[doc = #doc]
+                    #[inline]
+                    pub fn #push_name(
+                        &mut self,
+                        payload: impl Into<::oscen::graph::EventPayload>,
+                        frame_offset: u32,
+                    ) -> bool {
+                        self.#name
+                            .try_push(::oscen::graph::EventInstance {
+                                frame_offset,
+                                payload: payload.into(),
+                            })
+                            .is_ok()
+                    }
+                }
+            })
+            .collect()
     }
 
     /// Generate process_event_inputs() method for graph types.
@@ -977,13 +1081,13 @@ impl<'a> CodegenContext<'a> {
             .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Value)))
             .map(|node| {
                 let name = &node.name;
-                let set_name = syn::Ident::new(&format!("set_{}", name), name.span());
+                let set_name = syn::Ident::new(&format!("set_{}", ident_base(name)), name.span());
 
                 if let Some(default_frames) = self.is_ramped_input(name) {
                     let set_ramp_name =
-                        syn::Ident::new(&format!("set_{}_with_ramp", name), name.span());
+                        syn::Ident::new(&format!("set_{}_with_ramp", ident_base(name)), name.span());
                     let set_immediate_name =
-                        syn::Ident::new(&format!("set_{}_immediate", name), name.span());
+                        syn::Ident::new(&format!("set_{}_immediate", ident_base(name)), name.span());
                     quote! {
                         /// Set the value with the default ramp duration.
                         /// No-op if target is already the same (safe to call every frame).
@@ -1026,10 +1130,16 @@ impl<'a> CodegenContext<'a> {
                         }
                     }
                 } else {
+                    // TYPED value inputs take their declared type; plain
+                    // params stay f32. Both are immediate field writes.
+                    let value_ty = match self.typed_value_ty(name) {
+                        Some(ty) => quote! { #ty },
+                        None => quote! { f32 },
+                    };
                     quote! {
                         /// Set the value immediately.
                         #[inline]
-                        pub fn #set_name(&mut self, value: f32) {
+                        pub fn #set_name(&mut self, value: #value_ty) {
                             self.#name = value;
                         }
                     }
@@ -1044,11 +1154,13 @@ impl<'a> CodegenContext<'a> {
     fn generate_nih_params_struct(&self, graph_name: &syn::Ident) -> TokenStream {
         let params_name = syn::Ident::new(&format!("{}Params", graph_name), graph_name.span());
 
-        // Collect value inputs for parameter generation
-        let value_inputs: Vec<&IrNode> = self
-            .inputs()
-            .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Value)))
-            .collect();
+        // Collect value inputs for parameter generation. TYPED value inputs
+        // are excluded: they are not DAW parameters (no FloatParam, no
+        // sync_to entry) — hosts drive them through the typed setter. This
+        // is the same filtered, same-ordered list `generate_param_registry`
+        // uses, which keeps the positional `param_descriptors()[idx]`
+        // lookups below aligned with the descriptor table.
+        let value_inputs: Vec<&IrNode> = self.param_value_inputs();
 
         // Generate field definitions
         let param_fields: Vec<_> = value_inputs
@@ -1064,29 +1176,19 @@ impl<'a> CodegenContext<'a> {
             .collect();
 
         // Generate Default impl with FloatParam constructors
-        let param_defaults: Vec<_> = value_inputs.iter().map(|node| {
+        let param_defaults: Vec<_> = value_inputs.iter().enumerate().map(|(idx, node)| {
             let field_name = &node.name;
             let spec = self.input_spec(node);
             let display_name = spec
                 .and_then(|s| s.display_name.clone())
-                .unwrap_or_else(|| {
-                    // Convert snake_case to Title Case
-                    field_name.to_string()
-                        .split('_')
-                        .map(|word| {
-                            let mut chars = word.chars();
-                            match chars.next() {
-                                None => String::new(),
-                                Some(first) => first.to_uppercase().chain(chars).collect(),
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                });
+                .unwrap_or_else(|| helpers::title_case(&field_name.to_string()));
 
-            let default_val = self.input_default(node)
-                .map(|expr| quote! { #expr })
-                .unwrap_or_else(|| quote! { 0.0 });
+            // Single source of truth: the graph's descriptor table, which
+            // also resolves hoist-inherited defaults (inputs without an
+            // explicit `= default` that start at the child constructor's
+            // value). `value_inputs` here uses the same filter and order as
+            // `generate_param_registry`, so the indices line up.
+            let default_val = quote! { #graph_name::param_descriptors()[#idx].default };
 
             // Build the FloatRange
             let range_expr = if let Some(spec) = spec {
@@ -1177,7 +1279,7 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let field_name = &node.name;
-                let set_name = syn::Ident::new(&format!("set_{}", field_name), field_name.span());
+                let set_name = syn::Ident::new(&format!("set_{}", ident_base(field_name)), field_name.span());
                 if self.is_ramped_input(field_name).is_some() {
                     quote! {
                         graph.#set_name(self.#field_name.value());
@@ -1237,7 +1339,10 @@ impl<'a> CodegenContext<'a> {
             let kind = self.input_kind(field_name).unwrap_or(EndpointKind::Value);
             let ty = match kind {
                 EndpointKind::Value => {
-                    if self.is_ramped_input(field_name).is_some() {
+                    if let Some(ty) = self.typed_value_ty(field_name) {
+                        // TYPED value input: a real field of the declared type.
+                        quote! { #ty }
+                    } else if self.is_ramped_input(field_name).is_some() {
                         quote! { ::oscen::graph::ValueRampState }
                     } else {
                         quote! { f32 }
@@ -1253,7 +1358,7 @@ impl<'a> CodegenContext<'a> {
             // Block buffer for stream inputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
                 let block_name =
-                    syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+                    syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
                 let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
                     quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
@@ -1267,7 +1372,11 @@ impl<'a> CodegenContext<'a> {
             let kind = self.output_kind(field_name).unwrap_or(EndpointKind::Stream);
             let ty = match kind {
                 EndpointKind::Stream => self.stream_field_ty(field_name),
-                EndpointKind::Value => quote! { f32 },
+                EndpointKind::Value => match self.typed_value_ty(field_name) {
+                    // TYPED value output: a real field of the declared type.
+                    Some(ty) => quote! { #ty },
+                    None => quote! { f32 },
+                },
                 EndpointKind::Event => quote! { ::oscen::graph::StaticEventQueue },
                 // Assets are externals, not graph outputs — never reached here.
                 EndpointKind::Asset => unreachable!("asset endpoint is not a graph output"),
@@ -1277,7 +1386,7 @@ impl<'a> CodegenContext<'a> {
             // Block buffer for stream outputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
                 let block_name =
-                    syn::Ident::new(&format!("{}_block", field_name), field_name.span());
+                    syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
                 let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
                     quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
@@ -1307,6 +1416,7 @@ impl<'a> CodegenContext<'a> {
         fields.extend(self.generate_asset_handle_fields());
 
         let input_params = self.generate_static_input_params();
+        let hoist_inherits = self.generate_hoist_default_inherits();
         let output_params = self.generate_static_output_params();
         let node_init = self.generate_static_node_init();
         let asset_wiring = self.generate_asset_wiring();
@@ -1327,6 +1437,7 @@ impl<'a> CodegenContext<'a> {
         let block_render_impl = self.generate_block_render_impl(name);
         let clear_event_outputs_method = self.generate_static_clear_event_outputs();
         let process_event_inputs_method = self.generate_static_process_event_inputs();
+        let event_push_methods = self.generate_event_push_methods();
         let event_handler_methods = self.generate_static_event_handler_methods();
         let tick_ramps_method = self.generate_tick_ramps_method();
         let value_setter_methods = self.generate_value_setter_methods();
@@ -1336,12 +1447,20 @@ impl<'a> CodegenContext<'a> {
         let node_set_rate_calls = self.generate_node_set_sample_rate_calls();
         let resampler_resets = self.generate_resampler_resets();
 
+        // Parameter registry: id enum + descriptor table + dispatchers.
+        let param_registry = self.generate_param_registry()?;
+
         // Generate NIH-plug params struct if nih_params flag is set
         let nih_params_output = if self.nih_params() {
             self.generate_nih_params_struct(name)
         } else {
             quote! {}
         };
+
+        // Endpoint manifest macro: lets a parent `graph!` enumerate this
+        // graph's endpoints at expansion time (wildcard hoists through
+        // nested graphs). Mirrors the manifest `#[derive(Node)]` emits.
+        let endpoint_manifest = self.generate_endpoint_manifest();
 
         // If there are any cross-rate edges we append a leading comma to the
         // tail so the existing `#struct_init` (which has no trailing comma)
@@ -1384,6 +1503,10 @@ impl<'a> CodegenContext<'a> {
                     // Wire up asset load handles (handoff pair + install).
                     #(#asset_wiring)*
 
+                    // Hoisted inputs without an explicit `= default` inherit
+                    // their initial value from the child node they hoist.
+                    #(#hoist_inherits)*
+
                     Self {
                         #struct_init
                         #resampler_init_tail
@@ -1424,6 +1547,8 @@ impl<'a> CodegenContext<'a> {
 
                 #process_event_inputs_method
 
+                #(#event_push_methods)*
+
                 #(#event_handler_methods)*
 
                 #tick_ramps_method
@@ -1451,9 +1576,117 @@ impl<'a> CodegenContext<'a> {
 
             #block_render_impl
 
+            #param_registry
+
             #nih_params_output
+
+            #endpoint_manifest
         })
     }
+
+    /// Emit the endpoint-manifest macro for this graph type: an exported
+    /// `macro_rules!` (`__oscen_endpoints_<GraphName>!`) that invokes a
+    /// caller-supplied continuation with the graph's endpoint list
+    /// appended to arbitrary passthrough state. Inputs are the graph's
+    /// declared inputs (including expanded hoists); outputs are the
+    /// declared outputs. This is what lets a parent graph write
+    /// `input nested.*;` where `nested` is itself a `graph!` type.
+    ///
+    /// Emission is shared with `#[derive(Node)]` via
+    /// [`crate::manifest::emit_manifest_export`]: the `#[macro_export]`
+    /// name is mangled (`__oscen_endpoints_export_<Name>_<hash>`, hashing
+    /// the graph body so same-named graphs don't collide) with a
+    /// `pub use … as …` re-export next to the type, so qualified manifest
+    /// paths mirror the graph type's own path. `graph!` invoked inside a
+    /// function body works too (`#[macro_export]` still exports at the
+    /// crate root; the local re-export is allowed but only usable in that
+    /// scope).
+    fn generate_endpoint_manifest(&self) -> TokenStream {
+        use crate::manifest::{ManifestEndpoint, ManifestRamp};
+        // Annotate a graph endpoint with the metadata the manifest can
+        // carry: the recognized frame type of stream endpoints (so
+        // wildcard hoists preserve `Frame<2>` instead of collapsing to
+        // mono f32) and the declared ramp length of ramped value inputs
+        // (so wildcard hoists re-declare the same `[ramp: N]`).
+        let annotate = |mut ep: ManifestEndpoint| {
+            match ep.kind {
+                EndpointKind::Stream => {
+                    // Canonicalize to the fully-qualified path: manifest
+                    // type tokens resolve at the consuming graph's call
+                    // site, which need not have `Frame`/`Stereo`/… in
+                    // scope.
+                    ep.ty = self
+                        .endpoint_frame_ty(&ep.name)
+                        .map(|ty| qualified_frame_ty(&ty));
+                }
+                EndpointKind::Value => {
+                    if let Some(ty) = self.typed_value_ty(&ep.name) {
+                        // TYPED value endpoint: carry the declared type's
+                        // literal tokens (mirroring the stream branch; user
+                        // types can't be canonicalized, so the tokens
+                        // resolve at the consuming graph's call site — same
+                        // hygiene caveat as `#[derive(Node)]` manifests).
+                        ep.ty = Some(ty.clone());
+                    } else {
+                        if let Some(frames) = self.is_ramped_input(&ep.name) {
+                            ep.ramp = ManifestRamp::Frames(frames);
+                        }
+                        // Carry the input's param-spec metadata so a parent
+                        // wildcard hoist re-declares it intact (range/curve/
+                        // unit/center/step/group/display). Expressions ride
+                        // as raw tokens, resolving at the parent's call
+                        // site — same hygiene caveat as `ty = …`.
+                        if let Some(spec) = self
+                            .find_node_by_ident(&ep.name)
+                            .and_then(|node| self.input_spec(node))
+                        {
+                            ep.range = spec.range.as_ref().map(|r| (r.min.clone(), r.max.clone()));
+                            ep.log = spec.curve == Some(crate::ast::Curve::Logarithmic);
+                            ep.center = spec.center.clone();
+                            ep.unit = spec.unit.clone();
+                            ep.step = spec.step.clone();
+                            ep.group = spec.group.clone();
+                            ep.display_name = spec.display_name.clone();
+                        }
+                    }
+                }
+                EndpointKind::Event | EndpointKind::Asset => {}
+            }
+            ep
+        };
+        let inputs: Vec<ManifestEndpoint> = self
+            .inputs()
+            .map(|node| {
+                let kind = self.input_kind(&node.name).unwrap_or(EndpointKind::Value);
+                annotate(ManifestEndpoint::new(node.name.clone(), kind))
+            })
+            .collect();
+        let outputs: Vec<ManifestEndpoint> = self
+            .outputs()
+            .map(|node| {
+                let kind = self.output_kind(&node.name).unwrap_or(EndpointKind::Stream);
+                annotate(ManifestEndpoint::new(node.name.clone(), kind))
+            })
+            .collect();
+        crate::manifest::emit_manifest_export(self.name(), &inputs, &outputs, self.source_tokens)
+    }
+}
+
+/// Canonicalize a recognized frame-type annotation (`Frame<2>`, `Stereo`,
+/// `Mono`, `Quad` — see [`CodegenContext::endpoint_frame_ty`]) to its
+/// fully-qualified `::oscen::frame::…` path, keeping any generic
+/// arguments. Manifest `ty = …` tokens resolve at the consuming graph's
+/// call site, so a bare `Frame` would require the parent to import it;
+/// the qualified path always resolves. Unrecognized shapes are returned
+/// unchanged (defensive — callers only pass recognized frame types).
+fn qualified_frame_ty(ty: &syn::Type) -> syn::Type {
+    if let syn::Type::Path(tp) = ty {
+        if let Some(seg) = tp.path.segments.last() {
+            let seg = seg.clone();
+            return syn::parse_quote! { ::oscen::frame::#seg };
+        }
+    }
+    ty.clone()
 }
 
 // Silence unused-import warnings for IR types pulled in for ergonomics.

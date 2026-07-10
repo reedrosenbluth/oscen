@@ -178,7 +178,7 @@ fn parse_connection_block_with_diags(
     let mut stmts = Vec::new();
     for stmt_chunk in split_statement_chunks(group.stream()) {
         match syn::parse::Parser::parse2(parse_connection_stmt_body, stmt_chunk) {
-            Ok(stmt) => stmts.push(stmt),
+            Ok(stmt) => stmts.extend(stmt),
             Err(e) => diags.push_error(e),
         }
     }
@@ -287,7 +287,15 @@ impl Parse for GraphItem {
             parse_node_decl_body(input).map(GraphItem::Node)
         } else if lookahead.peek(kw::connection) {
             input.parse::<kw::connection>()?;
-            parse_connection_stmt_body(input).map(GraphItem::Connection)
+            // A single `connection` statement may still expand to several
+            // (comma fan-out); wrap in a block when it does.
+            parse_connection_stmt_body(input).map(|mut stmts| {
+                if stmts.len() == 1 {
+                    GraphItem::Connection(stmts.pop().expect("len checked"))
+                } else {
+                    GraphItem::ConnectionBlock(crate::ast::ConnectionBlock(stmts))
+                }
+            })
         } else {
             Err(lookahead.error())
         }
@@ -391,6 +399,148 @@ impl Parse for InputDecl {
         // Try to parse: either "name: kind" (new CMajor-style) or "kind name" (old style)
         let first_ident = input.parse::<Ident>()?;
 
+        // HOIST SYNTAX (Cmajor-style endpoint re-export):
+        //   input <node>.<endpoint> [rename] [: kind] [= default [spec]];
+        //   input <node>.{ep1, ep2, ...} [pattern_*] ;
+        // Declares graph input(s) and synthesizes the `name -> node.endpoint`
+        // connection(s) during lowering. Kind defaults to `value` (the common
+        // param case); annotate `: event` / `: stream` to hoist those.
+        if input.peek(Token![.]) {
+            input.parse::<Token![.]>()?;
+
+            // Wildcard hoist: `input voices.*;` — hoist every input endpoint
+            // of the node (endpoint set resolved through the node type's
+            // manifest macro). No rename, no kind annotation, no default or
+            // spec: the wildcard inherits everything from the child.
+            if input.peek(Token![*]) {
+                let star: Token![*] = input.parse()?;
+                if input.peek(Ident) {
+                    // Statement chunks are sliced at top-level `;`, so a
+                    // missing semicolon merges the NEXT statement into this
+                    // chunk. Only an ident immediately followed by `;` (or
+                    // end of chunk) has the shape of a rename attempt;
+                    // anything else — a statement keyword, `x.y -> ...` —
+                    // is the next statement leaking in.
+                    let fork = input.fork();
+                    let ident: Ident = fork.parse()?;
+                    let is_stmt_keyword = matches!(
+                        ident.to_string().as_str(),
+                        "input"
+                            | "output"
+                            | "node"
+                            | "nodes"
+                            | "connection"
+                            | "connections"
+                            | "external"
+                            | "nih_params"
+                            | "name"
+                    );
+                    if !is_stmt_keyword && (fork.is_empty() || fork.peek(Token![;])) {
+                        return Err(syn::Error::new(
+                            ident.span(),
+                            "wildcard hoists cannot be renamed; hoist endpoints \
+                             individually or as a list to rename them \
+                             (`input node.{a, b} prefix_*;`)",
+                        ));
+                    }
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        format!("missing `;` after wildcard hoist `input {first_ident}.*`"),
+                    ));
+                }
+                if input.peek(Token![:]) {
+                    return Err(syn::Error::new(
+                        input.span(),
+                        "wildcard hoists take no kind annotation; every input \
+                         endpoint of the node is hoisted with its own kind",
+                    ));
+                }
+                if input.peek(Token![=]) {
+                    return Err(syn::Error::new(
+                        input.span(),
+                        "wildcard hoists take no default; defaults are inherited \
+                         from the child node (hoist an endpoint individually to \
+                         override: `input node.endpoint = 1.0;`)",
+                    ));
+                }
+                if input.peek(token::Bracket) || input.peek(token::Brace) {
+                    return Err(syn::Error::new(
+                        input.span(),
+                        "wildcard hoists take no param spec; hoist an endpoint \
+                         individually to attach metadata \
+                         (`input node.endpoint [0.0..1.0];`)",
+                    ));
+                }
+                input.parse::<Token![;]>()?;
+
+                // Placeholder name; wildcard expansion replaces this decl
+                // before lowering and never uses its own name.
+                let name = first_ident.clone();
+                return Ok(InputDecl {
+                    kind: EndpointKind::Value,
+                    name,
+                    ty: None,
+                    default: None,
+                    spec: None,
+                    hoist: Some(crate::ast::HoistSource {
+                        node: first_ident,
+                        endpoints: crate::ast::HoistEndpoints::Wildcard { span: star.span },
+                    }),
+                });
+            }
+
+            // Endpoint-list hoist: `input branch_a.{attack, decay} env_a_*;`
+            if input.peek(token::Brace) {
+                let content;
+                braced!(content in input);
+                let mut endpoints: Vec<Ident> = Vec::new();
+                while !content.is_empty() {
+                    endpoints.push(content.parse()?);
+                    if content.is_empty() {
+                        break;
+                    }
+                    if !content.peek(Token![,]) {
+                        // Without this, `{freq amp}` silently parses as TWO
+                        // hoisted endpoints (e.g. a rename put inside the
+                        // braces by analogy with the single-hoist syntax).
+                        return Err(content.error("expected `,` between hoisted endpoints"));
+                    }
+                    content.parse::<Token![,]>()?;
+                }
+                if endpoints.is_empty() {
+                    return Err(input.error("endpoint list hoist must name at least one endpoint"));
+                }
+                let rename = parse_rename_pattern(input)?;
+                let kind = if input.peek(Token![:]) {
+                    input.parse::<Token![:]>()?;
+                    input.parse::<EndpointKind>()?
+                } else {
+                    EndpointKind::Value
+                };
+                // No `= default [spec]` on list hoists: with several endpoints
+                // there is no single sensible default/range; hoist singly to
+                // attach metadata.
+                input.parse::<Token![;]>()?;
+
+                // Placeholder name; lowering expands the list into per-endpoint
+                // inputs and never uses this decl's own name.
+                let name = endpoints[0].clone();
+                return Ok(InputDecl {
+                    kind,
+                    name,
+                    ty: None,
+                    default: None,
+                    spec: None,
+                    hoist: Some(crate::ast::HoistSource {
+                        node: first_ident,
+                        endpoints: crate::ast::HoistEndpoints::List { endpoints, rename },
+                    }),
+                });
+            }
+
+            return parse_single_hoist_tail(input, first_ident, None);
+        }
+
         let (name, kind) = if input.peek(Token![:]) {
             // NEW SYNTAX: input name: kind
             input.parse::<Token![:]>()?;
@@ -403,6 +553,12 @@ impl Parse for InputDecl {
             let name = input.parse::<Ident>()?;
             (name, kind)
         };
+
+        // OLD SYNTAX hoist: `input value voices.cutoff [rename] ...;`
+        if input.peek(Token![.]) {
+            input.parse::<Token![.]>()?;
+            return parse_single_hoist_tail(input, name, Some(kind));
+        }
 
         // Parse optional type annotation: `: Type` (for array types like [f32; 32])
         // This is a SECOND colon for the new syntax: input name: event: [Type; N]
@@ -440,8 +596,122 @@ impl Parse for InputDecl {
             ty,
             default,
             spec,
+            hoist: None,
         })
     }
+}
+
+/// Parse the tail of a single-endpoint hoist, after the node ident and
+/// the `.` have been consumed: the endpoint ident, an optional bare-ident
+/// rename, an optional `= default`, an optional `[..]`/`{..}` param spec,
+/// and the trailing `;`. Shared between the new-syntax branch
+/// (`input voices.cutoff ...;`, which passes `kind: None` so an optional
+/// `: kind` is parsed here, defaulting to `value`) and the old-syntax
+/// branch (`input value voices.cutoff ...;`, which already consumed the
+/// kind as its leading keyword and passes it in).
+///
+/// A second `: Type` after the kind (`input voices.mode: value: FilterMode;`)
+/// annotates the endpoint type, mirroring the non-hoist grammar. Explicit
+/// hoists of TYPED child value endpoints require this annotation — the
+/// parent macro cannot see the child's field type, so an unannotated hoist
+/// declares a plain `f32` param and the synthesized connection fails with a
+/// `ConnectEndpoints<f32, T>` trait error.
+fn parse_single_hoist_tail(
+    input: ParseStream,
+    node: Ident,
+    kind: Option<EndpointKind>,
+) -> Result<InputDecl> {
+    let endpoint: Ident = input.parse()?;
+    // Optional rename: a bare ident right after the path
+    // (`input branch_a.env_attack env_a_attack;`).
+    let rename: Option<Ident> = if input.peek(Ident) {
+        Some(input.parse()?)
+    } else {
+        None
+    };
+    let kind = match kind {
+        Some(kind) => kind,
+        None => {
+            if input.peek(Token![:]) {
+                input.parse::<Token![:]>()?;
+                input.parse::<EndpointKind>()?
+            } else {
+                EndpointKind::Value
+            }
+        }
+    };
+    // Optional type annotation after the kind (second colon in the new
+    // syntax, first in the old): `input voices.mode: value: FilterMode;`.
+    let ty: Option<syn::Type> = if input.peek(Token![:]) {
+        input.parse::<Token![:]>()?;
+        Some(input.parse()?)
+    } else {
+        None
+    };
+
+    let mut default = None;
+    let mut spec = None;
+    if input.peek(Token![=]) {
+        input.parse::<Token![=]>()?;
+        default = Some(parse_simple_expr(input)?);
+    }
+    if input.peek(token::Bracket) {
+        spec = Some(input.parse()?);
+    } else if input.peek(token::Brace) {
+        spec = Some(parse_brace_param_spec(input)?);
+    }
+    input.parse::<Token![;]>()?;
+
+    let name = rename.unwrap_or_else(|| endpoint.clone());
+    Ok(InputDecl {
+        kind,
+        name,
+        ty,
+        default,
+        spec,
+        hoist: Some(crate::ast::HoistSource {
+            node,
+            endpoints: crate::ast::HoistEndpoints::Single(endpoint),
+        }),
+    })
+}
+
+/// Parse an optional `*`-substitution rename pattern after a list hoist:
+/// `env_a_*`, `*_out`, or `pre_*_post`. Tokenizes as [Ident] `*` [Ident].
+/// Returns `None` when the next token is not part of a pattern (`;`/`:`).
+fn parse_rename_pattern(input: ParseStream) -> Result<Option<crate::ast::RenamePattern>> {
+    let has_prefix = input.peek(Ident) && (input.peek2(Token![*]));
+    let starts_with_star = input.peek(Token![*]);
+    if !has_prefix && !starts_with_star {
+        return Ok(None);
+    }
+
+    let (prefix, span) = if has_prefix {
+        let id: Ident = input.parse()?;
+        (id.to_string(), id.span())
+    } else {
+        (String::new(), input.span())
+    };
+    let star: Token![*] = input.parse()?;
+    let span = if prefix.is_empty() { star.span } else { span };
+    let suffix = if input.peek(Ident) {
+        let id: Ident = input.parse()?;
+        id.to_string()
+    } else {
+        String::new()
+    };
+    if prefix.is_empty() && suffix.is_empty() {
+        return Err(syn::Error::new(
+            star.span,
+            "rename pattern `*` is an identity rename; drop it or add a prefix/suffix \
+             (e.g. `env_a_*`)",
+        ));
+    }
+    Ok(Some(crate::ast::RenamePattern {
+        prefix,
+        suffix,
+        span,
+    }))
 }
 
 impl Parse for ExternalDecl {
@@ -927,11 +1197,11 @@ fn parse_connection_policy(input: ParseStream) -> Result<ConnectionPolicy> {
 /// Parse the body of a connection statement (everything after an
 /// optional `connection` keyword): `[<policy>] <source> -> <dest>;`
 /// or `[<policy>] <source> -> [N] -> <dest>;` (inline delay).
-/// Shared between `Parse for ConnectionStmt` (which consumes
+/// Shared between `Parse for GraphItem` (which consumes
 /// `connection` first) and `parse_connection_block_with_diags` (which
 /// uses it on per-statement chunks inside `connection {}` /
 /// `connections {}` block contents).
-fn parse_connection_stmt_body(input: ParseStream) -> Result<ConnectionStmt> {
+fn parse_connection_stmt_body(input: ParseStream) -> Result<Vec<ConnectionStmt>> {
     let policy = parse_connection_policy(input)?;
     let source = parse_connection_expr(input)?;
 
@@ -964,28 +1234,39 @@ fn parse_connection_stmt_body(input: ParseStream) -> Result<ConnectionStmt> {
         None
     };
 
-    let dest = parse_connection_expr(input)?;
+    // Comma fan-out: `src -> dest1, dest2, dest3;` expands to one
+    // statement per destination (same source, policy, and via).
+    let mut dests = vec![parse_connection_expr(input)?];
+    while input.peek(Token![,]) {
+        let comma: Token![,] = input.parse()?;
+        if via.is_some() {
+            return Err(syn::Error::new(
+                comma.span,
+                "comma fan-out cannot be combined with a `-> […] ->` delay \
+                 bracket (each destination would need its own delay); write \
+                 separate connection statements",
+            ));
+        }
+        dests.push(parse_connection_expr(input)?);
+    }
     input.parse::<Token![;]>()?;
 
-    let span = source
-        .span()
-        .join(dest.span())
-        .unwrap_or_else(|| source.span());
-
-    Ok(ConnectionStmt {
-        source,
-        dest,
-        policy,
-        span,
-        via,
-    })
-}
-
-impl Parse for ConnectionStmt {
-    fn parse(input: ParseStream) -> Result<Self> {
-        input.parse::<kw::connection>()?;
-        parse_connection_stmt_body(input)
-    }
+    Ok(dests
+        .into_iter()
+        .map(|dest| {
+            let span = source
+                .span()
+                .join(dest.span())
+                .unwrap_or_else(|| source.span());
+            ConnectionStmt {
+                source: source.clone(),
+                dest,
+                policy,
+                span,
+                via: via.clone(),
+            }
+        })
+        .collect())
 }
 
 // Parse connection expressions with operator precedence
@@ -1217,6 +1498,7 @@ impl Parse for ParamSpec {
         let mut unit = None;
         let mut display_name = None;
         let mut smoother = None;
+        let mut group = None;
 
         // Compact syntax: [min..max, center = X, step = Y, unit = " Hz"]
         // First, check if we start with a range (number or negative number)
@@ -1231,7 +1513,17 @@ impl Parse for ParamSpec {
                     // Not a known keyword
                     !matches!(
                         ident.to_string().as_str(),
-                        "step" | "unit" | "name" | "smooth" | "range" | "linear" | "log" | "ramp"
+                        "step"
+                            | "unit"
+                            | "name"
+                            | "smooth"
+                            | "smoother"
+                            | "range"
+                            | "linear"
+                            | "log"
+                            | "ramp"
+                            | "center"
+                            | "group"
                     )
                 });
 
@@ -1271,6 +1563,11 @@ impl Parse for ParamSpec {
                 content.parse::<Token![=]>()?;
                 let lit: syn::LitStr = content.parse()?;
                 display_name = Some(lit.value());
+            } else if lookahead.peek(kw::group) {
+                content.parse::<kw::group>()?;
+                content.parse::<Token![=]>()?;
+                let lit: syn::LitStr = content.parse()?;
+                group = Some(lit.value());
             } else if lookahead.peek(kw::smoother) {
                 content.parse::<kw::smoother>()?;
                 content.parse::<Token![=]>()?;
@@ -1314,7 +1611,7 @@ impl Parse for ParamSpec {
             smoother,
             step,
             display_name,
-            group: None,
+            group,
         })
     }
 }

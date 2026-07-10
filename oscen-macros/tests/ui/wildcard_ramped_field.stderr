@@ -1,0 +1,14 @@
+error: wildcard hoist `input voice.*;` cannot hoist `level`: the child endpoint declares ramp smoothing whose length is only known at runtime, and a plain hoisted input would silently drop it; hoist it explicitly with a parent ramp (`input voice.level [ramp: N];`) — the wildcard then skips the explicitly hoisted endpoint
+  --> tests/ui/wildcard_ramped_field.rs:36:17
+   |
+36 |     input voice.*;  // error: `level` declares runtime-length smoothing
+   |                 ^
+
+warning: the feature `inherent_associated_types` is incomplete and may not be safe to use and/or cause compiler crashes
+ --> tests/ui/wildcard_ramped_field.rs:1:12
+  |
+1 | #![feature(inherent_associated_types)]
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: see issue #8995 <https://github.com/rust-lang/rust/issues/8995> for more information
+  = note: `#[warn(incomplete_features)]` on by default

@@ -201,3 +201,184 @@ fn tilde_arrow_no_longer_parses() {
         msg
     );
 }
+
+#[test]
+fn malformed_hoist_recovers_and_reports() {
+    // A hoist missing its endpoint after the dot must produce a parse error
+    // without swallowing later errors in the same graph.
+    let input = quote! {
+        name: G;
+        node osc = Foo::new();
+        input osc.;
+        input stream s2
+        output stream out;
+    };
+    let diags = compile(input).expect_err("expected diagnostics; got Ok");
+    assert!(
+        error_count(&diags) >= 2,
+        "expected both the hoist error and the missing-semicolon error; got {:?}",
+        diags
+            .items
+            .iter()
+            .map(|d| d.message.to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn wildcard_hoist_parses_cleanly() {
+    // `input node.*;` is valid; compile fails later (no manifest), but
+    // parsing must not report errors — assert the only diagnostic is the
+    // unresolved-manifest one.
+    let input = quote! {
+        name: G;
+        node voice = Foo::new();
+        output stream out;
+        input voice.*;
+        connection voice.audio_out -> out;
+    };
+    let diags = compile(input).expect_err("no manifest -> diagnostics");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert_eq!(error_count(&diags), 1, "got {msgs:?}");
+    assert!(
+        msgs[0].contains("no endpoint manifest resolved"),
+        "got {msgs:?}"
+    );
+}
+
+#[test]
+fn wildcard_hoist_rejects_rename_default_and_spec() {
+    // Rename, default, and spec are each targeted errors on a wildcard,
+    // and errors accumulate across statements.
+    let input = quote! {
+        name: G;
+        node voice = Foo::new();
+        output stream out;
+        input voice.* renamed;
+        input voice.* = 1.0;
+        input voice.* [0.0..1.0];
+        connection voice.audio_out -> out;
+    };
+    let diags = compile(input).expect_err("expected diagnostics");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert_eq!(error_count(&diags), 3, "got {msgs:?}");
+    assert!(msgs.iter().any(|m| m.contains("cannot be renamed")));
+    assert!(msgs.iter().any(|m| m.contains("no default")));
+    assert!(msgs.iter().any(|m| m.contains("no param spec")));
+}
+
+#[test]
+fn wildcard_hoist_error_recovers_alongside_other_errors() {
+    // A malformed wildcard must not swallow later parse errors.
+    let input = quote! {
+        name: G;
+        node voice = Foo::new();
+        input voice.* : value;
+        input stream s2
+        output stream out;
+    };
+    let diags = compile(input).expect_err("expected diagnostics; got Ok");
+    assert!(
+        error_count(&diags) >= 2,
+        "expected the wildcard error and the missing-semicolon error; got {:?}",
+        diags
+            .items
+            .iter()
+            .map(|d| d.message.to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Endpoint-list comma enforcement (adversarial-review fix A6)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn endpoint_list_hoist_requires_commas() {
+    // `{freq amp}` used to silently parse as TWO hoisted endpoints (e.g. a
+    // rename placed inside the braces by analogy with single-hoist syntax).
+    let input = quote! {
+        name: G;
+        output stream out;
+        node branch = Envelope::new();
+        input branch.{freq amp} p_*;
+        connections {
+            branch.output -> out;
+        }
+    };
+    let diags = compile(input).expect_err("expected diagnostics; got Ok");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("expected `,` between hoisted endpoints")),
+        "expected missing-comma error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn endpoint_list_hoist_allows_trailing_comma() {
+    let input = quote! {
+        name: G;
+        output stream out;
+        node branch = Envelope::new();
+        input branch.{freq, amp,} p_*;
+        connections {
+            branch.output -> out;
+        }
+    };
+    assert!(
+        compile(input).is_ok(),
+        "trailing comma in endpoint list should parse"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Missing `;` after wildcard hoist (adversarial-review fix A7)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn missing_semicolon_after_wildcard_hoist_is_reported_as_such() {
+    // Chunks are sliced at top-level `;`, so a missing semicolon merges the
+    // next statement into the wildcard chunk; the old parser misreported its
+    // leading keyword as an illegal rename and swallowed the statement.
+    let input = quote! {
+        name: G;
+        output stream out;
+        node voice = Envelope::new();
+        input voice.*
+        input gain: value;
+        connections {
+            voice.output -> out;
+        }
+    };
+    let diags = compile(input).expect_err("expected diagnostics; got Ok");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("missing `;` after wildcard hoist")),
+        "expected missing-semicolon error; got {msgs:?}"
+    );
+    assert!(
+        !msgs.iter().any(|m| m.contains("cannot be renamed")),
+        "must not misreport the next statement as a rename; got {msgs:?}"
+    );
+}
+
+#[test]
+fn missing_semicolon_before_connection_stmt_is_reported_as_such() {
+    let input = quote! {
+        name: G;
+        input stream s;
+        output stream out;
+        node voice = Envelope::new();
+        input voice.*
+        s -> out;
+    };
+    let diags = compile(input).expect_err("expected diagnostics; got Ok");
+    let msgs: Vec<String> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("missing `;` after wildcard hoist")),
+        "expected missing-semicolon error; got {msgs:?}"
+    );
+}

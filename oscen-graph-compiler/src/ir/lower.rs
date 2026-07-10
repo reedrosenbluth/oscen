@@ -6,7 +6,9 @@
 //! mutation API. Accumulates diagnostics across all steps and returns
 //! `None` if any errors landed.
 
-use crate::ast::{ConnectionExpr, ConnectionPolicy, EndpointKind, GraphDef, GraphItem, NodeRate};
+use crate::ast::{
+    ConnectionExpr, ConnectionPolicy, ConnectionStmt, EndpointKind, GraphDef, GraphItem, NodeRate,
+};
 use crate::diagnostics::Diagnostics;
 use crate::ir::expr::{primary_node, IrEndpoint, IrExpr, IrExprKind};
 use crate::ir::graph::{
@@ -14,10 +16,11 @@ use crate::ir::graph::{
     IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
 };
 use proc_macro2::Span;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use syn::Ident;
 
-pub fn lower(graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
+pub fn lower(mut graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
+    expand_hoists(&mut graph_def, diags);
     let name = match graph_def.name.clone() {
         Some(n) => n,
         None => {
@@ -48,6 +51,7 @@ pub fn lower(graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
     refine_kernels(&mut ir);
     topo_sort(&mut ir, diags);
     validate_cross_rate_kinds(&ir, diags);
+    validate_typed_value_endpoints(&ir, diags);
 
     #[cfg(debug_assertions)]
     crate::ir::validate::validate(&ir);
@@ -59,6 +63,197 @@ pub fn lower(graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph> {
     }
 }
 
+/// Step 0: Expand hoisted endpoint declarations.
+///
+/// `input voices.cutoff;` declares a graph input *and* re-exports the child
+/// endpoint, so each hoist synthesizes the corresponding connection
+/// statement (`cutoff -> voices.cutoff`) as if the user had written it in a
+/// `connections {}` block. Everything downstream (type inference,
+/// broadcast-to-array fan-out, edge building, ramp plumbing) treats the
+/// synthesized statement identically to a hand-written one.
+///
+/// Also validates that the hoisted node name refers to a declared node —
+/// with a dedicated message, because at connection-lowering time the
+/// generic "cannot resolve" error would point at a connection the user
+/// never wrote.
+/// Expand endpoint-list hoists (`input node.{a, b} pat_*;`) into one
+/// single-endpoint hoist InputDecl per endpoint, in place (so declaration
+/// order — and thus param-registry order — is preserved).
+///
+/// Runs as a pre-pass in `compile_parsed` and again as part of hoist
+/// expansion here (idempotent — a no-op when the pre-pass already ran —
+/// so direct `lower` callers keep working).
+///
+/// When the hoisted node's endpoint manifest happens to be resolved
+/// (`manifests` is populated for nodes that are wildcard-hoisted
+/// elsewhere in the graph), the child endpoint's declared `ty` is threaded
+/// into the synthesized decl — same rule as wildcard expansion — so a
+/// typed value endpoint (or a `Frame<N>` stream) hoists with its type
+/// instead of collapsing to mono `f32`. List hoists alone don't trigger
+/// manifest resolution, so without one the decl stays untyped (`f32`) and
+/// a typed child endpoint surfaces as rustc's `ConnectEndpoints<f32, T>`
+/// error — hoist such endpoints explicitly (`input node.ep: value: T;`).
+pub(crate) fn expand_list_hoists(
+    graph_def: &mut GraphDef,
+    manifests: &HashMap<String, crate::manifest::NodeManifest>,
+    diags: &mut Diagnostics,
+) {
+    use crate::ast::{HoistEndpoints, HoistSource, InputDecl};
+
+    let items = std::mem::take(&mut graph_def.items);
+    let mut expanded: Vec<GraphItem> = Vec::with_capacity(items.len());
+    for item in items {
+        let GraphItem::Input(input) = item else {
+            expanded.push(item);
+            continue;
+        };
+        let Some(HoistSource {
+            node,
+            endpoints: HoistEndpoints::List { endpoints, rename },
+        }) = input.hoist.clone()
+        else {
+            expanded.push(GraphItem::Input(input));
+            continue;
+        };
+        let manifest = manifests.get(&node.to_string());
+        for endpoint in endpoints {
+            let name = match &rename {
+                Some(pat) => match pat.try_apply(&endpoint) {
+                    Ok(name) => name,
+                    Err(e) => {
+                        diags.push_error(e);
+                        continue;
+                    }
+                },
+                None => endpoint.clone(),
+            };
+            // Inherit the child endpoint's declared type from the manifest
+            // where one is resolved; `None` stays mono `f32`, as before.
+            let ty = manifest
+                .and_then(|m| m.inputs.iter().find(|ep| ep.name == endpoint))
+                .and_then(|ep| ep.ty.clone());
+            expanded.push(GraphItem::Input(InputDecl {
+                kind: input.kind,
+                name,
+                ty,
+                default: None,
+                spec: None,
+                hoist: Some(HoistSource {
+                    node: node.clone(),
+                    endpoints: HoistEndpoints::Single(endpoint),
+                }),
+            }));
+        }
+    }
+    graph_def.items = expanded;
+}
+
+fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
+    // Names of declared nodes/arrays, for validation.
+    let node_names = graph_def.node_decl_names();
+
+    // Pass 1: expand endpoint-list hoists into single-endpoint hoists.
+    // No manifests here: `compile_parsed` already ran the manifest-aware
+    // pre-pass, so this call is a no-op for it; direct `lower` callers
+    // get the untyped (`f32`) expansion, as before.
+    expand_list_hoists(graph_def, &HashMap::new(), diags);
+
+    // (node, endpoint) pairs that already have a user-written driver. A
+    // hoist synthesizes its own `input -> node.endpoint` write, so hoisting
+    // an endpoint that is also a connection dest would give it two drivers
+    // — and since synthesized statements run last, the user's edge would
+    // silently lose. Indexed roots unwrap so `voices[0].freq` conflicts
+    // with a broadcast hoist of `voices.freq`.
+    let mut driven: HashSet<(String, String)> = HashSet::new();
+    let record_dest = |driven: &mut HashSet<(String, String)>, dest: &ConnectionExpr| {
+        if let ConnectionExpr::Field(root, endpoint) = dest {
+            let mut inner: &ConnectionExpr = root;
+            while let ConnectionExpr::ArrayIndex(next, _) = inner {
+                inner = next;
+            }
+            if let ConnectionExpr::Ident(node) = inner {
+                driven.insert((node.to_string(), endpoint.to_string()));
+            }
+        }
+    };
+    for item in &graph_def.items {
+        match item {
+            GraphItem::Connection(stmt) => record_dest(&mut driven, &stmt.dest),
+            GraphItem::ConnectionBlock(block) => {
+                for stmt in &block.0 {
+                    record_dest(&mut driven, &stmt.dest);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Pass 2: validate node names and synthesize the connections.
+    let mut synthesized: Vec<GraphItem> = Vec::new();
+    for item in &graph_def.items {
+        let GraphItem::Input(input) = item else {
+            continue;
+        };
+        let Some(hoist) = &input.hoist else {
+            continue;
+        };
+        let Some(endpoint) = hoist.single_endpoint() else {
+            // List hoists were expanded in pass 1; wildcard hoists are
+            // expanded (or rejected) before lowering by
+            // `manifest::expand_wildcards`. A leftover here means a caller
+            // bypassed that pass — report instead of panicking.
+            diags.push_error(syn::Error::new(
+                hoist.node.span(),
+                format!(
+                    "internal error: unexpanded hoist on node `{}` reached lowering",
+                    hoist.node
+                ),
+            ));
+            continue;
+        };
+
+        if !node_names.contains(&hoist.node.to_string()) {
+            diags.push_error(syn::Error::new(
+                hoist.node.span(),
+                format!(
+                    "hoisted input `{}.{}` references unknown node `{}` \
+                     (hoists re-export a declared node's endpoint: \
+                     `input <node>.<endpoint>;`)",
+                    hoist.node, endpoint, hoist.node
+                ),
+            ));
+            continue;
+        }
+
+        if !driven.insert((hoist.node.to_string(), endpoint.to_string())) {
+            diags.push_error(syn::Error::new(
+                input.name.span(),
+                format!(
+                    "hoisted input `{}` re-exports `{}.{}`, which already has a \
+                     driver (an explicit connection or another hoist); the hoist \
+                     synthesizes `{} -> {}.{}`, so the endpoint would have two \
+                     drivers — remove one",
+                    input.name, hoist.node, endpoint, input.name, hoist.node, endpoint
+                ),
+            ));
+            continue;
+        }
+
+        let span = input.name.span();
+        synthesized.push(GraphItem::Connection(ConnectionStmt {
+            source: ConnectionExpr::Ident(input.name.clone()),
+            dest: ConnectionExpr::Field(
+                Box::new(ConnectionExpr::Ident(hoist.node.clone())),
+                endpoint.clone(),
+            ),
+            policy: ConnectionPolicy::Default,
+            span,
+            via: None,
+        }));
+    }
+    graph_def.items.extend(synthesized);
+}
+
 /// Step 1: Walk `graph_def.items`, create `IrNode`s for inputs, outputs,
 /// processors, and node arrays. Populates `name_to_id` for later steps
 /// to resolve endpoint references.
@@ -68,6 +263,11 @@ fn collect_declarations(
     name_to_id: &mut HashMap<String, NodeId>,
     diags: &mut Diagnostics,
 ) {
+    // Externals claim names too (`declared_names()` agrees): without this,
+    // an input or hoist sharing an external's name slips past the duplicate
+    // check and `build_edges` silently reclassifies its connection as an
+    // asset binding.
+    let mut external_names: HashSet<String> = HashSet::new();
     for item in &graph_def.items {
         match item {
             GraphItem::Input(input) => {
@@ -76,6 +276,7 @@ fn collect_declarations(
                     kind: IrNodeKind::Input {
                         spec: input.spec.clone(),
                         default: input.default.clone(),
+                        hoist: input.hoist.clone(),
                     },
                     name: input.name.clone(),
                     rate: NodeRate::Same,
@@ -86,7 +287,9 @@ fn collect_declarations(
                     outgoing: Vec::new(),
                 });
                 ir.inputs.push(id);
-                if name_to_id.insert(input.name.to_string(), id).is_some() {
+                if name_to_id.insert(input.name.to_string(), id).is_some()
+                    || external_names.contains(&input.name.to_string())
+                {
                     diags.push_error(syn::Error::new(
                         input.name.span(),
                         format!("duplicate declaration of `{}`", input.name),
@@ -106,7 +309,9 @@ fn collect_declarations(
                     outgoing: Vec::new(),
                 });
                 ir.outputs.push(id);
-                if name_to_id.insert(output.name.to_string(), id).is_some() {
+                if name_to_id.insert(output.name.to_string(), id).is_some()
+                    || external_names.contains(&output.name.to_string())
+                {
                     diags.push_error(syn::Error::new(
                         output.name.span(),
                         format!("duplicate declaration of `{}`", output.name),
@@ -114,17 +319,24 @@ fn collect_declarations(
                 }
             }
             GraphItem::Node(node) => {
-                collect_node_decl(node, ir, name_to_id, diags);
+                collect_node_decl(node, ir, name_to_id, &external_names, diags);
             }
             GraphItem::NodeBlock(block) => {
                 for n in &block.0 {
-                    collect_node_decl(n, ir, name_to_id, diags);
+                    collect_node_decl(n, ir, name_to_id, &external_names, diags);
                 }
             }
             // An `external` is not a processing node: record it as a
             // graph-boundary asset handle. Its `-> node.asset` binding is
             // resolved in `build_edges`.
             GraphItem::External(ext) => {
+                let name = ext.name.to_string();
+                if name_to_id.contains_key(&name) || !external_names.insert(name) {
+                    diags.push_error(syn::Error::new(
+                        ext.name.span(),
+                        format!("duplicate declaration of `{}`", ext.name),
+                    ));
+                }
                 ir.externals.push(ext.clone());
             }
             // Connections + nih_params + name don't create IrNodes here;
@@ -141,6 +353,7 @@ fn collect_node_decl(
     decl: &crate::ast::NodeDecl,
     ir: &mut IrGraph,
     name_to_id: &mut HashMap<String, NodeId>,
+    external_names: &HashSet<String>,
     diags: &mut Diagnostics,
 ) {
     // NodeArray vs Processor classification: `array_size: Some(n)` → NodeArray.
@@ -168,7 +381,9 @@ fn collect_node_decl(
         outgoing: Vec::new(),
     });
     ir.processors.push(id);
-    if name_to_id.insert(decl.name.to_string(), id).is_some() {
+    if name_to_id.insert(decl.name.to_string(), id).is_some()
+        || external_names.contains(&decl.name.to_string())
+    {
         diags.push_error(syn::Error::new(
             decl.name.span(),
             format!("duplicate declaration of `{}`", decl.name),
@@ -1099,10 +1314,14 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
         }
     }
 
-    let mut queue: VecDeque<NodeId> = in_degree
+    // Seed the queue in declaration order (not HashMap iteration order) so
+    // the topological sort — and thus generated code — is deterministic for
+    // independent nodes. Ties broken by source order.
+    let mut queue: VecDeque<NodeId> = ir
+        .processors
         .iter()
-        .filter(|(_, &d)| d == 0)
-        .map(|(&id, _)| id)
+        .copied()
+        .filter(|id| in_degree[id] == 0)
         .collect();
     let mut sorted: Vec<NodeId> = Vec::with_capacity(ir.processors.len());
 
@@ -1131,13 +1350,122 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
     }
 
     if sorted.len() != ir.processors.len() {
+        // Reconstruct a concrete cycle among the unsorted (cyclic-component)
+        // nodes so the error names the offending path instead of leaving the
+        // user to bisect their connections by hand.
+        let sorted_set: std::collections::HashSet<NodeId> = sorted.iter().copied().collect();
+        let remaining: Vec<NodeId> = ir
+            .processors
+            .iter()
+            .copied()
+            .filter(|id| !sorted_set.contains(id))
+            .collect();
+        let (cycle_desc, cycle_span) = describe_cycle(ir, &remaining);
         diags.push_error(syn::Error::new(
-            proc_macro2::Span::call_site(),
-            "graph contains a non-feedback cycle (use `-> [N] ->` to insert a delay buffer, or `-> [delay_node] ->` to route through a declared Delay node)",
+            cycle_span,
+            format!(
+                "graph contains a non-feedback cycle: {cycle_desc}. \
+                 If this loop is intentional feedback, break it with an inline \
+                 delay on one edge (`src -> [N] -> dst`, N >= 1 samples) or \
+                 route it through a declared Delay node (`src -> [delay_node] -> dst`). \
+                 If it is unintentional, one of these connections points the \
+                 wrong way."
+            ),
         ));
         return;
     }
     ir.processors = sorted;
+}
+
+/// Walk non-feedback edges among `remaining` (the nodes Kahn's algorithm
+/// could not order) until a node repeats, then render the closed walk as
+/// `a -> b -> ... -> a`. Returns the description plus the span of the first
+/// edge on the cycle for diagnostics.
+fn describe_cycle(ir: &IrGraph, remaining: &[NodeId]) -> (String, proc_macro2::Span) {
+    let remaining_set: std::collections::HashSet<NodeId> = remaining.iter().copied().collect();
+    if remaining.is_empty() {
+        return (
+            "(unable to reconstruct the cycle)".to_string(),
+            proc_macro2::Span::call_site(),
+        );
+    }
+
+    // `remaining` holds every node Kahn's algorithm could not order, which
+    // includes acyclic nodes strictly *downstream* of a cycle (their
+    // in-degree never reaches 0 either). A depth-first search with the usual
+    // three-color marking finds a back edge — and thus a cycle — from any
+    // start that can reach one, regardless of edge declaration order (a
+    // greedy single-path walk can be steered into a dead end by an
+    // unluckily-ordered branch off the cycle). O(V + E).
+    let mut visited: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
+    for &start in remaining {
+        if visited.contains(&start) {
+            continue;
+        }
+        // Explicit DFS stack: (node, index into its outgoing edges).
+        // `path`/`on_path` hold the gray chain; `path_spans[i]` is the span
+        // of the edge `path[i] -> path[i+1]`.
+        let mut stack: Vec<(NodeId, usize)> = vec![(start, 0)];
+        let mut path: Vec<NodeId> = vec![start];
+        let mut on_path: std::collections::HashSet<NodeId> = std::iter::once(start).collect();
+        let mut path_spans: Vec<proc_macro2::Span> = Vec::new();
+        while let Some(frame) = stack.last_mut() {
+            let current = frame.0;
+            let outgoing = &ir.nodes[current].outgoing;
+            let mut hop = None;
+            while frame.1 < outgoing.len() {
+                let eid = outgoing[frame.1];
+                frame.1 += 1;
+                let edge = &ir.edges[eid];
+                if edge.is_feedback {
+                    continue;
+                }
+                let dst = edge.dest.node;
+                if remaining_set.contains(&dst) && !visited.contains(&dst) {
+                    hop = Some((dst, edge.span));
+                    break;
+                }
+            }
+            let Some((next, span)) = hop else {
+                // All outgoing edges exhausted: blacken and pop.
+                visited.insert(current);
+                on_path.remove(&current);
+                path.pop();
+                path_spans.pop();
+                stack.pop();
+                continue;
+            };
+            if on_path.contains(&next) {
+                // Back edge: path[pos..] ++ next closes the loop.
+                let pos = path.iter().position(|&n| n == next).unwrap();
+                let names: Vec<String> = path[pos..]
+                    .iter()
+                    .chain(std::iter::once(&next))
+                    .map(|&id| format!("`{}`", ir.nodes[id].name))
+                    .collect();
+                // Span of the first edge on the cycle: the edge leaving
+                // `path[pos]`, or the closing back edge for a self-loop /
+                // top-of-path cycle.
+                let span = path_spans.get(pos).copied().unwrap_or(span);
+                return (names.join(" -> "), span);
+            }
+            on_path.insert(next);
+            path.push(next);
+            path_spans.push(span);
+            stack.push((next, 0));
+        }
+    }
+
+    // Fallback: list the nodes involved. Unreachable when a true cycle
+    // exists (some start must close a loop), but kept as a safety net.
+    let names: Vec<String> = remaining
+        .iter()
+        .map(|&id| format!("`{}`", ir.nodes[id].name))
+        .collect();
+    (
+        format!("involving nodes {}", names.join(", ")),
+        proc_macro2::Span::call_site(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1183,6 +1511,141 @@ fn validate_cross_rate_kinds(ir: &IrGraph, diags: &mut Diagnostics) {
                 endpoint_kind_name(dst),
             ),
         ));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Step 9: Typed value endpoint validation
+// ---------------------------------------------------------------------------
+
+/// Step 9: Validate the constraints on TYPED value endpoints (graph value
+/// inputs/outputs declared with a non-`f32` type; see
+/// [`EndpointInfo::typed_value_ty`]):
+///
+/// - **(a) No param specs.** Typed inputs are excluded from the param
+///   registry, so ramps, ranges, and display metadata have nothing to attach
+///   to (and typed payloads cannot interpolate).
+/// - **(b) No fan-in.** Values don't sum (Cmajor precedent): a typed dest
+///   slot takes exactly one source, and an array fan-in (`voices.mode ->
+///   out_mode` summing all elements) is likewise rejected. Plain f32 VALUE
+///   dests are held to the same rule — only streams sum — so two sources
+///   into one value endpoint is an error, not last-write-wins.
+/// - **(c) Latch-only across rate boundaries.** A cross-rate typed value
+///   edge is emitted as a copy at the outer-block boundary; interpolating
+///   policies (`[linear]`, `[sinc]`, ...) are meaningless for opaque
+///   payloads.
+///
+/// Only graph-boundary endpoints carry declared types in the IR; typed
+/// *node* fields are invisible here and enforced by rustc through the
+/// `ConnectEndpoints` bounds. All violations are reported, none bail early.
+fn validate_typed_value_endpoints(ir: &IrGraph, diags: &mut Diagnostics) {
+    // (a) Param specs on typed value inputs.
+    for &id in &ir.inputs {
+        let node = &ir.nodes[id];
+        let Some(ty) = ir.typed_value_endpoint_ty(id, &node.name) else {
+            continue;
+        };
+        let has_spec = matches!(&node.kind, IrNodeKind::Input { spec: Some(_), .. });
+        if has_spec {
+            let ty_str = quote::quote!(#ty).to_string().replace(' ', "");
+            diags.push_error(syn::Error::new(
+                node.span,
+                format!(
+                    "typed value input `{}` cannot carry a param spec: `{}` is not an \
+                     f32 parameter, so ranges, ramps, and display metadata do not \
+                     apply; drop the `[...]`/`{{...}}` spec or declare the input as f32",
+                    node.name, ty_str,
+                ),
+            ));
+        }
+    }
+
+    // (b) Fan-in into a typed value dest, and (c) non-latch cross-rate
+    // policies on typed value edges. Group edges by dest slot; a bucket is
+    // "typed" if any of its edges touches a typed graph endpoint. The dest's
+    // endpoint kind rides along so plain f32 VALUE fan-in is rejected too
+    // (values don't sum; only streams do).
+    type Bucket = (Vec<EdgeId>, bool, Option<EndpointKind>);
+    let mut buckets: HashMap<(NodeId, String, Option<usize>), Bucket> = HashMap::new();
+    for &eid in &ir.edge_order {
+        let edge = &ir.edges[eid];
+        // Every edge participates in dest buckets so that a typed source
+        // fanning in alongside an untyped one is still caught; the checks
+        // below only fire on buckets that contain at least one typed edge
+        // or a value-kind dest.
+        let dest = &edge.dest;
+        let bucket = buckets
+            .entry((dest.node, dest.endpoint.to_string(), dest.index))
+            .or_default();
+        bucket.0.push(eid);
+        let typed = ir.edge_is_typed_value(edge);
+        bucket.1 |= typed;
+        if bucket.2.is_none() {
+            bucket.2 = ir.nodes[dest.node]
+                .endpoints
+                .get(&dest.endpoint)
+                .map(|ei| ei.kind);
+        }
+        if !typed {
+            continue;
+        }
+
+        // (c) latch-only across rate boundaries.
+        match edge.kernel {
+            EdgeKernel::Up { kind, .. } | EdgeKernel::Down { kind, .. }
+                if !matches!(kind, ConnectionPolicy::Latch) =>
+            {
+                diags.push_error(syn::Error::new(
+                    edge.span,
+                    "typed value connections are latch-only across rate boundaries \
+                     (the value is copied once per outer block); remove the resampling \
+                     policy annotation",
+                ));
+            }
+            _ => {}
+        }
+
+        // Array fan-in shape sums element values — impossible for typed
+        // payloads.
+        if let FanoutShape::FanIn { .. } = edge.fanout {
+            diags.push_error(syn::Error::new(
+                edge.span,
+                "typed values cannot fan in from a node array: values don't sum; \
+                 index one element (`voices[0].mode`) or restructure",
+            ));
+        }
+    }
+    for ((dest_node, dest_endpoint, _), (edges, has_typed, kind)) in buckets {
+        if edges.len() < 2 {
+            continue;
+        }
+        let is_value = matches!(kind, Some(EndpointKind::Value));
+        if !has_typed && !is_value {
+            continue;
+        }
+        let dest_name = &ir.nodes[dest_node].name;
+        let dest_desc = if dest_name.to_string() == dest_endpoint {
+            dest_name.to_string()
+        } else {
+            format!("{dest_name}.{dest_endpoint}")
+        };
+        for &eid in &edges[1..] {
+            let msg = if has_typed {
+                format!(
+                    "typed value endpoint `{dest_desc}` has {} sources, but typed \
+                     values cannot fan in (values don't sum); keep a single source",
+                    edges.len(),
+                )
+            } else {
+                format!(
+                    "value endpoint `{dest_desc}` has {} sources, but values cannot \
+                     fan in (streams sum; values don't); combine them explicitly \
+                     (`a + b -> {dest_desc}`) or keep a single source",
+                    edges.len(),
+                )
+            };
+            diags.push_error(syn::Error::new(ir.edges[eid].span, msg));
+        }
     }
 }
 

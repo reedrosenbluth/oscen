@@ -364,3 +364,170 @@ fn zero_frame_ramp_setter_decrements_active_ramps() {
         body
     );
 }
+
+// ---------------------------------------------------------------------------
+// Param-enum variant collisions must be a spanned diagnostic, not an E0428
+// on a mangled identifier the user never wrote.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn camel_case_param_variant_collision_is_reported() {
+    // `oscA_pitch` and `osc_a_pitch` are distinct input names but both
+    // camel-case to `OscAPitch`, which would duplicate an enum variant.
+    let err = compile(quote! {
+        name: Collide;
+        input value oscA_pitch = 1.0;
+        input value osc_a_pitch = 2.0;
+        output value level;
+        connections {
+            oscA_pitch -> level;
+        }
+    })
+    .expect_err("colliding variant names must fail to compile");
+    let msgs: Vec<String> = err.items.iter().map(|d| d.message.to_string()).collect();
+    assert!(
+        msgs.iter().any(|m| m.contains("oscA_pitch")
+            && m.contains("osc_a_pitch")
+            && m.contains("CollideParam::OscAPitch")),
+        "diagnostic should name both inputs and the shared variant; got: {msgs:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Param-enum variant validation (adversarial-review fix B1)
+// ---------------------------------------------------------------------------
+
+/// Compile a graph expected to fail and return the diagnostic messages.
+fn compile_errors(tokens: proc_macro2::TokenStream) -> Vec<String> {
+    match compile(tokens) {
+        Ok(_) => panic!("compile unexpectedly succeeded"),
+        Err(diags) => diags.items.iter().map(|d| d.message.to_string()).collect(),
+    }
+}
+
+#[test]
+fn value_input_self_underscore_is_rejected_not_panicking() {
+    // camel_case("self_") == "Self": a keyword that cannot even be a raw
+    // ident. Used to emit `enum GParam { Self }` — invalid Rust.
+    let msgs = compile_errors(quote! {
+        name: G;
+        input value self_ = 0.5;
+        output stream out;
+    });
+    assert!(
+        msgs.iter().any(|m| m.contains("not a valid identifier")),
+        "expected variant-validation error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn value_input_double_underscore_is_rejected_not_panicking() {
+    // camel_case("__") == "": Ident::new("") used to panic the proc macro.
+    let msgs = compile_errors(quote! {
+        name: G;
+        input value __ = 0.5;
+        output stream out;
+    });
+    assert!(
+        msgs.iter().any(|m| m.contains("not a valid identifier")),
+        "expected variant-validation error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn raw_ident_value_input_gets_valid_variant() {
+    // `r#loop` camel-cases its bare name to variant `Loop` (valid) and the
+    // field keeps its raw-ident spelling.
+    let tokens = compile_to_string(quote! {
+        name: G;
+        input value r#loop = 0.5;
+        output stream out;
+    });
+    assert!(
+        tokens.contains("Loop"),
+        "expected `Loop` variant in generated registry"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Reserved generated-name collisions (adversarial-review fix B2)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn value_input_named_param_collides_with_registry_dispatcher() {
+    // `input value param;` generates `set_param(&mut self, value: f32)`,
+    // colliding with the registry dispatcher `set_param(&mut self, GParam,
+    // f32)` — used to surface as rustc E0592 in generated code.
+    let msgs = compile_errors(quote! {
+        name: G;
+        input value param = 0.5;
+        output stream out;
+    });
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("set_param") && m.contains("collides")),
+        "expected reserved-name error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn value_input_named_sample_rate_collides_with_builtin() {
+    let msgs = compile_errors(quote! {
+        name: G;
+        input value sample_rate = 0.5;
+        output stream out;
+    });
+    assert!(
+        msgs.iter().any(|m| m.contains("collides")),
+        "expected reserved-name error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn input_named_active_ramps_collides_with_builtin_field() {
+    let msgs = compile_errors(quote! {
+        name: G;
+        input value active_ramps = 0.5;
+        output stream out;
+    });
+    assert!(
+        msgs.iter().any(|m| m.contains("collides")),
+        "expected reserved-name error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn stream_input_block_accessor_collision_is_rejected() {
+    // Stream input `process` derives the `process_block` accessor, which
+    // collides with the graph's built-in `process_block` method.
+    let msgs = compile_errors(quote! {
+        name: G;
+        input stream process;
+        output stream out;
+        connections {
+            process -> out;
+        }
+    });
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("process_block") && m.contains("collides")),
+        "expected reserved-name error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn ramped_setter_collision_is_rejected() {
+    // Ramped `foo` derives set_foo_with_ramp; value input `foo_with_ramp`
+    // derives set_foo_with_ramp too.
+    let msgs = compile_errors(quote! {
+        name: G;
+        input value foo = 0.5 [ramp: 64];
+        input value foo_with_ramp = 0.5;
+        output stream out;
+    });
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("set_foo_with_ramp") && m.contains("collides")),
+        "expected reserved-name error; got {msgs:?}"
+    );
+}

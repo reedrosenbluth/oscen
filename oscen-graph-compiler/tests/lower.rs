@@ -632,6 +632,84 @@ fn plain_arrow_cycle_diagnostic_mentions_bracket_syntax() {
 }
 
 #[test]
+fn cycle_diagnostic_names_the_cycle_path() {
+    // The diagnostic should spell out a concrete cycle path so the user
+    // doesn't have to bisect connections: `a` -> `b` -> `c` -> `a`.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        node c = oscen::Gain::new(1.0);
+        connections {
+            a.output -> b.input;
+            b.output -> c.input;
+            c.output -> a.input;
+        }
+    });
+    assert!(ir.is_none(), "expected lower to fail on 3-node cycle");
+    let msgs: Vec<_> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    let cycle_msg = msgs
+        .iter()
+        .find(|m| m.contains("cycle"))
+        .expect("expected a cycle diagnostic");
+    // All three nodes must be named, joined by arrows, and the path must
+    // close on the node it started from.
+    for node in ["`a`", "`b`", "`c`"] {
+        assert!(
+            cycle_msg.contains(node),
+            "cycle diagnostic should name {node}; got: {cycle_msg}"
+        );
+    }
+    assert!(
+        cycle_msg.contains(" -> "),
+        "cycle diagnostic should render a path; got: {cycle_msg}"
+    );
+}
+
+#[test]
+fn cycle_diagnostic_skips_nodes_downstream_of_the_cycle() {
+    // Kahn's algorithm leaves acyclic nodes *downstream* of a cycle unsorted
+    // too (their in-degree never reaches 0). Reconstructing the cycle used to
+    // start the walk at the first unsorted node in declaration order — here
+    // `c`, which dead-ends immediately — so the diagnostic named innocent
+    // nodes instead of the actual `a` <-> `b` loop.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node c = oscen::Gain::new(1.0);
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        connections {
+            a.output -> b.input;
+            b.output -> a.input;
+            b.output -> c.input;
+            c.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "expected lower to fail on 2-node cycle");
+    let msgs: Vec<_> = diags.items.iter().map(|d| d.message.to_string()).collect();
+    let cycle_msg = msgs
+        .iter()
+        .find(|m| m.contains("cycle"))
+        .expect("expected a cycle diagnostic");
+    // The path must name the cycle members, not the downstream node `c`.
+    for node in ["`a`", "`b`"] {
+        assert!(
+            cycle_msg.contains(node),
+            "cycle diagnostic should name {node}; got: {cycle_msg}"
+        );
+    }
+    assert!(
+        !cycle_msg.contains("`c`"),
+        "cycle diagnostic should not name the downstream node `c`; got: {cycle_msg}"
+    );
+    assert!(
+        cycle_msg.contains(" -> "),
+        "cycle diagnostic should render a path; got: {cycle_msg}"
+    );
+}
+
+#[test]
 fn mixed_oversampling_factors_are_rejected() {
     // Two disjoint oversampled chains with different `* N` factors used to
     // compile and panic (index out of bounds) on the first process_block:
@@ -800,4 +878,579 @@ fn indexed_endpoints_classify_as_scalar_fanout() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Hoisted endpoint declarations (`input <node>.<endpoint> [rename] ...;`)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn hoist_synthesizes_connection_edge() {
+    // `input osc.frequency;` must declare an input named `frequency` and
+    // create the `frequency -> osc.frequency` edge.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.frequency;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
+    let ir = ir.expect("lower succeeds");
+    let input_id = *ir
+        .inputs
+        .iter()
+        .find(|&&id| ir.nodes[id].name == "frequency")
+        .expect("hoist declares an input named after the endpoint");
+    // Exactly one edge from the hoist input into osc.frequency.
+    let edge = ir
+        .edges
+        .values()
+        .find(|e| e.dest.endpoint == "frequency" && crate::primary_source_node(e) == Some(input_id))
+        .or_else(|| ir.edges.values().find(|e| e.dest.endpoint == "frequency"));
+    assert!(edge.is_some(), "hoist must synthesize the connection");
+}
+
+#[test]
+fn hoist_rename_declares_renamed_input() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.amplitude level = 0.5;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
+    let ir = ir.expect("lower succeeds");
+    assert!(
+        ir.inputs.iter().any(|&id| ir.nodes[id].name == "level"),
+        "rename must declare the graph input under the new name"
+    );
+    assert!(
+        !ir.inputs.iter().any(|&id| ir.nodes[id].name == "amplitude"),
+        "the original endpoint name must not leak as a graph input"
+    );
+}
+
+#[test]
+fn hoist_unknown_node_is_a_dedicated_error() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input oscx.frequency;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(ir.is_none());
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("unknown node `oscx`")),
+        "expected dedicated hoist error naming the node; got: {:?}",
+        msgs
+    );
+}
+
+#[test]
+fn hoist_event_endpoint_with_kind_annotation() {
+    // `input node.endpoint: event;` hoists an event input (kind defaults to
+    // value otherwise).
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node parser = oscen::midi::MidiParser::new();
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input parser.midi_in: event;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
+    let ir = ir.expect("lower succeeds");
+    let input_id = *ir
+        .inputs
+        .iter()
+        .find(|&&id| ir.nodes[id].name == "midi_in")
+        .expect("event hoist declares input");
+    let node = &ir.nodes[input_id];
+    let kind = node.endpoints.get(&node.name).map(|e| e.kind);
+    assert_eq!(kind, Some(oscen_graph_compiler::ast::EndpointKind::Event));
+}
+
+#[test]
+fn hoist_name_collision_is_duplicate_declaration() {
+    // A hoist whose (renamed) name collides with a declared input reports
+    // the existing duplicate-declaration diagnostic.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        input value level = 1.0;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.amplitude level;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(ir.is_none());
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("duplicate declaration")),
+        "expected duplicate-declaration error; got: {:?}",
+        msgs
+    );
+}
+
+fn diag_msgs(diags: &Diagnostics) -> Vec<String> {
+    diags.items.iter().map(|d| d.message.to_string()).collect()
+}
+
+/// Root node of an edge's source expression, if it is a simple endpoint.
+fn primary_source_node(edge: &ir::graph::IrEdge) -> Option<ir::graph::NodeId> {
+    match &edge.source.kind {
+        ir::expr::IrExprKind::Endpoint(ep) => Some(ep.node),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Comma fan-out (`src -> dest1, dest2;`)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn comma_fanout_expands_to_one_edge_per_destination() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        input stream s;
+        output stream out;
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        connections {
+            s -> a.input, b.input;
+            a.output + b.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
+    let ir = ir.expect("lower succeeds");
+    let dest_endpoints: Vec<String> = ir
+        .edges
+        .values()
+        .filter(|e| e.dest.endpoint == "input")
+        .map(|e| ir.nodes[e.dest.node].name.to_string())
+        .collect();
+    assert!(
+        dest_endpoints.contains(&"a".to_string()) && dest_endpoints.contains(&"b".to_string()),
+        "fan-out must create an edge into both destinations; got {:?}",
+        dest_endpoints
+    );
+}
+
+#[test]
+fn comma_fanout_with_delay_bracket_is_rejected() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        input stream s;
+        output stream out;
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        connections {
+            s -> [1] -> a.input, b.input;
+            a.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "delay bracket + fan-out must be an error");
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("comma fan-out")),
+        "expected the dedicated fan-out/delay error; got {:?}",
+        msgs
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Endpoint-list hoists with rename patterns
+// (`input node.{a, b} prefix_*;`)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn list_hoist_expands_each_endpoint_with_rename_pattern() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.{frequency, amplitude} osc_a_*;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
+    let ir = ir.expect("lower succeeds");
+    let input_names: Vec<String> = ir
+        .inputs
+        .iter()
+        .map(|&id| ir.nodes[id].name.to_string())
+        .collect();
+    assert_eq!(
+        input_names,
+        vec!["osc_a_frequency".to_string(), "osc_a_amplitude".to_string()],
+        "list hoist declares one renamed input per endpoint, in order"
+    );
+    // Each renamed input must have an edge into the child endpoint.
+    for ep in ["frequency", "amplitude"] {
+        assert!(
+            ir.edges.values().any(|e| e.dest.endpoint == ep),
+            "missing synthesized edge into osc.{ep}"
+        );
+    }
+}
+
+#[test]
+fn list_hoist_without_rename_uses_endpoint_names() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.{frequency, amplitude};
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
+    let ir = ir.expect("lower succeeds");
+    let input_names: Vec<String> = ir
+        .inputs
+        .iter()
+        .map(|&id| ir.nodes[id].name.to_string())
+        .collect();
+    assert_eq!(
+        input_names,
+        vec!["frequency".to_string(), "amplitude".to_string()]
+    );
+}
+
+#[test]
+fn list_hoist_suffix_pattern() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.{frequency} *_hz;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(
+        diags.is_empty(),
+        "unexpected diags: {:?}",
+        diag_msgs(&diags)
+    );
+    let ir = ir.expect("lower succeeds");
+    assert!(
+        ir.inputs
+            .iter()
+            .any(|&id| ir.nodes[id].name == "frequency_hz"),
+        "suffix pattern must rename endpoint -> endpoint_hz"
+    );
+}
+
+#[test]
+fn list_hoist_rename_collision_is_reported() {
+    // Two list hoists whose patterns produce the same name collide.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node a = PolyBlepOscillator::saw(440.0, 0.5);
+        node b = PolyBlepOscillator::saw(220.0, 0.5);
+        input a.{frequency} osc_*;
+        input b.{frequency} osc_*;
+        connections {
+            a.output + b.output -> out;
+        }
+    });
+    assert!(ir.is_none());
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("duplicate declaration")),
+        "expected duplicate-declaration error; got {:?}",
+        msgs
+    );
+}
+
+// ---------------------------------------------------------------------------
+// External name collisions (adversarial-review fix A2)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn external_colliding_with_input_is_duplicate_declaration() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        external buf: AudioAsset;
+        input value buf;
+        output stream out;
+    });
+    assert!(ir.is_none(), "expected duplicate-declaration failure");
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("duplicate declaration of `buf`")),
+        "expected duplicate-declaration error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn hoist_colliding_with_external_is_duplicate_declaration() {
+    // The original review repro: a hoist renamed to an external's name used
+    // to be silently reclassified as an asset binding (no edge, no error).
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        external buf: AudioAsset;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.frequency buf;
+        connections {
+            osc.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "expected duplicate-declaration failure");
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("duplicate declaration of `buf`")),
+        "expected duplicate-declaration error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn duplicate_external_declaration_errors() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        external buf: AudioAsset;
+        external buf: AudioAsset;
+        output stream out;
+    });
+    assert!(ir.is_none(), "expected duplicate-declaration failure");
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("duplicate declaration of `buf`")),
+        "expected duplicate-declaration error; got {msgs:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Hoist duplicate-driver conflicts (adversarial-review fix A3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn hoist_of_explicitly_connected_endpoint_errors() {
+    // A hoist synthesizes its own write into the endpoint; with an explicit
+    // connection too, the endpoint would have two drivers and the hoist's
+    // (appended last) used to silently win.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        input value cutoff_in;
+        output stream out;
+        node flt = TptFilter::new(1000.0, 0.7);
+        input flt.cutoff;
+        connections {
+            cutoff_in -> flt.cutoff;
+            flt.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "expected duplicate-driver failure");
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("two drivers") && m.contains("flt.cutoff")),
+        "expected hoist duplicate-driver error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn two_hoists_of_same_endpoint_error() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node flt = TptFilter::new(1000.0, 0.7);
+        input flt.cutoff;
+        input flt.cutoff cut2;
+        connections {
+            flt.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "expected duplicate-driver failure");
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("two drivers")),
+        "expected hoist duplicate-driver error; got {msgs:?}"
+    );
+}
+
+#[test]
+fn hoist_conflicts_with_indexed_connection() {
+    // An indexed write (`voices[0].freq`) still conflicts with a broadcast
+    // hoist of the same endpoint.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        input value f;
+        output stream out;
+        nodes {
+            voices = [PolyBlepOscillator::saw(440.0, 0.5); 4];
+        }
+        input voices.frequency;
+        connections {
+            f -> voices[0].frequency;
+            voices.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "expected duplicate-driver failure");
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("two drivers")),
+        "expected hoist duplicate-driver error; got {msgs:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Rename-pattern ident hygiene (adversarial-review fix A1)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn list_hoist_renames_raw_ident_endpoint() {
+    // A raw-ident endpoint (`r#loop`) used to panic the proc macro when the
+    // rename pattern concatenated "env_" + "r#loop" into Ident::new.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node env = Envelope::new();
+        input env.{r#loop} env_*;
+        connections {
+            env.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    let ir = ir.expect("lower succeeds");
+    let input_names: Vec<String> = ir
+        .inputs
+        .iter()
+        .map(|&id| ir.nodes[id].name.to_string())
+        .collect();
+    assert_eq!(
+        input_names,
+        vec!["env_loop".to_string()],
+        "raw-ident endpoint renames by its bare name"
+    );
+}
+
+#[test]
+fn list_hoist_rename_producing_keyword_becomes_raw_ident() {
+    // Pattern `l*` on endpoint `oop` produces "loop": a keyword, usable only
+    // as a raw ident. Must lower, not panic.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node env = Envelope::new();
+        input env.{oop} l*;
+        connections {
+            env.output -> out;
+        }
+    });
+    assert!(diags.is_empty(), "unexpected diags: {:?}", diag_msgs(&diags));
+    let ir = ir.expect("lower succeeds");
+    let input_names: Vec<String> = ir
+        .inputs
+        .iter()
+        .map(|&id| ir.nodes[id].name.to_string())
+        .collect();
+    assert_eq!(input_names, vec!["r#loop".to_string()]);
+}
+
+#[test]
+fn list_hoist_rename_producing_reserved_word_errors() {
+    // "Self" can't even be a raw ident: spanned error, not a panic.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node env = Envelope::new();
+        input env.{elf} S*;
+        connections {
+            env.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "expected rename failure");
+    let msgs = diag_msgs(&diags);
+    assert!(
+        msgs.iter().any(|m| m.contains("cannot be used as an identifier")),
+        "expected rename-pattern error; got {msgs:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Cycle diagnostic robustness (adversarial-review fix A5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cycle_diagnostic_survives_unlucky_edge_order() {
+    // Same graph as cycle_diagnostic_skips_nodes_downstream_of_the_cycle but
+    // with `b -> c` declared BEFORE `b -> a`: the old greedy walk followed
+    // the first outgoing edge into the dead-end `c` from every start and
+    // fell back to naming innocent nodes.
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        output stream out;
+        node c = oscen::Gain::new(1.0);
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        connections {
+            a.output -> b.input;
+            b.output -> c.input;
+            b.output -> a.input;
+            c.output -> out;
+        }
+    });
+    assert!(ir.is_none(), "expected lower to fail on 2-node cycle");
+    let msgs = diag_msgs(&diags);
+    let cycle_msg = msgs
+        .iter()
+        .find(|m| m.contains("cycle"))
+        .expect("expected a cycle diagnostic");
+    for node in ["`a`", "`b`"] {
+        assert!(
+            cycle_msg.contains(node),
+            "cycle diagnostic should name {node}; got: {cycle_msg}"
+        );
+    }
+    assert!(
+        !cycle_msg.contains("`c`"),
+        "cycle diagnostic should not name the downstream node `c`; got: {cycle_msg}"
+    );
+    assert!(
+        cycle_msg.contains(" -> "),
+        "cycle diagnostic should render a path; got: {cycle_msg}"
+    );
 }

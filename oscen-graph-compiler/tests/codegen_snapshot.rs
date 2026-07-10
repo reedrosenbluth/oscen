@@ -78,3 +78,87 @@ fn snapshot_oversampled_graph() {
     let tokens = compile(input).expect("compile succeeds").to_string();
     compare_snapshot("oversampled_graph", tokens);
 }
+
+/// A graph with value inputs (plain + ramped + full metadata) exercising the
+/// generated parameter registry: `{Graph}Param` enum, `param_descriptors()`,
+/// and the `set_param`/`set_param_immediate`/`get_param` dispatchers.
+#[test]
+fn snapshot_param_registry_graph() {
+    let input = quote::quote! {
+        name: ParamGraph;
+        input value gain = 0.5;
+        input cutoff: value = 1000.0 [20.0..20000.0, log, unit = "Hz", ramp: 64];
+        input drive: value = 1.0 [0.0..10.0, center = 2.0, step = 0.1, group = "Tone"];
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.6);
+        node filter = TptFilter::new(1000.0, 0.7);
+        connections {
+            cutoff -> filter.cutoff;
+            osc.output * gain * drive -> filter.input;
+            filter.output -> out;
+        }
+    };
+    let tokens = compile(input).expect("compile succeeds").to_string();
+    compare_snapshot("param_registry", tokens);
+}
+
+/// Hoisted endpoint declarations: `input <node>.<endpoint> [rename] ...;`
+/// declares the graph input, synthesizes the connection, inherits the
+/// initial value from the child when no `= default` is given, and joins the
+/// param registry.
+#[test]
+fn snapshot_hoisted_inputs() {
+    let input = quote::quote! {
+        name: HoistGraph;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.6);
+        node voices = [PolyBlepOscillator::saw(110.0, 0.2); 4];
+        input osc.frequency;
+        input osc.amplitude level = 0.5 [0.0..1.0, ramp: 8];
+        input voices.amplitude gain;
+        connections {
+            osc.output -> out;
+        }
+    };
+    let tokens = compile(input).expect("compile succeeds").to_string();
+    compare_snapshot("hoisted_inputs", tokens);
+}
+
+/// A graph with a wildcard hoist (`input voices.*;`), compiled through
+/// `compile_with_manifests` with a hand-built manifest — snapshots both
+/// the wildcard expansion (hoisted inputs, skip rules) and the graph's
+/// own emitted endpoint manifest.
+#[test]
+fn snapshot_wildcard_hoist_graph() {
+    use oscen_graph_compiler::compile_with_manifests;
+    use oscen_graph_compiler::manifest::NodeManifest;
+    use std::collections::HashMap;
+
+    let input = quote::quote! {
+        name: WildcardGraph;
+        input event midi_in;
+        output stream out;
+        nodes {
+            voices = [FMVoice::new(); 4];
+        }
+        input voices.*;
+        connections {
+            midi_in -> voices.midi;
+            voices.audio_out -> out;
+        }
+    };
+    let mut manifests: HashMap<String, NodeManifest> = HashMap::new();
+    manifests.insert(
+        "voices".to_string(),
+        syn::parse2(quote::quote! {
+            node_type FMVoice
+            inputs [ midi: event, frequency: value, gate: value, op3_ratio: value ]
+            outputs [ audio_out: stream ]
+        })
+        .expect("manifest parses"),
+    );
+    let tokens = compile_with_manifests(input, &manifests)
+        .expect("compile succeeds")
+        .to_string();
+    compare_snapshot("wildcard_hoist_graph", tokens);
+}

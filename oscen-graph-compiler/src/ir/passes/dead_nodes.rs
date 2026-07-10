@@ -6,7 +6,7 @@
 
 use crate::ir::expr::primary_node;
 use crate::ir::graph::{IrGraph, IrNodeKind, NodeId};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub fn run(ir: &mut IrGraph) {
     // Conservative guard: if a graph has no declared outputs, leave every
@@ -26,12 +26,42 @@ pub fn run(ir: &mut IrGraph) {
     // Asset-bound nodes are also live roots: their external load handle is
     // part of the graph's public API, and removing the node would leave its
     // `AssetBinding` pointing at a freed key (codegen would panic).
+    //
+    // Likewise nodes referenced by hoisted inputs (`input voices.cutoff;`):
+    // the hoist's setter writes into the child node's field and its default
+    // may be inherited from that field in `new()`, so the node must survive
+    // even when its outputs don't reach a graph output.
+    //
+    // Resolve hoist targets through a name -> id map built once (mirroring
+    // `name_to_id` in lower.rs) so each hoist costs an O(1) lookup rather
+    // than a scan over every node.
+    let mut name_to_id: HashMap<String, NodeId> = HashMap::new();
+    for (id, node) in ir.nodes.iter() {
+        if matches!(
+            node.kind,
+            IrNodeKind::Processor { .. } | IrNodeKind::NodeArray { .. }
+        ) {
+            name_to_id.entry(node.name.to_string()).or_insert(id);
+        }
+    }
+    let hoist_roots: Vec<NodeId> = ir
+        .inputs
+        .iter()
+        .filter_map(|&input_id| {
+            let IrNodeKind::Input { hoist: Some(h), .. } = &ir.nodes[input_id].kind else {
+                return None;
+            };
+            name_to_id.get(&h.node.to_string()).copied()
+        })
+        .collect();
+
     let mut live: HashSet<NodeId> = HashSet::new();
     let mut queue: VecDeque<NodeId> = ir
         .outputs
         .iter()
         .copied()
         .chain(ir.asset_bindings.iter().map(|b| b.node))
+        .chain(hoist_roots)
         .collect();
     while let Some(id) = queue.pop_front() {
         if !live.insert(id) {
@@ -90,6 +120,7 @@ mod tests {
             kind: IrNodeKind::Input {
                 spec: None,
                 default: None,
+                hoist: None,
             },
             name: format_ident!("{}", name),
             rate: NodeRate::Same,

@@ -1,3 +1,5 @@
+use oscen_graph_compiler::ast::EndpointKind;
+use oscen_graph_compiler::manifest::{ManifestEndpoint, ManifestRamp};
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DeriveInput, Fields};
@@ -6,6 +8,10 @@ mod oversample_variants_macro;
 
 #[proc_macro_derive(Node, attributes(input, output))]
 pub fn derive_node(input: TokenStream) -> TokenStream {
+    // Keep the item's raw tokens: they're hashed into the endpoint
+    // manifest's `#[macro_export]` name so same-named node types with
+    // different definitions don't collide on the crate-global export.
+    let manifest_source = proc_macro2::TokenStream::from(input.clone());
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
     let generics = input.generics;
@@ -13,6 +19,11 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
 
     let mut input_idents = Vec::new();
     let mut output_idents = Vec::new();
+
+    // Manifest entries in declaration order, for the endpoint manifest
+    // macro (`__oscen_endpoints_<TypeName>!`). See `emit_manifest_export`.
+    let mut manifest_inputs: Vec<ManifestEndpoint> = Vec::new();
+    let mut manifest_outputs: Vec<ManifestEndpoint> = Vec::new();
     let mut sample_rate_fields: Vec<syn::Ident> = Vec::new();
 
     // Errors for removed wrapper endpoint types, emitted alongside the
@@ -43,6 +54,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             for field in fields.named {
                 let field_name = field.ident.unwrap();
                 let field_ty = field.ty.clone();
+                let field_vis = FieldVis::of(&field.vis);
 
                 if last_segment_ident(&field_ty).as_deref() == Some("SampleRate") {
                     sample_rate_fields.push(field_name.clone());
@@ -138,6 +150,17 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
 
                     input_idents.push(field_name.clone());
+                    // Every endpoint joins the manifest — non-pub fields are
+                    // real endpoints, marked `priv` (skipped by wildcard
+                    // hoists) or `restricted` (`pub(crate)`/`pub(super)`,
+                    // hoistable from the visibility scope) so consumers can
+                    // distinguish visibility from absence.
+                    manifest_inputs.push(manifest_entry(
+                        &field_name,
+                        kind,
+                        &field_ty,
+                        field_vis,
+                    ));
                     input_idx += 1;
                 }
 
@@ -149,6 +172,12 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                     }
 
                     output_idents.push(field_name.clone());
+                    manifest_outputs.push(manifest_entry(
+                        &field_name,
+                        output_kind,
+                        &field_ty,
+                        field_vis,
+                    ));
                     _output_idx += 1;
                 }
 
@@ -316,10 +345,34 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Endpoint manifest macro: an exported macro_rules "manifest" carrying
+    // the node's endpoint list, invoked in continuation-passing style by a
+    // parent `graph!` that needs this type's endpoints at expansion time
+    // (wildcard hoists: `input voices.*;`). The `#[macro_export]` name is
+    // mangled (`__oscen_endpoints_export_<TypeName>_<hash>`, hashing the
+    // item's tokens) so the pretty `__oscen_endpoints_<TypeName>` re-export
+    // next to the type never collides with the crate-root export, and two
+    // same-named node types in different modules of one crate don't collide
+    // on the crate-global export either; the re-export travels with
+    // `pub use module::*` chains so qualified manifest paths mirror the
+    // type's path.
+    //
+    // NOTE: two byte-identical same-named node type definitions in one
+    // crate still collide on the exported macro name (documented
+    // limitation; see docs/COOKBOOK.md).
+    let manifest = oscen_graph_compiler::manifest::emit_manifest_export(
+        &name,
+        &manifest_inputs,
+        &manifest_outputs,
+        &manifest_source,
+    );
+
     let expanded = quote! {
         #(#endpoint_errors)*
 
         #(#endpoint_at_emissions)*
+
+        #manifest
 
         #sample_rate_error
 
@@ -346,6 +399,79 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
+}
+
+/// Build one manifest entry for a `#[derive(Node)]` endpoint field,
+/// carrying the metadata the manifest grammar supports:
+///
+/// - `ty = <field type>` for stream endpoints whose type isn't literally
+///   `f32` (so wildcard hoists preserve frame types like `Frame<2>`), and
+///   likewise for value endpoints carrying a typed payload (any type other
+///   than `f32`/`ValueRampState`, e.g. a `ValuePayload` enum). The derive
+///   cannot rewrite arbitrary user types to fully-qualified paths, so the
+///   literal tokens are carried — they resolve at the consuming graph's
+///   call site, which must have the type name in scope (documented
+///   limitation).
+/// - `ramped` for value inputs stored as `ValueRampState` (the ramp length
+///   is a runtime value the derive cannot see).
+/// - `priv` for non-pub fields.
+/// Endpoint-field visibility, as far as the manifest cares: `pub` hoists
+/// anywhere, `pub(crate)`/`pub(super)`/`pub(in …)` hoists from within the
+/// visibility scope (rustc rejects a cross-scope hoist with its own
+/// field-privacy error), private never hoists. The restriction level is
+/// collapsed to one marker — the consuming graph's crate identity isn't
+/// knowable at expansion time, so finer granularity would be unusable.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FieldVis {
+    Public,
+    Restricted,
+    Private,
+}
+
+impl FieldVis {
+    fn of(vis: &syn::Visibility) -> Self {
+        match vis {
+            syn::Visibility::Public(_) => FieldVis::Public,
+            syn::Visibility::Restricted(_) => FieldVis::Restricted,
+            syn::Visibility::Inherited => FieldVis::Private,
+        }
+    }
+}
+
+fn manifest_entry(
+    field_name: &syn::Ident,
+    kind: EndpointTypeAttr,
+    field_ty: &syn::Type,
+    field_vis: FieldVis,
+) -> ManifestEndpoint {
+    let manifest_kind = match kind {
+        EndpointTypeAttr::Stream => EndpointKind::Stream,
+        EndpointTypeAttr::Value => EndpointKind::Value,
+        EndpointTypeAttr::Event => EndpointKind::Event,
+        EndpointTypeAttr::Asset => EndpointKind::Asset,
+    };
+    let mut entry = ManifestEndpoint::new(field_name.clone(), manifest_kind);
+    entry.private = field_vis == FieldVis::Private;
+    entry.restricted = field_vis == FieldVis::Restricted;
+    match kind {
+        EndpointTypeAttr::Stream => {
+            if quote!(#field_ty).to_string() != "f32" {
+                entry.ty = Some(field_ty.clone());
+            }
+        }
+        EndpointTypeAttr::Value => {
+            if last_segment_ident(field_ty).as_deref() == Some("ValueRampState") {
+                entry.ramp = ManifestRamp::Declared;
+            } else if quote!(#field_ty).to_string() != "f32" {
+                // Typed value payload (a `ValuePayload` type such as an
+                // enum or bool): carry the field's literal type tokens,
+                // same hygiene caveat as the stream branch above.
+                entry.ty = Some(field_ty.clone());
+            }
+        }
+        EndpointTypeAttr::Event | EndpointTypeAttr::Asset => {}
+    }
+    entry
 }
 
 fn parse_endpoint_attr(attr: &syn::Attribute) -> syn::Result<EndpointTypeAttr> {
@@ -474,7 +600,37 @@ impl syn::parse::Parse for EndpointTypeAttr {
 /// ```
 #[proc_macro]
 pub fn graph(input: TokenStream) -> TokenStream {
-    match oscen_graph_compiler::compile(input.into()) {
+    // Two-stage expansion: graphs with wildcard hoists (`input node.*;`)
+    // expand to a chain of endpoint-manifest macro invocations with
+    // `__oscen_graph_resume` as the continuation; graphs without compile
+    // directly (zero behavior change).
+    match oscen_graph_compiler::manifest::expand_graph_entry(input.into(), &resume_path()) {
+        Ok(ts) => ts.into(),
+        Err(diags) => diags.into_compile_errors().into(),
+    }
+}
+
+/// Path of the resume continuation as seen from downstream crates.
+/// `oscen-lib` re-exports the proc macro next to `graph`, so
+/// `::oscen::__oscen_graph_resume` resolves everywhere `::oscen::graph`
+/// does.
+fn resume_path() -> syn::Path {
+    syn::parse_quote!(::oscen::__oscen_graph_resume)
+}
+
+/// Internal continuation for wildcard hoists (`input node.*;`) — not part
+/// of the public API.
+///
+/// A `graph!` with wildcard hoists expands to an invocation of the first
+/// wildcard node type's endpoint-manifest macro with this proc macro as
+/// the continuation; the manifest appends the node's endpoint list to the
+/// passthrough state. This macro then chains the next pending manifest
+/// or, when all wildcards are resolved, resumes normal graph compilation
+/// with the collected endpoint sets.
+#[doc(hidden)]
+#[proc_macro]
+pub fn __oscen_graph_resume(input: TokenStream) -> TokenStream {
+    match oscen_graph_compiler::manifest::resume(input.into(), &resume_path()) {
         Ok(ts) => ts.into(),
         Err(diags) => diags.into_compile_errors().into(),
     }

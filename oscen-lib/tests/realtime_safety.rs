@@ -264,6 +264,81 @@ fn midi_note_path_does_not_allocate() {
 }
 
 #[test]
+fn push_helper_does_not_allocate() {
+    // The generated `push_<event_input>` helper (with the `[u8; 3]` and
+    // `f32` payload conversions) is a host-facing audio-thread API; it must
+    // be heap-allocation free.
+    let mut graph = MidiNoAllocGraph::new();
+    graph.init(44100.0);
+
+    let freq = assert_no_alloc(|| {
+        let mut last = 0.0f32;
+        for i in 0..256u32 {
+            let note = 60 + (i / 16 % 12) as u8;
+            if i % 16 == 0 {
+                let _ = graph.push_midi_in([0x90, note, 100], 0);
+            }
+            if i % 16 == 8 {
+                let _ = graph.push_midi_in([0x80, note, 0], 0);
+            }
+            if i % 3 == 0 {
+                let _ = graph.push_midi_in(0.5f32, 0);
+            }
+            graph.process();
+            last = graph.freq_out;
+        }
+        last
+    });
+    assert!(freq.is_finite());
+}
+
+graph! {
+    name: ParamNoAllocGraph;
+
+    input value gain = 0.5;
+    input cutoff: value = 1000.0 [20.0..20000.0, ramp: 64];
+    output stream out;
+
+    nodes {
+        osc = oscen::PolyBlepOscillator::saw(440.0, 0.6);
+        filter = oscen::TptFilter::new(1000.0, 0.7);
+    }
+
+    connections {
+        cutoff -> filter.cutoff;
+        osc.output * gain -> filter.input;
+        filter.output -> out;
+    }
+}
+
+#[test]
+fn set_param_dispatch_does_not_allocate() {
+    // The generated `set_param` / `set_param_immediate` / `get_param`
+    // dispatchers are audio-thread APIs (e.g. draining a param-change queue
+    // inside the callback); they must be heap-allocation free.
+    let mut graph = ParamNoAllocGraph::new();
+    graph.init(44100.0);
+
+    let last = assert_no_alloc(|| {
+        let mut last = 0.0f32;
+        for i in 0..512u32 {
+            if i % 7 == 0 {
+                graph.set_param(ParamNoAllocGraphParam::Gain, (i % 10) as f32 * 0.1);
+                graph.set_param(ParamNoAllocGraphParam::Cutoff, 500.0 + i as f32);
+            }
+            if i % 13 == 0 {
+                graph.set_param_immediate(ParamNoAllocGraphParam::Cutoff, 1000.0);
+            }
+            let _ = graph.get_param(ParamNoAllocGraphParam::Gain);
+            graph.process();
+            last = graph.out;
+        }
+        last
+    });
+    assert!(last.is_finite());
+}
+
+#[test]
 fn fft_plan_forward_inverse_does_not_allocate() {
     let mut plan = FftPlan::new(1024);
     let mut time = noise(1024, 6);
