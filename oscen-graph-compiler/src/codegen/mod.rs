@@ -628,43 +628,20 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Generate the static process() method for compile-time graphs.
+    /// The per-frame computation itself lives in the shared `__frame_core`
+    /// (also called by `__advance_one_frame`); this wrapper only adds the
+    /// per-cycle event queue discipline.
     fn generate_static_process(&self) -> Result<TokenStream> {
         let event_input_clearing = self.generate_event_input_clearing();
         let event_output_clearing = self.generate_event_output_clearing();
 
-        if self.max_factor() > 1 {
-            // Multi-rate graph nested as a node: the multi-rate inner-loop
-            // schedule must run on every call to `process()`.
-            let body = self.generate_multirate_inner_body()?;
-            return Ok(quote! {
-                #[inline(always)]
-                #[allow(unused_variables, unused_mut)]
-                pub fn process(&mut self) {
-                    // Clear event outputs from the previous cycle.
-                    #(#event_output_clearing)*
-
-                    #body
-
-                    // Clear event inputs after processing (outputs stay
-                    // readable until the next cycle).
-                    #(#event_input_clearing)*
-                }
-            });
-        }
-
-        let process_body = self.generate_process_body()?;
         Ok(quote! {
             #[inline(always)]
             pub fn process(&mut self) {
-                use ::oscen::SignalProcessor as _;
-
                 // Clear event outputs from the previous cycle
                 #(#event_output_clearing)*
 
-                // Advance ramped value inputs
-                self.tick_ramps();
-
-                #(#process_body)*
+                self.__frame_core();
 
                 // Clear event inputs after processing (outputs stay readable
                 // until the next cycle)
@@ -1471,6 +1448,7 @@ impl<'a> CodegenContext<'a> {
         let feedback_assertions = self.generate_feedback_assertions();
 
         // For compile-time graphs, generate a static process() method
+        let frame_core_method = self.generate_frame_core()?;
         let process_method = self.generate_static_process()?;
         let advance_one_frame_method = self.generate_advance_one_frame()?;
         let process_block_method = self.generate_static_process_block()?;
@@ -1575,6 +1553,8 @@ impl<'a> CodegenContext<'a> {
                     self.set_sample_rate(sample_rate);
                     ::oscen::SignalProcessor::prepare(self);
                 }
+
+                #frame_core_method
 
                 #process_method
 

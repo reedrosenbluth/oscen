@@ -46,8 +46,9 @@ pub fn lower(mut graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph
     // pipeline (rate errors come first, then type-mismatch errors).
     validate_node_rates(&ir, diags);
 
-    infer_endpoint_types(&graph_def, &mut ir, &name_to_id, diags);
-    build_edges(&graph_def, &mut ir, &name_to_id, diags);
+    let mut prelowered = prelower_stmts(&graph_def, &name_to_id, &ir);
+    infer_endpoint_types(&prelowered, &mut ir);
+    build_edges(&mut prelowered, &mut ir, &name_to_id, diags);
     analyze_rates(&mut ir, diags);
     refine_kernels(&mut ir);
     topo_sort(&mut ir, diags);
@@ -455,16 +456,34 @@ fn output_endpoints(output: &crate::ast::OutputDecl) -> HashMap<Ident, EndpointI
 /// fixed-point iteration.
 ///
 /// Strategy: when a connection has a known-typed source feeding a node
-/// endpoint, the destination endpoint inherits that kind. Iterate until
-/// no new types are inferred or the cap is reached.
-fn infer_endpoint_types(
-    graph_def: &GraphDef,
-    ir: &mut IrGraph,
+/// A connection statement with its source/dest pre-lowered to IR form.
+///
+/// Lowering an expression depends only on `name_to_id` (never on endpoint
+/// kinds or edges), so it happens once in `prelower_stmts`;
+/// `infer_endpoint_types` re-reads the cached trees on every fixed-point
+/// iteration instead of re-lowering, and `build_edges` then consumes the
+/// owned values via `take()`.
+struct PreloweredStmt<'a> {
+    stmt: &'a crate::ast::ConnectionStmt,
+    /// Source lowered as an expression (compound sources allowed).
+    src_expr: Option<IrExpr>,
+    /// Dest lowered as an expression, for kind inference only.
+    dst_expr: Option<IrExpr>,
+    /// Dest lowered as an addressable endpoint, for edge construction.
+    dst_endpoint: Option<IrEndpoint>,
+    /// `(node, endpoint)` if the source is directly addressable.
+    src_ep: Option<(NodeId, Ident)>,
+    /// `(node, endpoint)` if the dest is directly addressable.
+    dst_ep: Option<(NodeId, Ident)>,
+}
+
+/// Lower every connection statement's source/dest exactly once.
+fn prelower_stmts<'a>(
+    graph_def: &'a GraphDef,
     name_to_id: &HashMap<String, NodeId>,
-    _diags: &mut Diagnostics,
-) {
-    // Collect all connection statements from the graph def.
-    let stmts: Vec<&crate::ast::ConnectionStmt> = graph_def
+    ir: &IrGraph,
+) -> Vec<PreloweredStmt<'a>> {
+    graph_def
         .items
         .iter()
         .flat_map(|item| match item {
@@ -472,8 +491,20 @@ fn infer_endpoint_types(
             GraphItem::ConnectionBlock(b) => b.0.as_slice(),
             _ => &[],
         })
-        .collect();
+        .map(|stmt| PreloweredStmt {
+            stmt,
+            src_expr: lower_expr(&stmt.source, name_to_id, ir),
+            dst_expr: lower_expr(&stmt.dest, name_to_id, ir),
+            dst_endpoint: lower_endpoint(&stmt.dest, name_to_id, ir),
+            src_ep: resolve_node_endpoint(&stmt.source, name_to_id),
+            dst_ep: resolve_node_endpoint(&stmt.dest, name_to_id),
+        })
+        .collect()
+}
 
+/// endpoint, the destination endpoint inherits that kind. Iterate until
+/// no new types are inferred or the cap is reached.
+fn infer_endpoint_types(prelowered: &[PreloweredStmt], ir: &mut IrGraph) {
     // Seed Stream kind from explicit stream-resampling policies.
     //
     // `[linear]`/`[sinc]`/`[sinc_iir]` are stream-only interpolation/decimation
@@ -485,43 +516,38 @@ fn infer_endpoint_types(
     // propagation below and the `CrossRateKernel` projection falls back to the
     // concrete `f32` kernel. Only fills vacant entries, so it never overrides a
     // kind already known from a graph endpoint or the derive.
-    for stmt in &stmts {
+    for p in prelowered {
         if !matches!(
-            stmt.policy,
+            p.stmt.policy,
             ConnectionPolicy::Linear | ConnectionPolicy::Sinc | ConnectionPolicy::SincIir
         ) {
             continue;
         }
-        for expr in [&stmt.source, &stmt.dest] {
-            if let Some((node_id, ep)) = resolve_node_endpoint(expr, name_to_id) {
-                ir.nodes[node_id]
+        for resolved in [&p.src_ep, &p.dst_ep] {
+            if let Some((node_id, ep)) = resolved {
+                ir.nodes[*node_id]
                     .endpoints
-                    .entry(ep)
+                    .entry(ep.clone())
                     .or_insert(EndpointInfo::new(EndpointKind::Stream));
             }
         }
     }
 
-    let cap = stmts.len() + 1;
+    let cap = prelowered.len() + 1;
     for _ in 0..cap {
         let mut changed = false;
 
-        for stmt in &stmts {
-            // Lower source/dest to IrExpr for type inference.
-            // (Same call lower_expr will make again in build_edges; this is
-            // unavoidable since infer_endpoint_types runs before edges exist.)
-            let ir_source = lower_expr(&stmt.source, name_to_id, ir);
-            let ir_dest_expr = lower_expr(&stmt.dest, name_to_id, ir);
-
-            // Infer source kind.
-            let src_kind = ir_source.as_ref().and_then(|e| endpoint_kind_of(e, ir));
+        for p in prelowered {
+            // Infer source kind from the cached expression tree; only
+            // `endpoint_kind_of` depends on the kinds filled in so far.
+            let src_kind = p.src_expr.as_ref().and_then(|e| endpoint_kind_of(e, ir));
 
             // If the destination is a node.endpoint, propagate the kind.
             if let Some(src_kind) = src_kind {
-                if let Some((dst_id, dst_ep)) = resolve_node_endpoint(&stmt.dest, name_to_id) {
-                    let node = &mut ir.nodes[dst_id];
+                if let Some((dst_id, dst_ep)) = &p.dst_ep {
+                    let node = &mut ir.nodes[*dst_id];
                     use std::collections::hash_map::Entry;
-                    match node.endpoints.entry(dst_ep) {
+                    match node.endpoints.entry(dst_ep.clone()) {
                         Entry::Vacant(e) => {
                             e.insert(EndpointInfo::new(src_kind));
                             changed = true;
@@ -533,12 +559,12 @@ fn infer_endpoint_types(
 
             // Symmetric: if source is a node.endpoint whose kind is unknown,
             // try to infer it from the dest.
-            let dst_kind = ir_dest_expr.as_ref().and_then(|e| endpoint_kind_of(e, ir));
+            let dst_kind = p.dst_expr.as_ref().and_then(|e| endpoint_kind_of(e, ir));
             if let Some(dst_kind) = dst_kind {
-                if let Some((src_id, src_ep)) = resolve_node_endpoint(&stmt.source, name_to_id) {
-                    let node = &mut ir.nodes[src_id];
+                if let Some((src_id, src_ep)) = &p.src_ep {
+                    let node = &mut ir.nodes[*src_id];
                     use std::collections::hash_map::Entry;
-                    match node.endpoints.entry(src_ep) {
+                    match node.endpoints.entry(src_ep.clone()) {
                         Entry::Vacant(e) => {
                             e.insert(EndpointInfo::new(dst_kind));
                             changed = true;
@@ -567,21 +593,11 @@ fn infer_endpoint_types(
 /// Validates type compatibility (source kind vs dest kind).
 /// Pushes type-mismatch errors into diags WITHOUT bailing.
 fn build_edges(
-    graph_def: &GraphDef,
+    prelowered: &mut [PreloweredStmt],
     ir: &mut IrGraph,
     name_to_id: &HashMap<String, NodeId>,
     diags: &mut Diagnostics,
 ) {
-    let stmts: Vec<crate::ast::ConnectionStmt> = graph_def
-        .items
-        .iter()
-        .flat_map(|item| match item {
-            GraphItem::Connection(c) => vec![c.clone()],
-            GraphItem::ConnectionBlock(b) => b.0.clone(),
-            _ => vec![],
-        })
-        .collect();
-
     // External (asset) names declared in this graph. An edge whose *source*
     // is one of these is an asset binding, not a signal edge.
     let external_names: std::collections::HashSet<String> =
@@ -592,7 +608,8 @@ fn build_edges(
     // `IrEdge`. Recording them up front (and marking the destination endpoint
     // `Asset`) lets the main pass reject any *other* edge into an asset input.
     let mut binding_stmts: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    for (i, stmt) in stmts.iter().enumerate() {
+    for (i, p) in prelowered.iter().enumerate() {
+        let stmt = p.stmt;
         let src_ident = match &stmt.source {
             ConnectionExpr::Ident(id) if external_names.contains(&id.to_string()) => id,
             _ => continue,
@@ -600,7 +617,7 @@ fn build_edges(
         // This statement is an asset binding regardless of how it resolves.
         binding_stmts.insert(i);
 
-        let (dst_node, dst_ep) = match resolve_node_endpoint(&stmt.dest, name_to_id) {
+        let (dst_node, dst_ep) = match p.dst_ep.clone() {
             Some(d) => d,
             None => {
                 diags.push_error(syn::Error::new(
@@ -645,15 +662,17 @@ fn build_edges(
     let mut synth_counter: u32 = 0;
     let mut via_used_nodes: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
 
-    for (stmt_index, stmt) in stmts.into_iter().enumerate() {
+    for (stmt_index, p) in prelowered.iter_mut().enumerate() {
         // Asset bindings were resolved in the pre-pass; they create no edge.
         if binding_stmts.contains(&stmt_index) {
             continue;
         }
-        // Lower to IR forms. A failed lowering means a name in the expression
-        // resolved to nothing — report it; a silently dropped edge compiles to
-        // a graph that runs but produces silence.
-        let ir_source = match lower_expr(&stmt.source, name_to_id, ir) {
+        let stmt = p.stmt;
+        // Take ownership of the pre-lowered IR forms. A failed lowering means
+        // a name in the expression resolved to nothing — report it; a
+        // silently dropped edge compiles to a graph that runs but produces
+        // silence.
+        let ir_source = match p.src_expr.take() {
             Some(e) => e,
             None => {
                 diags.push_error(syn::Error::new(
@@ -664,7 +683,7 @@ fn build_edges(
                 continue;
             }
         };
-        let ir_dest = match lower_endpoint(&stmt.dest, name_to_id, ir) {
+        let ir_dest = match p.dst_endpoint.take() {
             Some(d) => d,
             None => {
                 diags.push_error(syn::Error::new(
@@ -708,7 +727,7 @@ fn build_edges(
             }
         }
 
-        match stmt.via {
+        match &stmt.via {
             // -----------------------------------------------------------------
             // No via: single edge, not a feedback edge.
             // -----------------------------------------------------------------
@@ -799,6 +818,7 @@ fn build_edges(
             //   Edge 2: synth.output → dst          (feedback — breaks the cycle)
             // -----------------------------------------------------------------
             Some(crate::ast::DelayVia::Samples { value, span }) => {
+                let span = *span;
                 // Parse the literal sample count.
                 let n: u32 = match value.base10_parse::<u32>() {
                     Ok(n) => n,

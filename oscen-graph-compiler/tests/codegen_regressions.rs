@@ -40,6 +40,22 @@ fn inherent_method_body(tokens: proc_macro2::TokenStream, method: &str) -> Strin
     panic!("inherent method `{}` not found in generated code", method);
 }
 
+/// The body of `process()` with the `self.__frame_core()` delegation call
+/// textually replaced by `__frame_core`'s own body — i.e. what `process()`
+/// effectively executes. Tests asserting ordering between per-cycle event
+/// discipline (in `process`) and per-frame work (in `__frame_core`) check
+/// this combined view.
+fn effective_process_body(tokens: proc_macro2::TokenStream) -> String {
+    let process = inherent_method_body(tokens.clone(), "process");
+    let core = inherent_method_body(tokens, "__frame_core");
+    // Strip the outer braces of the core block before splicing.
+    let core_inner = core
+        .strip_prefix('{')
+        .and_then(|s| s.strip_suffix('}'))
+        .unwrap_or(&core);
+    process.replace("self . __frame_core () ;", core_inner)
+}
+
 // ---------------------------------------------------------------------------
 // Literal-left compound source (`0.5 * g.output -> out`)
 // ---------------------------------------------------------------------------
@@ -160,7 +176,7 @@ fn event_output_is_not_cleared_after_population() {
         }
     })
     .expect("compile succeeds");
-    let body = inherent_method_body(tokens, "process");
+    let body = effective_process_body(tokens);
 
     let clear_thru = "self . thru . clear ()";
     let forward = "& mut self . thru";
@@ -206,7 +222,7 @@ fn bare_event_passthrough_emits_queue_copy() {
         }
     })
     .expect("compile succeeds");
-    let body = inherent_method_body(tokens, "process");
+    let body = effective_process_body(tokens);
     assert!(
         body.contains("(& self . midi , & mut self . thru)"),
         "expected a queue copy from `midi` to `thru`; got:\n{}",
@@ -292,7 +308,7 @@ fn compound_source_taints_post_inner_consumer() {
         }
     })
     .expect("compile succeeds");
-    let body = inherent_method_body(tokens, "process");
+    let body = effective_process_body(tokens);
     let pos_d = body
         .find("self . d . process ()")
         .expect("d should be processed");
@@ -328,7 +344,7 @@ fn same_rate_event_edge_propagates_post_inner_taint() {
         }
     })
     .expect("compile succeeds");
-    let body = inherent_method_body(tokens, "process");
+    let body = effective_process_body(tokens);
     let pos_d = body
         .find("self . d . process ()")
         .expect("d should be processed");

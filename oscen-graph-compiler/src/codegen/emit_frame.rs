@@ -18,20 +18,44 @@ use super::CodegenContext;
 impl<'a> CodegenContext<'a> {
     // ========== Block Processing Methods ==========
 
-    /// Generate the `__advance_one_frame()` private method.
-    pub(super) fn generate_advance_one_frame(&self) -> Result<TokenStream> {
+    /// Generate the shared `__frame_core()` private method: the whole
+    /// per-frame computation minus any I/O staging. Both `process()` (event
+    /// clearing around it, graph fields as I/O) and `__advance_one_frame`
+    /// (block-buffer reads/writes around it) delegate here, so the — often
+    /// large — monomorphized DSP body is emitted and compiled exactly once
+    /// per graph.
+    pub(super) fn generate_frame_core(&self) -> Result<TokenStream> {
         if self.max_factor() <= 1 {
-            self.generate_advance_one_frame_same_rate()
+            let process_body = self.generate_process_body()?;
+            Ok(quote! {
+                #[inline(always)]
+                #[allow(unused_variables)]
+                fn __frame_core(&mut self) {
+                    use ::oscen::SignalProcessor as _;
+
+                    // Advance ramped value inputs
+                    self.tick_ramps();
+
+                    #(#process_body)*
+                }
+            })
         } else {
-            self.generate_advance_one_frame_multirate()
+            // Multi-rate schedule; no tick_ramps at this level (matches the
+            // pre-split multirate `process()`).
+            let body = self.generate_multirate_inner_body()?;
+            Ok(quote! {
+                #[inline(always)]
+                #[allow(unused_variables, unused_mut)]
+                fn __frame_core(&mut self) {
+                    #body
+                }
+            })
         }
     }
 
-    /// Same-rate fast path.
-    fn generate_advance_one_frame_same_rate(&self) -> Result<TokenStream> {
-        let process_body = self.generate_process_body()?;
-
-        // Read stream inputs from block buffers
+    /// Generate the `__advance_one_frame()` private method: block-buffer
+    /// stream I/O around the shared `__frame_core`.
+    pub(super) fn generate_advance_one_frame(&self) -> Result<TokenStream> {
         let stream_input_reads: Vec<_> = self
             .inputs()
             .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Stream)))
@@ -43,7 +67,6 @@ impl<'a> CodegenContext<'a> {
             })
             .collect();
 
-        // Write stream outputs to block buffers
         let stream_output_writes: Vec<_> = self
             .outputs()
             .filter(|n| matches!(self.output_kind(&n.name), Some(EndpointKind::Stream)))
@@ -59,56 +82,12 @@ impl<'a> CodegenContext<'a> {
             #[inline(always)]
             #[allow(unused_variables)]
             fn __advance_one_frame(&mut self, __frame: usize) {
-                use ::oscen::SignalProcessor as _;
-
+                // Read stream inputs from block buffers.
                 #(#stream_input_reads)*
 
-                self.tick_ramps();
+                self.__frame_core();
 
-                #(#process_body)*
-
-                #(#stream_output_writes)*
-            }
-        })
-    }
-
-    /// Multi-rate variant of `__advance_one_frame`.
-    fn generate_advance_one_frame_multirate(&self) -> Result<TokenStream> {
-        let body = self.generate_multirate_inner_body()?;
-
-        let stream_input_reads: Vec<_> = self
-            .inputs()
-            .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Stream)))
-            .map(|n| {
-                let name = &n.name;
-                let block_name =
-                    syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
-                quote! { self.#name = self.#block_name[__frame]; }
-            })
-            .collect();
-
-        let stream_output_writes: Vec<_> = self
-            .outputs()
-            .filter(|n| matches!(self.output_kind(&n.name), Some(EndpointKind::Stream)))
-            .map(|n| {
-                let name = &n.name;
-                let block_name =
-                    syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
-                quote! { self.#block_name[__frame] = self.#name; }
-            })
-            .collect();
-
-        Ok(quote! {
-            #[inline(always)]
-            #[allow(unused_variables, unused_mut)]
-            fn __advance_one_frame(&mut self, __frame: usize) {
-                // 1. Read stream inputs from block buffers (outer-rate).
-                #(#stream_input_reads)*
-
-                // 2-8. Multi-rate body
-                #body
-
-                // 9. Write stream outputs to block buffers (outer-rate).
+                // Write stream outputs to block buffers.
                 #(#stream_output_writes)*
             }
         })

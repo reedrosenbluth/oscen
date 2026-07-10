@@ -25,6 +25,7 @@ const FIXED_METHODS: &[&str] = &[
     "process",
     "process_block",
     "__advance_one_frame",
+    "__frame_core",
     "get_stream_output",
     "clear_event_outputs",
     "process_event_inputs",
