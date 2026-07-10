@@ -35,6 +35,12 @@ fn cross_rate_kind_mismatch_fails_to_compile() {
 }
 
 #[test]
+fn generic_wildcard_hoist_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/generic_wildcard_hoist.rs");
+}
+
+#[test]
 fn multi_error_type_mismatch_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/multi_error_type_mismatch.rs");
@@ -122,4 +128,10 @@ fn input_and_output_on_one_field_is_an_error() {
 fn wildcard_over_runtime_ramped_field_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/wildcard_ramped_field.rs");
+}
+
+#[test]
+fn array_size_mismatch_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/array_size_mismatch.rs");
 }

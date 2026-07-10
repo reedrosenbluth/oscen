@@ -128,6 +128,9 @@ impl ConnectEndpoints<super::types::StaticEventQueue, super::types::StaticEventQ
     #[inline]
     fn connect(src: &super::types::StaticEventQueue, dst: &mut super::types::StaticEventQueue) {
         dst.clear();
+        if src.is_empty() {
+            return; // per-frame fast path: most frames carry no events
+        }
         // Copy all events from source to destination
         for event in src.iter() {
             super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
@@ -142,6 +145,9 @@ impl<S, D> ConnectEndpoints<super::types::EventOutput<S>, super::types::EventInp
     #[inline]
     fn connect(src: &super::types::EventOutput<S>, dst: &mut super::types::EventInput<D>) {
         dst.clear();
+        if src.is_empty() {
+            return; // per-frame fast path: most frames carry no events
+        }
         // Copy all events from source output to destination input
         for event in src.iter() {
             super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
@@ -154,6 +160,9 @@ impl<S, D> ConnectEndpoints<super::types::EventInput<S>, super::types::EventInpu
     #[inline]
     fn connect(src: &super::types::EventInput<S>, dst: &mut super::types::EventInput<D>) {
         dst.clear();
+        if src.is_empty() {
+            return; // per-frame fast path: most frames carry no events
+        }
         // Copy all events from source to destination
         for event in src.iter() {
             super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
@@ -172,6 +181,9 @@ impl<S, D, const N: usize>
     ) {
         for (s, d) in src.iter().zip(dst.iter_mut()) {
             d.clear();
+            if s.is_empty() {
+                continue; // per-frame fast path: most frames carry no events
+            }
             for event in s.iter() {
                 super::types::debug_assert_event_pushed(d.try_push(event.clone()));
             }
@@ -184,6 +196,9 @@ impl<T> ConnectEndpoints<super::types::StaticEventQueue, super::types::EventInpu
     #[inline]
     fn connect(src: &super::types::StaticEventQueue, dst: &mut super::types::EventInput<T>) {
         dst.clear();
+        if src.is_empty() {
+            return; // per-frame fast path: most frames carry no events
+        }
         for event in src.iter() {
             super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
         }
@@ -195,6 +210,9 @@ impl<T> ConnectEndpoints<super::types::EventOutput<T>, super::types::StaticEvent
     #[inline]
     fn connect(src: &super::types::EventOutput<T>, dst: &mut super::types::StaticEventQueue) {
         dst.clear();
+        if src.is_empty() {
+            return; // per-frame fast path: most frames carry no events
+        }
         for event in src.iter() {
             super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
         }

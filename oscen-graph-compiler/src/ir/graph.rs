@@ -60,9 +60,10 @@ pub enum FanoutShape {
 /// Classify a connection edge given the array sizes of its source and dest
 /// nodes (`None` for scalar nodes or graph endpoints).
 ///
-/// For mismatched-but-nonzero array sizes, parity with the same-rate path's
-/// existing behavior: silently truncate to `min(N, M)` (`Parallel { n: min }`).
-/// Promoting this to a hard error is reserved for a future task.
+/// Mismatched array sizes are diagnosed as an error by `analyze_rates` (the
+/// sole caller with span/name context); the `Parallel { n: min }` returned
+/// here is only a placeholder on the already-errored edge — codegen never
+/// sees it because lowering bails on any error.
 pub fn classify_fanout(
     src_array_size: Option<usize>,
     dst_array_size: Option<usize>,
@@ -238,6 +239,13 @@ pub struct IrEdge {
     /// ordering and trigger emission of an `AllowsFeedback` static-bound
     /// check on the source's primary node type.
     pub is_feedback: bool,
+    /// Endpoint kind of the source expression, resolved once at edge
+    /// creation (endpoint kinds never change after `infer_endpoint_types`).
+    /// `None` when the kind cannot be inferred; those edges error elsewhere.
+    pub src_kind: Option<EndpointKind>,
+    /// Endpoint kind of the destination endpoint, resolved once at edge
+    /// creation. Same caching rationale as `src_kind`.
+    pub dst_kind: Option<EndpointKind>,
 }
 
 impl IrGraph {
@@ -391,6 +399,8 @@ mod tests {
             span: Span::call_site(),
             extra_source_nodes: Vec::new(),
             is_feedback: false,
+            src_kind: None,
+            dst_kind: None,
         });
         graph.nodes[source].outgoing.push(id);
         graph.nodes[dest].incoming.push(id);

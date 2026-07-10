@@ -350,7 +350,7 @@ pub enum EndpointKind {
 }
 
 /// Parameter specification (range, curve, ramp, and NIH-plug specific fields)
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ParamSpec {
     // Existing fields
     pub range: Option<RangeSpec>,

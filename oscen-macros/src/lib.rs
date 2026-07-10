@@ -16,6 +16,13 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     let name = input.ident;
     let generics = input.generics;
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    // Generic parameter names, for marking manifest entries whose field
+    // type can't be resolved without the constructor's type arguments.
+    let generic_param_names: std::collections::HashSet<String> = generics
+        .type_params()
+        .map(|p| p.ident.to_string())
+        .chain(generics.const_params().map(|p| p.ident.to_string()))
+        .collect();
 
     let mut input_idents = Vec::new();
     let mut output_idents = Vec::new();
@@ -160,6 +167,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         kind,
                         &field_ty,
                         field_vis,
+                        &generic_param_names,
                     ));
                     input_idx += 1;
                 }
@@ -177,6 +185,7 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                         output_kind,
                         &field_ty,
                         field_vis,
+                        &generic_param_names,
                     ));
                     _output_idx += 1;
                 }
@@ -314,15 +323,20 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
             let handle_method = format_ident!("handle_{}_events", field_name);
             let temp_var = format_ident!("temp_{}_events", field_name);
             handler_calls.push(quote! {
-                let #temp_var: ::arrayvec::ArrayVec<
-                    _,
-                    { ::oscen::graph::MAX_STATIC_EVENTS_PER_ENDPOINT },
-                > = self.#field_name.iter().cloned().collect();
-                // Drain the queue so events delivered outside a graph
-                // connection (which would overwrite it) are not replayed
-                // on the next frame.
-                self.#field_name.clear();
-                self.#handle_method(&#temp_var);
+                // Empty-queue fast path: this runs every frame for every
+                // event input, and most frames carry no events. The handler
+                // iterates the events, so skipping it on empty is a no-op.
+                if !self.#field_name.is_empty() {
+                    let #temp_var: ::arrayvec::ArrayVec<
+                        _,
+                        { ::oscen::graph::MAX_STATIC_EVENTS_PER_ENDPOINT },
+                    > = self.#field_name.iter().cloned().collect();
+                    // Drain the queue so events delivered outside a graph
+                    // connection (which would overwrite it) are not replayed
+                    // on the next frame.
+                    self.#field_name.clear();
+                    self.#handle_method(&#temp_var);
+                }
             });
         }
         quote! {
@@ -438,11 +452,28 @@ impl FieldVis {
     }
 }
 
+/// True when `ty`'s tokens mention any of the node struct's generic
+/// parameters (`F`, `T`, `const N`, ...) — such a type cannot be carried
+/// usefully in the manifest (the constructor's type arguments are unknown
+/// at expansion time), so the entry is marked `generic` and wildcard
+/// expansion rejects hoisting it.
+fn ty_mentions_generic_param(ty: &syn::Type, params: &std::collections::HashSet<String>) -> bool {
+    fn walk(ts: proc_macro2::TokenStream, params: &std::collections::HashSet<String>) -> bool {
+        ts.into_iter().any(|tt| match tt {
+            proc_macro2::TokenTree::Ident(i) => params.contains(&i.to_string()),
+            proc_macro2::TokenTree::Group(g) => walk(g.stream(), params),
+            _ => false,
+        })
+    }
+    !params.is_empty() && walk(quote!(#ty), params)
+}
+
 fn manifest_entry(
     field_name: &syn::Ident,
     kind: EndpointTypeAttr,
     field_ty: &syn::Type,
     field_vis: FieldVis,
+    generic_params: &std::collections::HashSet<String>,
 ) -> ManifestEndpoint {
     let manifest_kind = match kind {
         EndpointTypeAttr::Stream => EndpointKind::Stream,
@@ -470,6 +501,9 @@ fn manifest_entry(
             }
         }
         EndpointTypeAttr::Event | EndpointTypeAttr::Asset => {}
+    }
+    if entry.ty.is_some() && ty_mentions_generic_param(field_ty, generic_params) {
+        entry.generic = true;
     }
     entry
 }

@@ -21,27 +21,31 @@ use syn::{
 ///
 /// Empty chunks and pure-`;` chunks are filtered out so that a stray
 /// top-level `;` does not trigger a spurious downstream parse error.
-fn split_top_level_chunks(input: TokenStream) -> Vec<TokenStream> {
-    const BLOCK_KEYWORDS: &[&str] = &["node", "nodes", "connection", "connections"];
-
+fn split_top_level_chunks(input: TokenStream) -> Vec<TopLevelChunk> {
     let trees: Vec<TokenTree> = input.into_iter().collect();
-    let mut chunks: Vec<TokenStream> = Vec::new();
+    let mut chunks: Vec<TopLevelChunk> = Vec::new();
     let mut i = 0;
 
     while i < trees.len() {
-        let is_block = match &trees[i] {
-            TokenTree::Ident(id) if BLOCK_KEYWORDS.contains(&id.to_string().as_str()) => {
-                matches!(
+        let block_kind = match &trees[i] {
+            TokenTree::Ident(id)
+                if matches!(
                     trees.get(i + 1),
                     Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace
-                )
+                ) =>
+            {
+                match id.to_string().as_str() {
+                    "node" | "nodes" => Some(BlockKind::Node),
+                    "connection" | "connections" => Some(BlockKind::Connection),
+                    _ => None,
+                }
             }
-            _ => false,
+            _ => None,
         };
 
-        if is_block {
+        if let Some(kind) = block_kind {
             let chunk: TokenStream = trees[i..i + 2].iter().cloned().collect();
-            chunks.push(chunk);
+            chunks.push(TopLevelChunk::Block(kind, chunk));
             i += 2;
         } else {
             let start = i;
@@ -55,18 +59,37 @@ fn split_top_level_chunks(input: TokenStream) -> Vec<TokenStream> {
                     break;
                 }
             }
-            let chunk: TokenStream = trees[start..i].iter().cloned().collect();
-            if chunk
-                .clone()
-                .into_iter()
-                .any(|t| !matches!(&t, TokenTree::Punct(p) if p.as_char() == ';'))
-            {
-                chunks.push(chunk);
+            if slice_has_content(&trees[start..i]) {
+                chunks.push(TopLevelChunk::Stmt(trees[start..i].iter().cloned().collect()));
             }
         }
     }
 
     chunks
+}
+
+/// Which block parser a `TopLevelChunk::Block` routes to.
+#[derive(Clone, Copy)]
+enum BlockKind {
+    Node,
+    Connection,
+}
+
+/// One top-level chunk, tagged by the splitter — which already knows
+/// block-vs-statement — so `parse_graph_def` doesn't re-scan the tokens.
+enum TopLevelChunk {
+    /// `node {}` / `nodes {}` / `connection {}` / `connections {}`.
+    Block(BlockKind, TokenStream),
+    /// A `;`-terminated statement.
+    Stmt(TokenStream),
+}
+
+/// True when the token slice contains anything besides `;` — i.e. it is a
+/// real statement, not an empty or stray-semicolon chunk.
+fn slice_has_content(trees: &[TokenTree]) -> bool {
+    trees
+        .iter()
+        .any(|t| !matches!(t, TokenTree::Punct(p) if p.as_char() == ';'))
 }
 
 /// Split a brace-group's stream into statement chunks for in-block
@@ -90,27 +113,15 @@ fn split_statement_chunks(input: TokenStream) -> Vec<TokenStream> {
         );
         i += 1;
         if is_semi {
-            let chunk: TokenStream = trees[start..i].iter().cloned().collect();
-            if chunk
-                .clone()
-                .into_iter()
-                .any(|t| !matches!(&t, TokenTree::Punct(p) if p.as_char() == ';'))
-            {
-                chunks.push(chunk);
+            if slice_has_content(&trees[start..i]) {
+                chunks.push(trees[start..i].iter().cloned().collect());
             }
             start = i;
         }
     }
 
-    if start < trees.len() {
-        let chunk: TokenStream = trees[start..].iter().cloned().collect();
-        if chunk
-            .clone()
-            .into_iter()
-            .any(|t| !matches!(&t, TokenTree::Punct(p) if p.as_char() == ';'))
-        {
-            chunks.push(chunk);
-        }
+    if slice_has_content(&trees[start..]) {
+        chunks.push(trees[start..].iter().cloned().collect());
     }
 
     chunks
@@ -196,20 +207,19 @@ pub fn parse_graph_def(input: TokenStream, diags: &mut Diagnostics) -> GraphDef 
     let mut items: Vec<GraphItem> = Vec::new();
 
     for chunk in split_top_level_chunks(input) {
-        let is_block_node = chunk_starts_with_block_kw(&chunk, &["node", "nodes"]);
-        let is_block_conn = chunk_starts_with_block_kw(&chunk, &["connection", "connections"]);
-
-        if is_block_node {
-            let decls = parse_node_block_with_diags(chunk, diags);
-            items.push(GraphItem::NodeBlock(NodeBlock(decls)));
-        } else if is_block_conn {
-            let stmts = parse_connection_block_with_diags(chunk, diags);
-            items.push(GraphItem::ConnectionBlock(ConnectionBlock(stmts)));
-        } else {
-            match syn::parse2::<GraphItem>(chunk) {
+        match chunk {
+            TopLevelChunk::Block(BlockKind::Node, tokens) => {
+                let decls = parse_node_block_with_diags(tokens, diags);
+                items.push(GraphItem::NodeBlock(NodeBlock(decls)));
+            }
+            TopLevelChunk::Block(BlockKind::Connection, tokens) => {
+                let stmts = parse_connection_block_with_diags(tokens, diags);
+                items.push(GraphItem::ConnectionBlock(ConnectionBlock(stmts)));
+            }
+            TopLevelChunk::Stmt(tokens) => match syn::parse2::<GraphItem>(tokens) {
                 Ok(item) => items.push(item),
                 Err(e) => diags.push_error(e),
-            }
+            },
         }
     }
 
@@ -238,22 +248,6 @@ pub fn parse_graph_def(input: TokenStream, diags: &mut Diagnostics) -> GraphDef 
         name,
         items: retained,
     }
-}
-
-/// True when `chunk`'s first `TokenTree` is an identifier whose string
-/// matches one of `keywords`, followed by a brace `Group`. Used by
-/// `parse_graph_def` to route block-item chunks to the
-/// `NodeBlock` / `ConnectionBlock` parsers.
-fn chunk_starts_with_block_kw(chunk: &TokenStream, keywords: &[&str]) -> bool {
-    let mut iter = chunk.clone().into_iter();
-    let first = iter.next();
-    let second = iter.next();
-    matches!(
-        (&first, &second),
-        (Some(TokenTree::Ident(id)), Some(TokenTree::Group(g)))
-            if keywords.contains(&id.to_string().as_str())
-                && g.delimiter() == Delimiter::Brace
-    )
 }
 
 impl Parse for GraphItem {
@@ -302,21 +296,93 @@ impl Parse for GraphItem {
     }
 }
 
+/// Separator between a spec key and its value: the brace form uses
+/// `key: value`, the bracket form uses `key = value`. (`ramp` historically
+/// uses `:` in BOTH forms — preserved by `parse_shared_spec_entry`.)
+#[derive(Clone, Copy, PartialEq)]
+enum SpecSep {
+    Colon,
+    Eq,
+}
+
+impl SpecSep {
+    fn parse(self, content: ParseStream) -> Result<()> {
+        match self {
+            SpecSep::Colon => content.parse::<Token![:]>().map(drop),
+            SpecSep::Eq => content.parse::<Token![=]>().map(drop),
+        }
+    }
+}
+
+/// Parse one named ParamSpec entry from the key set shared by the brace and
+/// bracket forms (center/unit/smoother/step/name/group/linear/log/ramp) into
+/// `spec`. Returns `Ok(false)` when the lookahead matches none of them; the
+/// caller then tries its form-specific keys (`range`) or reports
+/// `lookahead.error()` — the shared peeks recorded here keep the "expected
+/// one of ..." message complete.
+fn parse_shared_spec_entry(
+    content: ParseStream,
+    lookahead: &syn::parse::Lookahead1,
+    sep: SpecSep,
+    spec: &mut ParamSpec,
+) -> Result<bool> {
+    if lookahead.peek(kw::center) {
+        content.parse::<kw::center>()?;
+        sep.parse(content)?;
+        // Historical quirk kept intact: the brace form accepts a full
+        // expression here, the bracket form only a simple literal/ident
+        // (a full Expr parse would swallow a following `..`).
+        spec.center = Some(match sep {
+            SpecSep::Colon => content.parse()?,
+            SpecSep::Eq => parse_simple_expr(content)?,
+        });
+    } else if lookahead.peek(kw::step) {
+        content.parse::<kw::step>()?;
+        sep.parse(content)?;
+        spec.step = Some(content.parse()?);
+    } else if lookahead.peek(kw::unit) {
+        content.parse::<kw::unit>()?;
+        sep.parse(content)?;
+        let lit: syn::LitStr = content.parse()?;
+        spec.unit = Some(lit.value());
+    } else if lookahead.peek(kw::name) {
+        content.parse::<kw::name>()?;
+        sep.parse(content)?;
+        let lit: syn::LitStr = content.parse()?;
+        spec.display_name = Some(lit.value());
+    } else if lookahead.peek(kw::group) {
+        content.parse::<kw::group>()?;
+        sep.parse(content)?;
+        let lit: syn::LitStr = content.parse()?;
+        spec.group = Some(lit.value());
+    } else if lookahead.peek(kw::smoother) {
+        content.parse::<kw::smoother>()?;
+        sep.parse(content)?;
+        spec.smoother = Some(content.parse()?);
+    } else if lookahead.peek(kw::linear) {
+        content.parse::<kw::linear>()?;
+        spec.curve = Some(Curve::Linear);
+    } else if lookahead.peek(kw::log) {
+        content.parse::<kw::log>()?;
+        spec.curve = Some(Curve::Logarithmic);
+    } else if lookahead.peek(kw::ramp) {
+        content.parse::<kw::ramp>()?;
+        content.parse::<Token![:]>()?;
+        let lit: syn::LitInt = content.parse()?;
+        spec.ramp = Some(lit.base10_parse()?);
+    } else {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
 /// Parse brace-style ParamSpec for NIH-plug parameters
 /// Syntax: { range: 20.0..20000.0, center: 1000.0, unit: " Hz", smoother: 50.0, step: 0.5, display_name: "Cutoff", group: "Filter" }
 fn parse_brace_param_spec(input: ParseStream) -> Result<ParamSpec> {
     let content;
     braced!(content in input);
 
-    let mut range = None;
-    let mut curve = None;
-    let mut ramp = None;
-    let mut center = None;
-    let mut unit = None;
-    let mut smoother = None;
-    let mut step = None;
-    let mut display_name = None;
-    let mut group = None;
+    let mut spec = ParamSpec::default();
 
     // Parse comma-separated key: value pairs
     while !content.is_empty() {
@@ -330,46 +396,8 @@ fn parse_brace_param_spec(input: ParseStream) -> Result<ParamSpec> {
             let min = parse_simple_expr(&content)?;
             content.parse::<Token![..]>()?;
             let max = parse_simple_expr(&content)?;
-            range = Some(RangeSpec { min, max });
-        } else if lookahead.peek(kw::center) {
-            content.parse::<kw::center>()?;
-            content.parse::<Token![:]>()?;
-            center = Some(content.parse()?);
-        } else if lookahead.peek(kw::unit) {
-            content.parse::<kw::unit>()?;
-            content.parse::<Token![:]>()?;
-            let lit: syn::LitStr = content.parse()?;
-            unit = Some(lit.value());
-        } else if lookahead.peek(kw::smoother) {
-            content.parse::<kw::smoother>()?;
-            content.parse::<Token![:]>()?;
-            smoother = Some(content.parse()?);
-        } else if lookahead.peek(kw::step) {
-            content.parse::<kw::step>()?;
-            content.parse::<Token![:]>()?;
-            step = Some(content.parse()?);
-        } else if lookahead.peek(kw::name) {
-            content.parse::<kw::name>()?;
-            content.parse::<Token![:]>()?;
-            let lit: syn::LitStr = content.parse()?;
-            display_name = Some(lit.value());
-        } else if lookahead.peek(kw::group) {
-            content.parse::<kw::group>()?;
-            content.parse::<Token![:]>()?;
-            let lit: syn::LitStr = content.parse()?;
-            group = Some(lit.value());
-        } else if lookahead.peek(kw::linear) {
-            content.parse::<kw::linear>()?;
-            curve = Some(Curve::Linear);
-        } else if lookahead.peek(kw::log) {
-            content.parse::<kw::log>()?;
-            curve = Some(Curve::Logarithmic);
-        } else if lookahead.peek(kw::ramp) {
-            content.parse::<kw::ramp>()?;
-            content.parse::<Token![:]>()?;
-            let lit: syn::LitInt = content.parse()?;
-            ramp = Some(lit.base10_parse()?);
-        } else {
+            spec.range = Some(RangeSpec { min, max });
+        } else if !parse_shared_spec_entry(&content, &lookahead, SpecSep::Colon, &mut spec)? {
             return Err(lookahead.error());
         }
 
@@ -379,17 +407,139 @@ fn parse_brace_param_spec(input: ParseStream) -> Result<ParamSpec> {
         }
     }
 
-    Ok(ParamSpec {
-        range,
-        curve,
-        ramp,
-        center,
-        unit,
-        smoother,
-        step,
-        display_name,
-        group,
-    })
+    Ok(spec)
+}
+
+/// Tail of a wildcard hoist declaration (`input <node>.*;`), entered with
+/// the cursor on the `*`. Hoists every input endpoint of the node (endpoint
+/// set resolved through the node type's manifest macro). No rename, no kind
+/// annotation, no default or spec: the wildcard inherits everything from
+/// the child.
+fn parse_wildcard_hoist_tail(input: ParseStream, first_ident: Ident) -> Result<InputDecl> {
+        let star: Token![*] = input.parse()?;
+        if input.peek(Ident) {
+            // Statement chunks are sliced at top-level `;`, so a
+            // missing semicolon merges the NEXT statement into this
+            // chunk. Only an ident immediately followed by `;` (or
+            // end of chunk) has the shape of a rename attempt;
+            // anything else — a statement keyword, `x.y -> ...` —
+            // is the next statement leaking in.
+            let fork = input.fork();
+            let ident: Ident = fork.parse()?;
+            let is_stmt_keyword = matches!(
+                ident.to_string().as_str(),
+                "input"
+                    | "output"
+                    | "node"
+                    | "nodes"
+                    | "connection"
+                    | "connections"
+                    | "external"
+                    | "nih_params"
+                    | "name"
+            );
+            if !is_stmt_keyword && (fork.is_empty() || fork.peek(Token![;])) {
+                return Err(syn::Error::new(
+                    ident.span(),
+                    "wildcard hoists cannot be renamed; hoist endpoints \
+                     individually or as a list to rename them \
+                     (`input node.{a, b} prefix_*;`)",
+                ));
+            }
+            return Err(syn::Error::new(
+                ident.span(),
+                format!("missing `;` after wildcard hoist `input {first_ident}.*`"),
+            ));
+        }
+        if input.peek(Token![:]) {
+            return Err(syn::Error::new(
+                input.span(),
+                "wildcard hoists take no kind annotation; every input \
+                 endpoint of the node is hoisted with its own kind",
+            ));
+        }
+        if input.peek(Token![=]) {
+            return Err(syn::Error::new(
+                input.span(),
+                "wildcard hoists take no default; defaults are inherited \
+                 from the child node (hoist an endpoint individually to \
+                 override: `input node.endpoint = 1.0;`)",
+            ));
+        }
+        if input.peek(token::Bracket) || input.peek(token::Brace) {
+            return Err(syn::Error::new(
+                input.span(),
+                "wildcard hoists take no param spec; hoist an endpoint \
+                 individually to attach metadata \
+                 (`input node.endpoint [0.0..1.0];`)",
+            ));
+        }
+        input.parse::<Token![;]>()?;
+
+        // Placeholder name; wildcard expansion replaces this decl
+        // before lowering and never uses its own name.
+        let name = first_ident.clone();
+        return Ok(InputDecl {
+            kind: EndpointKind::Value,
+            name,
+            ty: None,
+            default: None,
+            spec: None,
+            hoist: Some(crate::ast::HoistSource {
+                node: first_ident,
+                endpoints: crate::ast::HoistEndpoints::Wildcard { span: star.span },
+            }),
+        });
+}
+
+/// Tail of an endpoint-list hoist (`input node.{a, b} [rename] [: kind];`),
+/// entered with the cursor on the brace group.
+fn parse_list_hoist_tail(input: ParseStream, first_ident: Ident) -> Result<InputDecl> {
+        let content;
+        braced!(content in input);
+        let mut endpoints: Vec<Ident> = Vec::new();
+        while !content.is_empty() {
+            endpoints.push(content.parse()?);
+            if content.is_empty() {
+                break;
+            }
+            if !content.peek(Token![,]) {
+                // Without this, `{freq amp}` silently parses as TWO
+                // hoisted endpoints (e.g. a rename put inside the
+                // braces by analogy with the single-hoist syntax).
+                return Err(content.error("expected `,` between hoisted endpoints"));
+            }
+            content.parse::<Token![,]>()?;
+        }
+        if endpoints.is_empty() {
+            return Err(input.error("endpoint list hoist must name at least one endpoint"));
+        }
+        let rename = parse_rename_pattern(input)?;
+        let kind = if input.peek(Token![:]) {
+            input.parse::<Token![:]>()?;
+            input.parse::<EndpointKind>()?
+        } else {
+            EndpointKind::Value
+        };
+        // No `= default [spec]` on list hoists: with several endpoints
+        // there is no single sensible default/range; hoist singly to
+        // attach metadata.
+        input.parse::<Token![;]>()?;
+
+        // Placeholder name; lowering expands the list into per-endpoint
+        // inputs and never uses this decl's own name.
+        let name = endpoints[0].clone();
+        return Ok(InputDecl {
+            kind,
+            name,
+            ty: None,
+            default: None,
+            spec: None,
+            hoist: Some(crate::ast::HoistSource {
+                node: first_ident,
+                endpoints: crate::ast::HoistEndpoints::List { endpoints, rename },
+            }),
+        });
 }
 
 impl Parse for InputDecl {
@@ -408,134 +558,14 @@ impl Parse for InputDecl {
         if input.peek(Token![.]) {
             input.parse::<Token![.]>()?;
 
-            // Wildcard hoist: `input voices.*;` — hoist every input endpoint
-            // of the node (endpoint set resolved through the node type's
-            // manifest macro). No rename, no kind annotation, no default or
-            // spec: the wildcard inherits everything from the child.
+            // Wildcard hoist: `input voices.*;`
             if input.peek(Token![*]) {
-                let star: Token![*] = input.parse()?;
-                if input.peek(Ident) {
-                    // Statement chunks are sliced at top-level `;`, so a
-                    // missing semicolon merges the NEXT statement into this
-                    // chunk. Only an ident immediately followed by `;` (or
-                    // end of chunk) has the shape of a rename attempt;
-                    // anything else — a statement keyword, `x.y -> ...` —
-                    // is the next statement leaking in.
-                    let fork = input.fork();
-                    let ident: Ident = fork.parse()?;
-                    let is_stmt_keyword = matches!(
-                        ident.to_string().as_str(),
-                        "input"
-                            | "output"
-                            | "node"
-                            | "nodes"
-                            | "connection"
-                            | "connections"
-                            | "external"
-                            | "nih_params"
-                            | "name"
-                    );
-                    if !is_stmt_keyword && (fork.is_empty() || fork.peek(Token![;])) {
-                        return Err(syn::Error::new(
-                            ident.span(),
-                            "wildcard hoists cannot be renamed; hoist endpoints \
-                             individually or as a list to rename them \
-                             (`input node.{a, b} prefix_*;`)",
-                        ));
-                    }
-                    return Err(syn::Error::new(
-                        ident.span(),
-                        format!("missing `;` after wildcard hoist `input {first_ident}.*`"),
-                    ));
-                }
-                if input.peek(Token![:]) {
-                    return Err(syn::Error::new(
-                        input.span(),
-                        "wildcard hoists take no kind annotation; every input \
-                         endpoint of the node is hoisted with its own kind",
-                    ));
-                }
-                if input.peek(Token![=]) {
-                    return Err(syn::Error::new(
-                        input.span(),
-                        "wildcard hoists take no default; defaults are inherited \
-                         from the child node (hoist an endpoint individually to \
-                         override: `input node.endpoint = 1.0;`)",
-                    ));
-                }
-                if input.peek(token::Bracket) || input.peek(token::Brace) {
-                    return Err(syn::Error::new(
-                        input.span(),
-                        "wildcard hoists take no param spec; hoist an endpoint \
-                         individually to attach metadata \
-                         (`input node.endpoint [0.0..1.0];`)",
-                    ));
-                }
-                input.parse::<Token![;]>()?;
-
-                // Placeholder name; wildcard expansion replaces this decl
-                // before lowering and never uses its own name.
-                let name = first_ident.clone();
-                return Ok(InputDecl {
-                    kind: EndpointKind::Value,
-                    name,
-                    ty: None,
-                    default: None,
-                    spec: None,
-                    hoist: Some(crate::ast::HoistSource {
-                        node: first_ident,
-                        endpoints: crate::ast::HoistEndpoints::Wildcard { span: star.span },
-                    }),
-                });
+                return parse_wildcard_hoist_tail(input, first_ident);
             }
 
             // Endpoint-list hoist: `input branch_a.{attack, decay} env_a_*;`
             if input.peek(token::Brace) {
-                let content;
-                braced!(content in input);
-                let mut endpoints: Vec<Ident> = Vec::new();
-                while !content.is_empty() {
-                    endpoints.push(content.parse()?);
-                    if content.is_empty() {
-                        break;
-                    }
-                    if !content.peek(Token![,]) {
-                        // Without this, `{freq amp}` silently parses as TWO
-                        // hoisted endpoints (e.g. a rename put inside the
-                        // braces by analogy with the single-hoist syntax).
-                        return Err(content.error("expected `,` between hoisted endpoints"));
-                    }
-                    content.parse::<Token![,]>()?;
-                }
-                if endpoints.is_empty() {
-                    return Err(input.error("endpoint list hoist must name at least one endpoint"));
-                }
-                let rename = parse_rename_pattern(input)?;
-                let kind = if input.peek(Token![:]) {
-                    input.parse::<Token![:]>()?;
-                    input.parse::<EndpointKind>()?
-                } else {
-                    EndpointKind::Value
-                };
-                // No `= default [spec]` on list hoists: with several endpoints
-                // there is no single sensible default/range; hoist singly to
-                // attach metadata.
-                input.parse::<Token![;]>()?;
-
-                // Placeholder name; lowering expands the list into per-endpoint
-                // inputs and never uses this decl's own name.
-                let name = endpoints[0].clone();
-                return Ok(InputDecl {
-                    kind,
-                    name,
-                    ty: None,
-                    default: None,
-                    spec: None,
-                    hoist: Some(crate::ast::HoistSource {
-                        node: first_ident,
-                        endpoints: crate::ast::HoistEndpoints::List { endpoints, rename },
-                    }),
-                });
+                return parse_list_hoist_tail(input, first_ident);
             }
 
             return parse_single_hoist_tail(input, first_ident, None);
@@ -802,7 +832,14 @@ fn extract_array_and_embedded_rate(expr: Expr) -> Result<(Expr, Option<usize>, O
             lit: Lit::Int(c), ..
         }) = &*repeat.len
         {
-            Some(c.base10_parse::<usize>()?)
+            let n = c.base10_parse::<usize>()?;
+            if n == 0 {
+                return Err(syn::Error::new_spanned(
+                    &repeat.len,
+                    "node array size must be at least 1",
+                ));
+            }
+            Some(n)
         } else {
             return Err(syn::Error::new_spanned(
                 &repeat.len,
@@ -1039,79 +1076,36 @@ fn parse_constructor_with_type(input: ParseStream) -> Result<(Expr, Option<syn::
                 }
             }
 
-            // Now check for ::method()
-            if fork.peek(Token![::]) {
-                fork.parse::<Token![::]>()?;
-                if let Ok(method) = fork.parse::<Ident>() {
-                    if fork.peek(token::Paren) {
-                        let args_content;
-                        parenthesized!(args_content in fork);
+            // Now check for ::method(args)
+            let generic_stream: proc_macro2::TokenStream = generic_tokens.into_iter().collect();
+            if let Some(expr) =
+                parse_ctor_call_tail(&fork, quote! { #type_name<#generic_stream> })?
+            {
+                // Build the type path for the node
+                let type_path = syn::parse2(quote! { #type_name<#generic_stream> })?;
+                let node_type = if let syn::Type::Path(type_path_parsed) = type_path {
+                    Some(type_path_parsed.path)
+                } else {
+                    None
+                };
 
-                        if let Ok(args) = args_content.parse_terminated(Expr::parse, Token![,]) {
-                            // Successfully parsed! Construct the type with generics
-                            let generic_stream: proc_macro2::TokenStream =
-                                generic_tokens.into_iter().collect();
-
-                            let func = syn::parse2(quote! {
-                                <#type_name<#generic_stream>>::#method
-                            })?;
-
-                            let expr = Expr::Call(syn::ExprCall {
-                                attrs: vec![],
-                                func: Box::new(func),
-                                paren_token: syn::token::Paren::default(),
-                                args: args.into_iter().collect(),
-                            });
-
-                            // Build the type path for the node
-                            let type_path = syn::parse2(quote! { #type_name<#generic_stream> })?;
-                            let node_type = if let syn::Type::Path(type_path_parsed) = type_path {
-                                Some(type_path_parsed.path)
-                            } else {
-                                None
-                            };
-
-                            input.advance_to(&fork);
-                            return Ok((expr, node_type));
-                        }
-                    }
-                }
+                input.advance_to(&fork);
+                return Ok((expr, node_type));
             }
-        } else if fork.peek(Token![::]) {
-            // No generics, but still Type::method() pattern
-            fork.parse::<Token![::]>()?;
-            if let Ok(method) = fork.parse::<Ident>() {
-                if fork.peek(token::Paren) {
-                    let args_content;
-                    parenthesized!(args_content in fork);
+        } else if let Some(expr) = parse_ctor_call_tail(&fork, quote! { #type_name })? {
+            // No generics, but still Type::method() pattern.
+            // Build simple type path
+            let mut path = syn::Path {
+                leading_colon: None,
+                segments: syn::punctuated::Punctuated::new(),
+            };
+            path.segments.push(syn::PathSegment {
+                ident: type_name,
+                arguments: syn::PathArguments::None,
+            });
 
-                    if let Ok(args) = args_content.parse_terminated(Expr::parse, Token![,]) {
-                        let func = syn::parse2(quote! {
-                            <#type_name>::#method
-                        })?;
-
-                        let expr = Expr::Call(syn::ExprCall {
-                            attrs: vec![],
-                            func: Box::new(func),
-                            paren_token: syn::token::Paren::default(),
-                            args: args.into_iter().collect(),
-                        });
-
-                        // Build simple type path
-                        let mut path = syn::Path {
-                            leading_colon: None,
-                            segments: syn::punctuated::Punctuated::new(),
-                        };
-                        path.segments.push(syn::PathSegment {
-                            ident: type_name,
-                            arguments: syn::PathArguments::None,
-                        });
-
-                        input.advance_to(&fork);
-                        return Ok((expr, Some(path)));
-                    }
-                }
-            }
+            input.advance_to(&fork);
+            return Ok((expr, Some(path)));
         }
     }
 
@@ -1119,6 +1113,42 @@ fn parse_constructor_with_type(input: ParseStream) -> Result<(Expr, Option<syn::
     let expr = input.parse::<Expr>()?;
     let node_type = extract_node_type(&expr);
     Ok((expr, node_type))
+}
+
+/// After the constructor's type tokens have been consumed on `fork`, try to
+/// parse the `::method(args)` tail and build the qualified
+/// `<Ty>::method(args)` call expression. Returns `Ok(None)` when the tail
+/// doesn't match — the caller then abandons the fork and falls back to plain
+/// expression parsing.
+fn parse_ctor_call_tail(
+    fork: &syn::parse::ParseBuffer,
+    qualified_ty: proc_macro2::TokenStream,
+) -> Result<Option<Expr>> {
+    use quote::quote;
+
+    if !fork.peek(Token![::]) {
+        return Ok(None);
+    }
+    fork.parse::<Token![::]>()?;
+    let Ok(method) = fork.parse::<Ident>() else {
+        return Ok(None);
+    };
+    if !fork.peek(token::Paren) {
+        return Ok(None);
+    }
+    let args_content;
+    parenthesized!(args_content in fork);
+    let Ok(args) = args_content.parse_terminated(Expr::parse, Token![,]) else {
+        return Ok(None);
+    };
+
+    let func = syn::parse2(quote! { <#qualified_ty>::#method })?;
+    Ok(Some(Expr::Call(syn::ExprCall {
+        attrs: vec![],
+        func: Box::new(func),
+        paren_token: syn::token::Paren::default(),
+        args: args.into_iter().collect(),
+    })))
 }
 
 /// Extract the node type from a constructor expression
@@ -1490,15 +1520,7 @@ impl Parse for ParamSpec {
         let content;
         bracketed!(content in input);
 
-        let mut range = None;
-        let mut curve = None;
-        let mut ramp = None;
-        let mut center = None;
-        let mut step = None;
-        let mut unit = None;
-        let mut display_name = None;
-        let mut smoother = None;
-        let mut group = None;
+        let mut spec = ParamSpec::default();
 
         // Compact syntax: [min..max, center = X, step = Y, unit = " Hz"]
         // First, check if we start with a range (number or negative number)
@@ -1532,7 +1554,7 @@ impl Parse for ParamSpec {
                 let min = parse_simple_expr(&content)?;
                 content.parse::<Token![..]>()?;
                 let max = parse_simple_expr(&content)?;
-                range = Some(RangeSpec { min, max });
+                spec.range = Some(RangeSpec { min, max });
 
                 // Require comma before named options (if any follow)
                 if !content.is_empty() {
@@ -1545,44 +1567,8 @@ impl Parse for ParamSpec {
         while !content.is_empty() {
             let lookahead = content.lookahead1();
 
-            if lookahead.peek(kw::center) {
-                content.parse::<kw::center>()?;
-                content.parse::<Token![=]>()?;
-                center = Some(parse_simple_expr(&content)?);
-            } else if lookahead.peek(kw::step) {
-                content.parse::<kw::step>()?;
-                content.parse::<Token![=]>()?;
-                step = Some(content.parse()?);
-            } else if lookahead.peek(kw::unit) {
-                content.parse::<kw::unit>()?;
-                content.parse::<Token![=]>()?;
-                let lit: syn::LitStr = content.parse()?;
-                unit = Some(lit.value());
-            } else if lookahead.peek(kw::name) {
-                content.parse::<kw::name>()?;
-                content.parse::<Token![=]>()?;
-                let lit: syn::LitStr = content.parse()?;
-                display_name = Some(lit.value());
-            } else if lookahead.peek(kw::group) {
-                content.parse::<kw::group>()?;
-                content.parse::<Token![=]>()?;
-                let lit: syn::LitStr = content.parse()?;
-                group = Some(lit.value());
-            } else if lookahead.peek(kw::smoother) {
-                content.parse::<kw::smoother>()?;
-                content.parse::<Token![=]>()?;
-                smoother = Some(content.parse()?);
-            } else if lookahead.peek(kw::linear) {
-                content.parse::<kw::linear>()?;
-                curve = Some(Curve::Linear);
-            } else if lookahead.peek(kw::log) {
-                content.parse::<kw::log>()?;
-                curve = Some(Curve::Logarithmic);
-            } else if lookahead.peek(kw::ramp) {
-                content.parse::<kw::ramp>()?;
-                content.parse::<Token![:]>()?;
-                let lit: syn::LitInt = content.parse()?;
-                ramp = Some(lit.base10_parse()?);
+            if parse_shared_spec_entry(&content, &lookahead, SpecSep::Eq, &mut spec)? {
+                // handled
             } else if lookahead.peek(kw::range) {
                 // Legacy range(min, max) syntax
                 content.parse::<kw::range>()?;
@@ -1591,7 +1577,7 @@ impl Parse for ParamSpec {
                 let min = range_content.parse()?;
                 range_content.parse::<Token![,]>()?;
                 let max = range_content.parse()?;
-                range = Some(RangeSpec { min, max });
+                spec.range = Some(RangeSpec { min, max });
             } else {
                 return Err(lookahead.error());
             }
@@ -1602,17 +1588,7 @@ impl Parse for ParamSpec {
             }
         }
 
-        Ok(ParamSpec {
-            range,
-            curve,
-            ramp,
-            center,
-            unit,
-            smoother,
-            step,
-            display_name,
-            group,
-        })
+        Ok(spec)
     }
 }
 

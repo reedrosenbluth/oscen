@@ -1,0 +1,13 @@
+error: array size mismatch in connection: source `a` has 4 elements but destination `b` has 2; make the arrays the same size or connect elements explicitly (`a[k].endpoint`)
+  --> tests/ui/array_size_mismatch.rs:13:9
+   |
+13 |         a.output -> b.input;  // 4 -> 2: silently truncated before, now an error
+   |         ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Gain`
+ --> tests/ui/array_size_mismatch.rs:1:20
+  |
+1 | use oscen::{graph, Gain};
+  |                    ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

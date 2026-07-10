@@ -23,7 +23,15 @@ criterion = { version = "0.5", features = ["html_reports"] }
 assert_no_alloc = "1.1.2"
 
 [[bench]]
-name = "static_vs_runtime"
+name = "per_sample"
+harness = false
+
+[[bench]]
+name = "graph_blocks"
+harness = false
+
+[[bench]]
+name = "synth_app"
 harness = false
 
 # [[bin]]

@@ -1,12 +1,13 @@
 //! Generated-API name-collision validation.
 //!
 //! Every graph declaration becomes a struct field, and most also derive
-//! inherent methods (`set_<name>`, `push_<name>`, `<name>_block`, ...) on
-//! the graph type — alongside a fixed built-in surface (`process`,
-//! `set_sample_rate`, `set_param`, ...). Without this pass, an input named
-//! `param` or `sample_rate` compiles into duplicate inherent methods and
-//! the user gets rustc's E0592 pointing at code they never wrote. Fields
-//! and methods live in separate namespaces, so each is tracked separately.
+//! generated names: inherent methods (`set_<name>`, `push_<name>`, ...) and
+//! buffer fields (`<name>_block` for streams) on the graph type — alongside
+//! a fixed built-in surface (`process`, `set_sample_rate`, ...). Without
+//! this pass, an input named `param` or `sample_rate` compiles into
+//! duplicate inherent methods or fields and the user gets rustc's
+//! E0592/E0124 pointing at code they never wrote. Fields and methods live
+//! in separate namespaces, so each is tracked separately.
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -24,11 +25,17 @@ const FIXED_METHODS: &[&str] = &[
     "process",
     "process_block",
     "__advance_one_frame",
+    "__frame_core",
     "get_stream_output",
     "clear_event_outputs",
     "process_event_inputs",
     "tick_ramps",
     "latency_samples",
+];
+
+/// Param-registry methods, only emitted when the graph has f32 param value
+/// inputs (`param_value_inputs`); typed-only graphs get no registry.
+const REGISTRY_METHODS: &[&str] = &[
     "param_descriptors",
     "set_param",
     "set_param_immediate",
@@ -48,6 +55,14 @@ impl<'a> CodegenContext<'a> {
         let mut fields: HashMap<String, String> = HashMap::new();
         for &m in FIXED_METHODS {
             methods.insert(m.to_string(), format!("the graph's built-in `{m}` method"));
+        }
+        if !self.param_value_inputs().is_empty() {
+            for &m in REGISTRY_METHODS {
+                methods.insert(
+                    m.to_string(),
+                    format!("the graph's param-registry `{m}` method"),
+                );
+            }
         }
         for &f in FIXED_FIELDS {
             fields.insert(f.to_string(), format!("the graph's built-in `{f}` field"));
@@ -89,24 +104,19 @@ impl<'a> CodegenContext<'a> {
         }
         let mut acc: Option<syn::Error> = None;
 
-        // Duplicate *field* names across declarations are already rejected
-        // by lowering's duplicate-declaration check; here fields only need
-        // checking against the fixed field set.
-        for node in self
-            .inputs()
-            .chain(self.outputs())
-            .chain(self.nodes())
-        {
+        // Every declaration becomes a struct field. Claiming them here (by
+        // r#-stripped name — raw and bare spellings share Rust's field
+        // namespace) checks them against the fixed field set AND lets the
+        // derived `<name>_block` buffer fields below collide with declared
+        // names (`input stream signal; input value signal_block;`).
+        // Identically-spelled duplicate declarations are already rejected
+        // by lowering before codegen runs.
+        for node in self.inputs().chain(self.outputs()).chain(self.nodes()) {
             let name = &node.name;
-            if let Some(owner) = fields.get(&name.to_string()) {
-                push_err(
-                    &mut acc,
-                    syn::Error::new(
-                        name.span(),
-                        format!("`{name}` collides with {owner}; rename it"),
-                    ),
-                );
-            }
+            let ns = name.to_string();
+            let ns = ns.strip_prefix("r#").unwrap_or(&ns).to_owned();
+            let owner = format!("the `{ns}` field declared for `{name}`");
+            claim(&mut acc, &mut fields, ns, owner, name, "declaration");
         }
 
         for node in self.inputs() {
@@ -116,13 +126,22 @@ impl<'a> CodegenContext<'a> {
             match self.input_kind(name) {
                 Some(EndpointKind::Value) => {
                     let owner = format!("the `set_{ns}` generated for value input `{name}`");
-                    claim(&mut acc, &mut methods, format!("set_{ns}"), owner, name, "value input");
+                    claim(
+                        &mut acc,
+                        &mut methods,
+                        format!("set_{ns}"),
+                        owner,
+                        name,
+                        "value input",
+                    );
                     if self.is_ramped_input(name).is_some() {
                         for suffix in ["_with_ramp", "_immediate"] {
                             let owner = format!(
                                 "the `set_{ns}{suffix}` generated for ramped input `{name}`"
                             );
-                            claim(&mut acc, &mut methods,
+                            claim(
+                                &mut acc,
+                                &mut methods,
                                 format!("set_{ns}{suffix}"),
                                 owner,
                                 name,
@@ -136,7 +155,9 @@ impl<'a> CodegenContext<'a> {
                         let owner = format!(
                             "the `{prefix}{ns}{suffix}` generated for event input `{name}`"
                         );
-                        claim(&mut acc, &mut methods,
+                        claim(
+                            &mut acc,
+                            &mut methods,
                             format!("{prefix}{ns}{suffix}"),
                             owner,
                             name,
@@ -145,8 +166,17 @@ impl<'a> CodegenContext<'a> {
                     }
                 }
                 Some(EndpointKind::Stream) => {
-                    let owner = format!("the `{ns}_block` generated for stream input `{name}`");
-                    claim(&mut acc, &mut methods, format!("{ns}_block"), owner, name, "stream input");
+                    let owner = format!(
+                        "the `{ns}_block` buffer field generated for stream input `{name}`"
+                    );
+                    claim(
+                        &mut acc,
+                        &mut fields,
+                        format!("{ns}_block"),
+                        owner,
+                        name,
+                        "stream input",
+                    );
                 }
                 _ => {}
             }
@@ -156,8 +186,16 @@ impl<'a> CodegenContext<'a> {
             let ns = name.to_string();
             let ns = ns.strip_prefix("r#").unwrap_or(&ns).to_owned();
             if matches!(self.output_kind(name), Some(EndpointKind::Stream)) {
-                let owner = format!("the `{ns}_block` generated for stream output `{name}`");
-                claim(&mut acc, &mut methods, format!("{ns}_block"), owner, name, "stream output");
+                let owner =
+                    format!("the `{ns}_block` buffer field generated for stream output `{name}`");
+                claim(
+                    &mut acc,
+                    &mut fields,
+                    format!("{ns}_block"),
+                    owner,
+                    name,
+                    "stream output",
+                );
             }
         }
 

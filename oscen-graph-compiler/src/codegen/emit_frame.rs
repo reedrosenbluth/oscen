@@ -10,43 +10,68 @@ use quote::quote;
 use std::collections::HashSet;
 use syn::Result;
 
-use super::helpers::{down_buf_name, ident_base, is_same_rate_kernel, resampler_field_name, up_buf_name};
+use super::helpers::{
+    block_field_name, down_buf_name, is_same_rate_kernel, resampler_field_name, up_buf_name,
+};
 use super::CodegenContext;
 
 impl<'a> CodegenContext<'a> {
     // ========== Block Processing Methods ==========
 
-    /// Generate the `__advance_one_frame()` private method.
-    pub(super) fn generate_advance_one_frame(&self) -> Result<TokenStream> {
+    /// Generate the shared `__frame_core()` private method: the whole
+    /// per-frame computation minus any I/O staging. Both `process()` (event
+    /// clearing around it, graph fields as I/O) and `__advance_one_frame`
+    /// (block-buffer reads/writes around it) delegate here, so the — often
+    /// large — monomorphized DSP body is emitted and compiled exactly once
+    /// per graph.
+    pub(super) fn generate_frame_core(&self) -> Result<TokenStream> {
         if self.max_factor() <= 1 {
-            self.generate_advance_one_frame_same_rate()
+            let process_body = self.generate_process_body()?;
+            Ok(quote! {
+                #[inline(always)]
+                #[allow(unused_variables)]
+                fn __frame_core(&mut self) {
+                    use ::oscen::SignalProcessor as _;
+
+                    // Advance ramped value inputs
+                    self.tick_ramps();
+
+                    #(#process_body)*
+                }
+            })
         } else {
-            self.generate_advance_one_frame_multirate()
+            // Multi-rate schedule; no tick_ramps at this level (matches the
+            // pre-split multirate `process()`).
+            let body = self.generate_multirate_inner_body()?;
+            Ok(quote! {
+                #[inline(always)]
+                #[allow(unused_variables, unused_mut)]
+                fn __frame_core(&mut self) {
+                    #body
+                }
+            })
         }
     }
 
-    /// Same-rate fast path.
-    fn generate_advance_one_frame_same_rate(&self) -> Result<TokenStream> {
-        let process_body = self.generate_process_body()?;
-
-        // Read stream inputs from block buffers
+    /// Generate the `__advance_one_frame()` private method: block-buffer
+    /// stream I/O around the shared `__frame_core`.
+    pub(super) fn generate_advance_one_frame(&self) -> Result<TokenStream> {
         let stream_input_reads: Vec<_> = self
             .inputs()
             .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Stream)))
             .map(|n| {
                 let name = &n.name;
-                let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                let block_name = block_field_name(name);
                 quote! { self.#name = self.#block_name[__frame]; }
             })
             .collect();
 
-        // Write stream outputs to block buffers
         let stream_output_writes: Vec<_> = self
             .outputs()
             .filter(|n| matches!(self.output_kind(&n.name), Some(EndpointKind::Stream)))
             .map(|n| {
                 let name = &n.name;
-                let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                let block_name = block_field_name(name);
                 quote! { self.#block_name[__frame] = self.#name; }
             })
             .collect();
@@ -55,54 +80,12 @@ impl<'a> CodegenContext<'a> {
             #[inline(always)]
             #[allow(unused_variables)]
             fn __advance_one_frame(&mut self, __frame: usize) {
-                use ::oscen::SignalProcessor as _;
-
+                // Read stream inputs from block buffers.
                 #(#stream_input_reads)*
 
-                self.tick_ramps();
+                self.__frame_core();
 
-                #(#process_body)*
-
-                #(#stream_output_writes)*
-            }
-        })
-    }
-
-    /// Multi-rate variant of `__advance_one_frame`.
-    fn generate_advance_one_frame_multirate(&self) -> Result<TokenStream> {
-        let body = self.generate_multirate_inner_body()?;
-
-        let stream_input_reads: Vec<_> = self
-            .inputs()
-            .filter(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Stream)))
-            .map(|n| {
-                let name = &n.name;
-                let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
-                quote! { self.#name = self.#block_name[__frame]; }
-            })
-            .collect();
-
-        let stream_output_writes: Vec<_> = self
-            .outputs()
-            .filter(|n| matches!(self.output_kind(&n.name), Some(EndpointKind::Stream)))
-            .map(|n| {
-                let name = &n.name;
-                let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
-                quote! { self.#block_name[__frame] = self.#name; }
-            })
-            .collect();
-
-        Ok(quote! {
-            #[inline(always)]
-            #[allow(unused_variables, unused_mut)]
-            fn __advance_one_frame(&mut self, __frame: usize) {
-                // 1. Read stream inputs from block buffers (outer-rate).
-                #(#stream_input_reads)*
-
-                // 2-8. Multi-rate body
-                #body
-
-                // 9. Write stream outputs to block buffers (outer-rate).
+                // Write stream outputs to block buffers.
                 #(#stream_output_writes)*
             }
         })
@@ -218,18 +201,18 @@ impl<'a> CodegenContext<'a> {
 
     /// Step 3: Outer-rate (pre-inner) node process calls.
     fn emit_outer_processes(&self, node_names: &[syn::Ident]) -> Vec<TokenStream> {
-        let mut out = Vec::new();
-        for node_name in node_names {
-            let assignments = self
-                .generate_connection_assignments_for_node_filtered(node_name, is_same_rate_kernel);
-            out.extend(assignments);
-            out.push(self.emit_node_process_call(node_name));
-        }
-        out
+        self.emit_same_rate_processes(node_names)
     }
 
-    /// Step 7.5: Post-inner outer-rate node process calls.
+    /// Step 7.5: Post-inner outer-rate node process calls. Identical emission
+    /// to step 3 (`emit_outer_processes`) — only the schedule position of the
+    /// listed nodes differs.
     fn emit_post_inner_processes(&self, node_names: &[syn::Ident]) -> Vec<TokenStream> {
+        self.emit_same_rate_processes(node_names)
+    }
+
+    /// Same-rate connection assignments + process call for each listed node.
+    fn emit_same_rate_processes(&self, node_names: &[syn::Ident]) -> Vec<TokenStream> {
         let mut out = Vec::new();
         for node_name in node_names {
             let assignments = self
@@ -268,12 +251,7 @@ impl<'a> CodegenContext<'a> {
         let factor_us = factor as usize;
         let buf = up_buf_name(idx);
         let field = resampler_field_name(idx);
-        let projected = self.cross_rate_kernel_state_type(edge).is_some();
-        let access = if projected {
-            quote! { .kernel }
-        } else {
-            quote! {}
-        };
+        let access = self.edge_kernel_access(edge);
 
         if let FanoutShape::Parallel { n } = edge.fanout {
             let source_ident = self
@@ -506,12 +484,7 @@ impl<'a> CodegenContext<'a> {
     ) -> TokenStream {
         let buf = down_buf_name(idx);
         let field = resampler_field_name(idx);
-        let projected = self.cross_rate_kernel_state_type(edge).is_some();
-        let access = if projected {
-            quote! { .kernel }
-        } else {
-            quote! {}
-        };
+        let access = self.edge_kernel_access(edge);
 
         if let FanoutShape::Parallel { n } = edge.fanout {
             let dest_node = &self.ir.nodes[edge.dest.node].name;

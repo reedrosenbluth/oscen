@@ -6,7 +6,7 @@ use quote::quote;
 use std::collections::HashMap;
 use syn::{Expr, Result};
 
-mod helpers;
+pub(crate) mod helpers;
 use helpers::*;
 
 mod emit_edge;
@@ -125,14 +125,6 @@ impl<'a> CodegenContext<'a> {
             }
         }
         max
-    }
-
-    /// Infer the endpoint kind of an `IrExpr`.
-    ///
-    /// Thin facade over [`crate::ir::lower::endpoint_kind_of`], which is the
-    /// single source of truth for endpoint-kind inference.
-    fn infer_kind(&self, expr: &crate::ir::expr::IrExpr) -> Option<EndpointKind> {
-        crate::ir::lower::endpoint_kind_of(expr, self.ir)
     }
 
     fn input_kind(&self, name: &syn::Ident) -> Option<EndpointKind> {
@@ -279,6 +271,19 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
+    /// Constructor call tokens for a single element of a processor/array
+    /// node: a bare path constructor (`Type`) becomes `Type::new()`, any
+    /// other expression is used as written. Shared by `new()`'s node init
+    /// and the param-descriptor probe so a probe can never drift from the
+    /// value `new()` actually constructs.
+    fn node_ctor_tokens(&self, node: &IrNode) -> Option<TokenStream> {
+        let ctor_expr = self.node_ctor_expr(node)?;
+        Some(match ctor_expr {
+            Expr::Path(path) => quote! { #path::new() },
+            _ => quote! { #ctor_expr },
+        })
+    }
+
     /// Get the node type path for a processor/array node.
     fn node_type_path<'b>(&self, node: &'b IrNode) -> Option<&'b syn::Path> {
         match &node.kind {
@@ -385,6 +390,17 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
+    /// Field-access tokens to reach an edge's resampler kernel: `.kernel`
+    /// when the resampler field is a projected `CrossRateKernel` state
+    /// wrapper, empty when it is the concrete kernel type directly.
+    fn edge_kernel_access(&self, edge: &IrEdge) -> TokenStream {
+        if self.cross_rate_kernel_state_type(edge).is_some() {
+            quote! { .kernel }
+        } else {
+            quote! {}
+        }
+    }
+
     /// Emit the `<() as CrossRateKernel<SrcKind, DstKind, Policy, N, Dir>>::State`
     /// projection for an edge. Returns `None` if either endpoint can't be
     /// projected (e.g., compound source like `osc.output * 2.0`, or a graph
@@ -396,13 +412,8 @@ impl<'a> CodegenContext<'a> {
         // emission later uses `.kernel.upsample(...)` and would fail to compile.
         // Value/event cross-rate edges fall back to the concrete-kernel emitter,
         // which uses `LatchUp`/`LatchDown` (value) or dedicated event drains.
-        let src_kind = self.infer_kind(&edge.source)?;
-        let dst_kind = self.ir.nodes[edge.dest.node]
-            .endpoints
-            .get(&edge.dest.endpoint)
-            .map(|ei| ei.kind)?;
         if !matches!(
-            (src_kind, dst_kind),
+            (edge.src_kind?, edge.dst_kind?),
             (EndpointKind::Stream, EndpointKind::Stream)
         ) {
             return None;
@@ -615,43 +626,20 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Generate the static process() method for compile-time graphs.
+    /// The per-frame computation itself lives in the shared `__frame_core`
+    /// (also called by `__advance_one_frame`); this wrapper only adds the
+    /// per-cycle event queue discipline.
     fn generate_static_process(&self) -> Result<TokenStream> {
         let event_input_clearing = self.generate_event_input_clearing();
         let event_output_clearing = self.generate_event_output_clearing();
 
-        if self.max_factor() > 1 {
-            // Multi-rate graph nested as a node: the multi-rate inner-loop
-            // schedule must run on every call to `process()`.
-            let body = self.generate_multirate_inner_body()?;
-            return Ok(quote! {
-                #[inline(always)]
-                #[allow(unused_variables, unused_mut)]
-                pub fn process(&mut self) {
-                    // Clear event outputs from the previous cycle.
-                    #(#event_output_clearing)*
-
-                    #body
-
-                    // Clear event inputs after processing (outputs stay
-                    // readable until the next cycle).
-                    #(#event_input_clearing)*
-                }
-            });
-        }
-
-        let process_body = self.generate_process_body()?;
         Ok(quote! {
             #[inline(always)]
             pub fn process(&mut self) {
-                use ::oscen::SignalProcessor as _;
-
                 // Clear event outputs from the previous cycle
                 #(#event_output_clearing)*
 
-                // Advance ramped value inputs
-                self.tick_ramps();
-
-                #(#process_body)*
+                self.__frame_core();
 
                 // Clear event inputs after processing (outputs stay readable
                 // until the next cycle)
@@ -761,7 +749,7 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.input_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name = syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
+            let block_name = block_field_name(field_name);
             input_arms.push(quote! { #n_in => &mut self.#block_name });
             n_in += 1;
         }
@@ -773,7 +761,7 @@ impl<'a> CodegenContext<'a> {
             if !matches!(self.output_kind(field_name), Some(EndpointKind::Stream)) {
                 continue;
             }
-            let block_name = syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
+            let block_name = block_field_name(field_name);
             output_arms.push(quote! { #n_out => &self.#block_name });
             n_out += 1;
         }
@@ -913,18 +901,24 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let name = &node.name;
-                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
-                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                let staged_name =
+                    syn::Ident::new(&format!("__staged_{}", ident_base(name)), name.span());
+                let cursor_name =
+                    syn::Ident::new(&format!("__cursor_{}", ident_base(name)), name.span());
                 quote! {
                     let mut #staged_name: ::oscen::graph::StaticEventQueue =
                         ::oscen::graph::StaticEventQueue::new();
-                    for __e in self.#name.iter() {
-                        ::oscen::graph::debug_assert_event_pushed(
-                            #staged_name.try_push(__e.clone()),
-                        );
+                    // Skip the drain + sort entirely on the common
+                    // no-events-this-block path.
+                    if !self.#name.is_empty() {
+                        for __e in self.#name.iter() {
+                            ::oscen::graph::debug_assert_event_pushed(
+                                #staged_name.try_push(__e.clone()),
+                            );
+                        }
+                        self.#name.clear();
+                        #staged_name.sort_unstable_by_key(|__e| __e.frame_offset);
                     }
-                    self.#name.clear();
-                    #staged_name.sort_unstable_by_key(|__e| __e.frame_offset);
                     let mut #cursor_name: usize = 0;
                 }
             })
@@ -934,8 +928,10 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let name = &node.name;
-                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
-                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                let staged_name =
+                    syn::Ident::new(&format!("__staged_{}", ident_base(name)), name.span());
+                let cursor_name =
+                    syn::Ident::new(&format!("__cursor_{}", ident_base(name)), name.span());
                 quote! {
                     if #cursor_name < #staged_name.len() {
                         __next_event = __next_event.min(
@@ -950,8 +946,10 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let name = &node.name;
-                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
-                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                let staged_name =
+                    syn::Ident::new(&format!("__staged_{}", ident_base(name)), name.span());
+                let cursor_name =
+                    syn::Ident::new(&format!("__cursor_{}", ident_base(name)), name.span());
                 quote! {
                     while #cursor_name < #staged_name.len()
                         && #staged_name[#cursor_name].frame_offset == __frame as u32
@@ -969,8 +967,10 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let name = &node.name;
-                let staged_name = syn::Ident::new(&format!("__staged_{}", name), name.span());
-                let cursor_name = syn::Ident::new(&format!("__cursor_{}", name), name.span());
+                let staged_name =
+                    syn::Ident::new(&format!("__staged_{}", ident_base(name)), name.span());
+                let cursor_name =
+                    syn::Ident::new(&format!("__cursor_{}", ident_base(name)), name.span());
                 quote! {
                     while #cursor_name < #staged_name.len() {
                         let mut __e = #staged_name[#cursor_name].clone();
@@ -1084,10 +1084,14 @@ impl<'a> CodegenContext<'a> {
                 let set_name = syn::Ident::new(&format!("set_{}", ident_base(name)), name.span());
 
                 if let Some(default_frames) = self.is_ramped_input(name) {
-                    let set_ramp_name =
-                        syn::Ident::new(&format!("set_{}_with_ramp", ident_base(name)), name.span());
-                    let set_immediate_name =
-                        syn::Ident::new(&format!("set_{}_immediate", ident_base(name)), name.span());
+                    let set_ramp_name = syn::Ident::new(
+                        &format!("set_{}_with_ramp", ident_base(name)),
+                        name.span(),
+                    );
+                    let set_immediate_name = syn::Ident::new(
+                        &format!("set_{}_immediate", ident_base(name)),
+                        name.span(),
+                    );
                     quote! {
                         /// Set the value with the default ramp duration.
                         /// No-op if target is already the same (safe to call every frame).
@@ -1152,7 +1156,10 @@ impl<'a> CodegenContext<'a> {
 
     /// Generate the NIH-plug params struct and its implementations
     fn generate_nih_params_struct(&self, graph_name: &syn::Ident) -> TokenStream {
-        let params_name = syn::Ident::new(&format!("{}Params", graph_name), graph_name.span());
+        let params_name = syn::Ident::new(
+            &format!("{}Params", ident_base(graph_name)),
+            graph_name.span(),
+        );
 
         // Collect value inputs for parameter generation. TYPED value inputs
         // are excluded: they are not DAW parameters (no FloatParam, no
@@ -1279,7 +1286,10 @@ impl<'a> CodegenContext<'a> {
             .iter()
             .map(|node| {
                 let field_name = &node.name;
-                let set_name = syn::Ident::new(&format!("set_{}", ident_base(field_name)), field_name.span());
+                let set_name = syn::Ident::new(
+                    &format!("set_{}", ident_base(field_name)),
+                    field_name.span(),
+                );
                 if self.is_ramped_input(field_name).is_some() {
                     quote! {
                         graph.#set_name(self.#field_name.value());
@@ -1324,8 +1334,11 @@ impl<'a> CodegenContext<'a> {
         })
     }
 
-    fn generate_static_struct(&self) -> Result<TokenStream> {
-        let name = self.name();
+    /// Collect every field of the generated struct, in declaration order:
+    /// `sample_rate` (+ `active_ramps`), inputs (+ stream block buffers),
+    /// outputs (+ stream block buffers), node instances, asset load handles.
+    /// Resampler fields are appended separately by the caller.
+    fn collect_struct_fields(&self) -> Vec<TokenStream> {
         let mut fields = vec![quote! { sample_rate: f32 }];
 
         // Add active_ramps counter if there are ramped inputs
@@ -1357,8 +1370,7 @@ impl<'a> CodegenContext<'a> {
 
             // Block buffer for stream inputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
-                let block_name =
-                    syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
+                let block_name = block_field_name(field_name);
                 let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
                     quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
@@ -1385,8 +1397,7 @@ impl<'a> CodegenContext<'a> {
 
             // Block buffer for stream outputs (typed to the endpoint's frame type)
             if kind == EndpointKind::Stream {
-                let block_name =
-                    syn::Ident::new(&format!("{}_block", ident_base(field_name)), field_name.span());
+                let block_name = block_field_name(field_name);
                 let frame_ty = self.stream_field_ty(field_name);
                 fields.push(
                     quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
@@ -1415,6 +1426,17 @@ impl<'a> CodegenContext<'a> {
         // Asset load-handle fields (one per `external -> node.asset` binding).
         fields.extend(self.generate_asset_handle_fields());
 
+        fields
+    }
+
+    /// Assemble the complete generated item set: struct declaration,
+    /// inherent impl (constructor, process entry points, setters, params),
+    /// and trait impls. Every constituent comes from a dedicated
+    /// `generate_*` / `collect_*` method; this is pure orchestration.
+    fn generate_static_struct(&self) -> Result<TokenStream> {
+        let name = self.name();
+        let fields = self.collect_struct_fields();
+
         let input_params = self.generate_static_input_params();
         let hoist_inherits = self.generate_hoist_default_inherits();
         let output_params = self.generate_static_output_params();
@@ -1430,6 +1452,7 @@ impl<'a> CodegenContext<'a> {
         let feedback_assertions = self.generate_feedback_assertions();
 
         // For compile-time graphs, generate a static process() method
+        let frame_core_method = self.generate_frame_core()?;
         let process_method = self.generate_static_process()?;
         let advance_one_frame_method = self.generate_advance_one_frame()?;
         let process_block_method = self.generate_static_process_block()?;
@@ -1534,6 +1557,8 @@ impl<'a> CodegenContext<'a> {
                     self.set_sample_rate(sample_rate);
                     ::oscen::SignalProcessor::prepare(self);
                 }
+
+                #frame_core_method
 
                 #process_method
 

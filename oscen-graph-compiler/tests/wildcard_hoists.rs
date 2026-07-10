@@ -567,6 +567,68 @@ fn explicit_hoist_of_runtime_ramped_endpoint_silences_wildcard() {
 }
 
 #[test]
+fn expansion_rejects_generic_typed_endpoint() {
+    // A derive-type child whose endpoint type mentions a generic parameter
+    // (manifest `generic`) cannot be wildcard-hoisted: the manifest cannot
+    // see the constructor's type arguments, so expanding would emit
+    // unresolved type tokens (or degrade a stream to f32).
+    let input = quote! {
+        name: GenericWild;
+        output stream out;
+        nodes { voice = GenVoice::new(); }
+        input voice.*;
+        connections { voice.audio -> out; }
+    };
+    let manifests = manifests_for(&[(
+        "voice",
+        quote! {
+            node_type GenVoice
+            inputs [ mode: value (ty = T, generic), pan: value ]
+            outputs [ audio: stream ]
+        },
+    )]);
+    let diags = oscen_graph_compiler::compile_with_manifests(input, &manifests)
+        .expect_err("generic-typed endpoint must error");
+    let msgs = error_messages(&diags);
+    assert_eq!(msgs.len(), 1, "got: {msgs:?}");
+    assert!(msgs[0].contains("`mode`"), "got: {}", msgs[0]);
+    assert!(
+        msgs[0].contains("generic on the node type"),
+        "got: {}",
+        msgs[0]
+    );
+}
+
+#[test]
+fn explicit_connection_to_generic_endpoint_silences_wildcard() {
+    // Wiring the generic endpoint with an explicit connection makes the
+    // wildcard skip it — no error, and the rest still expands.
+    let input = quote! {
+        name: GenericConnected;
+        input value m;
+        output stream out;
+        nodes { voice = GenVoice::new(); }
+        input voice.*;
+        connections {
+            m -> voice.mode;
+            voice.audio -> out;
+        }
+    };
+    let manifests = manifests_for(&[(
+        "voice",
+        quote! {
+            node_type GenVoice
+            inputs [ mode: value (ty = T, generic), pan: value ]
+            outputs [ audio: stream ]
+        },
+    )]);
+    let tokens = oscen_graph_compiler::compile_with_manifests(input, &manifests)
+        .expect("explicit connection satisfies the generic endpoint")
+        .to_string();
+    assert!(tokens.contains("pub pan : f32"));
+}
+
+#[test]
 fn expansion_skips_private_endpoints() {
     // `priv`-marked endpoints are real endpoints but a wildcard cannot
     // hoist them: a hoist writes the child's field directly, which

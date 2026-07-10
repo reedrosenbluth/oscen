@@ -60,6 +60,18 @@ pub struct AdsrEnvelope {
     // `velocity_amount` at gate time.
     peak: f32,
     sample_rate: SampleRate,
+    // Parameter values the cached step counts / coefficients were last
+    // computed from (post-clamp). `apply_parameters` runs every sample but
+    // recomputing the tables costs two `exp()` calls plus float->int
+    // conversions, so it only recomputes when one of these changed —
+    // the same dirty-check pattern TptFilter uses for its `tan()`.
+    // Seeded with NAN so the first `process()` always computes.
+    applied_attack: f32,
+    applied_decay: f32,
+    applied_sustain: f32,
+    applied_release: f32,
+    applied_peak: f32,
+    applied_sample_rate: f32,
 }
 
 impl AdsrEnvelope {
@@ -85,17 +97,42 @@ impl AdsrEnvelope {
             sustain_level: sustain.clamp(0.0, 1.0),
             peak: 1.0,
             sample_rate: SampleRate::default(),
+            applied_attack: f32::NAN,
+            applied_decay: f32::NAN,
+            applied_sustain: f32::NAN,
+            applied_release: f32::NAN,
+            applied_peak: f32::NAN,
+            applied_sample_rate: f32::NAN,
         };
         envelope.update_sustain_level();
         envelope
     }
 
     fn apply_parameters(&mut self) {
+        // Steady-state fast path: nothing changed since the tables were
+        // computed, so skip the clamps and the exp()-heavy recompute.
+        // (NAN sentinels never compare equal, so the first call computes.)
+        let sample_rate = *self.sample_rate;
+        if self.attack == self.applied_attack
+            && self.decay == self.applied_decay
+            && self.sustain == self.applied_sustain
+            && self.release == self.applied_release
+            && self.peak == self.applied_peak
+            && sample_rate == self.applied_sample_rate
+        {
+            return;
+        }
         self.attack = self.attack.max(0.0);
         self.decay = self.decay.max(0.0);
         self.sustain = self.sustain.clamp(0.0, 1.0);
         self.release = self.release.max(0.0);
         self.update_sustain_level();
+        self.applied_attack = self.attack;
+        self.applied_decay = self.decay;
+        self.applied_sustain = self.sustain;
+        self.applied_release = self.release;
+        self.applied_peak = self.peak;
+        self.applied_sample_rate = sample_rate;
     }
 
     fn update_sustain_level(&mut self) {

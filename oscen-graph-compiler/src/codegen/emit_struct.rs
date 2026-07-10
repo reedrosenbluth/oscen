@@ -11,9 +11,10 @@ use crate::ir::graph::{EdgeKernel, FanoutShape, IrNodeKind, NodeId};
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::collections::HashSet;
-use syn::Expr;
 
-use super::helpers::{ident_base, kernel_down_type, kernel_up_type, policy_marker_path, resampler_field_name};
+use super::helpers::{
+    block_field_name, kernel_down_type, kernel_up_type, policy_marker_path, resampler_field_name,
+};
 use super::CodegenContext;
 
 impl<'a> CodegenContext<'a> {
@@ -66,7 +67,7 @@ impl<'a> CodegenContext<'a> {
                             let #name = #init;
                         });
                         // Block buffer for stream inputs (typed to the frame type)
-                        let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                        let block_name = block_field_name(name);
                         stmts.push(quote! {
                             let #block_name = #block_init;
                         });
@@ -99,7 +100,7 @@ impl<'a> CodegenContext<'a> {
                             let #name = #init;
                         });
                         // Block buffer for stream outputs (typed to the frame type)
-                        let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                        let block_name = block_field_name(name);
                         stmts.push(quote! {
                             let #block_name = #block_init;
                         });
@@ -193,25 +194,9 @@ impl<'a> CodegenContext<'a> {
                 } else {
                     quote! { let #name }
                 };
-                let constructor_expr = self
-                    .node_ctor_expr(node)
+                let constructor = self
+                    .node_ctor_tokens(node)
                     .expect("processor/array node must have a constructor expression");
-                // For static graphs:
-                // - If constructor is a path (Type), call Type::new() (Pattern 2)
-                // - If constructor is already a call, use it as-is
-                let constructor = match constructor_expr {
-                    Expr::Path(path) => {
-                        // Pattern 2: call new() without arguments
-                        // init(sample_rate) will be called later
-                        quote! { #path::new() }
-                    }
-                    Expr::Call(_) => {
-                        quote! { #constructor_expr }
-                    }
-                    _ => {
-                        quote! { #constructor_expr }
-                    }
-                };
 
                 let array_size = match &node.kind {
                     IrNodeKind::NodeArray { len, .. } => Some(*len),
@@ -256,7 +241,7 @@ impl<'a> CodegenContext<'a> {
                     .unwrap_or(EndpointKind::Value);
                 let mut fields = vec![quote! { #name }];
                 if kind == EndpointKind::Stream {
-                    let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                    let block_name = block_field_name(name);
                     fields.push(quote! { #block_name });
                 }
                 fields
@@ -274,7 +259,7 @@ impl<'a> CodegenContext<'a> {
                     .unwrap_or(EndpointKind::Stream);
                 let mut fields = vec![quote! { #name }];
                 if kind == EndpointKind::Stream {
-                    let block_name = syn::Ident::new(&format!("{}_block", ident_base(name)), name.span());
+                    let block_name = block_field_name(name);
                     fields.push(quote! { #block_name });
                 }
                 fields
@@ -589,12 +574,7 @@ impl<'a> CodegenContext<'a> {
                 continue;
             }
             let f = resampler_field_name(idx);
-            let projected = self.cross_rate_kernel_state_type(edge).is_some();
-            let access = if projected {
-                quote! { .kernel }
-            } else {
-                quote! {}
-            };
+            let access = self.edge_kernel_access(edge);
             let reset_one = match edge.kernel {
                 EdgeKernel::None | EdgeKernel::Event { .. } => continue,
                 EdgeKernel::Up { .. } => quote! {
@@ -627,12 +607,7 @@ impl<'a> CodegenContext<'a> {
                 EdgeKernel::Down { factor, .. } => {
                     let f = resampler_field_name(idx);
                     let factor_lit = factor as usize;
-                    let projected = self.cross_rate_kernel_state_type(e).is_some();
-                    let access = if projected {
-                        quote! { .kernel }
-                    } else {
-                        quote! {}
-                    };
+                    let access = self.edge_kernel_access(e);
                     let one = if let FanoutShape::Parallel { .. } = e.fanout {
                         quote! {
                             total += ::oscen::resample::StreamDownsampler::latency_samples(&self.#f[0] #access) / #factor_lit;

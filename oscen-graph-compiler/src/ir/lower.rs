@@ -9,6 +9,7 @@
 use crate::ast::{
     ConnectionExpr, ConnectionPolicy, ConnectionStmt, EndpointKind, GraphDef, GraphItem, NodeRate,
 };
+use crate::codegen::helpers::ident_base;
 use crate::diagnostics::Diagnostics;
 use crate::ir::expr::{primary_node, IrEndpoint, IrExpr, IrExprKind};
 use crate::ir::graph::{
@@ -45,8 +46,9 @@ pub fn lower(mut graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph
     // pipeline (rate errors come first, then type-mismatch errors).
     validate_node_rates(&ir, diags);
 
-    infer_endpoint_types(&graph_def, &mut ir, &name_to_id, diags);
-    build_edges(&graph_def, &mut ir, &name_to_id, diags);
+    let mut prelowered = prelower_stmts(&graph_def, &name_to_id, &ir);
+    infer_endpoint_types(&prelowered, &mut ir);
+    build_edges(&mut prelowered, &mut ir, &name_to_id, diags);
     analyze_rates(&mut ir, diags);
     refine_kernels(&mut ir);
     topo_sort(&mut ir, diags);
@@ -163,7 +165,9 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
     // an endpoint that is also a connection dest would give it two drivers
     // — and since synthesized statements run last, the user's edge would
     // silently lose. Indexed roots unwrap so `voices[0].freq` conflicts
-    // with a broadcast hoist of `voices.freq`.
+    // with a broadcast hoist of `voices.freq`. Keys are r#-stripped: Rust
+    // treats `foo` and `r#foo` as the same field, so the raw spelling must
+    // not slip past the check.
     let mut driven: HashSet<(String, String)> = HashSet::new();
     let record_dest = |driven: &mut HashSet<(String, String)>, dest: &ConnectionExpr| {
         if let ConnectionExpr::Field(root, endpoint) = dest {
@@ -172,7 +176,7 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
                 inner = next;
             }
             if let ConnectionExpr::Ident(node) = inner {
-                driven.insert((node.to_string(), endpoint.to_string()));
+                driven.insert((ident_base(node), ident_base(endpoint)));
             }
         }
     };
@@ -225,7 +229,7 @@ fn expand_hoists(graph_def: &mut GraphDef, diags: &mut Diagnostics) {
             continue;
         }
 
-        if !driven.insert((hoist.node.to_string(), endpoint.to_string())) {
+        if !driven.insert((ident_base(&hoist.node), ident_base(endpoint))) {
             diags.push_error(syn::Error::new(
                 input.name.span(),
                 format!(
@@ -452,16 +456,34 @@ fn output_endpoints(output: &crate::ast::OutputDecl) -> HashMap<Ident, EndpointI
 /// fixed-point iteration.
 ///
 /// Strategy: when a connection has a known-typed source feeding a node
-/// endpoint, the destination endpoint inherits that kind. Iterate until
-/// no new types are inferred or the cap is reached.
-fn infer_endpoint_types(
-    graph_def: &GraphDef,
-    ir: &mut IrGraph,
+/// A connection statement with its source/dest pre-lowered to IR form.
+///
+/// Lowering an expression depends only on `name_to_id` (never on endpoint
+/// kinds or edges), so it happens once in `prelower_stmts`;
+/// `infer_endpoint_types` re-reads the cached trees on every fixed-point
+/// iteration instead of re-lowering, and `build_edges` then consumes the
+/// owned values via `take()`.
+struct PreloweredStmt<'a> {
+    stmt: &'a crate::ast::ConnectionStmt,
+    /// Source lowered as an expression (compound sources allowed).
+    src_expr: Option<IrExpr>,
+    /// Dest lowered as an expression, for kind inference only.
+    dst_expr: Option<IrExpr>,
+    /// Dest lowered as an addressable endpoint, for edge construction.
+    dst_endpoint: Option<IrEndpoint>,
+    /// `(node, endpoint)` if the source is directly addressable.
+    src_ep: Option<(NodeId, Ident)>,
+    /// `(node, endpoint)` if the dest is directly addressable.
+    dst_ep: Option<(NodeId, Ident)>,
+}
+
+/// Lower every connection statement's source/dest exactly once.
+fn prelower_stmts<'a>(
+    graph_def: &'a GraphDef,
     name_to_id: &HashMap<String, NodeId>,
-    _diags: &mut Diagnostics,
-) {
-    // Collect all connection statements from the graph def.
-    let stmts: Vec<&crate::ast::ConnectionStmt> = graph_def
+    ir: &IrGraph,
+) -> Vec<PreloweredStmt<'a>> {
+    graph_def
         .items
         .iter()
         .flat_map(|item| match item {
@@ -469,8 +491,20 @@ fn infer_endpoint_types(
             GraphItem::ConnectionBlock(b) => b.0.as_slice(),
             _ => &[],
         })
-        .collect();
+        .map(|stmt| PreloweredStmt {
+            stmt,
+            src_expr: lower_expr(&stmt.source, name_to_id, ir),
+            dst_expr: lower_expr(&stmt.dest, name_to_id, ir),
+            dst_endpoint: lower_endpoint(&stmt.dest, name_to_id, ir),
+            src_ep: resolve_node_endpoint(&stmt.source, name_to_id),
+            dst_ep: resolve_node_endpoint(&stmt.dest, name_to_id),
+        })
+        .collect()
+}
 
+/// endpoint, the destination endpoint inherits that kind. Iterate until
+/// no new types are inferred or the cap is reached.
+fn infer_endpoint_types(prelowered: &[PreloweredStmt], ir: &mut IrGraph) {
     // Seed Stream kind from explicit stream-resampling policies.
     //
     // `[linear]`/`[sinc]`/`[sinc_iir]` are stream-only interpolation/decimation
@@ -482,43 +516,38 @@ fn infer_endpoint_types(
     // propagation below and the `CrossRateKernel` projection falls back to the
     // concrete `f32` kernel. Only fills vacant entries, so it never overrides a
     // kind already known from a graph endpoint or the derive.
-    for stmt in &stmts {
+    for p in prelowered {
         if !matches!(
-            stmt.policy,
+            p.stmt.policy,
             ConnectionPolicy::Linear | ConnectionPolicy::Sinc | ConnectionPolicy::SincIir
         ) {
             continue;
         }
-        for expr in [&stmt.source, &stmt.dest] {
-            if let Some((node_id, ep)) = resolve_node_endpoint(expr, name_to_id) {
-                ir.nodes[node_id]
+        for resolved in [&p.src_ep, &p.dst_ep] {
+            if let Some((node_id, ep)) = resolved {
+                ir.nodes[*node_id]
                     .endpoints
-                    .entry(ep)
+                    .entry(ep.clone())
                     .or_insert(EndpointInfo::new(EndpointKind::Stream));
             }
         }
     }
 
-    let cap = stmts.len() + 1;
+    let cap = prelowered.len() + 1;
     for _ in 0..cap {
         let mut changed = false;
 
-        for stmt in &stmts {
-            // Lower source/dest to IrExpr for type inference.
-            // (Same call lower_expr will make again in build_edges; this is
-            // unavoidable since infer_endpoint_types runs before edges exist.)
-            let ir_source = lower_expr(&stmt.source, name_to_id, ir);
-            let ir_dest_expr = lower_expr(&stmt.dest, name_to_id, ir);
-
-            // Infer source kind.
-            let src_kind = ir_source.as_ref().and_then(|e| endpoint_kind_of(e, ir));
+        for p in prelowered {
+            // Infer source kind from the cached expression tree; only
+            // `endpoint_kind_of` depends on the kinds filled in so far.
+            let src_kind = p.src_expr.as_ref().and_then(|e| endpoint_kind_of(e, ir));
 
             // If the destination is a node.endpoint, propagate the kind.
             if let Some(src_kind) = src_kind {
-                if let Some((dst_id, dst_ep)) = resolve_node_endpoint(&stmt.dest, name_to_id) {
-                    let node = &mut ir.nodes[dst_id];
+                if let Some((dst_id, dst_ep)) = &p.dst_ep {
+                    let node = &mut ir.nodes[*dst_id];
                     use std::collections::hash_map::Entry;
-                    match node.endpoints.entry(dst_ep) {
+                    match node.endpoints.entry(dst_ep.clone()) {
                         Entry::Vacant(e) => {
                             e.insert(EndpointInfo::new(src_kind));
                             changed = true;
@@ -530,12 +559,12 @@ fn infer_endpoint_types(
 
             // Symmetric: if source is a node.endpoint whose kind is unknown,
             // try to infer it from the dest.
-            let dst_kind = ir_dest_expr.as_ref().and_then(|e| endpoint_kind_of(e, ir));
+            let dst_kind = p.dst_expr.as_ref().and_then(|e| endpoint_kind_of(e, ir));
             if let Some(dst_kind) = dst_kind {
-                if let Some((src_id, src_ep)) = resolve_node_endpoint(&stmt.source, name_to_id) {
-                    let node = &mut ir.nodes[src_id];
+                if let Some((src_id, src_ep)) = &p.src_ep {
+                    let node = &mut ir.nodes[*src_id];
                     use std::collections::hash_map::Entry;
-                    match node.endpoints.entry(src_ep) {
+                    match node.endpoints.entry(src_ep.clone()) {
                         Entry::Vacant(e) => {
                             e.insert(EndpointInfo::new(dst_kind));
                             changed = true;
@@ -564,93 +593,32 @@ fn infer_endpoint_types(
 /// Validates type compatibility (source kind vs dest kind).
 /// Pushes type-mismatch errors into diags WITHOUT bailing.
 fn build_edges(
-    graph_def: &GraphDef,
+    prelowered: &mut [PreloweredStmt],
     ir: &mut IrGraph,
     name_to_id: &HashMap<String, NodeId>,
     diags: &mut Diagnostics,
 ) {
-    let stmts: Vec<crate::ast::ConnectionStmt> = graph_def
-        .items
-        .iter()
-        .flat_map(|item| match item {
-            GraphItem::Connection(c) => vec![c.clone()],
-            GraphItem::ConnectionBlock(b) => b.0.clone(),
-            _ => vec![],
-        })
-        .collect();
-
     // External (asset) names declared in this graph. An edge whose *source*
     // is one of these is an asset binding, not a signal edge.
     let external_names: std::collections::HashSet<String> =
         ir.externals.iter().map(|e| e.name.to_string()).collect();
 
-    // Pre-pass: resolve `external -> node.asset` bindings. These are not signal
-    // edges — they carry no kernel, impose no processing order, and create no
-    // `IrEdge`. Recording them up front (and marking the destination endpoint
-    // `Asset`) lets the main pass reject any *other* edge into an asset input.
-    let mut binding_stmts: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    for (i, stmt) in stmts.iter().enumerate() {
-        let src_ident = match &stmt.source {
-            ConnectionExpr::Ident(id) if external_names.contains(&id.to_string()) => id,
-            _ => continue,
-        };
-        // This statement is an asset binding regardless of how it resolves.
-        binding_stmts.insert(i);
-
-        let (dst_node, dst_ep) = match resolve_node_endpoint(&stmt.dest, name_to_id) {
-            Some(d) => d,
-            None => {
-                diags.push_error(syn::Error::new(
-                    stmt.span,
-                    format!(
-                        "external `{}` can only be bound to a node's asset input \
-                         (`{} -> node.asset`)",
-                        src_ident, src_ident
-                    ),
-                ));
-                continue;
-            }
-        };
-        // The target must be a single processor node with a known type so the
-        // `AssetEndpoint` trait can be projected during codegen.
-        if !matches!(
-            ir.nodes[dst_node].kind,
-            IrNodeKind::Processor { ty: Some(_), .. }
-        ) {
-            diags.push_error(syn::Error::new(
-                stmt.span,
-                format!(
-                    "external `{}` must be bound to a single node with a known type",
-                    src_ident
-                ),
-            ));
-            continue;
-        }
-
-        // Mark the endpoint `Asset` so a stray signal edge into it is caught.
-        ir.nodes[dst_node]
-            .endpoints
-            .insert(dst_ep.clone(), EndpointInfo::new(EndpointKind::Asset));
-
-        ir.asset_bindings.push(AssetBinding {
-            external_name: src_ident.clone(),
-            node: dst_node,
-            endpoint: dst_ep,
-        });
-    }
+    let binding_stmts = resolve_asset_bindings(prelowered, &external_names, ir, diags);
 
     let mut synth_counter: u32 = 0;
     let mut via_used_nodes: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
 
-    for (stmt_index, stmt) in stmts.into_iter().enumerate() {
+    for (stmt_index, p) in prelowered.iter_mut().enumerate() {
         // Asset bindings were resolved in the pre-pass; they create no edge.
         if binding_stmts.contains(&stmt_index) {
             continue;
         }
-        // Lower to IR forms. A failed lowering means a name in the expression
-        // resolved to nothing — report it; a silently dropped edge compiles to
-        // a graph that runs but produces silence.
-        let ir_source = match lower_expr(&stmt.source, name_to_id, ir) {
+        let stmt = p.stmt;
+        // Take ownership of the pre-lowered IR forms. A failed lowering means
+        // a name in the expression resolved to nothing — report it; a
+        // silently dropped edge compiles to a graph that runs but produces
+        // silence.
+        let ir_source = match p.src_expr.take() {
             Some(e) => e,
             None => {
                 diags.push_error(syn::Error::new(
@@ -661,7 +629,7 @@ fn build_edges(
                 continue;
             }
         };
-        let ir_dest = match lower_endpoint(&stmt.dest, name_to_id, ir) {
+        let ir_dest = match p.dst_endpoint.take() {
             Some(d) => d,
             None => {
                 diags.push_error(syn::Error::new(
@@ -705,7 +673,7 @@ fn build_edges(
             }
         }
 
-        match stmt.via {
+        match &stmt.via {
             // -----------------------------------------------------------------
             // No via: single edge, not a feedback edge.
             // -----------------------------------------------------------------
@@ -721,157 +689,265 @@ fn build_edges(
                 );
             }
 
-            // -----------------------------------------------------------------
-            // Node via: expand `src -> [name] -> dst` into two edges:
-            //   Edge 1: src   → via.input   (non-feedback)
-            //   Edge 2: via.output → dst    (feedback)
-            // -----------------------------------------------------------------
+            // Node via: `src -> [name] -> dst`.
             Some(crate::ast::DelayVia::Node { name }) => {
-                let via_id = match name_to_id.get(&name.to_string()) {
-                    Some(&id) => id,
-                    None => {
-                        diags.push_error(syn::Error::new(
-                            name.span(),
-                            format!("unknown node `{}` in delay-route bracket", name),
-                        ));
-                        continue;
-                    }
-                };
-
-                if !via_used_nodes.insert(via_id) {
-                    diags.push_error(syn::Error::new(
-                        name.span(),
-                        format!(
-                            "node `{}` is already wired by another `[{}]` reference",
-                            name, name
-                        ),
-                    ));
-                    continue;
-                }
-
-                // Edge 1: src → via.input
-                let via_input = IrEndpoint {
-                    node: via_id,
-                    endpoint: Ident::new("input", name.span()),
-                    index: None,
-                    span: name.span(),
-                    bare: false,
-                };
-                insert_edge(
+                expand_via_node(
                     ir,
+                    name,
+                    name_to_id,
+                    &mut via_used_nodes,
                     ir_source,
-                    via_input,
-                    stmt.policy,
-                    stmt.span,
-                    /*is_feedback=*/ false,
-                    diags,
-                );
-
-                // Edge 2: via.output → dst  (feedback — breaks the cycle)
-                let via_output_expr = IrExpr {
-                    kind: IrExprKind::Endpoint(IrEndpoint {
-                        node: via_id,
-                        endpoint: Ident::new("output", name.span()),
-                        index: None,
-                        span: name.span(),
-                        bare: false,
-                    }),
-                    span: name.span(),
-                };
-                insert_edge(
-                    ir,
-                    via_output_expr,
                     ir_dest,
-                    stmt.policy,
-                    stmt.span,
-                    /*is_feedback=*/ true,
+                    stmt,
                     diags,
                 );
             }
 
-            // -----------------------------------------------------------------
-            // Samples via: synthesise an anonymous ::oscen::Delay node with N
-            // samples and expand into two edges through it:
-            //   Edge 1: src        → synth.input   (non-feedback)
-            //   Edge 2: synth.output → dst          (feedback — breaks the cycle)
-            // -----------------------------------------------------------------
+            // Samples via: `src -> [N] -> dst`.
             Some(crate::ast::DelayVia::Samples { value, span }) => {
-                // Parse the literal sample count.
-                let n: u32 = match value.base10_parse::<u32>() {
-                    Ok(n) => n,
-                    Err(err) => {
-                        diags.push_error(err);
-                        continue;
-                    }
-                };
-
-                // Unique synthetic name for this inline delay.
-                let synth_name = Ident::new(&format!("__inline_delay_{}", synth_counter), span);
-                synth_counter += 1;
-
-                // Build the constructor expression: ::oscen::Delay::new(N as f32, 0.0)
-                let n_lit = proc_macro2::Literal::u32_unsuffixed(n);
-                let ctor_expr: syn::Expr =
-                    syn::parse_quote!(::oscen::Delay::new(#n_lit as f32, 0.0));
-                let ty: syn::Path = syn::parse_quote!(::oscen::Delay);
-
-                let synth_id = ir.nodes.insert_with_key(|id| IrNode {
-                    id,
-                    kind: IrNodeKind::Processor {
-                        ty: Some(ty),
-                        ctor_expr,
-                    },
-                    name: synth_name,
-                    rate: crate::ast::NodeRate::Same,
-                    latency_samples: 0,
-                    span,
-                    endpoints: synth_delay_endpoints(span),
-                    incoming: Vec::new(),
-                    outgoing: Vec::new(),
-                });
-                ir.processors.push(synth_id);
-
-                // Edge 1: src → synth.input  (non-feedback)
-                let synth_input = IrEndpoint {
-                    node: synth_id,
-                    endpoint: Ident::new("input", span),
-                    index: None,
-                    span,
-                    bare: false,
-                };
-                insert_edge(
+                expand_via_samples(
                     ir,
+                    value,
+                    *span,
+                    &mut synth_counter,
                     ir_source,
-                    synth_input,
-                    stmt.policy,
-                    stmt.span,
-                    /*is_feedback=*/ false,
-                    diags,
-                );
-
-                // Edge 2: synth.output → dst  (feedback — breaks the cycle)
-                let synth_output_expr = IrExpr {
-                    kind: IrExprKind::Endpoint(IrEndpoint {
-                        node: synth_id,
-                        endpoint: Ident::new("output", span),
-                        index: None,
-                        span,
-                        bare: false,
-                    }),
-                    span,
-                };
-                insert_edge(
-                    ir,
-                    synth_output_expr,
                     ir_dest,
-                    stmt.policy,
-                    stmt.span,
-                    /*is_feedback=*/ true,
+                    stmt,
                     diags,
                 );
             }
         }
     }
+}
+
+/// Pre-pass of `build_edges`: resolve `external -> node.asset` bindings.
+/// These are not signal edges — they carry no kernel, impose no processing
+/// order, and create no `IrEdge`. Recording them up front (and marking the
+/// destination endpoint `Asset`) lets the main pass reject any *other* edge
+/// into an asset input. Returns the statement indices consumed as bindings.
+fn resolve_asset_bindings(
+    prelowered: &[PreloweredStmt],
+    external_names: &HashSet<String>,
+    ir: &mut IrGraph,
+    diags: &mut Diagnostics,
+) -> HashSet<usize> {
+    let mut binding_stmts: HashSet<usize> = HashSet::new();
+    for (i, p) in prelowered.iter().enumerate() {
+        let stmt = p.stmt;
+        let src_ident = match &stmt.source {
+            ConnectionExpr::Ident(id) if external_names.contains(&id.to_string()) => id,
+            _ => continue,
+        };
+        // This statement is an asset binding regardless of how it resolves.
+        binding_stmts.insert(i);
+
+        let (dst_node, dst_ep) = match p.dst_ep.clone() {
+            Some(d) => d,
+            None => {
+                diags.push_error(syn::Error::new(
+                    stmt.span,
+                    format!(
+                        "external `{}` can only be bound to a node's asset input \
+                         (`{} -> node.asset`)",
+                        src_ident, src_ident
+                    ),
+                ));
+                continue;
+            }
+        };
+        // The target must be a single processor node with a known type so the
+        // `AssetEndpoint` trait can be projected during codegen.
+        if !matches!(
+            ir.nodes[dst_node].kind,
+            IrNodeKind::Processor { ty: Some(_), .. }
+        ) {
+            diags.push_error(syn::Error::new(
+                stmt.span,
+                format!(
+                    "external `{}` must be bound to a single node with a known type",
+                    src_ident
+                ),
+            ));
+            continue;
+        }
+
+        // Mark the endpoint `Asset` so a stray signal edge into it is caught.
+        ir.nodes[dst_node]
+            .endpoints
+            .insert(dst_ep.clone(), EndpointInfo::new(EndpointKind::Asset));
+
+        ir.asset_bindings.push(AssetBinding {
+            external_name: src_ident.clone(),
+            node: dst_node,
+            endpoint: dst_ep,
+        });
+    }
+    binding_stmts
+}
+
+/// Expand `src -> [name] -> dst` into two edges through the declared node:
+///   Edge 1: src → via.input    (non-feedback)
+///   Edge 2: via.output → dst   (feedback — breaks the cycle)
+#[allow(clippy::too_many_arguments)]
+fn expand_via_node(
+    ir: &mut IrGraph,
+    name: &Ident,
+    name_to_id: &HashMap<String, NodeId>,
+    via_used_nodes: &mut HashSet<NodeId>,
+    ir_source: IrExpr,
+    ir_dest: IrEndpoint,
+    stmt: &crate::ast::ConnectionStmt,
+    diags: &mut Diagnostics,
+) {
+    let via_id = match name_to_id.get(&name.to_string()) {
+        Some(&id) => id,
+        None => {
+            diags.push_error(syn::Error::new(
+                name.span(),
+                format!("unknown node `{}` in delay-route bracket", name),
+            ));
+            return;
+        }
+    };
+
+    if !via_used_nodes.insert(via_id) {
+        diags.push_error(syn::Error::new(
+            name.span(),
+            format!(
+                "node `{}` is already wired by another `[{}]` reference",
+                name, name
+            ),
+        ));
+        return;
+    }
+
+    // Edge 1: src → via.input
+    let via_input = IrEndpoint {
+        node: via_id,
+        endpoint: Ident::new("input", name.span()),
+        index: None,
+        span: name.span(),
+        bare: false,
+    };
+    insert_edge(
+        ir,
+        ir_source,
+        via_input,
+        stmt.policy,
+        stmt.span,
+        /*is_feedback=*/ false,
+        diags,
+    );
+
+    // Edge 2: via.output → dst  (feedback — breaks the cycle)
+    let via_output_expr = IrExpr {
+        kind: IrExprKind::Endpoint(IrEndpoint {
+            node: via_id,
+            endpoint: Ident::new("output", name.span()),
+            index: None,
+            span: name.span(),
+            bare: false,
+        }),
+        span: name.span(),
+    };
+    insert_edge(
+        ir,
+        via_output_expr,
+        ir_dest,
+        stmt.policy,
+        stmt.span,
+        /*is_feedback=*/ true,
+        diags,
+    );
+}
+
+/// Expand `src -> [N] -> dst`: synthesise an anonymous `::oscen::Delay` node
+/// with N samples and route two edges through it:
+///   Edge 1: src → synth.input    (non-feedback)
+///   Edge 2: synth.output → dst   (feedback — breaks the cycle)
+#[allow(clippy::too_many_arguments)]
+fn expand_via_samples(
+    ir: &mut IrGraph,
+    value: &syn::LitInt,
+    span: proc_macro2::Span,
+    synth_counter: &mut u32,
+    ir_source: IrExpr,
+    ir_dest: IrEndpoint,
+    stmt: &crate::ast::ConnectionStmt,
+    diags: &mut Diagnostics,
+) {
+    // Parse the literal sample count.
+    let n: u32 = match value.base10_parse::<u32>() {
+        Ok(n) => n,
+        Err(err) => {
+            diags.push_error(err);
+            return;
+        }
+    };
+
+    // Unique synthetic name for this inline delay.
+    let synth_name = Ident::new(&format!("__inline_delay_{}", synth_counter), span);
+    *synth_counter += 1;
+
+    // Build the constructor expression: ::oscen::Delay::new(N as f32, 0.0)
+    let n_lit = proc_macro2::Literal::u32_unsuffixed(n);
+    let ctor_expr: syn::Expr = syn::parse_quote!(::oscen::Delay::new(#n_lit as f32, 0.0));
+    let ty: syn::Path = syn::parse_quote!(::oscen::Delay);
+
+    let synth_id = ir.nodes.insert_with_key(|id| IrNode {
+        id,
+        kind: IrNodeKind::Processor {
+            ty: Some(ty),
+            ctor_expr,
+        },
+        name: synth_name,
+        rate: crate::ast::NodeRate::Same,
+        latency_samples: 0,
+        span,
+        endpoints: synth_delay_endpoints(span),
+        incoming: Vec::new(),
+        outgoing: Vec::new(),
+    });
+    ir.processors.push(synth_id);
+
+    // Edge 1: src → synth.input  (non-feedback)
+    let synth_input = IrEndpoint {
+        node: synth_id,
+        endpoint: Ident::new("input", span),
+        index: None,
+        span,
+        bare: false,
+    };
+    insert_edge(
+        ir,
+        ir_source,
+        synth_input,
+        stmt.policy,
+        stmt.span,
+        /*is_feedback=*/ false,
+        diags,
+    );
+
+    // Edge 2: synth.output → dst  (feedback — breaks the cycle)
+    let synth_output_expr = IrExpr {
+        kind: IrExprKind::Endpoint(IrEndpoint {
+            node: synth_id,
+            endpoint: Ident::new("output", span),
+            index: None,
+            span,
+            bare: false,
+        }),
+        span,
+    };
+    insert_edge(
+        ir,
+        synth_output_expr,
+        ir_dest,
+        stmt.policy,
+        stmt.span,
+        /*is_feedback=*/ true,
+        diags,
+    );
 }
 
 /// Insert one `IrEdge` into `ir`, updating adjacency lists and edge order.
@@ -884,9 +960,14 @@ fn insert_edge(
     is_feedback: bool,
     diags: &mut Diagnostics,
 ) {
-    // Compute primary source NodeId and extras from the IR source.
+    // Compute primary source NodeId and extras from the IR source. The
+    // collected ids can repeat non-adjacently (`a.x * b.y + a.z`), so dedup
+    // with a set — `Vec::dedup` only removes consecutive runs and would let
+    // the primary reappear in `extra_source_nodes`, double-registering the
+    // edge in that node's `outgoing` list.
     let mut refs = collect_referenced_node_ids(&source);
-    refs.dedup();
+    let mut seen = std::collections::HashSet::new();
+    refs.retain(|id| seen.insert(*id));
     let primary_src = match refs.first() {
         Some(&id) => id,
         None => {
@@ -903,6 +984,16 @@ fn insert_edge(
     };
     let extra_sources: Vec<NodeId> = refs.into_iter().skip(1).collect();
 
+    // Resolve endpoint kinds once; they are fixed after
+    // `infer_endpoint_types`, and every later pass (kernel refinement,
+    // cross-rate validation, codegen projection) reads these cached fields
+    // instead of re-walking the expression tree.
+    let src_kind = endpoint_kind_of(&source, ir);
+    let dst_kind = ir.nodes[dest.node]
+        .endpoints
+        .get(&dest.endpoint)
+        .map(|ei| ei.kind);
+
     let dest_node = dest.node;
     let extra_sources_clone = extra_sources.clone();
     let eid = ir.edges.insert_with_key(|id| IrEdge {
@@ -915,6 +1006,8 @@ fn insert_edge(
         span,
         extra_source_nodes: extra_sources_clone,
         is_feedback,
+        src_kind,
+        dst_kind,
     });
 
     // Update adjacency and canonical edge order.
@@ -1030,6 +1123,25 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
             array_size_of(&ir.nodes[src_node_id].kind).filter(|_| src_index.is_none());
         let dst_array_size =
             array_size_of(&ir.nodes[dst_node_id].kind).filter(|_| dst_index.is_none());
+        if let (Some(n), Some(m)) = (src_array_size, dst_array_size) {
+            if n != m {
+                let src_name = &ir.nodes[src_node_id].name;
+                let dst_name = &ir.nodes[dst_node_id].name;
+                diags.push_error(syn::Error::new(
+                    span,
+                    format!(
+                        "array size mismatch in connection: source `{src_name}` has {n} \
+                         element{} but destination `{dst_name}` has {m}; make the arrays \
+                         the same size or connect elements explicitly \
+                         (`{src_name}[k].endpoint`)",
+                        if n == 1 { "" } else { "s" },
+                    ),
+                ));
+                // Fall through: classify_fanout's Parallel{min} stands in as a
+                // placeholder on the errored edge; codegen never runs because
+                // `lower()` returns None once diags is non-empty.
+            }
+        }
         let fanout = classify_fanout(src_array_size, dst_array_size);
 
         ir.edges[eid].kernel = kernel;
@@ -1102,13 +1214,7 @@ fn refine_kernels(ir: &mut IrGraph) {
                 Some(id) => id,
                 None => continue,
             };
-            let dst_node_id = edge.dest.node;
-            let src_kind = endpoint_kind_of(&edge.source, ir);
-            let dst_kind = ir.nodes[dst_node_id]
-                .endpoints
-                .get(&edge.dest.endpoint)
-                .map(|e| e.kind);
-            (src_node_id, dst_node_id, src_kind, dst_kind)
+            (src_node_id, edge.dest.node, edge.src_kind, edge.dst_kind)
         };
 
         let is_event_edge = matches!(src_kind, Some(EndpointKind::Event))
@@ -1325,19 +1431,26 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
         .collect();
     let mut sorted: Vec<NodeId> = Vec::with_capacity(ir.processors.len());
 
+    // Scratch buffer for the popped node's downstream targets, reused
+    // across iterations so the loop allocates once instead of cloning
+    // each node's outgoing list to appease the borrow checker.
+    let mut dsts: Vec<NodeId> = Vec::new();
     while let Some(nid) = queue.pop_front() {
         sorted.push(nid);
         // Outgoing feedback edges don't impose ordering, mirroring the
         // in-degree pass above. (Edges OUT of this node that are feedback
         // edges contribute zero to anybody's in-degree, so they're never
         // decremented.)
-        let outgoing: Vec<EdgeId> = ir.nodes[nid].outgoing.clone();
-        for eid in outgoing {
-            let edge = &ir.edges[eid];
-            if edge.is_feedback {
-                continue;
-            }
-            let dst = edge.dest.node;
+        dsts.clear();
+        dsts.extend(
+            ir.nodes[nid]
+                .outgoing
+                .iter()
+                .map(|&eid| &ir.edges[eid])
+                .filter(|edge| !edge.is_feedback)
+                .map(|edge| edge.dest.node),
+        );
+        for &dst in &dsts {
             if let Some(d) = in_degree.get_mut(&dst) {
                 if *d > 0 {
                     *d -= 1;
@@ -1487,13 +1600,7 @@ fn validate_cross_rate_kinds(ir: &IrGraph, diags: &mut Diagnostics) {
             continue;
         }
 
-        let src_kind = endpoint_kind_of(&edge.source, ir);
-        let dst_kind = ir.nodes[edge.dest.node]
-            .endpoints
-            .get(&edge.dest.endpoint)
-            .map(|e| e.kind);
-
-        let (src, dst) = match (src_kind, dst_kind) {
+        let (src, dst) = match (edge.src_kind, edge.dst_kind) {
             (Some(s), Some(d)) => (s, d),
             _ => continue,
         };
@@ -1580,12 +1687,32 @@ fn validate_typed_value_endpoints(ir: &IrGraph, diags: &mut Diagnostics) {
         bucket.0.push(eid);
         let typed = ir.edge_is_typed_value(edge);
         bucket.1 |= typed;
+        let dest_kind = ir.nodes[dest.node]
+            .endpoints
+            .get(&dest.endpoint)
+            .map(|ei| ei.kind);
         if bucket.2.is_none() {
-            bucket.2 = ir.nodes[dest.node]
-                .endpoints
-                .get(&dest.endpoint)
-                .map(|ei| ei.kind);
+            bucket.2 = dest_kind;
         }
+
+        // Array fan-in shape sums element values — impossible for typed
+        // payloads and equally disallowed for plain f32 value dests.
+        if let FanoutShape::FanIn { .. } = edge.fanout {
+            if typed {
+                diags.push_error(syn::Error::new(
+                    edge.span,
+                    "typed values cannot fan in from a node array: values don't sum; \
+                     index one element (`voices[0].mode`) or restructure",
+                ));
+            } else if matches!(dest_kind, Some(EndpointKind::Value)) {
+                diags.push_error(syn::Error::new(
+                    edge.span,
+                    "values cannot fan in from a node array (streams sum; values \
+                     don't); index one element (`voices[0].out`) or restructure",
+                ));
+            }
+        }
+
         if !typed {
             continue;
         }
@@ -1604,14 +1731,36 @@ fn validate_typed_value_endpoints(ir: &IrGraph, diags: &mut Diagnostics) {
             }
             _ => {}
         }
+    }
 
-        // Array fan-in shape sums element values — impossible for typed
-        // payloads.
-        if let FanoutShape::FanIn { .. } = edge.fanout {
+    // A broadcast dest (`voices.gain`) drives every element, so it overlaps
+    // any indexed dest (`voices[0].gain`) on the same endpoint: that element
+    // gets two drivers and connection order decides which wins — the same
+    // silent clobber the per-slot rule below rejects.
+    let mut broadcasts: HashMap<(NodeId, &str), (bool, Option<EndpointKind>)> = HashMap::new();
+    for ((node, endpoint, index), (_, has_typed, kind)) in &buckets {
+        if index.is_none() {
+            broadcasts.insert((*node, endpoint.as_str()), (*has_typed, *kind));
+        }
+    }
+    for ((node, endpoint, index), (edges, has_typed, kind)) in &buckets {
+        let Some(i) = index else { continue };
+        let Some((b_typed, b_kind)) = broadcasts.get(&(*node, endpoint.as_str())) else {
+            continue;
+        };
+        let is_value = matches!(kind.or(*b_kind), Some(EndpointKind::Value));
+        if !(*has_typed || *b_typed || is_value) {
+            continue;
+        }
+        let dest_name = &ir.nodes[*node].name;
+        for &eid in edges {
             diags.push_error(syn::Error::new(
-                edge.span,
-                "typed values cannot fan in from a node array: values don't sum; \
-                 index one element (`voices[0].mode`) or restructure",
+                ir.edges[eid].span,
+                format!(
+                    "value endpoint `{dest_name}[{i}].{endpoint}` is driven both directly \
+                     and by a broadcast connection to `{dest_name}.{endpoint}` (values \
+                     cannot fan in); drop one of the two drivers",
+                ),
             ));
         }
     }

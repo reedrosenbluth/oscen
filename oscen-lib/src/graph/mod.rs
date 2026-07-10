@@ -4,9 +4,9 @@ pub mod static_context;
 mod traits;
 pub mod types;
 
+pub use audio_input::AudioInput;
 #[doc(hidden)]
 pub use audio_input::__oscen_endpoints_AudioInput;
-pub use audio_input::AudioInput;
 pub use offline::BlockRender;
 pub use static_context::{AccumulateEndpoints, ConnectEndpoints, ReadValueEndpoint};
 pub use traits::{AllowsFeedback, SignalProcessor};
