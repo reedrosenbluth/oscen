@@ -903,13 +903,17 @@ impl<'a> CodegenContext<'a> {
                 quote! {
                     let mut #staged_name: ::oscen::graph::StaticEventQueue =
                         ::oscen::graph::StaticEventQueue::new();
-                    for __e in self.#name.iter() {
-                        ::oscen::graph::debug_assert_event_pushed(
-                            #staged_name.try_push(__e.clone()),
-                        );
+                    // Skip the drain + sort entirely on the common
+                    // no-events-this-block path.
+                    if !self.#name.is_empty() {
+                        for __e in self.#name.iter() {
+                            ::oscen::graph::debug_assert_event_pushed(
+                                #staged_name.try_push(__e.clone()),
+                            );
+                        }
+                        self.#name.clear();
+                        #staged_name.sort_unstable_by_key(|__e| __e.frame_offset);
                     }
-                    self.#name.clear();
-                    #staged_name.sort_unstable_by_key(|__e| __e.frame_offset);
                     let mut #cursor_name: usize = 0;
                 }
             })
