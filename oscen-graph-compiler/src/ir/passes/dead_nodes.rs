@@ -211,6 +211,8 @@ mod tests {
             span: Span::call_site(),
             extra_source_nodes: Vec::new(),
             is_feedback: false,
+            src_kind: None,
+            dst_kind: None,
         });
         g.nodes[src].outgoing.push(id);
         g.nodes[dst].incoming.push(id);

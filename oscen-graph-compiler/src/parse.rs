@@ -21,27 +21,31 @@ use syn::{
 ///
 /// Empty chunks and pure-`;` chunks are filtered out so that a stray
 /// top-level `;` does not trigger a spurious downstream parse error.
-fn split_top_level_chunks(input: TokenStream) -> Vec<TokenStream> {
-    const BLOCK_KEYWORDS: &[&str] = &["node", "nodes", "connection", "connections"];
-
+fn split_top_level_chunks(input: TokenStream) -> Vec<TopLevelChunk> {
     let trees: Vec<TokenTree> = input.into_iter().collect();
-    let mut chunks: Vec<TokenStream> = Vec::new();
+    let mut chunks: Vec<TopLevelChunk> = Vec::new();
     let mut i = 0;
 
     while i < trees.len() {
-        let is_block = match &trees[i] {
-            TokenTree::Ident(id) if BLOCK_KEYWORDS.contains(&id.to_string().as_str()) => {
-                matches!(
+        let block_kind = match &trees[i] {
+            TokenTree::Ident(id)
+                if matches!(
                     trees.get(i + 1),
                     Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace
-                )
+                ) =>
+            {
+                match id.to_string().as_str() {
+                    "node" | "nodes" => Some(BlockKind::Node),
+                    "connection" | "connections" => Some(BlockKind::Connection),
+                    _ => None,
+                }
             }
-            _ => false,
+            _ => None,
         };
 
-        if is_block {
+        if let Some(kind) = block_kind {
             let chunk: TokenStream = trees[i..i + 2].iter().cloned().collect();
-            chunks.push(chunk);
+            chunks.push(TopLevelChunk::Block(kind, chunk));
             i += 2;
         } else {
             let start = i;
@@ -55,18 +59,37 @@ fn split_top_level_chunks(input: TokenStream) -> Vec<TokenStream> {
                     break;
                 }
             }
-            let chunk: TokenStream = trees[start..i].iter().cloned().collect();
-            if chunk
-                .clone()
-                .into_iter()
-                .any(|t| !matches!(&t, TokenTree::Punct(p) if p.as_char() == ';'))
-            {
-                chunks.push(chunk);
+            if slice_has_content(&trees[start..i]) {
+                chunks.push(TopLevelChunk::Stmt(trees[start..i].iter().cloned().collect()));
             }
         }
     }
 
     chunks
+}
+
+/// Which block parser a `TopLevelChunk::Block` routes to.
+#[derive(Clone, Copy)]
+enum BlockKind {
+    Node,
+    Connection,
+}
+
+/// One top-level chunk, tagged by the splitter — which already knows
+/// block-vs-statement — so `parse_graph_def` doesn't re-scan the tokens.
+enum TopLevelChunk {
+    /// `node {}` / `nodes {}` / `connection {}` / `connections {}`.
+    Block(BlockKind, TokenStream),
+    /// A `;`-terminated statement.
+    Stmt(TokenStream),
+}
+
+/// True when the token slice contains anything besides `;` — i.e. it is a
+/// real statement, not an empty or stray-semicolon chunk.
+fn slice_has_content(trees: &[TokenTree]) -> bool {
+    trees
+        .iter()
+        .any(|t| !matches!(t, TokenTree::Punct(p) if p.as_char() == ';'))
 }
 
 /// Split a brace-group's stream into statement chunks for in-block
@@ -90,27 +113,15 @@ fn split_statement_chunks(input: TokenStream) -> Vec<TokenStream> {
         );
         i += 1;
         if is_semi {
-            let chunk: TokenStream = trees[start..i].iter().cloned().collect();
-            if chunk
-                .clone()
-                .into_iter()
-                .any(|t| !matches!(&t, TokenTree::Punct(p) if p.as_char() == ';'))
-            {
-                chunks.push(chunk);
+            if slice_has_content(&trees[start..i]) {
+                chunks.push(trees[start..i].iter().cloned().collect());
             }
             start = i;
         }
     }
 
-    if start < trees.len() {
-        let chunk: TokenStream = trees[start..].iter().cloned().collect();
-        if chunk
-            .clone()
-            .into_iter()
-            .any(|t| !matches!(&t, TokenTree::Punct(p) if p.as_char() == ';'))
-        {
-            chunks.push(chunk);
-        }
+    if slice_has_content(&trees[start..]) {
+        chunks.push(trees[start..].iter().cloned().collect());
     }
 
     chunks
@@ -196,20 +207,19 @@ pub fn parse_graph_def(input: TokenStream, diags: &mut Diagnostics) -> GraphDef 
     let mut items: Vec<GraphItem> = Vec::new();
 
     for chunk in split_top_level_chunks(input) {
-        let is_block_node = chunk_starts_with_block_kw(&chunk, &["node", "nodes"]);
-        let is_block_conn = chunk_starts_with_block_kw(&chunk, &["connection", "connections"]);
-
-        if is_block_node {
-            let decls = parse_node_block_with_diags(chunk, diags);
-            items.push(GraphItem::NodeBlock(NodeBlock(decls)));
-        } else if is_block_conn {
-            let stmts = parse_connection_block_with_diags(chunk, diags);
-            items.push(GraphItem::ConnectionBlock(ConnectionBlock(stmts)));
-        } else {
-            match syn::parse2::<GraphItem>(chunk) {
+        match chunk {
+            TopLevelChunk::Block(BlockKind::Node, tokens) => {
+                let decls = parse_node_block_with_diags(tokens, diags);
+                items.push(GraphItem::NodeBlock(NodeBlock(decls)));
+            }
+            TopLevelChunk::Block(BlockKind::Connection, tokens) => {
+                let stmts = parse_connection_block_with_diags(tokens, diags);
+                items.push(GraphItem::ConnectionBlock(ConnectionBlock(stmts)));
+            }
+            TopLevelChunk::Stmt(tokens) => match syn::parse2::<GraphItem>(tokens) {
                 Ok(item) => items.push(item),
                 Err(e) => diags.push_error(e),
-            }
+            },
         }
     }
 
@@ -238,22 +248,6 @@ pub fn parse_graph_def(input: TokenStream, diags: &mut Diagnostics) -> GraphDef 
         name,
         items: retained,
     }
-}
-
-/// True when `chunk`'s first `TokenTree` is an identifier whose string
-/// matches one of `keywords`, followed by a brace `Group`. Used by
-/// `parse_graph_def` to route block-item chunks to the
-/// `NodeBlock` / `ConnectionBlock` parsers.
-fn chunk_starts_with_block_kw(chunk: &TokenStream, keywords: &[&str]) -> bool {
-    let mut iter = chunk.clone().into_iter();
-    let first = iter.next();
-    let second = iter.next();
-    matches!(
-        (&first, &second),
-        (Some(TokenTree::Ident(id)), Some(TokenTree::Group(g)))
-            if keywords.contains(&id.to_string().as_str())
-                && g.delimiter() == Delimiter::Brace
-    )
 }
 
 impl Parse for GraphItem {

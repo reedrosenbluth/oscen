@@ -931,6 +931,16 @@ fn insert_edge(
     };
     let extra_sources: Vec<NodeId> = refs.into_iter().skip(1).collect();
 
+    // Resolve endpoint kinds once; they are fixed after
+    // `infer_endpoint_types`, and every later pass (kernel refinement,
+    // cross-rate validation, codegen projection) reads these cached fields
+    // instead of re-walking the expression tree.
+    let src_kind = endpoint_kind_of(&source, ir);
+    let dst_kind = ir.nodes[dest.node]
+        .endpoints
+        .get(&dest.endpoint)
+        .map(|ei| ei.kind);
+
     let dest_node = dest.node;
     let extra_sources_clone = extra_sources.clone();
     let eid = ir.edges.insert_with_key(|id| IrEdge {
@@ -943,6 +953,8 @@ fn insert_edge(
         span,
         extra_source_nodes: extra_sources_clone,
         is_feedback,
+        src_kind,
+        dst_kind,
     });
 
     // Update adjacency and canonical edge order.
@@ -1149,13 +1161,7 @@ fn refine_kernels(ir: &mut IrGraph) {
                 Some(id) => id,
                 None => continue,
             };
-            let dst_node_id = edge.dest.node;
-            let src_kind = endpoint_kind_of(&edge.source, ir);
-            let dst_kind = ir.nodes[dst_node_id]
-                .endpoints
-                .get(&edge.dest.endpoint)
-                .map(|e| e.kind);
-            (src_node_id, dst_node_id, src_kind, dst_kind)
+            (src_node_id, edge.dest.node, edge.src_kind, edge.dst_kind)
         };
 
         let is_event_edge = matches!(src_kind, Some(EndpointKind::Event))
@@ -1372,19 +1378,26 @@ fn topo_sort(ir: &mut IrGraph, diags: &mut Diagnostics) {
         .collect();
     let mut sorted: Vec<NodeId> = Vec::with_capacity(ir.processors.len());
 
+    // Scratch buffer for the popped node's downstream targets, reused
+    // across iterations so the loop allocates once instead of cloning
+    // each node's outgoing list to appease the borrow checker.
+    let mut dsts: Vec<NodeId> = Vec::new();
     while let Some(nid) = queue.pop_front() {
         sorted.push(nid);
         // Outgoing feedback edges don't impose ordering, mirroring the
         // in-degree pass above. (Edges OUT of this node that are feedback
         // edges contribute zero to anybody's in-degree, so they're never
         // decremented.)
-        let outgoing: Vec<EdgeId> = ir.nodes[nid].outgoing.clone();
-        for eid in outgoing {
-            let edge = &ir.edges[eid];
-            if edge.is_feedback {
-                continue;
-            }
-            let dst = edge.dest.node;
+        dsts.clear();
+        dsts.extend(
+            ir.nodes[nid]
+                .outgoing
+                .iter()
+                .map(|&eid| &ir.edges[eid])
+                .filter(|edge| !edge.is_feedback)
+                .map(|edge| edge.dest.node),
+        );
+        for &dst in &dsts {
             if let Some(d) = in_degree.get_mut(&dst) {
                 if *d > 0 {
                     *d -= 1;
@@ -1534,13 +1547,7 @@ fn validate_cross_rate_kinds(ir: &IrGraph, diags: &mut Diagnostics) {
             continue;
         }
 
-        let src_kind = endpoint_kind_of(&edge.source, ir);
-        let dst_kind = ir.nodes[edge.dest.node]
-            .endpoints
-            .get(&edge.dest.endpoint)
-            .map(|e| e.kind);
-
-        let (src, dst) = match (src_kind, dst_kind) {
+        let (src, dst) = match (edge.src_kind, edge.dst_kind) {
             (Some(s), Some(d)) => (s, d),
             _ => continue,
         };
