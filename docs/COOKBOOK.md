@@ -375,20 +375,24 @@ full-velocity notes to 126.
 
 ## Feedback & cycles
 
-A plain-`->` cycle is a compile error; the diagnostic names the cycle path.
-Two legal ways to close a loop:
+The rule (same as Cmajor's): **a loop is legal iff it contains a delay of at
+least one sample.** A plain-`->` cycle is a compile error; the diagnostic
+names the cycle path. Two ways to put the delay on an edge:
 
 ```rust
 osc.output -> [1] -> mixer.feedback;        // 1-sample inline delay
 osc.output -> [my_delay] -> mixer.feedback; // route through a declared Delay
 ```
 
-**Subgraphs are scheduled atomically.** If `sub.some_output` feeds a node
-that also feeds `sub.some_input`, the parent sees a cycle even when the
-output doesn't actually depend on that input internally. Until per-output
-dependency tracking lands, either break the false cycle with `-> [1] ->`
-(one sample of latency on that edge) or restructure so the tightly-coupled
-nodes live in the same graph level.
+**Subgraphs are scheduled atomically** — one `process()` per sample, like a
+Cmajor nested graph. So any loop through a subgraph needs a delay on one
+edge, even when the tapped output doesn't depend on the looped-in input
+internally (an exported envelope modulating the oscillator that feeds the
+subgraph, say). Writing `-> [1] ->` on such a control tap is the normal
+idiom, not a workaround; it costs one sample of latency on that edge, which
+is inaudible for control signals. If the same-sample coupling genuinely
+matters, restructure so the tightly-coupled nodes live in the same graph
+level.
 
 ## Voices / polyphony
 
