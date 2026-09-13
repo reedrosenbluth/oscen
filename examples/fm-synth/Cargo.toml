@@ -19,7 +19,6 @@ oscen = { path = "../../oscen-lib" }
 oscen-macros = { path = "../../oscen-macros", features = ["nih-plug"] }
 nih_plug = { git = "https://github.com/reedrosenbluth/nih-plug" }
 nih_plug_slint = { git = "https://github.com/reedrosenbluth/nih-plug" }
-parking_lot = "0.12"
 arrayvec = "0.7"
 atomic_float = "1"
 paste = "1"

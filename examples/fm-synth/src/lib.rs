@@ -12,10 +12,7 @@ use nodes::{AddValue, Crossfade, FmOperator, Mixer};
 use fm_voice::FMVoice;
 use nih_plug::prelude::*;
 use nih_plug_slint::SlintState;
-use oscen::graph::{EventInstance, EventPayload};
-use oscen::midi::RawMidiMessage;
 use oscen::prelude::*;
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 // Main polyphonic FM synth with 8 voices
@@ -158,14 +155,25 @@ impl FMSynthParams {
 
 pub struct FMSynth {
     params: Arc<FMSynthParams>,
-    synth: RwLock<Option<FMGraph>>,
+    /// The audio callback owns the graph exclusively: `Plugin::process`
+    /// takes `&mut self`, and the editor only ever touches `params`, so no
+    /// lock is needed (or allowed) on the audio thread. Boxed to keep the
+    /// plugin struct itself small; the graph carries eight voices.
+    synth: Option<Box<FMGraph>>,
 }
+
+// The graph crosses to the audio thread inside the plugin; make the
+// requirement explicit so a future non-`Send` node fails here, not in a host.
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<FMGraph>();
+};
 
 impl Default for FMSynth {
     fn default() -> Self {
         Self {
             params: Arc::new(FMSynthParams::default()),
-            synth: RwLock::new(None),
+            synth: None,
         }
     }
 }
@@ -208,9 +216,9 @@ impl Plugin for FMSynth {
         _context: &mut impl InitContext<Self>,
     ) -> bool {
         let sample_rate = buffer_config.sample_rate;
-        let mut synth = FMGraph::new();
+        let mut synth = Box::new(FMGraph::new());
         synth.init(sample_rate);
-        *self.synth.write() = Some(synth);
+        self.synth = Some(synth);
         true
     }
 
@@ -220,10 +228,8 @@ impl Plugin for FMSynth {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        let mut synth_guard = self.synth.write();
-        let synth = match synth_guard.as_mut() {
-            Some(s) => s,
-            None => return ProcessStatus::Normal,
+        let Some(synth) = self.synth.as_mut() else {
+            return ProcessStatus::Normal;
         };
 
         // Sync parameters once per buffer
@@ -247,25 +253,15 @@ impl Plugin for FMSynth {
                     break;
                 }
                 let frame_offset = timing.saturating_sub(block_start) as u32;
+                // `[u8; 3]` converts to the inline `EventPayload::Midi`
+                // representation: no heap allocation on the audio thread.
                 match event {
                     NoteEvent::NoteOn { note, velocity, .. } => {
-                        let vel_byte = (velocity * 127.0).clamp(0.0, 127.0) as u8;
-                        let midi_bytes = [0x90, note, vel_byte];
-                        let msg = RawMidiMessage::new(&midi_bytes);
-                        let event = EventInstance {
-                            frame_offset,
-                            payload: EventPayload::Object(Arc::new(msg)),
-                        };
-                        let _ = synth.midi_in.try_push(event);
+                        let vel_byte = (velocity * 127.0).round().clamp(0.0, 127.0) as u8;
+                        let _ = synth.push_midi_in([0x90, note, vel_byte], frame_offset);
                     }
                     NoteEvent::NoteOff { note, .. } => {
-                        let midi_bytes = [0x80, note, 0];
-                        let msg = RawMidiMessage::new(&midi_bytes);
-                        let event = EventInstance {
-                            frame_offset,
-                            payload: EventPayload::Object(Arc::new(msg)),
-                        };
-                        let _ = synth.midi_in.try_push(event);
+                        let _ = synth.push_midi_in([0x80, note, 0], frame_offset);
                     }
                     _ => {}
                 }

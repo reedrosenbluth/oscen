@@ -46,7 +46,9 @@ impl MidiConnection {
                     },
                     (),
                 )
-                .context("failed to connect to MIDI port")?;
+                // `ConnectError<MidiInput>` is not `Send + Sync`, so anyhow's
+                // `.context()` does not apply; format the error instead.
+                .map_err(|e| anyhow::anyhow!("failed to connect to MIDI port: {e}"))?;
 
             connections.push(connection);
         }

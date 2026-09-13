@@ -6,7 +6,6 @@ use lp18_filter::LP18Filter;
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
 use oscen::prelude::*;
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 const OUTPUT_GAIN: f32 = 5.0;
@@ -49,7 +48,9 @@ graph! {
 
 pub struct TwinPeaks {
     params: Arc<TwinPeaksParams>,
-    synth: RwLock<Option<TwinPeaksGraph>>,
+    /// Owned exclusively by the audio callback (`process` takes `&mut self`);
+    /// the editor only reads `params`, so no lock is needed on the audio thread.
+    synth: Option<TwinPeaksGraph>,
 }
 
 #[derive(Params)]
@@ -116,7 +117,7 @@ impl Default for TwinPeaks {
     fn default() -> Self {
         Self {
             params: Arc::new(TwinPeaksParams::default()),
-            synth: RwLock::new(None),
+            synth: None,
         }
     }
 }
@@ -197,7 +198,7 @@ impl Plugin for TwinPeaks {
         let sample_rate = buffer_config.sample_rate;
         let mut synth = TwinPeaksGraph::new();
         synth.init(sample_rate);
-        *self.synth.write() = Some(synth);
+        self.synth = Some(synth);
         true
     }
 
@@ -207,8 +208,7 @@ impl Plugin for TwinPeaks {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        let mut synth_guard = self.synth.write();
-        if let Some(synth) = synth_guard.as_mut() {
+        if let Some(synth) = self.synth.as_mut() {
             for mut channel_samples in buffer.iter_samples() {
                 // Update parameters from NIH-plug's smoothed values
                 synth.cutoff_a = self.params.cutoff_a.smoothed.next();

@@ -151,16 +151,15 @@ fn audio_callback(
     param_rx: &Receiver<ParamChange>,
     midi_rx: &Receiver<midi_input::RawMidiBytes>,
 ) {
-    use oscen::graph::{EventInstance, EventPayload};
-    use oscen::midi::RawMidiMessage;
-
     while let Ok(raw_midi) = midi_rx.try_recv() {
-        let msg = RawMidiMessage::new(&raw_midi.bytes);
-        let event = EventInstance {
-            frame_offset: 0,
-            payload: EventPayload::Object(std::sync::Arc::new(msg)),
-        };
-        let _ = context.synth.midi_in.try_push(event);
+        // Complete 3-byte messages (note on/off, CC) convert to the inline
+        // `EventPayload::Midi` without allocating. Shorter messages are not
+        // used by this synth. (The `Vec<u8>` inside `raw_midi` is still
+        // freed here on the audio thread; moving the MIDI reader to a
+        // fixed-size representation is a separate follow-up.)
+        if let Ok(bytes) = <[u8; 3]>::try_from(raw_midi.bytes.as_slice()) {
+            let _ = context.synth.push_midi_in(bytes, 0);
+        }
     }
 
     while let Ok(change) = param_rx.try_recv() {

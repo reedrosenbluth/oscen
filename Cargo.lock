@@ -2284,7 +2284,6 @@ dependencies = [
  "nih_plug_slint",
  "oscen",
  "oscen-macros",
- "parking_lot",
  "paste",
  "slint",
  "slint-build",
@@ -5738,7 +5737,6 @@ dependencies = [
  "nih_plug_egui",
  "oscen",
  "oscen-macros",
- "parking_lot",
 ]
 
 [[package]]
@@ -6526,7 +6524,6 @@ dependencies = [
  "nih_plug_egui",
  "oscen",
  "oscen-macros",
- "parking_lot",
 ]
 
 [[package]]

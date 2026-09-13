@@ -3,7 +3,6 @@ use nih_plug_egui::{create_egui_editor, egui, EguiState};
 use oscen::delay::Delay;
 use oscen::filters::tpt::TptFilter;
 use oscen::SignalProcessor;
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 /// A single channel of the echo effect
@@ -63,8 +62,10 @@ impl EchoChannel {
 
 pub struct SimpleEcho {
     params: Arc<SimpleEchoParams>,
-    left: RwLock<Option<EchoChannel>>,
-    right: RwLock<Option<EchoChannel>>,
+    /// Owned exclusively by the audio callback (`process` takes `&mut self`);
+    /// no lock is needed on the audio thread.
+    left: Option<EchoChannel>,
+    right: Option<EchoChannel>,
 }
 
 #[derive(Params)]
@@ -137,8 +138,8 @@ impl Default for SimpleEcho {
     fn default() -> Self {
         Self {
             params: Arc::new(SimpleEchoParams::default()),
-            left: RwLock::new(None),
-            right: RwLock::new(None),
+            left: None,
+            right: None,
         }
     }
 }
@@ -234,8 +235,8 @@ impl Plugin for SimpleEcho {
     ) -> bool {
         let sample_rate = buffer_config.sample_rate;
 
-        *self.left.write() = Some(EchoChannel::new(sample_rate));
-        *self.right.write() = Some(EchoChannel::new(sample_rate));
+        self.left = Some(EchoChannel::new(sample_rate));
+        self.right = Some(EchoChannel::new(sample_rate));
 
         true
     }
@@ -246,10 +247,7 @@ impl Plugin for SimpleEcho {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        let mut left_guard = self.left.write();
-        let mut right_guard = self.right.write();
-
-        if let (Some(left), Some(right)) = (left_guard.as_mut(), right_guard.as_mut()) {
+        if let (Some(left), Some(right)) = (self.left.as_mut(), self.right.as_mut()) {
             for mut channel_samples in buffer.iter_samples() {
                 // Get smoothed parameter values
                 let delay_time = self.params.delay_time.smoothed.next();
