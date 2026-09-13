@@ -134,8 +134,8 @@ graph! {
     }
 
     // Wildcard hoists inherit defaults from the child constructor, which
-    // forces the descriptor table to build a probe graph instance — a
-    // ~1 MiB struct here, far over the test thread's 128 KiB stack.
+    // forces the descriptor table to construct a probe of one `BigVoice`:
+    // 256 KiB, twice the test thread's 128 KiB stack.
     input voices.*;
 
     connections {
@@ -146,13 +146,32 @@ graph! {
 #[test]
 fn param_descriptors_survive_small_stack_thread() {
     // nih-plug hosts call Params::default() (and thus param_descriptors)
-    // from arbitrary threads; 128 KiB is far below the graph's size class.
+    // from arbitrary threads; 128 KiB is far below the probe's size class.
+    // The generated init must run the probe on its own sized worker.
     let handle = std::thread::Builder::new()
         .stack_size(128 * 1024)
-        .spawn(|| SmallStackProbe::param_descriptors().len())
+        .spawn(|| {
+            let d = SmallStackProbe::param_descriptors();
+            (d.len(), d[0].name, d[0].default)
+        })
         .expect("spawn small-stack thread");
-    let len = handle.join().expect("small-stack thread must not overflow");
-    assert!(len > 0);
+    let (len, name, default) = handle.join().expect("small-stack thread must not overflow");
+    assert_eq!(len, 1);
+    assert_eq!(name, "pitch");
+    // The inherited default must match what a real instance reports. The
+    // graph itself is ~1 MiB, so construct it on a generously sized thread.
+    assert_eq!(default, 220.0);
+    let live = std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            let graph = SmallStackProbe::new();
+            let id = SmallStackProbeParam::from_name("pitch").expect("param id");
+            graph.get_param(id)
+        })
+        .expect("spawn big-stack thread")
+        .join()
+        .expect("constructing the graph must not overflow a 16 MiB stack");
+    assert_eq!(live, default);
 }
 
 // ---------------------------------------------------------------------------

@@ -147,6 +147,7 @@ impl<'a> CodegenContext<'a> {
         // `graph!` child still constructs that child graph, but never the
         // parent with its per-stream block buffers.
         let mut probe_inits: Vec<TokenStream> = Vec::new();
+        let mut probe_ctors: Vec<TokenStream> = Vec::new();
         let mut probed: HashMap<String, syn::Ident> = HashMap::new();
         for node in &value_inputs {
             if self.input_default(node).is_some() {
@@ -165,6 +166,7 @@ impl<'a> CodegenContext<'a> {
                     .expect("hoist source must be a processor/array node");
                 let probe = probe_ident(child);
                 probe_inits.push(quote! { let #probe = #ctor; });
+                probe_ctors.push(ctor);
                 slot.insert(probe);
             }
         }
@@ -241,15 +243,46 @@ impl<'a> CodegenContext<'a> {
             })
             .collect();
         // Child probes are individual nodes (single elements for arrays),
-        // so even on a small host thread stack (nih-plug's
-        // `Params::default()` runs on ~1 MB stacks) the init is safe — the
-        // old whole-graph probe needed a dedicated 16 MB thread because the
-        // parent struct carries per-stream block buffers and voice arrays.
-        let descriptor_init = quote! {
-            #(#probe_inits)*
-            [
-                #(#descriptors,)*
-            ]
+        // which keeps them far smaller than the parent graph — but a single
+        // child can still carry hundreds of KiB of buffers, and hosts call
+        // `param_descriptors()` from arbitrary threads (nih-plug's
+        // `Params::default()` runs on ~1 MiB stacks; some are smaller). A
+        // probe is a plain `let` binding, so at opt-level 0 the whole value
+        // is materialized on the caller's stack. When any probe is needed,
+        // run the init on a dedicated worker whose stack is sized from the
+        // probe types: `__probe_size` takes a closure that is never called,
+        // so the constructor's result type is inferred without running it.
+        // The worker is spawned once (inside `OnceLock::get_or_init`), off
+        // the audio path, and joined before the descriptors are published.
+        let descriptor_init = if probe_inits.is_empty() {
+            quote! {
+                [
+                    #(#descriptors,)*
+                ]
+            }
+        } else {
+            quote! {
+                fn __probe_size<T>(_ctor: &impl Fn() -> T) -> usize {
+                    ::core::mem::size_of::<T>()
+                }
+                let __probe_bytes: usize = 0
+                    #( + __probe_size(&|| #probe_ctors) )*;
+                let __stack_bytes = __probe_bytes
+                    .saturating_mul(4)
+                    .max(4 << 20);
+                ::std::thread::Builder::new()
+                    .name("oscen-param-probe".into())
+                    .stack_size(__stack_bytes)
+                    .spawn(|| {
+                        #(#probe_inits)*
+                        [
+                            #(#descriptors,)*
+                        ]
+                    })
+                    .expect("spawn oscen parameter probe thread")
+                    .join()
+                    .expect("oscen parameter probe panicked")
+            }
         };
 
         // ---- dispatch arms -----------------------------------------------

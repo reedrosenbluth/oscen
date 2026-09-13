@@ -748,3 +748,45 @@ fn event_output_block_name_is_reserved() {
         "expected reserved-name error for the event accumulator; got {msgs:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Inherited-default probes run on a sized worker thread; explicit-default
+// graphs keep the inline init (no thread).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn inherited_default_probe_runs_on_sized_worker_thread() {
+    let tokens = compile(quote! {
+        name: Probe;
+        output stream out;
+        node osc = PolyBlepOscillator::saw(440.0, 0.5);
+        input osc.frequency;
+        connections {
+            osc.output -> out;
+        }
+    })
+    .expect("compile succeeds");
+    let body = inherent_method_body(tokens, "param_descriptors");
+    assert!(
+        body.contains("stack_size (__stack_bytes)") && body.contains("__probe_size"),
+        "probe init must run on a worker sized from the probe types; got:\n{body}"
+    );
+}
+
+#[test]
+fn explicit_default_descriptors_do_not_spawn_a_thread() {
+    let tokens = compile(quote! {
+        name: NoProbe;
+        input value gain = 0.5;
+        output value level;
+        connections {
+            gain -> level;
+        }
+    })
+    .expect("compile succeeds");
+    let body = inherent_method_body(tokens, "param_descriptors");
+    assert!(
+        !body.contains("stack_size") && !body.contains("spawn"),
+        "explicit defaults need no probe thread; got:\n{body}"
+    );
+}
