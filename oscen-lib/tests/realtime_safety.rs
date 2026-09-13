@@ -351,3 +351,33 @@ fn fft_plan_forward_inverse_does_not_allocate() {
     });
     assert!(output.iter().all(|y| y.is_finite()));
 }
+
+graph! {
+    name: EventOutBlockNoAllocGraph;
+    input e: event;
+    output o: event;
+    connections {
+        e -> o;
+    }
+}
+
+#[test]
+fn block_event_output_accumulation_does_not_allocate() {
+    // Forwarding scalar events into the `<name>_block` accumulator clones
+    // `EventInstance`s (plain data) into a preallocated ArrayVec.
+    let mut graph = EventOutBlockNoAllocGraph::new();
+    graph.init(44100.0);
+
+    let total = assert_no_alloc(|| {
+        let mut total = 0usize;
+        for block in 0..8u32 {
+            for k in 0..16u32 {
+                let _ = graph.push_e(block as f32, k * 4);
+            }
+            graph.process_block(64);
+            total += graph.o_block.len();
+        }
+        total
+    });
+    assert_eq!(total, 8 * 16);
+}

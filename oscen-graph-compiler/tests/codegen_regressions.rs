@@ -693,3 +693,58 @@ fn signal_processor_trait_process_delegates_to_inherent() {
         body
     );
 }
+
+// ---------------------------------------------------------------------------
+// Event outputs accumulate across `process_block` in `<name>_block`, stamped
+// with the frame index. The per-sample `process()` path is untouched.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn event_output_block_accumulator_is_staged_per_frame_and_cleared_per_block() {
+    let tokens = compile(quote! {
+        name: EvBlock;
+        input event e;
+        output event o;
+        connections {
+            e -> o;
+        }
+    })
+    .expect("compile succeeds");
+    let all = tokens.to_string();
+    assert!(
+        all.contains("pub o_block : :: oscen :: graph :: BlockEventQueue"),
+        "event output must get a block accumulator field; got:\n{all}"
+    );
+    let advance = inherent_method_body(tokens.clone(), "__advance_one_frame");
+    assert!(
+        advance.contains("self . o_block . try_push"),
+        "__advance_one_frame must copy per-frame events into the accumulator; got:\n{advance}"
+    );
+    assert!(
+        advance.contains("frame_offset = __frame as u32"),
+        "collected events must be stamped with the frame index; got:\n{advance}"
+    );
+    let block = inherent_method_body(tokens.clone(), "process_block");
+    assert!(
+        block.contains("self . o_block . clear ()"),
+        "process_block must clear the accumulator once; got:\n{block}"
+    );
+    let process = inherent_method_body(tokens, "process");
+    assert!(
+        !process.contains("o_block"),
+        "per-sample process() must not touch the accumulator; got:\n{process}"
+    );
+}
+
+#[test]
+fn event_output_block_name_is_reserved() {
+    let msgs = compile_errors(quote! {
+        name: G;
+        input value o_block = 0.5;
+        output event o;
+    });
+    assert!(
+        msgs.iter().any(|m| m.contains("collides") && m.contains("event output")),
+        "expected reserved-name error for the event accumulator; got {msgs:?}"
+    );
+}

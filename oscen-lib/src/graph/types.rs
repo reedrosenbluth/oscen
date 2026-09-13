@@ -22,6 +22,18 @@ pub const MAX_STATIC_EVENTS_PER_ENDPOINT: usize = 128;
 /// Uses stack-allocated ArrayVec instead of heap-allocated Vec for zero-overhead event handling.
 pub type StaticEventQueue = ArrayVec<EventInstance, MAX_STATIC_EVENTS_PER_ENDPOINT>;
 
+/// Block-relative accumulator for a graph's event *outputs*.
+///
+/// The per-frame `output <name>: event` queue only ever holds the events of
+/// the most recent frame. `process_block` additionally collects every event
+/// seen at the graph boundary during the block into `<name>_block`, with
+/// `frame_offset` stamped to the frame index within the block, so hosts can
+/// forward sample-accurate output events. Cleared once at the start of each
+/// `process_block`; overflow follows [`debug_assert_event_pushed`] (debug
+/// panic, release drop). Capacity is per block, independent of the
+/// per-frame capacity.
+pub type BlockEventQueue = ArrayVec<EventInstance, MAX_EVENTS>;
+
 /// Record the result of a `try_push` into a static event queue: an overflowed
 /// (dropped) event panics in debug builds so drops are observable during
 /// development, and is silently dropped in release builds (no allocation, no

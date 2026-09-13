@@ -338,6 +338,25 @@ non-RT contexts or preallocated objects only. `MidiParser` accepts the
 
 `frame_offset` is relative to the start of the *next* `process_block` call.
 
+### Reading event outputs from a block
+
+The per-frame `output <name>: event` queue only holds the events of the
+most recent frame, so after `process_block` it reflects the last frame
+only. Every event output also gets a `<name>_block: BlockEventQueue`
+accumulator: `process_block` clears it once at block start and appends
+every event that reached the output during the block, with `frame_offset`
+stamped to the frame index inside the block. Forward those to the host:
+
+```rust
+graph.process_block(frames);
+for ev in graph.note_on_out_block.iter() {
+    // ev.frame_offset is block-relative; ev.payload is the event data
+}
+```
+
+Capacity is `MAX_EVENTS` (256) per output per block; an overflow panics in
+debug builds and drops the event in release builds.
+
 ### Chunking host buffers
 
 `process_block(frames)` requires `frames <= Graph::MAX_BLOCK_SIZE`. Hosts

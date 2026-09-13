@@ -2,7 +2,8 @@
 //!
 //! Every graph declaration becomes a struct field, and most also derive
 //! generated names: inherent methods (`set_<name>`, `push_<name>`, ...) and
-//! buffer fields (`<name>_block` for streams) on the graph type — alongside
+//! buffer fields (`<name>_block` for streams and event outputs) on the graph
+//! type — alongside
 //! a fixed built-in surface (`process`, `set_sample_rate`, ...). Without
 //! this pass, an input named `param` or `sample_rate` compiles into
 //! duplicate inherent methods or fields and the user gets rustc's
@@ -185,16 +186,21 @@ impl<'a> CodegenContext<'a> {
             let name = &node.name;
             let ns = name.to_string();
             let ns = ns.strip_prefix("r#").unwrap_or(&ns).to_owned();
-            if matches!(self.output_kind(name), Some(EndpointKind::Stream)) {
+            let block_owner = match self.output_kind(name) {
+                Some(EndpointKind::Stream) => Some(("stream output", "buffer")),
+                Some(EndpointKind::Event) => Some(("event output", "accumulator")),
+                _ => None,
+            };
+            if let Some((what, role)) = block_owner {
                 let owner =
-                    format!("the `{ns}_block` buffer field generated for stream output `{name}`");
+                    format!("the `{ns}_block` {role} field generated for {what} `{name}`");
                 claim(
                     &mut acc,
                     &mut fields,
                     format!("{ns}_block"),
                     owner,
                     name,
-                    "stream output",
+                    what,
                 );
             }
         }

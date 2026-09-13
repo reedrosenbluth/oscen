@@ -13,6 +13,6 @@ pub use traits::{AllowsFeedback, SignalProcessor};
 pub use types::{
     debug_assert_event_pushed, EndpointDescriptor, EndpointDirection, EndpointType, EventInput,
     EventInstance, EventObject, EventOutput, EventPayload, ParamDescriptor, SampleRate,
-    StaticEventQueue, ValuePayload, ValueRampState, DEFAULT_MAX_BLOCK_SIZE, MAX_EVENTS,
+    StaticEventQueue, BlockEventQueue, ValuePayload, ValueRampState, DEFAULT_MAX_BLOCK_SIZE, MAX_EVENTS,
     MAX_NODE_ENDPOINTS, MAX_STATIC_EVENTS_PER_ENDPOINT,
 };

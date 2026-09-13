@@ -121,6 +121,10 @@ impl<'a> CodegenContext<'a> {
                         stmts.push(quote! {
                             let #name = ::oscen::graph::StaticEventQueue::new();
                         });
+                        let block_name = block_field_name(name);
+                        stmts.push(quote! {
+                            let #block_name = ::oscen::graph::BlockEventQueue::new();
+                        });
                     }
                     // Assets are externals, not graph outputs — no init here.
                     EndpointKind::Asset => {}
@@ -250,7 +254,7 @@ impl<'a> CodegenContext<'a> {
                     .map(|e| e.kind)
                     .unwrap_or(EndpointKind::Stream);
                 let mut fields = vec![quote! { #name }];
-                if kind == EndpointKind::Stream {
+                if matches!(kind, EndpointKind::Stream | EndpointKind::Event) {
                     let block_name = block_field_name(name);
                     fields.push(quote! { #block_name });
                 }

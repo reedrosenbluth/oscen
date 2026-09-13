@@ -625,6 +625,18 @@ impl<'a> CodegenContext<'a> {
         clearing
     }
 
+    /// `self.<name>_block.clear()` for every event output: the block
+    /// accumulators are reset once per `process_block`, not per frame.
+    fn generate_event_output_block_clearing(&self) -> Vec<TokenStream> {
+        self.outputs()
+            .filter(|n| matches!(self.output_kind(&n.name), Some(EndpointKind::Event)))
+            .map(|n| {
+                let block_name = block_field_name(&n.name);
+                quote! { self.#block_name.clear(); }
+            })
+            .collect()
+    }
+
     /// Generate the static process() method for compile-time graphs.
     /// The per-frame computation itself lives in the shared `__frame_core`
     /// (also called by `__advance_one_frame`); this wrapper only adds the
@@ -875,6 +887,8 @@ impl<'a> CodegenContext<'a> {
             .inputs()
             .any(|n| matches!(self.input_kind(&n.name), Some(EndpointKind::Event)));
 
+        let event_output_block_clearing = self.generate_event_output_block_clearing();
+
         if !has_event_inputs {
             // No events: simple tight loop
             return Ok(quote! {
@@ -883,6 +897,7 @@ impl<'a> CodegenContext<'a> {
                 /// Stream outputs will be available in `*_block` arrays after calling.
                 pub fn process_block(&mut self, frames: usize) {
                     debug_assert!(frames <= Self::MAX_BLOCK_SIZE);
+                    #(#event_output_block_clearing)*
                     for __frame in 0..frames {
                         self.__advance_one_frame(__frame);
                     }
@@ -996,6 +1011,9 @@ impl<'a> CodegenContext<'a> {
             pub fn process_block(&mut self, frames: usize) {
                 debug_assert!(frames <= Self::MAX_BLOCK_SIZE);
 
+                // Event outputs accumulate across the block in `<name>_block`.
+                #(#event_output_block_clearing)*
+
                 // Stage: copy events to local sorted storage, drain originals
                 #(#staging)*
 
@@ -1021,8 +1039,9 @@ impl<'a> CodegenContext<'a> {
                     __frame += 1;
 
                     // Clear event input queues so the next sub-block starts
-                    // clean (event outputs are overwritten per frame by the
-                    // output assignments and stay readable after the block)
+                    // clean. Per-frame event outputs are overwritten each
+                    // frame; `__advance_one_frame` copies them into the
+                    // block accumulators, which stay readable after the block.
                     #(#event_input_clearing)*
                 }
 
@@ -1378,6 +1397,12 @@ impl<'a> CodegenContext<'a> {
                 fields.push(
                     quote! { pub #block_name: [#frame_ty; ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE] },
                 );
+            }
+            // Block accumulator for event outputs: every event that reached
+            // this output during `process_block`, stamped with its frame.
+            if kind == EndpointKind::Event {
+                let block_name = block_field_name(field_name);
+                fields.push(quote! { pub #block_name: ::oscen::graph::BlockEventQueue });
             }
         }
 

@@ -76,6 +76,31 @@ impl<'a> CodegenContext<'a> {
             })
             .collect();
 
+        // Event outputs: the per-frame queue holds only this frame's events.
+        // Copy them into the block accumulator, stamping the frame index
+        // (node-emitted events carry `frame_offset: 0`, so this is a stamp,
+        // not an add). Cloning an `EventInstance` never allocates: payloads
+        // are `Copy` data or an `Arc` refcount bump.
+        let event_output_stages: Vec<_> = self
+            .outputs()
+            .filter(|n| matches!(self.output_kind(&n.name), Some(EndpointKind::Event)))
+            .map(|n| {
+                let name = &n.name;
+                let block_name = block_field_name(name);
+                quote! {
+                    if !self.#name.is_empty() {
+                        for __e in self.#name.iter() {
+                            let mut __e = __e.clone();
+                            __e.frame_offset = __frame as u32;
+                            ::oscen::graph::debug_assert_event_pushed(
+                                self.#block_name.try_push(__e),
+                            );
+                        }
+                    }
+                }
+            })
+            .collect();
+
         Ok(quote! {
             #[inline(always)]
             #[allow(unused_variables)]
@@ -87,6 +112,9 @@ impl<'a> CodegenContext<'a> {
 
                 // Write stream outputs to block buffers.
                 #(#stream_output_writes)*
+
+                // Collect event outputs into block accumulators.
+                #(#event_output_stages)*
             }
         })
     }
