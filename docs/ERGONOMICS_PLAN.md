@@ -220,12 +220,15 @@ connections {
 }
 ```
 
-`poly` shipped (2026-07-08) as a **compiler-desugared construct** rather
-than the library-subgraph-template sketched here (superseding the open
-question below): a desugar pass expands the statement into the ordinary
-allocator/handler/voice-array nodes + connections before lowering, so
+**Status correction (2026-09-13): `poly` has not shipped.** No `poly`
+keyword, desugar pass, or example port exists in the compiler or the
+examples; the poly-synth benchmark and fm-synth still hand-wire
+`VoiceAllocator` + `[MidiVoiceHandler; N]` + the voice array. The design
+below remains the intended shape *if* it is pursued: a compiler-desugared
+construct rather than a library subgraph template, expanding before
+lowering into the ordinary allocator/handler/voice-array nodes so
 everything downstream is unchanged. The original `midi_in -> voices.midi`
-sketch is also superseded: **`MidiParser` stays outside poly** — users
+sketch is superseded: **`MidiParser` stays outside poly** — users
 wire `midi_parser.note_on -> voices.note_on;` — keeping poly usable for
 non-MIDI event sources and parser count explicit. Voice-level endpoints
 `frequency`/`gate` are wired internally (default contract, validated
@@ -348,9 +351,11 @@ Plan, in two stages:
   decision below — `except {}` remains the future escape hatch). Nested
   `graph!` types hoist through (the `poly` prerequisite). Cookbook
   documents the manifest-in-scope and same-name-type gotchas.
-- **§4 `poly`: shipped (2026-07-08).** Compiler-desugared construct (not a
-  library subgraph — the open question below is settled): `voices =
-  poly::<N>(Voice::new());` expands before lowering into the hand-wired
+- **§4 `poly`: NOT shipped** (an earlier revision of this file claimed a
+  2026-07-08 ship date and an fm-synth port; neither exists in the tree —
+  see the status correction above). Intended design: compiler-desugared
+  construct (not a library subgraph): `voices =
+  poly::<N>(Voice::new());` would expand before lowering into the hand-wired
   `VoiceAllocator::<N>` + `[MidiVoiceHandler; N]` + voice-array pattern,
   with `voices.note_on`/`voices.note_off` aliasing the allocator and every
   other `voices.<ep>` resolving to the array node (broadcast in, summed
@@ -358,8 +363,8 @@ Plan, in two stages:
   against the voice type's manifest through the same CPS resolve/resume
   chain as wildcards) is a hard error when unmet, spanned to the `poly`
   statement, suggesting manual wiring as the fallback. `input voices.*;`
-  works through it; the contract connections are skip-connected. fm-synth
-  (plugin + standalone graphs) ported. **Deferred from §4:** custom
+  would work through it; the contract connections would be skip-connected.
+  **Deferred from §4:** custom
   contract mappings (drum/MPE voices — constraint: overridable mapping,
   no redesign), pluggable allocation policy (v1 keeps LRU-with-release-
   preference), and `voices.midi` sugar (superseded by explicit

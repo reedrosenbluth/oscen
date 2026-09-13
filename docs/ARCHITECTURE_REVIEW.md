@@ -4,6 +4,21 @@ Reviewed September 13, 2026, against `60588d4333f52cdc7fbf0d08eaa5e1b2090d194d`.
 Source references below refer to that revision. This is a review, not an
 implementation plan already approved or a claim that the findings are fixed.
 
+## Status (2026-09-13, after the review)
+
+Landed in the commits following `3a8e8d4`: C1 and C2 (a resolved
+per-destination driver plan and a whole-expression clock in the IR, with
+codegen emitting from the plan), C3 (trait `process` delegates), C4
+(`<name>_block` event-output accumulators), C5 (idle handoff polls are one
+atomic load; the swap cost is documented; plugin callbacks own their DSP and
+use inline MIDI), C6 (descriptor probes run on a sized worker), and the ramp
+half of C7 (`active_ramps` removed). Still open from C7: external asset
+type/endpoint validation, the unconditional `BlockRender` `compile_error!`,
+and asset loaders' rate under oversampling. Graph-side `EndpointAt`
+markers for nested-graph destinations, the voice lifecycle (P1), the
+storage split (P2), and block scheduling experiments (P3) are not started.
+`docs/review-probes/` has been trimmed to the cases that still compile.
+
 ## Executive assessment
 
 **Keep the static compiler and field-based DSP model. Make their contracts

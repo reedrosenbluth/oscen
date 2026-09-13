@@ -51,7 +51,17 @@ graph! {
 fn main() {
     let (mut p, mut c) = oscen::handoff::pair::<u32>();
     p.publish(42);
-    let ((a, d), (a2, d2)) = std::thread::spawn(move || {
+    let ((a0, d0), (a, d), (a2, d2)) = std::thread::spawn(move || {
+        // Idle take on a thread that has never touched arc-swap: one atomic
+        // load, must not allocate. (A value is pending, but the flag is what
+        // is consulted first only when nothing is pending; so probe the idle
+        // path with a second consumer below.)
+        let (_p_idle, mut c_idle) = oscen::handoff::pair::<u32>();
+        let idle = count(|| {
+            assert!(c_idle.take().is_none());
+        });
+        // First take *of a published value* on this thread: arc-swap may
+        // claim its per-thread node here, once (documented).
         let first = count(|| {
             let v = c.take().unwrap();
             c.retire(v);
@@ -59,11 +69,11 @@ fn main() {
         let second = count(|| {
             assert!(c.take().is_none());
         });
-        (first, second)
+        (idle, first, second)
     })
     .join()
     .unwrap();
-    println!("handoff fresh thread: allocations={a}, deallocations={d}; next empty take: allocations={a2}, deallocations={d2}");
+    println!("handoff fresh thread: idle take allocations={a0}, deallocations={d0} (expected 0,0); first pending take allocations={a}, deallocations={d} (documented: at most one arc-swap thread node); next empty take: allocations={a2}, deallocations={d2} (expected 0,0)");
     let mut g = ObjectSink::new();
     g.init(48000.0);
     assert!(g.push_gate(EventPayload::object([1u8; 16]), 0));

@@ -380,12 +380,30 @@ full-velocity notes to 126.
 
 ## Connections
 
-- **Fan-in sums — streams only**: several stream sources into the same
-  destination add (`branch_a.output -> mix.input; branch_b.output ->
-  mix.input;`), Cmajor semantics. Array outputs wired to a graph output
-  also sum. Two sources into one *value* endpoint is a compile error
-  (values don't sum); combine them explicitly (`a + b -> amp.gain;`) or
-  keep a single source.
+- **Fan-in is decided per destination, by kind**: several *stream* sources
+  into one endpoint add (`branch_a.output -> mix.input; branch_b.output ->
+  mix.input;`), Cmajor semantics; array outputs wired to a graph output
+  also sum. Several *event* sources into one event endpoint (node input or
+  `output x: event`) merge, in connection order. Two sources into one
+  *value* endpoint is a compile error (values don't sum); combine them
+  explicitly (`a + b -> amp.gain;`) or keep a single source. When the
+  endpoint's kind is not visible to the macro (pure node-to-node wiring
+  with no typed graph endpoint anchoring it), the same rule is enforced by
+  rustc through the node's `EndpointAt` marker — a value endpoint fails
+  with "cannot be driven by more than one connection". A node built from an
+  arbitrary expression (`node v = make_voice();`) has no marker to check,
+  so it accepts a single driver only.
+- **Broadcast plus indexed drivers**: `a -> voices.input; b ->
+  voices[0].input;` writes the broadcast first and then sums (or merges,
+  for events) `b` into element 0. On a value endpoint it is an error.
+- **One clock per expression**: every node an expression references must run
+  at the same rate. `slow.output + fast.output -> mix.input` with `fast`
+  oversampled is an error in either operand order; give each operand its
+  own connection (the graph resamples each at the destination) or do the
+  arithmetic inside a node. Literals and graph value inputs are
+  rate-neutral. An expression cannot use a whole node array at once
+  (`voices.output * 0.5`); index one element or connect the array endpoint
+  directly so the elements fan in.
 - **Comma fan-out**: `freq -> osc_a.frequency, osc_b.frequency;` is one
   statement per destination. Not combinable with a `-> […] ->` delay
   bracket (each destination would need its own delay).

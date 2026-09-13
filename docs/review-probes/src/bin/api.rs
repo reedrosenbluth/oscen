@@ -22,8 +22,12 @@ fn main() {
     g.init(48000.0);
     assert!(g.push_e(1.0, 1));
     g.process_block(4);
+    // The per-frame `o` reflects only the last frame; `o_block` accumulates
+    // the whole block with block-relative offsets.
     println!(
-        "event at frame1 after process_block(4): output count={} (expected 1)",
+        "event at frame1 after process_block(4): o_block count={} offset={:?} (expected 1, Some(1)); per-frame o count={} (last frame only)",
+        g.o_block.len(),
+        g.o_block.first().map(|e| e.frame_offset),
         g.o.len()
     );
     let mut a = Ramped::new();

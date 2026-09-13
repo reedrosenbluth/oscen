@@ -5,6 +5,7 @@
 #![feature(inherent_associated_types)]
 #![allow(dead_code)]
 use oscen::{graph, Convolver, EventInput, EventInstance, Gain, Node, SignalProcessor};
+// `Val` and `Counter` below are kept as the node shapes the removed cases used.
 #[derive(Debug, Default, Node)]
 pub struct Sink {
     #[input(event)]
@@ -46,7 +47,9 @@ impl SignalProcessor for Val {
         self.output = self.input;
     }
 }
-graph! {name: ValueMerge; nodes {a=Val::new(1.0);b=Val::new(2.0);sink=Val::new(0.0);} connections {a.output->sink.input;b.output->sink.input;}}
+// `ValueMerge` (two unanchored value outputs into one value input) is now a
+// rustc error through `FanInAllowed`; see
+// oscen-macros/tests/ui/value_fanin_unknown_kind.rs.
 graph! {name: WrongAsset; external impulse: DoesNotExist; output out: stream; node reverb=Convolver::new(); connections {impulse->reverb.typo;reverb.output->out;}}
 #[derive(Debug, Node)]
 pub struct Counter {
@@ -63,8 +66,9 @@ impl SignalProcessor for Counter {
         self.output += 1.0;
     }
 }
-graph! {name: SlowFirst;output out: stream;nodes {slow=Counter::new();fast=Counter::new()*4;sink=Gain::new(1.0);} connections {slow.output+fast.output->sink.input;sink.output->out;}}
-graph! {name: FastFirst;output out: stream;nodes {slow=Counter::new();fast=Counter::new()*4;sink=Gain::new(1.0);} connections {fast.output+slow.output->sink.input;sink.output->out;}}
+// `SlowFirst` / `FastFirst` (an expression mixing a base-rate and an
+// oversampled node, in either operand order) are now lowering errors; see
+// oscen-macros/tests/ui/mixed_rate_expression.rs.
 fn main() {
     let mut g = EventMerge::new();
     g.init(48000.0);
@@ -82,26 +86,6 @@ fn main() {
         "indexed compound destination inputs={:?} (expected [0,0,1,0])",
         g.voices.each_ref().map(|v| v.input)
     );
-    let mut g = ValueMerge::new();
-    g.init(48000.0);
-    g.process();
-    println!(
-        "unanchored value fanin compiled; sink={} (expected compile error)",
-        g.sink.input
-    );
     let _g = WrongAsset::new();
     println!("external type DoesNotExist + reverb.typo compiled (expected compile error)");
-    let mut a = SlowFirst::new();
-    let mut b = FastFirst::new();
-    a.init(48000.0);
-    b.init(48000.0);
-    let mut aa = [0.0; 8];
-    let mut bb = [0.0; 8];
-    for i in 0..8 {
-        a.process();
-        b.process();
-        aa[i] = a.out;
-        bb[i] = b.out;
-    }
-    println!("mixed-rate sums slow+fast={aa:?}; fast+slow={bb:?}");
 }
