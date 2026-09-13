@@ -487,7 +487,8 @@ impl ValueRampState {
 
     /// Advance the interpolation by one frame.
     /// Call this once per sample before using the `current` value.
-    /// Returns `true` if the ramp just completed (for decrementing active_ramps counter).
+    /// Returns `true` if the ramp just completed on this tick. Idle ramps
+    /// return immediately, so ticking every frame is cheap.
     #[inline]
     pub fn tick(&mut self) -> bool {
         if self.frames_remaining > 0 {

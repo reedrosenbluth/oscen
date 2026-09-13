@@ -359,24 +359,40 @@ fn same_rate_event_edge_propagates_post_inner_taint() {
 }
 
 // ---------------------------------------------------------------------------
-// set_X_with_ramp(value, 0) must not leak the active_ramps counter
+// tick_ramps must tick every ramped input unconditionally. There is no
+// shared `active_ramps` counter: the ramp fields are `pub`, so a counter
+// maintained only by generated setters would stall ramps started directly
+// through `field.set_with_ramp(..)`.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn zero_frame_ramp_setter_decrements_active_ramps() {
+fn tick_ramps_ticks_every_ramped_input() {
     let tokens = compile(quote! {
-        name: RampZero;
+        name: RampTick;
         input value gain = 1.0 [ramp: 64];
+        input value cutoff = 100.0 [ramp: 8];
+        input value plain = 0.0;
         output value level;
         connections {
             gain -> level;
         }
     })
     .expect("compile succeeds");
-    let body = inherent_method_body(tokens, "set_gain_with_ramp");
+    let all = tokens.to_string();
     assert!(
-        body.contains("self . active_ramps -= 1"),
-        "frames == 0 with an in-flight ramp must decrement active_ramps; got:\n{}",
+        !all.contains("active_ramps"),
+        "generated code must not carry an active_ramps counter:\n{}",
+        all
+    );
+    let body = inherent_method_body(tokens, "tick_ramps");
+    assert!(
+        body.contains("self . gain . tick ()") && body.contains("self . cutoff . tick ()"),
+        "tick_ramps must tick each ramped input; got:\n{}",
+        body
+    );
+    assert!(
+        !body.contains("self . plain"),
+        "non-ramped inputs must not be ticked; got:\n{}",
         body
     );
 }
@@ -530,15 +546,17 @@ fn value_input_named_sample_rate_collides_with_builtin() {
 }
 
 #[test]
-fn input_named_active_ramps_collides_with_builtin_field() {
-    let msgs = compile_errors(quote! {
+fn input_named_active_ramps_is_no_longer_reserved() {
+    // The graph struct used to carry a private `active_ramps` counter, so
+    // this name was reserved. The counter is gone; the name is ordinary.
+    let tokens = compile_to_string(quote! {
         name: G;
         input value active_ramps = 0.5;
         output stream out;
     });
     assert!(
-        msgs.iter().any(|m| m.contains("collides")),
-        "expected reserved-name error; got {msgs:?}"
+        tokens.contains("pub active_ramps : f32"),
+        "input named active_ramps should be an ordinary field; got:\n{tokens}"
     );
 }
 

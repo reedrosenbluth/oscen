@@ -143,53 +143,50 @@ fn test_ramped_input_used_in_connections() {
 }
 
 // ============================================================================
-// Active Ramps Counter Tests
+// Ramp state tests (no shared counter: every ramp is ticked each frame)
 // ============================================================================
 
 #[test]
-fn test_active_ramps_starts_at_zero() {
+fn test_no_ramps_active_at_start() {
     let graph = RampedFilterGraph::new();
-    assert_eq!(graph.active_ramps, 0);
+    assert!(!graph.cutoff.is_ramping());
+    assert!(!graph.gain.is_ramping());
 }
 
 #[test]
-fn test_active_ramps_increments_on_set() {
+fn test_setters_start_independent_ramps() {
     let mut graph = RampedFilterGraph::new();
     graph.init(44100.0);
 
-    assert_eq!(graph.active_ramps, 0);
-
-    // Start a ramp
     graph.set_cutoff(5000.0);
-    assert_eq!(graph.active_ramps, 1);
+    assert!(graph.cutoff.is_ramping());
+    assert!(!graph.gain.is_ramping());
 
-    // Start another ramp
     graph.set_gain(0.5);
-    assert_eq!(graph.active_ramps, 2);
+    assert!(graph.cutoff.is_ramping());
+    assert!(graph.gain.is_ramping());
 }
 
 #[test]
-fn test_active_ramps_does_not_increment_if_already_ramping() {
+fn test_retarget_while_ramping_keeps_ramping() {
     let mut graph = RampedFilterGraph::new();
     graph.init(44100.0);
 
-    // Start a ramp
     graph.set_cutoff(5000.0);
-    assert_eq!(graph.active_ramps, 1);
+    assert!(graph.cutoff.is_ramping());
 
-    // Setting again while already ramping should not increment
     graph.set_cutoff(6000.0);
-    assert_eq!(graph.active_ramps, 1);
+    assert!(graph.cutoff.is_ramping());
+    assert_eq!(graph.cutoff.target, 6000.0);
 }
 
 #[test]
-fn test_active_ramps_decrements_on_completion() {
+fn test_ramp_completes_after_duration() {
     let mut graph = RampedFilterGraph::new();
     graph.init(44100.0);
 
     // Start a short ramp (4 frames)
     graph.set_cutoff_with_ramp(5000.0, 4);
-    assert_eq!(graph.active_ramps, 1);
     assert!(graph.cutoff.is_ramping());
 
     // Process until ramp completes
@@ -197,50 +194,98 @@ fn test_active_ramps_decrements_on_completion() {
         graph.process();
     }
 
-    assert_eq!(graph.active_ramps, 0);
     assert!(!graph.cutoff.is_ramping());
     assert_eq!(graph.cutoff.current, 5000.0);
 }
 
 #[test]
-fn test_active_ramps_decrements_on_immediate_set() {
+fn test_immediate_set_cancels_ramp() {
     let mut graph = RampedFilterGraph::new();
     graph.init(44100.0);
 
-    // Start a ramp
     graph.set_cutoff(5000.0);
-    assert_eq!(graph.active_ramps, 1);
+    assert!(graph.cutoff.is_ramping());
 
-    // Interrupt with immediate set
     graph.set_cutoff_immediate(8000.0);
-    assert_eq!(graph.active_ramps, 0);
     assert!(!graph.cutoff.is_ramping());
+    assert_eq!(graph.cutoff.current, 8000.0);
 }
 
 #[test]
-fn test_active_ramps_counter_stays_in_sync() {
+fn test_ramps_of_different_lengths_complete_independently() {
     let mut graph = RampedFilterGraph::new();
     graph.init(44100.0);
 
-    // Start two ramps with different durations
     graph.set_cutoff_with_ramp(5000.0, 10);
     graph.set_gain_with_ramp(0.5, 5);
-    assert_eq!(graph.active_ramps, 2);
+    assert!(graph.cutoff.is_ramping());
+    assert!(graph.gain.is_ramping());
 
     // Process 5 frames - gain ramp should complete
     for _ in 0..5 {
         graph.process();
     }
-    assert_eq!(graph.active_ramps, 1);
     assert!(!graph.gain.is_ramping());
+    assert_eq!(graph.gain.current, 0.5);
     assert!(graph.cutoff.is_ramping());
 
     // Process 5 more frames - cutoff ramp should complete
     for _ in 0..5 {
         graph.process();
     }
-    assert_eq!(graph.active_ramps, 0);
     assert!(!graph.cutoff.is_ramping());
+    assert_eq!(graph.cutoff.current, 5000.0);
+}
+
+// ----------------------------------------------------------------------------
+// Direct writes to the public ramp field must not stall. The graph used to
+// keep a private counter that only the generated setters maintained;
+// `graph.cutoff.set_with_ramp(..)` bypassed it and the ramp never advanced.
+// ----------------------------------------------------------------------------
+
+#[test]
+fn direct_set_with_ramp_is_not_stalled_per_sample() {
+    let mut graph = RampedFilterGraph::new();
+    graph.init(44100.0);
+
+    graph.cutoff.set_with_ramp(5000.0, 4);
+    assert!(graph.cutoff.is_ramping());
+    for _ in 0..4 {
+        graph.process();
+    }
+    assert!(!graph.cutoff.is_ramping());
+    assert_eq!(graph.cutoff.current, 5000.0);
+}
+
+#[test]
+fn direct_set_with_ramp_is_not_stalled_per_block() {
+    let mut graph = RampedFilterGraph::new();
+    graph.init(44100.0);
+
+    graph.cutoff.set_with_ramp(5000.0, 4);
+    graph.process_block(4);
+    assert!(!graph.cutoff.is_ramping());
+    assert_eq!(graph.cutoff.current, 5000.0);
+}
+
+#[test]
+fn direct_and_generated_setters_mix_freely() {
+    let mut graph = RampedFilterGraph::new();
+    graph.init(44100.0);
+
+    graph.set_gain_with_ramp(0.5, 4);
+    graph.cutoff.set_with_ramp(5000.0, 8);
+    for _ in 0..4 {
+        graph.process();
+    }
+    assert!(!graph.gain.is_ramping());
+    assert_eq!(graph.gain.current, 0.5);
+    assert!(graph.cutoff.is_ramping());
+    for _ in 0..4 {
+        graph.process();
+    }
+    assert!(!graph.cutoff.is_ramping());
+    assert_eq!(graph.cutoff.current, 5000.0);
 }
 
 #[test]
@@ -250,7 +295,6 @@ fn test_set_with_ramp_zero_frames_does_not_increment() {
 
     // Set with zero frames should be immediate (no ramp started)
     graph.set_cutoff_with_ramp(5000.0, 0);
-    assert_eq!(graph.active_ramps, 0);
     assert!(!graph.cutoff.is_ramping());
     assert_eq!(graph.cutoff.current, 5000.0);
 }
@@ -262,7 +306,6 @@ fn test_setter_is_noop_if_target_unchanged() {
 
     // Start a ramp
     graph.set_cutoff(5000.0);
-    assert_eq!(graph.active_ramps, 1);
     assert!(graph.cutoff.is_ramping());
 
     // Process a bit
@@ -274,7 +317,7 @@ fn test_setter_is_noop_if_target_unchanged() {
 
     // Call setter with same target - should be no-op
     graph.set_cutoff(5000.0);
-    assert_eq!(graph.active_ramps, 1); // Still 1, not incremented
+    assert!(graph.cutoff.is_ramping());
     assert_eq!(graph.cutoff.current, current_after_10); // Current unchanged
 
     // Process more - ramp should continue normally
@@ -300,6 +343,5 @@ fn test_setter_safe_to_call_every_frame() {
 
     // Should have completed the ramp normally (after 50 frames)
     assert_eq!(graph.cutoff.current, 5000.0);
-    assert_eq!(graph.active_ramps, 0);
     assert!(!graph.cutoff.is_ramping());
 }

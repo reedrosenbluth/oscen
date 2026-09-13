@@ -1054,13 +1054,17 @@ impl<'a> CodegenContext<'a> {
             };
         }
 
+        // Each `ValueRampState::tick` early-outs when idle, so ticking every
+        // ramped input unconditionally is a handful of predictable branches
+        // per sample. This deliberately has no shared counter: the ramp
+        // fields are `pub` (generated code lives in the user's crate), so a
+        // counter maintained only by the generated setters would silently
+        // stall any ramp started through `field.set_with_ramp(..)` directly.
         let tick_stmts: Vec<_> = ramped
             .iter()
             .map(|name| {
                 quote! {
-                    if self.#name.tick() {
-                        self.active_ramps -= 1;
-                    }
+                    self.#name.tick();
                 }
             })
             .collect();
@@ -1068,9 +1072,7 @@ impl<'a> CodegenContext<'a> {
         quote! {
             #[inline(always)]
             fn tick_ramps(&mut self) {
-                if self.active_ramps > 0 {
-                    #(#tick_stmts)*
-                }
+                #(#tick_stmts)*
             }
         }
     }
@@ -1099,9 +1101,6 @@ impl<'a> CodegenContext<'a> {
                         pub fn #set_name(&mut self, value: f32) {
                             // Only start a new ramp if target actually changed
                             if value != self.#name.target {
-                                if !self.#name.is_ramping() {
-                                    self.active_ramps += 1;
-                                }
                                 self.#name.set_with_ramp(value, #default_frames as u32);
                             }
                         }
@@ -1112,14 +1111,7 @@ impl<'a> CodegenContext<'a> {
                         pub fn #set_ramp_name(&mut self, value: f32, frames: u32) {
                             // Only start a new ramp if target actually changed
                             if value != self.#name.target {
-                                if frames > 0 {
-                                    if !self.#name.is_ramping() {
-                                        self.active_ramps += 1;
-                                    }
-                                } else if self.#name.is_ramping() {
-                                    // frames == 0 ends any in-flight ramp immediately.
-                                    self.active_ramps -= 1;
-                                }
+                                // frames == 0 ends any in-flight ramp immediately.
                                 self.#name.set_with_ramp(value, frames);
                             }
                         }
@@ -1127,9 +1119,6 @@ impl<'a> CodegenContext<'a> {
                         /// Set the value immediately without ramping.
                         #[inline]
                         pub fn #set_immediate_name(&mut self, value: f32) {
-                            if self.#name.is_ramping() {
-                                self.active_ramps -= 1;
-                            }
                             self.#name.set_immediate(value);
                         }
                     }
@@ -1326,25 +1315,12 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
-    /// Check if this graph has any ramped inputs
-    fn has_ramped_inputs(&self) -> bool {
-        self.inputs().any(|n| {
-            matches!(self.input_kind(&n.name), Some(EndpointKind::Value))
-                && self.is_ramped_input(&n.name).is_some()
-        })
-    }
-
     /// Collect every field of the generated struct, in declaration order:
-    /// `sample_rate` (+ `active_ramps`), inputs (+ stream block buffers),
+    /// `sample_rate`, inputs (+ stream block buffers),
     /// outputs (+ stream block buffers), node instances, asset load handles.
     /// Resampler fields are appended separately by the caller.
     fn collect_struct_fields(&self) -> Vec<TokenStream> {
         let mut fields = vec![quote! { sample_rate: f32 }];
-
-        // Add active_ramps counter if there are ramped inputs
-        if self.has_ramped_inputs() {
-            fields.push(quote! { active_ramps: u32 });
-        }
 
         // Add input fields
         for node in self.inputs() {

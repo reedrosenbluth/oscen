@@ -221,14 +221,6 @@ impl<'a> CodegenContext<'a> {
 
     /// Generate static struct initialization (includes sample_rate, nodes - no IO fields).
     pub(super) fn generate_static_struct_init(&self) -> TokenStream {
-        let has_ramped = self.has_ramped_inputs();
-
-        let active_ramps_init = if has_ramped {
-            quote! { active_ramps: 0, }
-        } else {
-            quote! {}
-        };
-
         // Add input/output fields (including block buffer fields for streams)
         let input_fields: Vec<_> = self
             .inputs()
@@ -285,7 +277,6 @@ impl<'a> CodegenContext<'a> {
 
         quote! {
             sample_rate,
-            #active_ramps_init
             #(#input_fields,)*
             #(#output_fields,)*
             #(#node_fields),*

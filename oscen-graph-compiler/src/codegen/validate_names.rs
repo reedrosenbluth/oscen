@@ -43,7 +43,7 @@ const REGISTRY_METHODS: &[&str] = &[
 ];
 
 /// Struct fields codegen always emits with fixed names.
-const FIXED_FIELDS: &[&str] = &["sample_rate", "active_ramps"];
+const FIXED_FIELDS: &[&str] = &["sample_rate"];
 
 impl<'a> CodegenContext<'a> {
     /// Reject declarations whose (derived) generated names collide with the
