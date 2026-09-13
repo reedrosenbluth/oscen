@@ -12,7 +12,7 @@ mod with_feature {
         nih_params;
 
         // Compact bracket syntax with range, skew, and options
-        input cutoff: value = 2000.0 [20.0..20000.0 center = 1000.0, unit = "Hz", name = "Filter Cutoff"];
+        input cutoff: value = 2000.0 [20.0..20000.0, center = 1000.0, unit = "Hz", name = "Filter Cutoff"];
 
         // Bracket syntax with step size
         input ratio: value = 1.0 [0.5..16.0, step = 0.5];
@@ -20,7 +20,7 @@ mod with_feature {
         // Simple range only
         input level: value = 0.5 [0.0..2.0];
 
-        // No spec = 0..1 range with default smoothing
+        // No spec = 0..1 range; no smoother unless `smoother:` is given
         input simple_param: value = 0.5;
 
         output out: stream;
@@ -45,6 +45,10 @@ mod with_feature {
         let params = TestGraphParams::default();
         let mut graph = TestGraph::new();
         params.sync_to(&mut graph);
+        assert!((graph.cutoff - 2000.0).abs() < 0.001);
+        assert!((graph.ratio - 1.0).abs() < 0.001);
+        assert!((graph.level - 0.5).abs() < 0.001);
+        assert!((graph.simple_param - 0.5).abs() < 0.001);
     }
 
     #[test]
