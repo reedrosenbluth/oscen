@@ -1,0 +1,13 @@
+[package]
+name = "oscen-architecture-probes"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Deliberately outside the production workspace: manual review diagnostics,
+# not regression tests that assert buggy behavior should be preserved.
+[workspace]
+
+[dependencies]
+oscen = { path = "../../oscen-lib" }
+arrayvec = "0.7.6"
