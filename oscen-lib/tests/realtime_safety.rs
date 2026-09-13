@@ -95,6 +95,59 @@ fn handoff_take_and_retire_are_alloc_free() {
 }
 
 #[test]
+fn handoff_fresh_thread_take_is_alloc_free() {
+    // Contract for a real audio callback: the consumer lives on a thread that
+    // has never touched arc-swap. Idle takes on that fresh thread must not
+    // allocate. The first take *of a published value* may allocate arc-swap's
+    // per-thread node (documented); every later take and retire must not.
+    // `assert_no_alloc` is thread-local, so guards on the spawned thread
+    // check only that thread. Channel traffic happens outside every guard.
+    use std::sync::mpsc;
+
+    let (mut pubr, mut cons) = pair::<[f32; 1024]>();
+    let (to_main, from_audio) = mpsc::channel::<()>();
+    let (to_audio, from_main) = mpsc::channel::<()>();
+
+    let audio = std::thread::spawn(move || {
+        // 1. Fresh thread, nothing pending: must be a single atomic load.
+        assert_no_alloc(|| {
+            assert!(cons.take().is_none());
+            assert!(cons.take().is_none());
+        });
+
+        // 2. First pending take on this thread: outside the guard (arc-swap
+        //    may claim its per-thread node here, once).
+        to_main.send(()).unwrap();
+        from_main.recv().unwrap();
+        let v = cons.take().expect("first publish must be visible");
+        cons.retire(v);
+
+        // 3. Warmed: take + retire + trailing idle take, all alloc-free.
+        to_main.send(()).unwrap();
+        from_main.recv().unwrap();
+        assert_no_alloc(|| {
+            let v = cons.take().expect("second publish must be visible");
+            cons.retire(v);
+            assert!(cons.take().is_none());
+        });
+        to_main.send(()).unwrap();
+    });
+
+    from_audio.recv().unwrap();
+    pubr.publish([1.0f32; 1024]);
+    to_audio.send(()).unwrap();
+
+    from_audio.recv().unwrap();
+    pubr.publish([2.0f32; 1024]);
+    to_audio.send(()).unwrap();
+
+    from_audio.recv().unwrap();
+    audio.join().expect("audio thread must not panic or allocate in guards");
+    // Retired values were pushed back; draining them is the producer's job.
+    pubr.publish([3.0f32; 1024]);
+}
+
+#[test]
 fn convolver_swap_is_alloc_free() {
     // Build an empty convolver with an installed consumer, then publish an
     // engine from OUTSIDE the no-alloc region (build + publish may allocate).

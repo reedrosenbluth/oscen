@@ -96,3 +96,82 @@ fn handoff_take_is_none_before_first_publish() {
     let (_pubr, mut cons) = pair::<Tracked>();
     assert!(cons.take().is_none());
 }
+
+#[test]
+fn idle_take_after_take_is_none_and_publish_rearms() {
+    let drops = Arc::new(AtomicUsize::new(0));
+    let (mut pubr, mut cons) = pair::<Tracked>();
+
+    assert!(cons.take().is_none(), "nothing published yet");
+    pubr.publish(Tracked {
+        id: 1,
+        drops: drops.clone(),
+    });
+    assert_eq!(cons.take().map(|t| t.id), Some(1));
+    assert!(cons.take().is_none());
+    assert!(cons.take().is_none());
+
+    // Two publishes back to back: newest wins, exactly one take succeeds.
+    pubr.publish(Tracked {
+        id: 2,
+        drops: drops.clone(),
+    });
+    pubr.publish(Tracked {
+        id: 3,
+        drops: drops.clone(),
+    });
+    assert_eq!(cons.take().map(|t| t.id), Some(3));
+    assert!(cons.take().is_none());
+}
+
+#[test]
+fn concurrent_publish_and_take_never_duplicates_or_loses_the_last_value() {
+    use std::sync::atomic::AtomicBool;
+    use std::thread;
+
+    const N: u32 = 2_000;
+    let (mut pubr, mut cons) = pair::<u32>();
+    let done = Arc::new(AtomicBool::new(false));
+
+    let producer = {
+        let done = done.clone();
+        thread::spawn(move || {
+            for i in 1..=N {
+                pubr.publish(i);
+                if i % 7 == 0 {
+                    thread::yield_now();
+                }
+            }
+            done.store(true, Ordering::SeqCst);
+            pubr
+        })
+    };
+
+    // Poll like an audio thread would, until the producer is done and the
+    // final value has been observed.
+    let mut seen = Vec::new();
+    let mut last = 0u32;
+    loop {
+        if let Some(v) = cons.take() {
+            assert!(*v > last, "values must arrive in publish order");
+            last = *v;
+            seen.push(*v);
+            cons.retire(v);
+        }
+        if done.load(Ordering::SeqCst) {
+            // One more take: the final publish must be observable now.
+            if let Some(v) = cons.take() {
+                assert!(*v > last);
+                last = *v;
+                seen.push(*v);
+                cons.retire(v);
+            }
+            break;
+        }
+        thread::yield_now();
+    }
+    let _pubr = producer.join().unwrap();
+    assert_eq!(last, N, "the newest published value must always arrive");
+    assert!(seen.len() as u32 <= N, "never more takes than publishes");
+    assert!(cons.take().is_none());
+}
