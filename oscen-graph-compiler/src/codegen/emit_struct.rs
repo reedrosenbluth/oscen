@@ -383,6 +383,41 @@ impl<'a> CodegenContext<'a> {
         out
     }
 
+    /// For every multi-driver slot whose endpoint kind is unknown at macro
+    /// time, emit a const-time `FanInAllowed` bound on the destination's
+    /// `EndpointAt::Kind`, spanned at the second connection. Stream and
+    /// event kinds satisfy it; a value endpoint fails to compile with the
+    /// trait's `on_unimplemented` message instead of being silently summed.
+    pub(super) fn generate_fan_in_assertions(&self) -> Vec<TokenStream> {
+        let mut out = Vec::new();
+        for group in &self.ir.drivers.groups {
+            if !group.rustc_kind_check {
+                continue;
+            }
+            let Some((dst_path, dst_marker)) =
+                self.endpoint_marker_tokens_for(group.dest.node, &group.dest.field)
+            else {
+                continue;
+            };
+            let anchor = if group.onto_broadcast {
+                group.sources[0]
+            } else {
+                group.sources[1]
+            };
+            let span = self.ir.edges[anchor].span;
+            out.push(quote::quote_spanned! { span =>
+                #[allow(non_snake_case)]
+                const _: fn() = || {
+                    fn _assert_fan_in_allowed<K: ::oscen::dispatch::FanInAllowed>() {}
+                    _assert_fan_in_allowed::<
+                        <#dst_path as ::oscen::dispatch::EndpointAt<#dst_marker>>::Kind,
+                    >();
+                };
+            });
+        }
+        out
+    }
+
     /// Generate one struct field per cross-rate stream/value connection.
     /// TYPED value edges carry no kernel state: they are latched (copied at
     /// the outer-block boundary) rather than resampled.

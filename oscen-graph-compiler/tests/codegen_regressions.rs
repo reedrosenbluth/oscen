@@ -790,3 +790,135 @@ fn explicit_default_descriptors_do_not_spawn_a_thread() {
         "explicit defaults need no probe thread; got:\n{body}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Emission follows the resolved driver plan.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compound_source_into_indexed_dest_writes_one_element() {
+    let tokens = compile(quote! {
+        name: Indexed;
+        input value gain = 2.0;
+        output stream out;
+        node voices = [Gain::new(1.0); 4];
+        connections {
+            gain * 0.5 -> voices[2].input;
+            voices[2].output -> out;
+        }
+    })
+    .expect("compile succeeds");
+    let body = inherent_method_body(tokens, "__frame_core");
+    assert!(
+        body.contains("& mut self . voices [2usize] . input"),
+        "compound source must address the selected element; got:\n{body}"
+    );
+    assert!(
+        !body.contains("connect (& __src , & mut self . voices [i] . input"),
+        "compound source into an indexed element must not broadcast; got:\n{body}"
+    );
+}
+
+#[test]
+fn known_event_fan_in_emits_connect_then_accumulate() {
+    let tokens = compile(quote! {
+        name: EvFan;
+        input event a;
+        input event b;
+        node sink = Sink::new();
+        connections {
+            a -> sink.ev;
+            b -> sink.ev;
+        }
+    })
+    .expect("compile succeeds");
+    let body = inherent_method_body(tokens, "__frame_core");
+    let connect = body.find(":: connect (& self . a , & mut self . sink . ev");
+    let accumulate = body.find(":: accumulate (& self . b , & mut self . sink . ev");
+    assert!(
+        matches!((connect, accumulate), (Some(c), Some(a)) if c < a),
+        "expected connect(a) then accumulate(b); got:\n{body}"
+    );
+}
+
+#[test]
+fn unknown_kind_fan_in_emits_fan_in_assertion() {
+    let tokens = compile(quote! {
+        name: Unknown;
+        output stream out;
+        nodes {
+            a = Src::new();
+            b = Src::new();
+            sink = Gain::new(1.0);
+        }
+        connections {
+            a.output -> sink.input;
+            b.output -> sink.input;
+            sink.output -> out;
+        }
+    })
+    .expect("compile succeeds");
+    let all = tokens.to_string();
+    assert!(
+        all.contains("FanInAllowed") && all.contains("< Gain > :: input__Ep"),
+        "unknown-kind multi-driver must assert FanInAllowed on the dest marker; got:\n{all}"
+    );
+    let body = inherent_method_body(tokens, "__frame_core");
+    assert!(
+        body.contains(":: accumulate (& self . b . output , & mut self . sink . input"),
+        "second driver must accumulate; got:\n{body}"
+    );
+}
+
+#[test]
+fn broadcast_plus_indexed_stream_drivers_accumulate_after_the_broadcast() {
+    let tokens = compile(quote! {
+        name: Overlap;
+        input stream a;
+        input stream b;
+        output stream out;
+        node voices = [Gain::new(1.0); 4];
+        connections {
+            b -> voices[0].input;
+            a -> voices.input;
+            voices[0].output -> out;
+        }
+    })
+    .expect("compile succeeds");
+    let body = inherent_method_body(tokens, "__frame_core");
+    let bcast = body.find("for i in 0 .. 4usize").expect("broadcast loop");
+    let acc = body
+        .find(":: accumulate (& self . b , & mut self . voices [0usize] . input")
+        .expect("indexed driver accumulates onto the broadcast");
+    assert!(bcast < acc, "broadcast must be written before the indexed driver joins it:\n{body}");
+    assert!(
+        !body.contains(":: connect (& self . b , & mut self . voices [0usize] . input"),
+        "indexed driver must not clobber the broadcast with a connect:\n{body}"
+    );
+}
+
+#[test]
+fn successful_compiles_never_contain_compile_error_tokens() {
+    for tokens in [
+        quote! {
+            name: A;
+            input stream a;
+            input stream b;
+            output stream out;
+            connections { a -> out; b -> out; }
+        },
+        quote! {
+            name: B;
+            input event a;
+            input event b;
+            output event o;
+            connections { a -> o; b -> o; }
+        },
+    ] {
+        let all = compile_to_string(tokens);
+        assert!(
+            !all.contains("compile_error"),
+            "an Ok compile must not smuggle compile_error! tokens:\n{all}"
+        );
+    }
+}

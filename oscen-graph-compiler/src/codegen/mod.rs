@@ -370,10 +370,19 @@ impl<'a> CodegenContext<'a> {
         &self,
         ep: &crate::ir::expr::IrEndpoint,
     ) -> Option<(TokenStream, TokenStream)> {
-        let node = &self.ir.nodes[ep.node];
+        self.endpoint_marker_tokens_for(ep.node, &ep.endpoint)
+    }
+
+    /// [`Self::endpoint_marker_tokens`] addressed by node id + endpoint name.
+    fn endpoint_marker_tokens_for(
+        &self,
+        node: crate::ir::graph::NodeId,
+        endpoint: &syn::Ident,
+    ) -> Option<(TokenStream, TokenStream)> {
+        let node = &self.ir.nodes[node];
         let path = self.node_type_path(node)?;
         let assoc_ident = syn::Ident::new(
-            &format!("{}__Ep", ep.endpoint),
+            &format!("{}__Ep", endpoint),
             proc_macro2::Span::call_site(),
         );
         Some((quote! { #path }, quote! { <#path>::#assoc_ident }))
@@ -1450,6 +1459,7 @@ impl<'a> CodegenContext<'a> {
         let resampler_inits = self.generate_resampler_inits();
 
         let kind_assertions = self.generate_kind_assertions();
+        let fan_in_assertions = self.generate_fan_in_assertions();
         let feedback_assertions = self.generate_feedback_assertions();
 
         // For compile-time graphs, generate a static process() method
@@ -1497,6 +1507,8 @@ impl<'a> CodegenContext<'a> {
 
         Ok(quote! {
             #(#kind_assertions)*
+
+            #(#fan_in_assertions)*
 
             #(#feedback_assertions)*
 

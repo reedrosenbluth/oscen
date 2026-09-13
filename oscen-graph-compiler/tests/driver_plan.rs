@@ -527,3 +527,29 @@ fn unindexed_array_inside_expression_is_rejected() {
         "got {msgs:?}"
     );
 }
+
+#[test]
+fn hoisted_value_endpoint_with_node_driver_is_rejected_at_macro_time() {
+    // The explicit hoist anchors `osc.frequency` as a known value endpoint,
+    // so the node-to-node driver is rejected here, not by rustc.
+    let msgs = lower_errors(quote! {
+        name: G;
+        output stream out;
+        nodes {
+            lfo = Src::new();
+            osc = Osc::new();
+        }
+        input osc.frequency freq;
+        connections {
+            lfo.output -> osc.frequency;
+            osc.output -> out;
+        }
+    });
+    // Hoist expansion catches the overlap first with its own wording; the
+    // point is that it is a macro-time diagnostic, not a rustc error.
+    assert!(
+        msgs.iter().any(|m| m.contains("value endpoint `osc.frequency` has 2 sources")
+            || (m.contains("re-exports `osc.frequency`") && m.contains("two drivers"))),
+        "got {msgs:?}"
+    );
+}

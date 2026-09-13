@@ -4,9 +4,8 @@
 //! they take the few inputs they need and return token streams or idents.
 
 use crate::ast::ConnectionPolicy;
-use crate::ir::expr::{IrExpr, IrExprKind};
 use crate::ir::graph::EdgeKernel;
-use crate::ir::graph::{EventRescale, IrGraph};
+use crate::ir::graph::EventRescale;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Ident;
@@ -85,17 +84,6 @@ pub(super) fn is_same_rate_kernel(k: &EdgeKernel) -> bool {
     )
 }
 
-/// Extract the root node name from an IR expression (the leftmost node's name
-/// as a String). Walks through Binary/MethodCall to find the leftmost
-/// Endpoint variant. Returns None for Call/Literal.
-pub(super) fn root_node_name(expr: &IrExpr, ir: &IrGraph) -> Option<String> {
-    match &expr.kind {
-        IrExprKind::Endpoint(ep) => Some(ir.nodes[ep.node].name.to_string()),
-        IrExprKind::Binary { left, .. } => root_node_name(left, ir),
-        IrExprKind::MethodCall { receiver, .. } => root_node_name(receiver, ir),
-        IrExprKind::Call { .. } | IrExprKind::Literal(_) => None,
-    }
-}
 
 /// Compute the greatest common divisor of two numbers.
 pub(super) fn gcd(a: u32, b: u32) -> u32 {

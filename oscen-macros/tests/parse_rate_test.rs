@@ -141,3 +141,9 @@ fn mixed_rate_expression_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/mixed_rate_expression.rs");
 }
+
+#[test]
+fn value_fanin_unknown_kind_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/value_fanin_unknown_kind.rs");
+}
