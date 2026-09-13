@@ -615,3 +615,63 @@ fn ramped_setter_collision_is_rejected() {
         "expected reserved-name error; got {msgs:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `SignalProcessor::process` must delegate to the inherent `process()`.
+// Previously the trait method was an empty body, so generic/trait-object
+// callers silently processed nothing.
+// ---------------------------------------------------------------------------
+
+/// Extract the body of a method from a trait impl whose trait path ends in
+/// `trait_name`.
+fn trait_method_body(
+    tokens: proc_macro2::TokenStream,
+    trait_name: &str,
+    method: &str,
+) -> String {
+    let file: syn::File = syn::parse2(tokens).expect("generated code parses as a file");
+    for item in file.items {
+        if let syn::Item::Impl(imp) = item {
+            let Some((_, path, _)) = &imp.trait_ else {
+                continue;
+            };
+            let last = path
+                .segments
+                .last()
+                .map(|s| s.ident.to_string())
+                .unwrap_or_default();
+            if last != trait_name {
+                continue;
+            }
+            for it in imp.items {
+                if let syn::ImplItem::Fn(f) = it {
+                    if f.sig.ident == method {
+                        return f.block.to_token_stream().to_string();
+                    }
+                }
+            }
+        }
+    }
+    panic!("trait method `{trait_name}::{method}` not found in generated code");
+}
+
+#[test]
+fn signal_processor_trait_process_delegates_to_inherent() {
+    let tokens = compile(quote! {
+        name: TraitDelegate;
+        input stream x;
+        output stream y;
+        node g = Gain::new(2.0);
+        connections {
+            x -> g.input;
+            g.output -> y;
+        }
+    })
+    .expect("compile succeeds");
+    let body = trait_method_body(tokens, "SignalProcessor", "process");
+    assert!(
+        body.contains("TraitDelegate :: process (self)"),
+        "trait process() must delegate to the inherent method; got:\n{}",
+        body
+    );
+}

@@ -1594,8 +1594,13 @@ impl<'a> CodegenContext<'a> {
                     #(#resampler_resets)*
                 }
 
+                #[inline(always)]
                 fn process(&mut self) {
-                    // This is already implemented in the impl block above
+                    // Delegate to the inherent `process()` (the full per-cycle
+                    // wrapper around `__frame_core`). Inherent methods win
+                    // over trait methods for `Type::method` paths, so this
+                    // does not recurse.
+                    #name::process(self)
                 }
             }
 
