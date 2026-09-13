@@ -1,0 +1,13 @@
+error: expression mixes nodes at different rates (`slow` at the base rate, `fast` at `* 4`), so its clock is ambiguous; give each operand its own connection (the graph resamples it at the destination) or move the arithmetic into a node running at one rate
+  --> tests/ui/mixed_rate_expression.rs:16:9
+   |
+16 |         slow.output + fast.output -> sink.input;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Gain` and `PolyBlepOscillator`
+ --> tests/ui/mixed_rate_expression.rs:1:20
+  |
+1 | use oscen::{graph, Gain, PolyBlepOscillator};
+  |                    ^^^^  ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

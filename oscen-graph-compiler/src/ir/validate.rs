@@ -122,6 +122,46 @@ pub fn validate(ir: &IrGraph) {
         ir.edges.len(),
         "edge_order must contain every live edge exactly once"
     );
+
+    // Driver plan (when resolved): every live edge belongs to exactly one
+    // group, every group edge is live, and group order follows edge_order.
+    if !ir.drivers.is_empty() {
+        let mut seen: HashSet<EdgeId> = HashSet::new();
+        let mut last_first_pos = None;
+        for (gi, g) in ir.drivers.groups.iter().enumerate() {
+            assert!(!g.sources.is_empty(), "driver group {gi} has no sources");
+            for &eid in &g.sources {
+                assert!(
+                    edge_set.contains(&eid),
+                    "driver group {gi} references dead edge {eid:?}"
+                );
+                assert!(seen.insert(eid), "edge {eid:?} appears in two driver groups");
+                assert_eq!(
+                    ir.drivers.group_of_edge.get(eid).copied(),
+                    Some(gi),
+                    "group_of_edge disagrees with groups for {eid:?}"
+                );
+                assert!(
+                    ir.edges[eid].dest.node == g.dest.node,
+                    "driver group {gi} mixes destination nodes"
+                );
+            }
+            let first_pos = ir
+                .edge_order
+                .iter()
+                .position(|&e| e == g.sources[0])
+                .expect("first source in edge_order");
+            if let Some(prev) = last_first_pos {
+                assert!(prev < first_pos, "driver groups are not in canonical order");
+            }
+            last_first_pos = Some(first_pos);
+        }
+        assert_eq!(
+            seen.len(),
+            ir.edges.len(),
+            "driver plan must cover every live edge exactly once"
+        );
+    }
 }
 
 #[cfg(test)]

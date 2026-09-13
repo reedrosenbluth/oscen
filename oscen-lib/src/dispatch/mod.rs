@@ -83,6 +83,22 @@ pub trait CrossRateKernel<SrcKind, DstKind, Policy, const N: u32, Dir, Frame = f
     type State: Default + Send;
 }
 
+/// Endpoint kinds that accept more than one driver. A multi-source
+/// connection into a stream endpoint sums, into an event endpoint merges;
+/// a value endpoint takes exactly one source. The `graph!` macro rejects
+/// multi-driver value endpoints at expansion time when the endpoint's kind
+/// is known there, and otherwise emits a const assertion on this bound so
+/// rustc rejects it through the node's `EndpointAt` marker instead of
+/// silently summing.
+#[diagnostic::on_unimplemented(
+    message = "endpoint of kind `{Self}` cannot be driven by more than one connection",
+    note = "stream endpoints sum their sources and event endpoints merge them; a value endpoint takes exactly one source — combine values explicitly (`a + b -> dest`) or keep a single connection",
+    label = "value endpoint has multiple drivers"
+)]
+pub trait FanInAllowed {}
+impl FanInAllowed for StreamKind {}
+impl FanInAllowed for EventKind {}
+
 #[doc(hidden)]
 pub mod __private_assert {
     pub trait IsStream {}

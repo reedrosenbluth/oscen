@@ -107,6 +107,10 @@ pub struct IrGraph {
     /// `lower::build_edges`). Each ties an external handle to one node's asset
     /// input; codegen emits the handoff + load handle for it.
     pub asset_bindings: Vec<AssetBinding>,
+    /// Per-destination driver groups with resolved fan-in policy (populated
+    /// by `passes::drivers::resolve` at the end of lowering). Reset to empty
+    /// by `remove_edge`; callers that prune edges must rebuild it.
+    pub drivers: crate::ir::drivers::DriverPlan,
 }
 
 /// A resolved `external -> node.asset` binding. The external becomes the
@@ -228,6 +232,12 @@ pub struct IrEdge {
     pub kernel: EdgeKernel,
     pub fanout: FanoutShape,
     pub span: Span,
+    /// The clock the source expression is sampled at, resolved from *every*
+    /// node it references (`lower::expression_clock`). Expressions mixing
+    /// differently-rated nodes are rejected during lowering, so this is
+    /// well-defined for every surviving edge; a source with no sampled
+    /// dependency (only value inputs and literals) runs at the base rate.
+    pub source_rate: NodeRate,
     /// Secondary referenced source nodes (for compound expressions like
     /// `a.x * b.y -> out`, this contains every additional `NodeId`
     /// referenced by the source expression beyond the primary). Empty for
@@ -261,6 +271,7 @@ impl IrGraph {
             edge_order: Vec::new(),
             externals: Vec::new(),
             asset_bindings: Vec::new(),
+            drivers: Default::default(),
         }
     }
 
@@ -318,6 +329,8 @@ impl IrGraph {
             dst_node.incoming.retain(|&e| e != id);
         }
         self.edge_order.retain(|&e| e != id);
+        // The driver plan indexes edges; it is stale now.
+        self.drivers = Default::default();
     }
 
     /// Remove a node and all incident edges. Also removes the node from
@@ -397,6 +410,7 @@ mod tests {
             kernel: EdgeKernel::None,
             fanout: FanoutShape::Scalar,
             span: Span::call_site(),
+            source_rate: NodeRate::Same,
             extra_source_nodes: Vec::new(),
             is_feedback: false,
             src_kind: None,

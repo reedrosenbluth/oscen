@@ -135,3 +135,9 @@ fn array_size_mismatch_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/array_size_mismatch.rs");
 }
+
+#[test]
+fn mixed_rate_expression_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/mixed_rate_expression.rs");
+}

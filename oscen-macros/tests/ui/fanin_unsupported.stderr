@@ -3,3 +3,11 @@ error: fan-in summing supports only same-rate scalar/frame stream sources; saw a
    |
 17 |         osc.output * gain -> filter.input;
    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PolyBlepOscillator` and `TptFilter`
+ --> tests/ui/fanin_unsupported.rs:1:20
+  |
+1 | use oscen::{graph, PolyBlepOscillator, TptFilter};
+  |                    ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

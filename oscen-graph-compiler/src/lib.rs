@@ -81,5 +81,15 @@ pub(crate) fn compile_parsed(
         None => return Err(diags),
     };
     ir::passes::dead_nodes::run(&mut ir);
+    // Dead-node removal only ever removes edges, so re-resolving the driver
+    // plan cannot introduce diagnostics that lowering did not already report.
+    let mut plan_diags = Diagnostics::new();
+    ir.drivers = ir::passes::drivers::resolve(&ir, &mut plan_diags);
+    debug_assert!(
+        plan_diags.is_empty(),
+        "driver plan re-resolution after dead-node removal produced diagnostics"
+    );
+    #[cfg(debug_assertions)]
+    ir::validate::validate(&ir);
     codegen::generate(&ir, &source_tokens)
 }

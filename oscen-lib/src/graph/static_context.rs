@@ -288,3 +288,32 @@ impl<D> AccumulateEndpoints<super::types::StaticEventQueue, super::types::EventI
         }
     }
 }
+
+// Graph event *outputs* (`StaticEventQueue`) as fan-in targets: several node
+// outputs, node inputs, or graph inputs merging into one `output x: event`.
+impl<S> AccumulateEndpoints<super::types::EventOutput<S>, super::types::StaticEventQueue> for () {
+    #[inline]
+    fn accumulate(src: &super::types::EventOutput<S>, dst: &mut super::types::StaticEventQueue) {
+        for event in src.iter() {
+            super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
+        }
+    }
+}
+
+impl<S> AccumulateEndpoints<super::types::EventInput<S>, super::types::StaticEventQueue> for () {
+    #[inline]
+    fn accumulate(src: &super::types::EventInput<S>, dst: &mut super::types::StaticEventQueue) {
+        for event in src.iter() {
+            super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
+        }
+    }
+}
+
+impl AccumulateEndpoints<super::types::StaticEventQueue, super::types::StaticEventQueue> for () {
+    #[inline]
+    fn accumulate(src: &super::types::StaticEventQueue, dst: &mut super::types::StaticEventQueue) {
+        for event in src.iter() {
+            super::types::debug_assert_event_pushed(dst.try_push(event.clone()));
+        }
+    }
+}

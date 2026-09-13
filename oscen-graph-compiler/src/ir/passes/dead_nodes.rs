@@ -209,6 +209,7 @@ mod tests {
             kernel: EdgeKernel::None,
             fanout: FanoutShape::Scalar,
             span: Span::call_site(),
+            source_rate: crate::ast::NodeRate::Same,
             extra_source_nodes: Vec::new(),
             is_feedback: false,
             src_kind: None,

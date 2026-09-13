@@ -13,7 +13,7 @@ use crate::codegen::helpers::ident_base;
 use crate::diagnostics::Diagnostics;
 use crate::ir::expr::{primary_node, IrEndpoint, IrExpr, IrExprKind};
 use crate::ir::graph::{
-    classify_fanout, AssetBinding, EdgeId, EdgeKernel, EndpointInfo, EventRescale, FanoutShape,
+    classify_fanout, AssetBinding, EdgeKernel, EndpointInfo, EventRescale, FanoutShape,
     IrEdge, IrGraph, IrNode, IrNodeKind, NodeId,
 };
 use proc_macro2::Span;
@@ -54,6 +54,7 @@ pub fn lower(mut graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph
     topo_sort(&mut ir, diags);
     validate_cross_rate_kinds(&ir, diags);
     validate_typed_value_endpoints(&ir, diags);
+    ir.drivers = crate::ir::passes::drivers::resolve(&ir, diags);
 
     #[cfg(debug_assertions)]
     crate::ir::validate::validate(&ir);
@@ -1004,6 +1005,7 @@ fn insert_edge(
         kernel: EdgeKernel::None,
         fanout: FanoutShape::Scalar,
         span,
+        source_rate: NodeRate::Same,
         extra_source_nodes: extra_sources_clone,
         is_feedback,
         src_kind,
@@ -1050,6 +1052,102 @@ pub(crate) fn collect_referenced_node_ids(expr: &crate::ir::expr::IrExpr) -> Vec
 }
 
 // ---------------------------------------------------------------------------
+// Expression clocks
+// ---------------------------------------------------------------------------
+
+/// The rate an expression's value is produced at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExprClock {
+    /// No sampled dependency: literals and graph *value* inputs only. Such
+    /// an expression is rate-neutral and follows its destination.
+    Neutral,
+    /// Every sampled dependency runs at this rate.
+    Sampled(NodeRate),
+}
+
+/// Visitor collecting the sampled leaves of an expression: each referenced
+/// node that has a clock of its own, in first-seen order, deduplicated.
+struct ClockLeaves<'a> {
+    ir: &'a IrGraph,
+    sampled: Vec<(NodeId, NodeRate)>,
+}
+
+impl crate::ir::expr::visit::Visitor for ClockLeaves<'_> {
+    fn visit_endpoint(&mut self, ep: &IrEndpoint) {
+        let node = &self.ir.nodes[ep.node];
+        let sampled = match &node.kind {
+            // Graph value inputs (ramped or not, typed or f32) are held
+            // parameters: rate-neutral. Stream and event inputs are sampled
+            // at the base rate, like outputs.
+            IrNodeKind::Input { .. } => !matches!(
+                node.endpoints.get(&ep.endpoint).map(|e| e.kind),
+                Some(EndpointKind::Value)
+            ),
+            IrNodeKind::Output => true,
+            IrNodeKind::Processor { .. } | IrNodeKind::NodeArray { .. } => true,
+        };
+        if sampled && !self.sampled.iter().any(|(id, _)| *id == ep.node) {
+            self.sampled.push((ep.node, node.rate));
+        }
+    }
+}
+
+/// Resolve the clock of a source expression from *all* of its sampled
+/// dependencies. `Err` carries every sampled `(node, rate)` when they
+/// disagree, in left-to-right order, for the diagnostic.
+pub(crate) fn expression_clock(
+    expr: &IrExpr,
+    ir: &IrGraph,
+) -> Result<ExprClock, Vec<(NodeId, NodeRate)>> {
+    use crate::ir::expr::visit::Visitor;
+    let mut v = ClockLeaves {
+        ir,
+        sampled: Vec::new(),
+    };
+    v.visit_expr(expr);
+    let Some((_, first)) = v.sampled.first().copied() else {
+        return Ok(ExprClock::Neutral);
+    };
+    if v.sampled.iter().all(|(_, r)| *r == first) {
+        Ok(ExprClock::Sampled(first))
+    } else {
+        Err(v.sampled)
+    }
+}
+
+fn describe_rate(rate: NodeRate) -> String {
+    match rate {
+        NodeRate::Same => "the base rate".to_string(),
+        NodeRate::Up(n) => format!("`* {n}`"),
+        NodeRate::Down(n) => format!("`/ {n}`"),
+    }
+}
+
+/// The name of the first node array referenced *without* an element index
+/// inside `expr`, if any.
+fn unindexed_array_ref<'a>(expr: &IrExpr, ir: &'a IrGraph) -> Option<&'a Ident> {
+    struct Finder<'a> {
+        ir: &'a IrGraph,
+        found: Option<&'a Ident>,
+    }
+    impl<'a> crate::ir::expr::visit::Visitor for Finder<'a> {
+        fn visit_endpoint(&mut self, ep: &IrEndpoint) {
+            if self.found.is_some() || ep.index.is_some() {
+                return;
+            }
+            let node = &self.ir.nodes[ep.node];
+            if matches!(node.kind, IrNodeKind::NodeArray { .. }) {
+                self.found = Some(&node.name);
+            }
+        }
+    }
+    use crate::ir::expr::visit::Visitor;
+    let mut f = Finder { ir, found: None };
+    f.visit_expr(expr);
+    f.found
+}
+
+// ---------------------------------------------------------------------------
 // Step 4: Rate analysis
 // ---------------------------------------------------------------------------
 
@@ -1088,8 +1186,48 @@ fn analyze_rates(ir: &mut IrGraph, diags: &mut Diagnostics) {
             )
         };
 
-        let source_rate = ir.nodes[src_node_id].rate;
+        // The expression's clock comes from every sampled node it references,
+        // not from whichever operand happens to be leftmost. Mixed clocks are
+        // ambiguous and rejected here.
+        let source_rate = match expression_clock(&ir.edges[eid].source, ir) {
+            Ok(ExprClock::Sampled(r)) => r,
+            Ok(ExprClock::Neutral) => NodeRate::Same,
+            Err(conflicts) => {
+                let listing = conflicts
+                    .iter()
+                    .map(|(id, r)| format!("`{}` at {}", ir.nodes[*id].name, describe_rate(*r)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                diags.push_error(syn::Error::new(
+                    span,
+                    format!(
+                        "expression mixes nodes at different rates ({listing}), so its \
+                         clock is ambiguous; give each operand its own connection (the \
+                         graph resamples it at the destination) or move the arithmetic \
+                         into a node running at one rate"
+                    ),
+                ));
+                continue;
+            }
+        };
+        ir.edges[eid].source_rate = source_rate;
         let dest_rate = ir.nodes[dst_node_id].rate;
+
+        // A compound expression cannot read a whole node array at once
+        // (`voices.output * 0.5`): there is no single value to compute with.
+        if !matches!(ir.edges[eid].source.kind, IrExprKind::Endpoint(_)) {
+            if let Some(name) = unindexed_array_ref(&ir.edges[eid].source, ir) {
+                diags.push_error(syn::Error::new(
+                    span,
+                    format!(
+                        "`{name}` is a node array; an expression cannot use all of its \
+                         elements at once — index one element (`{name}[0].endpoint`) or \
+                         connect the array endpoint directly so the elements fan in"
+                    ),
+                ));
+                continue;
+            }
+        }
 
         // Reject undersampling (mirrors rate_analysis::analyze).
         if let NodeRate::Down(_) = source_rate {
@@ -1208,20 +1346,19 @@ fn refine_kernels(ir: &mut IrGraph) {
     let edge_ids: Vec<_> = ir.edges.keys().collect();
 
     for eid in edge_ids {
-        let (src_node_id, dst_node_id, src_kind, dst_kind) = {
+        let (dst_node_id, src_kind, dst_kind) = {
             let edge = &ir.edges[eid];
-            let src_node_id = match primary_node(&edge.source) {
-                Some(id) => id,
-                None => continue,
-            };
-            (src_node_id, edge.dest.node, edge.src_kind, edge.dst_kind)
+            if primary_node(&edge.source).is_none() {
+                continue;
+            }
+            (edge.dest.node, edge.src_kind, edge.dst_kind)
         };
 
         let is_event_edge = matches!(src_kind, Some(EndpointKind::Event))
             || matches!(dst_kind, Some(EndpointKind::Event));
 
         if is_event_edge {
-            let source_rate = ir.nodes[src_node_id].rate;
+            let source_rate = ir.edges[eid].source_rate;
             let dest_rate = ir.nodes[dst_node_id].rate;
             let rescale = compute_event_rescale(source_rate, dest_rate);
             ir.edges[eid].kernel = EdgeKernel::Event { rescale };
@@ -1667,33 +1804,16 @@ fn validate_typed_value_endpoints(ir: &IrGraph, diags: &mut Diagnostics) {
         }
     }
 
-    // (b) Fan-in into a typed value dest, and (c) non-latch cross-rate
-    // policies on typed value edges. Group edges by dest slot; a bucket is
-    // "typed" if any of its edges touches a typed graph endpoint. The dest's
-    // endpoint kind rides along so plain f32 VALUE fan-in is rejected too
-    // (values don't sum; only streams do).
-    type Bucket = (Vec<EdgeId>, bool, Option<EndpointKind>);
-    let mut buckets: HashMap<(NodeId, String, Option<usize>), Bucket> = HashMap::new();
+    // (b) Array fan-in shapes into value dests, and (c) non-latch cross-rate
+    // policies on typed value edges. Per-slot multi-driver rejection lives in
+    // `passes::drivers::resolve`.
     for &eid in &ir.edge_order {
         let edge = &ir.edges[eid];
-        // Every edge participates in dest buckets so that a typed source
-        // fanning in alongside an untyped one is still caught; the checks
-        // below only fire on buckets that contain at least one typed edge
-        // or a value-kind dest.
-        let dest = &edge.dest;
-        let bucket = buckets
-            .entry((dest.node, dest.endpoint.to_string(), dest.index))
-            .or_default();
-        bucket.0.push(eid);
         let typed = ir.edge_is_typed_value(edge);
-        bucket.1 |= typed;
-        let dest_kind = ir.nodes[dest.node]
+        let dest_kind = ir.nodes[edge.dest.node]
             .endpoints
-            .get(&dest.endpoint)
+            .get(&edge.dest.endpoint)
             .map(|ei| ei.kind);
-        if bucket.2.is_none() {
-            bucket.2 = dest_kind;
-        }
 
         // Array fan-in shape sums element values — impossible for typed
         // payloads and equally disallowed for plain f32 value dests.
@@ -1733,69 +1853,8 @@ fn validate_typed_value_endpoints(ir: &IrGraph, diags: &mut Diagnostics) {
         }
     }
 
-    // A broadcast dest (`voices.gain`) drives every element, so it overlaps
-    // any indexed dest (`voices[0].gain`) on the same endpoint: that element
-    // gets two drivers and connection order decides which wins — the same
-    // silent clobber the per-slot rule below rejects.
-    let mut broadcasts: HashMap<(NodeId, &str), (bool, Option<EndpointKind>)> = HashMap::new();
-    for ((node, endpoint, index), (_, has_typed, kind)) in &buckets {
-        if index.is_none() {
-            broadcasts.insert((*node, endpoint.as_str()), (*has_typed, *kind));
-        }
-    }
-    for ((node, endpoint, index), (edges, has_typed, kind)) in &buckets {
-        let Some(i) = index else { continue };
-        let Some((b_typed, b_kind)) = broadcasts.get(&(*node, endpoint.as_str())) else {
-            continue;
-        };
-        let is_value = matches!(kind.or(*b_kind), Some(EndpointKind::Value));
-        if !(*has_typed || *b_typed || is_value) {
-            continue;
-        }
-        let dest_name = &ir.nodes[*node].name;
-        for &eid in edges {
-            diags.push_error(syn::Error::new(
-                ir.edges[eid].span,
-                format!(
-                    "value endpoint `{dest_name}[{i}].{endpoint}` is driven both directly \
-                     and by a broadcast connection to `{dest_name}.{endpoint}` (values \
-                     cannot fan in); drop one of the two drivers",
-                ),
-            ));
-        }
-    }
-    for ((dest_node, dest_endpoint, _), (edges, has_typed, kind)) in buckets {
-        if edges.len() < 2 {
-            continue;
-        }
-        let is_value = matches!(kind, Some(EndpointKind::Value));
-        if !has_typed && !is_value {
-            continue;
-        }
-        let dest_name = &ir.nodes[dest_node].name;
-        let dest_desc = if dest_name.to_string() == dest_endpoint {
-            dest_name.to_string()
-        } else {
-            format!("{dest_name}.{dest_endpoint}")
-        };
-        for &eid in &edges[1..] {
-            let msg = if has_typed {
-                format!(
-                    "typed value endpoint `{dest_desc}` has {} sources, but typed \
-                     values cannot fan in (values don't sum); keep a single source",
-                    edges.len(),
-                )
-            } else {
-                format!(
-                    "value endpoint `{dest_desc}` has {} sources, but values cannot \
-                     fan in (streams sum; values don't); combine them explicitly \
-                     (`a + b -> {dest_desc}`) or keep a single source",
-                    edges.len(),
-                )
-            };
-            diags.push_error(syn::Error::new(ir.edges[eid].span, msg));
-        }
-    }
+    // Multi-driver rejection for value slots (and broadcast/indexed overlap)
+    // lives in `passes::drivers::resolve`, which owns fan-in semantics.
 }
 
 /// Cross-rate edges support a fixed set of `(SrcKind, DstKind)` tuples.
