@@ -395,8 +395,8 @@ impl<'a> CodegenContext<'a> {
             if !group.rustc_kind_check {
                 continue;
             }
-            let Some((dst_path, dst_marker)) =
-                self.endpoint_marker_tokens_for(group.dest.node, &group.dest.field)
+            let Some((dst_path, dst_marker_fn)) =
+                self.endpoint_marker_fn_for(group.dest.node, &group.dest.field)
             else {
                 continue;
             };
@@ -406,13 +406,22 @@ impl<'a> CodegenContext<'a> {
                 group.sources[1]
             };
             let span = self.ir.edges[anchor].span;
+            // rustc blames the turbofish/argument tokens for the failed
+            // bound, so move them onto the offending connection too.
+            let dst_path = respan(dst_path, span);
+            let dst_marker_fn = respan(dst_marker_fn, span);
             out.push(quote::quote_spanned! { span =>
                 #[allow(non_snake_case)]
                 const _: fn() = || {
-                    fn _assert_fan_in_allowed<K: ::oscen::dispatch::FanInAllowed>() {}
-                    _assert_fan_in_allowed::<
-                        <#dst_path as ::oscen::dispatch::EndpointAt<#dst_marker>>::Kind,
-                    >();
+                    // The marker is inferred from the endpoint's inherent
+                    // `__ep` handle, so no inherent associated type is named.
+                    fn _assert_fan_in_allowed<N, M>(_: fn() -> ::core::marker::PhantomData<M>)
+                    where
+                        N: ::oscen::dispatch::EndpointAt<M>,
+                        <N as ::oscen::dispatch::EndpointAt<M>>::Kind: ::oscen::dispatch::FanInAllowed,
+                    {
+                    }
+                    _assert_fan_in_allowed::<#dst_path, _>(#dst_marker_fn);
                 };
             });
         }
@@ -689,6 +698,24 @@ impl<'a> CodegenContext<'a> {
             }
         }
     }
+}
+
+/// Re-span every token in `tokens` (recursively) to `span`, keeping each
+/// token's hygiene-relevant identity otherwise unchanged.
+fn respan(tokens: TokenStream, span: proc_macro2::Span) -> TokenStream {
+    tokens
+        .into_iter()
+        .map(|mut tt| {
+            if let proc_macro2::TokenTree::Group(g) = &tt {
+                let mut group = proc_macro2::Group::new(g.delimiter(), respan(g.stream(), span));
+                group.set_span(span);
+                tt = proc_macro2::TokenTree::Group(group);
+            } else {
+                tt.set_span(span);
+            }
+            tt
+        })
+        .collect()
 }
 
 /// Expression for a node's effective rate given the graph-level `sample_rate`

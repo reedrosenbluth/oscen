@@ -120,6 +120,23 @@ impl<'a> CodegenContext<'a> {
             claim(&mut acc, &mut fields, ns, owner, name, "declaration");
         }
 
+        // Every input/output gets an `EndpointAt` marker handle
+        // (`<name>__ep`, see `generate_endpoint_markers`).
+        for node in self.inputs().chain(self.outputs()) {
+            let name = &node.name;
+            let ns = name.to_string();
+            let ns = ns.strip_prefix("r#").unwrap_or(&ns).to_owned();
+            let owner = format!("the `{ns}__ep` marker handle generated for `{name}`");
+            claim(
+                &mut acc,
+                &mut methods,
+                format!("{ns}__ep"),
+                owner,
+                name,
+                "endpoint",
+            );
+        }
+
         for node in self.inputs() {
             let name = &node.name;
             let ns = name.to_string();

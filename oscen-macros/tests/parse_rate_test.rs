@@ -159,3 +159,9 @@ fn external_bound_to_non_asset_endpoint_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/asset_wrong_endpoint.rs");
 }
+
+#[test]
+fn nested_graph_value_fanin_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/nested_graph_value_fanin.rs");
+}

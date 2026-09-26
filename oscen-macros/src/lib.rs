@@ -45,6 +45,11 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
     // impl block at the end so the marker types are reachable as
     // `<NodeType>::field__Ep` from anywhere `NodeType` is in scope.
     let mut endpoint_assoc_alias_emissions: Vec<proc_macro2::TokenStream> = Vec::new();
+    // Inherent `<field>__ep()` fns returning `PhantomData<marker>`: stable
+    // (no `inherent_associated_types`) handles that let graph codegen infer
+    // an endpoint's marker from `<Node>::<field>__ep` wherever `Node` is in
+    // scope. `graph!` emits the same fns for graph endpoints.
+    let mut endpoint_marker_fn_emissions: Vec<proc_macro2::TokenStream> = Vec::new();
 
     // Track event output fields on the node struct for clear_event_outputs() generation
     let mut node_event_output_fields: Vec<(syn::Ident, bool)> = Vec::new(); // (field_name, is_array)
@@ -209,8 +214,16 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
                             type Frame = #frame_ty;
                         }
                     });
+                    let marker_fn_ident = format_ident!("{}__ep", field_name);
                     endpoint_assoc_alias_emissions.push(quote! {
                         pub type #assoc_ident = #marker_ident;
+                    });
+                    endpoint_marker_fn_emissions.push(quote! {
+                        #[doc(hidden)]
+                        #[inline(always)]
+                        pub fn #marker_fn_ident() -> ::core::marker::PhantomData<#marker_ident> {
+                            ::core::marker::PhantomData
+                        }
                     });
                 }
             }
@@ -393,6 +406,11 @@ pub fn derive_node(input: TokenStream) -> TokenStream {
         #[allow(non_camel_case_types, dead_code)]
         impl #impl_generics #name #ty_generics #where_clause {
             #(#endpoint_assoc_alias_emissions)*
+        }
+
+        #[allow(non_snake_case, dead_code)]
+        impl #impl_generics #name #ty_generics #where_clause {
+            #(#endpoint_marker_fn_emissions)*
         }
 
         impl #impl_generics #name #ty_generics #where_clause {

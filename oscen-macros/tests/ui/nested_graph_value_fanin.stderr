@@ -1,0 +1,20 @@
+error[E0277]: endpoint of kind `ValueKind` cannot be driven by more than one connection
+  --> tests/ui/nested_graph_value_fanin.rs:25:9
+   |
+25 |         b.output -> inner.level;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^ value endpoint has multiple drivers
+   |
+   = help: the trait `FanInAllowed` is not implemented for `ValueKind`
+   = note: stream endpoints sum their sources and event endpoints merge them; a value endpoint takes exactly one source — combine values explicitly (`a + b -> dest`) or keep a single connection
+help: the following other types implement trait `FanInAllowed`
+  --> $WORKSPACE/oscen-lib/src/dispatch/mod.rs
+   |
+   | impl FanInAllowed for StreamKind {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `StreamKind`
+   | impl FanInAllowed for EventKind {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EventKind`
+note: required by a bound in `_assert_fan_in_allowed`
+  --> tests/ui/nested_graph_value_fanin.rs:25:9
+   |
+25 |         b.output -> inner.level;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `_assert_fan_in_allowed`

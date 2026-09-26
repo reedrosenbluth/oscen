@@ -857,7 +857,7 @@ fn unknown_kind_fan_in_emits_fan_in_assertion() {
     .expect("compile succeeds");
     let all = tokens.to_string();
     assert!(
-        all.contains("FanInAllowed") && all.contains("< Gain > :: input__Ep"),
+        all.contains("FanInAllowed") && all.contains("(< Gain > :: input__ep)"),
         "unknown-kind multi-driver must assert FanInAllowed on the dest marker; got:\n{all}"
     );
     let body = inherent_method_body(tokens, "__frame_core");
@@ -1016,5 +1016,67 @@ fn asset_graph_rate_is_scaled_by_the_bound_nodes_rate() {
     assert!(
         body.contains("self . ir . set_graph_rate ((sample_rate * 2f32) as u32)"),
         "the asset handle must carry the oversampled node's rate:\n{body}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Graph-side EndpointAt markers
+// ---------------------------------------------------------------------------
+
+#[test]
+fn graph_emits_endpoint_markers_without_inherent_type_aliases() {
+    let all = compile_to_string(quote! {
+        name: Child;
+        input stream sig: Frame<2>;
+        input value level;
+        input event trig;
+        output stream out: Frame<2>;
+        connections { sig -> out; }
+    });
+    for (ep, kind, frame) in [
+        ("sig", "StreamKind", ":: oscen :: frame :: Frame < 2 >"),
+        ("level", "ValueKind", "f32"),
+        ("trig", "EventKind", "f32"),
+        ("out", "StreamKind", ":: oscen :: frame :: Frame < 2 >"),
+    ] {
+        let marker = format!("Child__{ep}__Ep");
+        assert!(
+            all.contains(&format!("pub struct {marker} ;")),
+            "{marker}:\n{all}"
+        );
+        assert!(
+            all.contains(&format!(
+                "impl :: oscen :: dispatch :: EndpointAt < {marker} > for Child {{ type Kind = :: oscen :: dispatch :: {kind} ; type Frame = {frame} ; }}"
+            )),
+            "{marker} EndpointAt impl:\n{all}"
+        );
+        assert!(
+            all.contains(&format!(
+                "pub fn {ep}__ep () -> :: core :: marker :: PhantomData < {marker} >"
+            )),
+            "{ep}__ep handle:\n{all}"
+        );
+    }
+    assert!(
+        !all.contains("pub type"),
+        "no inherent associated types:\n{all}"
+    );
+}
+
+#[test]
+fn unknown_kind_fan_in_infers_the_marker_from_the_ep_handle() {
+    let all = compile_to_string(quote! {
+        name: Parent;
+        output stream out;
+        nodes { p = Child::new(); q = Child::new(); child = Child::new(); }
+        connections { p.out -> child.sig; q.out -> child.sig; child.out -> out; }
+    });
+    assert!(
+        all.contains("_assert_fan_in_allowed :: < Child , _ > (< Child > :: sig__ep)"),
+        "{all}"
+    );
+    assert!(
+        !all.contains("sig__Ep"),
+        "must not name the inherent alias:\n{all}"
     );
 }

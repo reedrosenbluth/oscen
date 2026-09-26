@@ -404,6 +404,24 @@ impl<'a> CodegenContext<'a> {
         Some((quote! { #path }, quote! { <#path>::#assoc_ident }))
     }
 
+    /// `(<node type path>, <Path>::<endpoint>__ep)` for a typed node: the
+    /// inherent fn (emitted by `#[derive(Node)]` and by `graph!` via
+    /// `generate_endpoint_markers`) whose `PhantomData<Marker>` return type
+    /// lets a call site infer the endpoint's `EndpointAt` marker. Unlike the
+    /// `<Path>::<endpoint>__Ep` alias this is stable Rust, needs no
+    /// `inherent_associated_types` in the consuming crate, and exists for
+    /// nested graphs too.
+    fn endpoint_marker_fn_for(
+        &self,
+        node: crate::ir::graph::NodeId,
+        endpoint: &syn::Ident,
+    ) -> Option<(TokenStream, TokenStream)> {
+        let node = &self.ir.nodes[node];
+        let path = self.node_type_path(node)?;
+        let fn_ident = marker_fn_ident(endpoint);
+        Some((quote! { #path }, quote! { <#path>::#fn_ident }))
+    }
+
     /// Extract the `IrEndpoint` from an `IrExpr`, if the expression is a
     /// plain `Endpoint` variant. Returns `None` for compound expressions
     /// (Binary, MethodCall, Call, Literal).
@@ -1527,6 +1545,7 @@ impl<'a> CodegenContext<'a> {
         // graph's endpoints at expansion time (wildcard hoists through
         // nested graphs). Mirrors the manifest `#[derive(Node)]` emits.
         let endpoint_manifest = self.generate_endpoint_manifest();
+        let (endpoint_marker_items, endpoint_marker_fns) = self.generate_endpoint_markers();
 
         // If there are any cross-rate edges we append a leading comma to the
         // tail so the existing `#struct_init` (which has no trailing comma)
@@ -1555,6 +1574,8 @@ impl<'a> CodegenContext<'a> {
             impl #name {
                 /// Maximum block size for `process_block()`.
                 pub const MAX_BLOCK_SIZE: usize = ::oscen::graph::DEFAULT_MAX_BLOCK_SIZE;
+
+                #endpoint_marker_fns
 
                 #[allow(unused_variables, unused_mut)]
                 pub fn new() -> Self {
@@ -1657,7 +1678,72 @@ impl<'a> CodegenContext<'a> {
             #nih_params_output
 
             #endpoint_manifest
+
+            #endpoint_marker_items
         })
+    }
+
+    /// Emit this graph's per-endpoint `EndpointAt` markers, mirroring what
+    /// `#[derive(Node)]` emits for a node: a free `pub struct
+    /// <Graph>__<ep>__Ep` and its `EndpointAt` impl (module items), plus the
+    /// inherent `<ep>__ep()` handle a parent graph's fan-in assertion infers
+    /// the marker from. No inherent associated type aliases are emitted, so
+    /// crates using `graph!` do not need `inherent_associated_types`.
+    fn generate_endpoint_markers(&self) -> (TokenStream, TokenStream) {
+        let name = self.name();
+        let mut items = Vec::new();
+        let mut fns = Vec::new();
+        let endpoints = self
+            .inputs()
+            .map(|n| (n, self.input_kind(&n.name)))
+            .chain(self.outputs().map(|n| (n, self.output_kind(&n.name))));
+        for (node, kind) in endpoints {
+            let ep = &node.name;
+            let is_array = node
+                .endpoints
+                .get(ep)
+                .and_then(|e| e.ty.as_ref())
+                .is_some_and(|t| matches!(t, syn::Type::Array(_)));
+            let (kind_ty, frame_ty) = match kind {
+                Some(EndpointKind::Stream) => {
+                    let frame = match self.endpoint_frame_ty(ep) {
+                        Some(ty) => {
+                            let ty = qualified_frame_ty(&ty);
+                            quote! { #ty }
+                        }
+                        None => quote! { f32 },
+                    };
+                    (quote! { ::oscen::dispatch::StreamKind }, frame)
+                }
+                Some(EndpointKind::Value) => (quote! { ::oscen::dispatch::ValueKind }, quote! { f32 }),
+                Some(EndpointKind::Event) if is_array => {
+                    (quote! { ::oscen::dispatch::EventArrayKind }, quote! { f32 })
+                }
+                Some(EndpointKind::Event) => (quote! { ::oscen::dispatch::EventKind }, quote! { f32 }),
+                // Assets are externals, never graph inputs/outputs.
+                Some(EndpointKind::Asset) | None => continue,
+            };
+            let marker = endpoint_marker_ident(name, ep);
+            let fn_ident = marker_fn_ident(ep);
+            items.push(quote! {
+                #[doc(hidden)]
+                #[allow(non_camel_case_types)]
+                pub struct #marker;
+                impl ::oscen::dispatch::EndpointAt<#marker> for #name {
+                    type Kind = #kind_ty;
+                    type Frame = #frame_ty;
+                }
+            });
+            fns.push(quote! {
+                #[doc(hidden)]
+                #[inline(always)]
+                #[allow(non_snake_case, dead_code)]
+                pub fn #fn_ident() -> ::core::marker::PhantomData<#marker> {
+                    ::core::marker::PhantomData
+                }
+            });
+        }
+        (quote! { #(#items)* }, quote! { #(#fns)* })
     }
 
     /// Emit the endpoint-manifest macro for this graph type: an exported
@@ -1755,6 +1841,17 @@ impl<'a> CodegenContext<'a> {
 /// call site, so a bare `Frame` would require the parent to import it;
 /// the qualified path always resolves. Unrecognized shapes are returned
 /// unchanged (defensive — callers only pass recognized frame types).
+/// `<Type>__<endpoint>__Ep`: the free marker struct naming one endpoint, the
+/// same spelling `#[derive(Node)]` uses so the collision rules are shared.
+fn endpoint_marker_ident(ty: &syn::Ident, endpoint: &syn::Ident) -> syn::Ident {
+    quote::format_ident!("{}__{}__Ep", ty, endpoint)
+}
+
+/// `<endpoint>__ep`: the inherent fn returning `PhantomData<marker>`.
+fn marker_fn_ident(endpoint: &syn::Ident) -> syn::Ident {
+    quote::format_ident!("{}__ep", endpoint)
+}
+
 fn qualified_frame_ty(ty: &syn::Type) -> syn::Type {
     if let syn::Type::Path(tp) = ty {
         if let Some(seg) = tp.path.segments.last() {
