@@ -15,7 +15,9 @@ use crate::graph::DEFAULT_MAX_BLOCK_SIZE;
 /// Offline block-rendering driver, generic over the stream frame type `F`
 /// (mono `f32` by default; `Frame<N>` for a graph whose stream endpoints are
 /// all `Frame<N>`). The generated graph implements `BlockRender<F>` for the
-/// single frame type shared by all of its stream endpoints.
+/// single frame type shared by all of its stream endpoints; a graph whose
+/// stream endpoints mix frame types has no such `F` and does not implement it
+/// (it still processes in realtime).
 pub trait BlockRender<F: AudioFrame = f32> {
     /// Number of stream inputs, in declaration order.
     const NUM_STREAM_INPUTS: usize;

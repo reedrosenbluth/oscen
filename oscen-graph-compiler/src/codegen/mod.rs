@@ -27,7 +27,9 @@ enum BlockFrameTy {
     /// All stream endpoints are the same `Frame<N>` type.
     Frame(syn::Type),
     /// Stream endpoints mix `f32` with `Frame<N>` (or differing `Frame<N>`):
-    /// offline rendering is out of scope (the impl emits a `compile_error!`).
+    /// no single frame type exists, so the frame-generic accessors that need
+    /// one (`BlockRender<F>`, `get_stream_output`) are omitted. The realtime
+    /// interface is unaffected.
     Mixed,
 }
 
@@ -193,15 +195,29 @@ impl<'a> CodegenContext<'a> {
     /// The single frame type shared by every top-level stream endpoint, for the
     /// `BlockRender<F>` impl. See [`BlockFrameTy`].
     fn block_render_frame_ty(&self) -> BlockFrameTy {
+        let stream_inputs = self
+            .inputs()
+            .filter(|n| self.input_kind(&n.name) == Some(EndpointKind::Stream));
+        self.shared_frame_ty(stream_inputs.chain(self.stream_outputs()))
+    }
+
+    /// The single frame type shared by every top-level stream output, for
+    /// `get_stream_output`. See [`BlockFrameTy`].
+    fn stream_output_frame_ty(&self) -> BlockFrameTy {
+        self.shared_frame_ty(self.stream_outputs())
+    }
+
+    fn stream_outputs(&self) -> impl Iterator<Item = &IrNode> {
+        self.outputs()
+            .filter(|n| self.output_kind(&n.name) == Some(EndpointKind::Stream))
+    }
+
+    fn shared_frame_ty<'b>(
+        &self,
+        stream_endpoints: impl Iterator<Item = &'b IrNode>,
+    ) -> BlockFrameTy {
         let mut frame: Option<syn::Type> = None;
         let mut saw_mono = false;
-        let stream_endpoints = self
-            .inputs()
-            .filter(|n| self.input_kind(&n.name) == Some(EndpointKind::Stream))
-            .chain(
-                self.outputs()
-                    .filter(|n| self.output_kind(&n.name) == Some(EndpointKind::Stream)),
-            );
         for node in stream_endpoints {
             match self.endpoint_frame_ty(&node.name) {
                 None => saw_mono = true,
@@ -719,12 +735,14 @@ impl<'a> CodegenContext<'a> {
             output_idx += 1;
         }
 
-        // The accessor returns the graph's stream frame type (`f32` for mono;
-        // `Frame<N>` for an all-`Frame<N>` graph). Mixed graphs are out of scope
-        // (their `BlockRender` impl already `compile_error!`s); fall back to f32.
-        let frame_ty = match self.block_render_frame_ty() {
+        // The accessor returns the outputs' shared frame type (`f32` for mono;
+        // `Frame<N>` when every stream output is that `Frame<N>`). Outputs
+        // that mix frame types have no single return type: omit the accessor
+        // and read the output fields directly.
+        let frame_ty = match self.stream_output_frame_ty() {
+            BlockFrameTy::Mono => quote! { f32 },
             BlockFrameTy::Frame(ty) => quote! { #ty },
-            _ => quote! { f32 },
+            BlockFrameTy::Mixed => return quote! {},
         };
 
         quote! {
@@ -738,12 +756,33 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
+    /// Doc attributes recording which frame-generic accessors a mixed-frame
+    /// graph omits, so the missing `BlockRender` impl is explained on the type.
+    fn generate_mixed_frame_doc(&self) -> TokenStream {
+        if !matches!(self.block_render_frame_ty(), BlockFrameTy::Mixed) {
+            return quote! {};
+        }
+        let omitted = if matches!(self.stream_output_frame_ty(), BlockFrameTy::Mixed) {
+            "`BlockRender` and `get_stream_output` are"
+        } else {
+            "`BlockRender` is"
+        };
+        let line = format!(
+            " This graph's stream endpoints mix frame types, so {omitted} not \
+             implemented: offline rendering needs one frame type across every \
+             stream input and output. Realtime processing is unaffected."
+        );
+        quote! { #[doc = #line] }
+    }
+
     /// Generate `impl BlockRender<F>` so the graph supports offline rendering,
     /// where `F` is the single frame type shared by all stream endpoints.
     fn generate_block_render_impl(&self, name: &syn::Ident) -> TokenStream {
         // A graph whose stream endpoints mix frame types cannot be rendered
         // offline (one `BlockRender<F>` cannot serve both). The graph still
-        // works in realtime; only offline rendering is gated.
+        // works in realtime, so the impl is omitted rather than rejected: an
+        // offline caller gets rustc's missing-trait error at the call site,
+        // and the struct's doc comment (`generate_mixed_frame_doc`) says why.
         // `impl BlockRender for G` (mono) keeps the trait's default `F = f32`,
         // byte-identical to the pre-generalization codegen; frame graphs spell
         // out `impl BlockRender<Frame<N>> for G`.
@@ -752,15 +791,7 @@ impl<'a> CodegenContext<'a> {
             BlockFrameTy::Frame(ty) => {
                 (quote! { ::oscen::graph::BlockRender<#ty> }, quote! { #ty })
             }
-            BlockFrameTy::Mixed => {
-                return quote! {
-                    ::core::compile_error!(
-                        "offline `BlockRender` requires all of a graph's stream \
-                         endpoints to share one frame type; this graph mixes `f32` \
-                         and `Frame<N>` (or differing `Frame<N>`) stream endpoints"
-                    );
-                };
-            }
+            BlockFrameTy::Mixed => return quote! {},
         };
 
         let mut input_arms = Vec::new();
@@ -1469,6 +1500,7 @@ impl<'a> CodegenContext<'a> {
         let process_block_method = self.generate_static_process_block()?;
         let get_stream_output_method = self.generate_static_get_stream_output();
         let block_render_impl = self.generate_block_render_impl(name);
+        let mixed_frame_doc = self.generate_mixed_frame_doc();
         let clear_event_outputs_method = self.generate_static_clear_event_outputs();
         let process_event_inputs_method = self.generate_static_process_event_inputs();
         let event_push_methods = self.generate_event_push_methods();
@@ -1512,6 +1544,7 @@ impl<'a> CodegenContext<'a> {
 
             #(#feedback_assertions)*
 
+            #mixed_frame_doc
             #[allow(dead_code)]
             #[derive(Debug)]
             pub struct #name {

@@ -642,11 +642,7 @@ fn ramped_setter_collision_is_rejected() {
 
 /// Extract the body of a method from a trait impl whose trait path ends in
 /// `trait_name`.
-fn trait_method_body(
-    tokens: proc_macro2::TokenStream,
-    trait_name: &str,
-    method: &str,
-) -> String {
+fn trait_method_body(tokens: proc_macro2::TokenStream, trait_name: &str, method: &str) -> String {
     let file: syn::File = syn::parse2(tokens).expect("generated code parses as a file");
     for item in file.items {
         if let syn::Item::Impl(imp) = item {
@@ -744,7 +740,8 @@ fn event_output_block_name_is_reserved() {
         output event o;
     });
     assert!(
-        msgs.iter().any(|m| m.contains("collides") && m.contains("event output")),
+        msgs.iter()
+            .any(|m| m.contains("collides") && m.contains("event output")),
         "expected reserved-name error for the event accumulator; got {msgs:?}"
     );
 }
@@ -890,7 +887,10 @@ fn broadcast_plus_indexed_stream_drivers_accumulate_after_the_broadcast() {
     let acc = body
         .find(":: accumulate (& self . b , & mut self . voices [0usize] . input")
         .expect("indexed driver accumulates onto the broadcast");
-    assert!(bcast < acc, "broadcast must be written before the indexed driver joins it:\n{body}");
+    assert!(
+        bcast < acc,
+        "broadcast must be written before the indexed driver joins it:\n{body}"
+    );
     assert!(
         !body.contains(":: connect (& self . b , & mut self . voices [0usize] . input"),
         "indexed driver must not clobber the broadcast with a connect:\n{body}"
@@ -914,6 +914,13 @@ fn successful_compiles_never_contain_compile_error_tokens() {
             output event o;
             connections { a -> o; b -> o; }
         },
+        quote! {
+            name: C;
+            input stream dry;
+            output stream wet: Frame<2>;
+            nodes { widen = Widen::new(); }
+            connections { dry -> widen.input; widen.output -> wet; }
+        },
     ] {
         let all = compile_to_string(tokens);
         assert!(
@@ -921,4 +928,71 @@ fn successful_compiles_never_contain_compile_error_tokens() {
             "an Ok compile must not smuggle compile_error! tokens:\n{all}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Mixed-frame graphs: frame-generic accessors are omitted, not rejected
+// ---------------------------------------------------------------------------
+
+#[test]
+fn mixed_frame_graph_omits_block_render_but_keeps_output_accessor() {
+    // Mono input, stereo output: no single `BlockRender<F>` exists, but every
+    // stream output is `Frame<2>`, so `get_stream_output` stays.
+    let all = compile_to_string(quote! {
+        name: MonoToStereo;
+        input stream dry;
+        output stream wet: Frame<2>;
+        nodes { widen = Widen::new(); }
+        connections { dry -> widen.input; widen.output -> wet; }
+    });
+    assert!(!all.contains("compile_error"), "{all}");
+    assert!(
+        !all.contains("impl :: oscen :: graph :: BlockRender"),
+        "{all}"
+    );
+    assert!(
+        all.contains("pub fn get_stream_output (& self , index : usize) -> Option < :: oscen :: frame :: Frame < 2 > >"),
+        "get_stream_output must return the outputs' shared frame type:\n{all}"
+    );
+    assert!(
+        all.contains("so `BlockRender` is not implemented"),
+        "the struct must document the omission:\n{all}"
+    );
+}
+
+#[test]
+fn mixed_frame_outputs_omit_get_stream_output() {
+    let all = compile_to_string(quote! {
+        name: MixedOuts;
+        input stream dry;
+        output stream mono;
+        output stream wide: Frame<2>;
+        nodes { widen = Widen::new(); }
+        connections { dry -> mono; dry -> widen.input; widen.output -> wide; }
+    });
+    assert!(!all.contains("compile_error"), "{all}");
+    assert!(
+        !all.contains("impl :: oscen :: graph :: BlockRender"),
+        "{all}"
+    );
+    assert!(!all.contains("fn get_stream_output"), "{all}");
+    assert!(
+        all.contains("so `BlockRender` and `get_stream_output` are not implemented"),
+        "{all}"
+    );
+}
+
+#[test]
+fn uniform_frame_graph_keeps_block_render() {
+    let all = compile_to_string(quote! {
+        name: Stereo;
+        input stream dry: Frame<2>;
+        output stream wet: Frame<2>;
+        connections { dry -> wet; }
+    });
+    assert!(
+        all.contains("BlockRender < :: oscen :: frame :: Frame < 2 > > for Stereo"),
+        "{all}"
+    );
+    assert!(!all.contains("mix frame types"), "{all}");
 }
