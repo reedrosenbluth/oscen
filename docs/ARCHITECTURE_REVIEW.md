@@ -19,6 +19,34 @@ markers for nested-graph destinations, the voice lifecycle (P1), the
 storage split (P2), and block scheduling experiments (P3) are not started.
 `docs/review-probes/` has been trimmed to the cases that still compile.
 
+### Progress (2026-09-26)
+
+Items 1 and 2 below have landed (`be703d2`, `e5d4ab0`, `42746fc`,
+`7074261`); item 3 is next and still needs its design pass. Deviations from
+the plan as written:
+
+- *External validation* checks the bound endpoint by field type
+  (`AssetInput<Playable>`, implemented only by `AssetSlot`) rather than
+  requiring the literal name `asset`, which would have rejected the existing
+  `reverb.ir` / `player.buf` bindings. The external's type is checked against
+  a new `ExternalAsset` trait (only `AudioAsset`), since every consumer builds
+  from an `AudioAsset` and the playable type is never user-facing. The
+  declared type must now resolve, so `AudioAsset` has to be in scope.
+- *Mixed-frame graphs* also lose `get_stream_output` when their stream
+  outputs themselves mix frame types (it used to fall back to `f32` and
+  mis-type `Frame<N>` outputs); otherwise it returns the outputs' shared
+  frame type.
+- *Graph-side markers*: the fan-in assertion does not name the free marker
+  struct (`Gain__input__Ep` is not re-exported by the prelude, so a bare
+  `Gain` destination would stop resolving). Instead the derive and `graph!`
+  both emit a hidden inherent fn `<ep>__ep() -> PhantomData<marker>`, and
+  the assertion infers the marker from it. This is stable Rust, so graph-only
+  crates no longer need `inherent_associated_types` for fan-in checks
+  (derived nodes still do, for their aliases). No change to
+  `passes::drivers` was needed: its "no marker" rule only covers untyped
+  constructors. The cross-rate `::State` projection still uses the
+  `__Ep` aliases.
+
 ### Next steps (planned 2026-09-26)
 
 Ordered by value and by how much each unblocks. Each item is one commit with
