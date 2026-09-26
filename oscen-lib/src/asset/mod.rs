@@ -366,5 +366,39 @@ impl<T: Send> std::fmt::Debug for AssetSlot<T> {
     }
 }
 
+/// Types an `external <name>: <Type>;` declaration may carry. Every
+/// [`AssetConsumer`] builds from an [`AudioAsset`], so that is the only
+/// implementor; the `graph!` macro asserts the declared type against this
+/// trait so a misspelled or foreign type is rejected at the declaration.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be carried by an `external` declaration",
+    label = "not an asset type",
+    note = "declare the external as `external <name>: AudioAsset;`"
+)]
+pub trait ExternalAsset {}
+impl ExternalAsset for AudioAsset {}
+
+/// A node field that can receive an external asset binding carrying
+/// `Playable`: exactly the node's [`AssetSlot`]. The `graph!` macro asserts the
+/// bound endpoint (`ext -> node.<field>`) against this trait so binding to a
+/// signal endpoint is rejected at the connection rather than silently
+/// installing the node's asset consumer.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not an asset input",
+    label = "an `external` must bind to the node's `#[input(asset)]` endpoint",
+    note = "asset inputs are `AssetSlot<{Playable}>` fields; check the endpoint name"
+)]
+pub trait AssetInput<Playable> {}
+impl<T: Send> AssetInput<T> for AssetSlot<T> {}
+
+/// Generated-code helper: compiles only when `T` is an [`ExternalAsset`].
+#[doc(hidden)]
+pub fn assert_external_asset<T: ExternalAsset + ?Sized>() {}
+
+/// Generated-code helper: compiles only when `slot` is the asset input of a
+/// node whose [`AssetEndpoint`] consumer produces `P`.
+#[doc(hidden)]
+pub fn assert_asset_input<P, S: AssetInput<P> + ?Sized>(_slot: &S) {}
+
 #[cfg(test)]
 mod tests;

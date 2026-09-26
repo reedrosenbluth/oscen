@@ -4,7 +4,7 @@
 
 #![feature(inherent_associated_types)]
 #![allow(dead_code)]
-use oscen::{graph, Convolver, EventInput, EventInstance, Gain, Node, SignalProcessor};
+use oscen::{graph, EventInput, EventInstance, Gain, Node, SignalProcessor};
 // `Val` and `Counter` below are kept as the node shapes the removed cases used.
 #[derive(Debug, Default, Node)]
 pub struct Sink {
@@ -50,7 +50,8 @@ impl SignalProcessor for Val {
 // `ValueMerge` (two unanchored value outputs into one value input) is now a
 // rustc error through `FanInAllowed`; see
 // oscen-macros/tests/ui/value_fanin_unknown_kind.rs.
-graph! {name: WrongAsset; external impulse: DoesNotExist; output out: stream; node reverb=Convolver::new(); connections {impulse->reverb.typo;reverb.output->out;}}
+// `WrongAsset` (an unknown external type bound to a misspelled endpoint) is
+// now a rustc error at each span; see oscen-macros/tests/ui/asset_wrong_*.rs.
 #[derive(Debug, Node)]
 pub struct Counter {
     #[output(stream)]
@@ -86,6 +87,4 @@ fn main() {
         "indexed compound destination inputs={:?} (expected [0,0,1,0])",
         g.voices.each_ref().map(|v| v.input)
     );
-    let _g = WrongAsset::new();
-    println!("external type DoesNotExist + reverb.typo compiled (expected compile error)");
 }

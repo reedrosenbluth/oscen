@@ -232,9 +232,10 @@ pub(crate) fn make_ident(name: &str, span: proc_macro2::Span) -> Option<Ident> {
 }
 
 /// `external <name>: <Type>;` declaration. Names a runtime-bindable asset slot
-/// exposed at the graph boundary. The `ty` documents the asset currency
-/// (e.g. `AudioAsset`); the concrete playable is resolved through the node's
-/// `AssetEndpoint` impl during codegen.
+/// exposed at the graph boundary. The `ty` names the asset currency and must
+/// implement `oscen::asset::ExternalAsset` (i.e. `AudioAsset`), asserted in
+/// codegen; the concrete playable is resolved through the node's
+/// `AssetEndpoint` impl.
 #[derive(Clone)]
 pub struct ExternalDecl {
     pub name: Ident,

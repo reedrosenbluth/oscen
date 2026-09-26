@@ -147,3 +147,15 @@ fn value_fanin_unknown_kind_fails_to_compile() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/value_fanin_unknown_kind.rs");
 }
+
+#[test]
+fn external_with_non_asset_type_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/asset_wrong_type.rs");
+}
+
+#[test]
+fn external_bound_to_non_asset_endpoint_fails_to_compile() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/asset_wrong_endpoint.rs");
+}

@@ -11,6 +11,7 @@ use crate::ir::graph::{EdgeKernel, FanoutShape, IrNodeKind, NodeId};
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::collections::HashSet;
+use syn::spanned::Spanned;
 
 use super::helpers::{
     block_field_name, kernel_down_type, kernel_up_type, policy_marker_path, resampler_field_name,
@@ -545,11 +546,33 @@ impl<'a> CodegenContext<'a> {
                     .expect("asset-bound node must have a known type path");
                 let pub_ident = syn::Ident::new(&format!("__{}_pub", field), field.span());
                 let con_ident = syn::Ident::new(&format!("__{}_con", field), field.span());
+                let playable = quote! {
+                    <<#node_ty as ::oscen::asset::AssetEndpoint>::Consumer
+                        as ::oscen::asset::AssetConsumer>::Playable
+                };
+                // The declared external type and the bound endpoint are
+                // otherwise never consulted: assert both so a wrong type or a
+                // non-asset endpoint fails at its own span instead of silently
+                // installing the node's asset consumer.
+                let external_check =
+                    self.ir
+                        .externals
+                        .iter()
+                        .find(|e| e.name == *field)
+                        .map(|ext| {
+                            let ty = &ext.ty;
+                            quote::quote_spanned! { ty.span() =>
+                                ::oscen::asset::assert_external_asset::<#ty>();
+                            }
+                        });
+                let endpoint = &binding.endpoint;
+                let endpoint_check = quote::quote_spanned! { endpoint.span() =>
+                    ::oscen::asset::assert_asset_input::<#playable, _>(&#node_name.#endpoint);
+                };
                 quote! {
-                    let (#pub_ident, #con_ident) = ::oscen::handoff::pair::<
-                        <<#node_ty as ::oscen::asset::AssetEndpoint>::Consumer
-                            as ::oscen::asset::AssetConsumer>::Playable,
-                    >();
+                    #external_check
+                    #endpoint_check
+                    let (#pub_ident, #con_ident) = ::oscen::handoff::pair::<#playable>();
                     <#node_ty as ::oscen::asset::AssetEndpoint>::install_asset(
                         &mut #node_name,
                         #con_ident,

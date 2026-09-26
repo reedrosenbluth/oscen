@@ -1,0 +1,26 @@
+error[E0277]: `f32` is not an asset input
+  --> tests/ui/asset_wrong_endpoint.rs:21:22
+   |
+21 |         ir -> reverb.input;
+   |                      ^^^^^ an `external` must bind to the node's `#[input(asset)]` endpoint
+   |
+   = help: the trait `AssetInput<MultiConvolverEngine>` is not implemented for `f32`
+   = note: asset inputs are `AssetSlot<MultiConvolverEngine>` fields; check the endpoint name
+help: the trait `AssetInput<T>` is implemented for `AssetSlot<T>`
+  --> $WORKSPACE/oscen-lib/src/asset/mod.rs
+   |
+   | impl<T: Send> AssetInput<T> for AssetSlot<T> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `oscen::assert_asset_input`
+  --> $WORKSPACE/oscen-lib/src/asset/mod.rs
+   |
+   | pub fn assert_asset_input<P, S: AssetInput<P> + ?Sized>(_slot: &S) {}
+   |                                 ^^^^^^^^^^^^^ required by this bound in `assert_asset_input`
+
+error[E0609]: no field `typo` on type `oscen::Convolver`
+  --> tests/ui/asset_wrong_endpoint.rs:38:22
+   |
+38 |         ir -> reverb.typo;
+   |                      ^^^^ unknown field
+   |
+   = note: available fields are: `input`, `output`, `ir`

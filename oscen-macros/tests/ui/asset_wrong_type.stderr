@@ -1,0 +1,22 @@
+error[E0277]: `NotAnAsset` cannot be carried by an `external` declaration
+  --> tests/ui/asset_wrong_type.rs:15:18
+   |
+15 |     external ir: NotAnAsset;
+   |                  ^^^^^^^^^^ not an asset type
+   |
+help: the trait `ExternalAsset` is not implemented for `NotAnAsset`
+  --> tests/ui/asset_wrong_type.rs:7:1
+   |
+ 7 | pub struct NotAnAsset;
+   | ^^^^^^^^^^^^^^^^^^^^^
+   = note: declare the external as `external <name>: AudioAsset;`
+help: the trait `ExternalAsset` is implemented for `AudioAsset`
+  --> $WORKSPACE/oscen-lib/src/asset/mod.rs
+   |
+   | impl ExternalAsset for AudioAsset {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `oscen::assert_external_asset`
+  --> $WORKSPACE/oscen-lib/src/asset/mod.rs
+   |
+   | pub fn assert_external_asset<T: ExternalAsset + ?Sized>() {}
+   |                                 ^^^^^^^^^^^^^ required by this bound in `assert_external_asset`
