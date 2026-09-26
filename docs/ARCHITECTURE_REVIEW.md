@@ -19,6 +19,100 @@ markers for nested-graph destinations, the voice lifecycle (P1), the
 storage split (P2), and block scheduling experiments (P3) are not started.
 `docs/review-probes/` has been trimmed to the cases that still compile.
 
+### Next steps (planned 2026-09-26)
+
+Ordered by value and by how much each unblocks. Each item is one commit with
+its own regression test, following the pattern of the fixes above. The
+standard verification after every commit is unchanged: `cargo test -p oscen`
+(no skips), `golden_render`, `realtime_safety`, `oscen-graph-compiler`,
+`oscen-macros`; golden hashes are expected to stay unchanged throughout.
+
+**1. Finish C7 (milestone 1). Three small, independent commits.**
+
+- *Validate external asset bindings at macro time.* `resolve_asset_bindings`
+  (`ir/lower.rs`) only checks that the destination node has a type path; the
+  external's declared type and the named endpoint are never consulted, so
+  `external impulse: DoesNotExist; impulse -> reverb.typo;` compiles and
+  installs the convolver's asset consumer anyway. Fix: in codegen
+  (`emit_struct.rs::generate_asset_wiring`) project the declared external type
+  against `<Node as AssetEndpoint>::Consumer`'s playable type with a
+  `const _: fn() = ..` assertion spanned at the `external` declaration, and
+  require the bound endpoint name to be the node's single asset input (from the
+  endpoint manifest when known; otherwise the literal `asset`). Tests: two
+  trybuild fixtures (`asset_wrong_type.rs`, `asset_wrong_endpoint.rs`) plus a
+  positive `oscen-lib` test that the correct spelling still installs. The
+  `WrongAsset` case in `docs/review-probes/src/bin/dsl.rs` becomes a negative
+  fixture and leaves the probe.
+- *Omit, don't reject, the offline `BlockRender` impl for mixed-frame graphs.*
+  `generate_block_render_impl` (`codegen/mod.rs`) returns a `compile_error!`
+  for `BlockFrameTy::Mixed` even though the realtime interface is fine. Fix:
+  return an empty token stream and record the reason as a doc comment on the
+  struct; a graph that genuinely needs offline rendering gets a normal missing-
+  trait error at the call site. Tests: a compiler regression test that the
+  emitted tokens contain neither `compile_error` nor `impl BlockRender` for a
+  mixed graph, an `oscen-lib` test that such a graph builds and processes, and
+  the existing snapshots must not change.
+- *Give asset loaders the node's effective rate.* `generate_asset_set_graph_rate_calls`
+  (`emit_struct.rs`) passes the base `sample_rate` to every `AssetLoadHandle`,
+  while `generate_node_set_sample_rate_calls` scales the consuming node's rate
+  by its `* N` annotation. A sample or impulse response prepared for an
+  oversampled convolver is therefore conformed to the wrong timebase. Fix:
+  use `scaled_rate_expr(node.rate)` for the bound node in the asset call, and
+  document on `AssetLoadHandle::set_graph_rate` that the rate is the consumer's.
+  Tests: a compiler regression test that the emitted call carries the scaled
+  expression, and an `oscen-lib` test that an `external` bound to a `* 2` node
+  reports `graph_rate == 2 * sample_rate` (via a `SampleRateMismatch` error on
+  a base-rate asset) and accepts a doubled-rate one.
+
+**2. Graph-side `EndpointAt` markers (plan step B5, milestone 2).**
+
+The driver plan's rustc fan-in veto (`generate_fan_in_assertions`) projects
+`<Path>::<field>__Ep`, an inherent associated type that only `#[derive(Node)]`
+emits. Nested graphs emit none, so an unknown-kind multi-driver into a nested
+graph's endpoint currently surfaces as a raw "associated type not found"
+error rather than the `FanInAllowed` diagnostic.
+
+Doing it the derive's way would put `pub type <field>__Ep = ..;` inside the
+graph's inherent impl, and *defining* an inherent associated type requires
+`#![feature(inherent_associated_types)]` in every crate that uses `graph!`.
+Avoid that:
+
+- Change `endpoint_marker_tokens_for` (`codegen/mod.rs`) to name the free
+  marker struct instead of the alias: for a type path `a::b::Node` the marker
+  is `a::b::Node__<field>__Ep`, which the derive already emits as a sibling
+  `pub struct`. This drops the inherent-type dependency from the assertion for
+  derived nodes too; the aliases stay for user code.
+- Add `generate_endpoint_markers` to `codegen/mod.rs`, walked the same way as
+  `generate_endpoint_manifest`: one `pub struct <Graph>__<ep>__Ep;` and one
+  `impl EndpointAt<..> for <Graph> { type Kind; type Frame }` per graph
+  endpoint, with `Kind`/`Frame` from the declared endpoint type. No inherent
+  aliases. Register the names in `validate_names.rs`.
+- Drop the "no marker on a multi-driver destination → macro-time diagnostic"
+  rule in `passes::drivers` for nodes whose type path is a graph; keep it for
+  untyped constructors.
+- Tests: `oscen-lib` test that a value endpoint of a nested graph rejects two
+  drivers with the `FanInAllowed` E0277 (trybuild fixture
+  `nested_graph_value_fanin.rs`), and that a stream endpoint of a nested graph
+  sums two drivers; compiler regression test for the marker emission. Re-bless
+  all five snapshots and review the diff, which should be additive only.
+- Risk: marker names could collide with a user type in the same module; use
+  the same `__Ep` suffix the derive uses so the collision rules are shared.
+
+**3. Voice lifecycle (P1, milestone 4).**
+
+The measured whole-synth cost is dominated by configured-but-idle voices.
+This is a design job, not a fix: it needs an explicit sleep/wake/tail state on
+`VoiceAllocator` and the voice handler, a rule for when a sleeping voice's
+downstream reads are valid, and the `synth_app` bench extended with an
+idle-heavy fixture before any code changes. Plan it in its own pass once
+items 1 and 2 have landed; P2 (storage split) and P3 (block scheduling) stay
+behind it.
+
+Smaller items to fold into whichever of the above touches the code first:
+`raw_midi_event` allocates for messages shorter than three bytes; the
+standalone `fm-synth` binary still frees a `Vec<u8>` MIDI message on the audio
+thread; the Object-event retirement protocol is undocumented.
+
 ## Executive assessment
 
 **Keep the static compiler and field-based DSP model. Make their contracts
