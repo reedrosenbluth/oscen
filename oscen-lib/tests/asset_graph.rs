@@ -153,3 +153,49 @@ fn asset_graph_silent_before_load_then_reproduces_ir() {
 
     let _ = std::fs::remove_file(&ir_path);
 }
+
+// The convolver runs at twice the graph rate; its asset handle must conform
+// assets to that rate, not the graph's base rate.
+graph! {
+    name: OversampledReverbGraph;
+
+    input stream dry;
+    output stream wet;
+
+    external ir: AudioAsset;
+
+    nodes {
+        reverb = Convolver::new() * 2;
+    }
+
+    connections {
+        dry -> reverb.input;
+        reverb.output -> wet;
+        ir -> reverb.ir;
+    }
+}
+
+#[test]
+fn oversampled_asset_consumer_uses_its_effective_rate() {
+    let mut graph = OversampledReverbGraph::new();
+    graph.init(RATE as f32);
+
+    // An asset conformed to the base rate is built for the wrong timebase.
+    let base = AudioAsset::from_samples(noise(64, 3), 1, RATE, RATE).expect("base-rate asset");
+    match graph.ir.publish(&base) {
+        Err(AssetError::SampleRateMismatch { asset, graph }) => {
+            assert_eq!(asset, RATE);
+            assert_eq!(graph, 2 * RATE, "handle must carry the node's rate");
+        }
+        other => panic!("expected SampleRateMismatch, got {other:?}"),
+    }
+
+    // Conformed to the node's doubled rate, the same IR is accepted.
+    let doubled =
+        AudioAsset::from_samples(noise(64, 3), 1, RATE, 2 * RATE).expect("doubled-rate asset");
+    assert_eq!(doubled.sample_rate(), 2 * RATE);
+    graph
+        .ir
+        .publish(&doubled)
+        .expect("publish at the node's rate");
+}

@@ -996,3 +996,25 @@ fn uniform_frame_graph_keeps_block_render() {
     );
     assert!(!all.contains("mix frame types"), "{all}");
 }
+
+// ---------------------------------------------------------------------------
+// Asset loaders see the bound node's effective rate
+// ---------------------------------------------------------------------------
+
+#[test]
+fn asset_graph_rate_is_scaled_by_the_bound_nodes_rate() {
+    let tokens = compile(quote! {
+        name: OversampledReverb;
+        input stream dry;
+        output stream wet;
+        external ir: AudioAsset;
+        nodes { reverb = Convolver::new() * 2; }
+        connections { dry -> reverb.input; reverb.output -> wet; ir -> reverb.ir; }
+    })
+    .unwrap_or_else(|_| panic!("compile failed"));
+    let body = inherent_method_body(tokens, "set_sample_rate");
+    assert!(
+        body.contains("self . ir . set_graph_rate ((sample_rate * 2f32) as u32)"),
+        "the asset handle must carry the oversampled node's rate:\n{body}"
+    );
+}

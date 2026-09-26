@@ -264,8 +264,10 @@ impl<C: AssetConsumer> AssetLoadHandle<C> {
         }
     }
 
-    /// Record the graph's sample rate, used to validate WAV loads. Called at
-    /// graph init.
+    /// Record the consuming node's sample rate, used to conform WAV loads and
+    /// validate published assets. For a node oversampled inside its graph
+    /// (`* N`) this is the node's effective rate, not the graph's base rate;
+    /// the generated graph passes the scaled rate at init.
     pub fn set_graph_rate(&mut self, rate: u32) {
         self.graph_rate = rate;
     }

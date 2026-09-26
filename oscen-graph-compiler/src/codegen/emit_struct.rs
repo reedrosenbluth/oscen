@@ -606,15 +606,19 @@ impl<'a> CodegenContext<'a> {
             .collect()
     }
 
-    /// Generate `self.<name>.set_graph_rate(sample_rate as u32);` for each
-    /// asset handle, emitted into the graph's `set_sample_rate`.
+    /// Generate `self.<name>.set_graph_rate(..)` for each asset handle,
+    /// emitted into the graph's `set_sample_rate`. The rate is the bound
+    /// node's effective rate (scaled by its `* N` / `/ N` annotation, as in
+    /// `generate_node_set_sample_rate_calls`), so an asset is conformed to the
+    /// timebase its consumer actually runs at.
     pub(super) fn generate_asset_set_graph_rate_calls(&self) -> Vec<TokenStream> {
         self.ir
             .asset_bindings
             .iter()
             .map(|binding| {
                 let field = &binding.external_name;
-                quote! { self.#field.set_graph_rate(sample_rate as u32); }
+                let scaled = scaled_rate_expr(self.ir.nodes[binding.node].rate);
+                quote! { self.#field.set_graph_rate((#scaled) as u32); }
             })
             .collect()
     }
