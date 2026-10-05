@@ -527,9 +527,10 @@ fn inline_literal_via_synthesizes_delay_node() {
     match &synth_node.kind {
         oscen_graph_compiler::ir::graph::IrNodeKind::Processor { ctor_expr, .. } => {
             let ctor_str = quote!(#ctor_expr).to_string();
+            // N - 1 samples: the latched feedback edge adds the last one.
             assert!(
-                ctor_str.contains("Delay") && ctor_str.contains("128"),
-                "expected ctor referencing Delay and 128 samples; got `{}`",
+                ctor_str.contains("SampleDelay") && ctor_str.contains("127"),
+                "expected ctor `SampleDelay::new(127)`; got `{}`",
                 ctor_str
             );
         }
@@ -557,6 +558,68 @@ fn inline_literal_via_synthesizes_delay_node() {
         }
         _ => panic!("feedback edge source should be a simple Endpoint"),
     }
+}
+
+fn lower_errors(tokens: proc_macro2::TokenStream) -> Vec<String> {
+    let (_, diags) = lower_quote(tokens);
+    diags
+        .items
+        .iter()
+        .filter(|d| matches!(d.severity, oscen_graph_compiler::Severity::Error))
+        .map(|d| d.message.to_string())
+        .collect()
+}
+
+#[test]
+fn zero_sample_inline_delay_is_rejected() {
+    let errors = lower_errors(quote! {
+        name: G;
+        node a = oscen::Gain::new(1.0);
+        node b = oscen::Gain::new(1.0);
+        connections { a.output -> [0] -> b.input; }
+    });
+    assert!(
+        errors.iter().any(|e| e.contains("at least one sample")),
+        "expected a zero-delay error; got {errors:?}"
+    );
+}
+
+#[test]
+fn inline_delay_runs_at_the_destination_rate() {
+    let (ir, diags) = lower_quote(quote! {
+        name: G;
+        node a = Gain::new(1.0) * 2;
+        node b = Gain::new(1.0) * 2;
+        connections {
+            a.output -> b.input;
+            b.output -> [1] -> a.input;
+        }
+    });
+    let ir = ir.unwrap_or_else(|| panic!("lower failed: {:?}", diags.items));
+    let synth = ir
+        .nodes
+        .values()
+        .find(|n| n.name.to_string().starts_with("__inline_delay_"))
+        .expect("synth delay node");
+    assert_eq!(synth.rate, oscen_graph_compiler::ast::NodeRate::Up(2));
+    let fb = ir.edges.values().find(|e| e.is_feedback).unwrap();
+    assert_eq!(fb.kernel, oscen_graph_compiler::ir::EdgeKernel::None);
+}
+
+#[test]
+fn cross_rate_feedback_route_is_rejected() {
+    let errors = lower_errors(quote! {
+        name: G;
+        node a = Gain::new(1.0) * 2;
+        node d = oscen::Delay::new(4.0, 0.0);
+        connections {
+            a.output -> [d] -> a.input;
+        }
+    });
+    assert!(
+        errors.iter().any(|e| e.contains("crosses rates")),
+        "expected a cross-rate feedback error; got {errors:?}"
+    );
 }
 
 #[test]

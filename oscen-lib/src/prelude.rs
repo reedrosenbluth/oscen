@@ -23,7 +23,7 @@ pub use crate::graph::ValuePayload;
 #[cfg(feature = "convolution")]
 pub use crate::convolution::Convolver;
 pub use crate::{
-    AdsrEnvelope, AudioInput, Delay, Gain, IirLowpass, Oscillator, PolyBlepOscillator,
+    AdsrEnvelope, AudioInput, Delay, Gain, IirLowpass, Oscillator, PolyBlepOscillator, SampleDelay,
     SamplePlayer, TptFilter,
 };
 
@@ -42,8 +42,9 @@ pub use crate::{
     __oscen_endpoints_AdsrEnvelope, __oscen_endpoints_AudioInput, __oscen_endpoints_Delay,
     __oscen_endpoints_Gain, __oscen_endpoints_IirLowpass, __oscen_endpoints_MidiParser,
     __oscen_endpoints_MidiVoiceHandler, __oscen_endpoints_Oscillator,
-    __oscen_endpoints_PolyBlepOscillator, __oscen_endpoints_SamplePlayer,
-    __oscen_endpoints_TptFilter, __oscen_endpoints_Value, __oscen_endpoints_VoiceAllocator,
+    __oscen_endpoints_PolyBlepOscillator, __oscen_endpoints_SampleDelay,
+    __oscen_endpoints_SamplePlayer, __oscen_endpoints_TptFilter, __oscen_endpoints_Value,
+    __oscen_endpoints_VoiceAllocator,
 };
 
 // Value system

@@ -421,6 +421,19 @@ osc.output -> [1] -> mixer.feedback;        // 1-sample inline delay
 osc.output -> [my_delay] -> mixer.feedback; // route through a declared Delay
 ```
 
+The edge out of the bracket is a *feedback edge*: it reads its source as it
+was at the start of the frame, i.e. one sample late, whatever order the
+scheduler runs the nodes in. So:
+
+- `-> [N] ->` delays by exactly `N` samples (`N >= 1`; `[0]` is an error).
+  It expands to a `SampleDelay` of `N - 1` plus the feedback edge's sample.
+- `-> [node] ->` delays by `node`'s own latency plus one sample. A declared
+  `Delay::new(d, _)` has a latency of `d + 1` (it reads before it writes),
+  so the route totals `d + 2`.
+- The feedback edge must feed a stream or value input at the same rate as
+  its source. An inline delay runs at its destination's rate, so `[N]` in an
+  oversampled loop counts oversampled samples.
+
 **Subgraphs are scheduled atomically** — one `process()` per sample, like a
 Cmajor nested graph. So any loop through a subgraph needs a delay on one
 edge, even when the tapped output doesn't depend on the looped-in input

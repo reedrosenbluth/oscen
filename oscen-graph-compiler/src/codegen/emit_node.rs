@@ -18,6 +18,49 @@ use super::helpers::is_same_rate_kernel;
 use super::CodegenContext;
 
 impl<'a> CodegenContext<'a> {
+    /// The local holding feedback edge `edge`'s source value as of the start
+    /// of its rate's tick (see [`Self::emit_feedback_latches`]).
+    fn feedback_latch_ident(&self, edge: &IrEdge) -> syn::Ident {
+        let k = self
+            .ir
+            .edge_order
+            .iter()
+            .position(|&e| e == edge.id)
+            .expect("feedback edge is in edge_order");
+        quote::format_ident!("__fb_{}", k)
+    }
+
+    /// `let __fb_k = <source>;` for every feedback edge whose destination
+    /// runs at the inner (oversampled) rate when `inner`, or at the outer
+    /// rate otherwise. Emitted before any node of that rate processes, so a
+    /// feedback edge reads its source as it was at the start of the tick —
+    /// one sample late, whichever order the scheduler picked.
+    pub(super) fn emit_feedback_latches(&self, inner: bool) -> Vec<TokenStream> {
+        self.ir
+            .edge_order
+            .iter()
+            .map(|&eid| &self.ir.edges[eid])
+            .filter(|edge| edge.is_feedback)
+            .filter(|edge| matches!(self.ir.nodes[edge.dest.node].rate, NodeRate::Up(_)) == inner)
+            .map(|edge| {
+                let ident = self.feedback_latch_ident(edge);
+                let src = self.emit_expr(&edge.source);
+                quote! { let #ident = #src; }
+            })
+            .collect()
+    }
+
+    /// Tokens reading an edge's source: the frame-start latch for a feedback
+    /// edge, the live expression otherwise.
+    fn edge_source_tokens(&self, edge: &IrEdge) -> TokenStream {
+        if edge.is_feedback {
+            let ident = self.feedback_latch_ident(edge);
+            quote! { #ident }
+        } else {
+            self.emit_expr(&edge.source)
+        }
+    }
+
     /// The lvalue tokens for a resolved address that names exactly one slot:
     /// `self.out` (bare graph endpoint), `self.node.field`, or
     /// `self.node[k].field`. Broadcast (`All`) addresses name several slots
@@ -50,7 +93,7 @@ impl<'a> CodegenContext<'a> {
         let terms: Vec<TokenStream> = g
             .sources
             .iter()
-            .map(|&eid| self.emit_expr(&self.ir.edges[eid].source))
+            .map(|&eid| self.edge_source_tokens(&self.ir.edges[eid]))
             .collect();
         let dst = self.emit_address(&g.dest);
         let (first, rest) = terms.split_first().expect("accumulating group has a source");
@@ -146,10 +189,11 @@ impl<'a> CodegenContext<'a> {
         let dest_field = &dest.field;
 
         // Compound sources (arithmetic, function/method calls) don't have a
-        // single root endpoint. Evaluate them once and route via
-        // ConnectEndpoints into the addressed slot(s).
-        if !Self::is_simple_endpoint_source(source) {
-            let src_tokens = self.emit_expr(source);
+        // single root endpoint, and a feedback edge reads its frame-start
+        // latch. Evaluate once and route via ConnectEndpoints into the
+        // addressed slot(s).
+        if edge.is_feedback || !Self::is_simple_endpoint_source(source) {
+            let src_tokens = self.edge_source_tokens(edge);
             return match dest.element {
                 Element::All { n } => {
                     let src_binding = self.compound_source_binding(dest, &src_tokens);
@@ -353,6 +397,16 @@ impl<'a> CodegenContext<'a> {
         dest_ident: &syn::Ident,
         output_kind: EndpointKind,
     ) -> TokenStream {
+        if edge.is_feedback {
+            // Lowering admits only same-rate stream/value feedback edges.
+            let latch = self.feedback_latch_ident(edge);
+            return quote! {
+                <() as ::oscen::graph::ConnectEndpoints<_, _>>::connect(
+                    &#latch,
+                    &mut self.#dest_ident
+                );
+            };
+        }
         let source = &edge.source;
         let source_node = self.extract_root_node(source);
         let source_field = self.extract_endpoint_field(source);

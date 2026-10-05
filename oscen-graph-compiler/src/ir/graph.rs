@@ -246,8 +246,10 @@ pub struct IrEdge {
     pub extra_source_nodes: Vec<NodeId>,
     /// True for the outgoing leg of an inline-delay edge (`-> [N] ->` or
     /// `-> [name] ->`). Feedback edges are skipped during topological
-    /// ordering and trigger emission of an `AllowsFeedback` static-bound
-    /// check on the source's primary node type.
+    /// ordering, trigger emission of an `AllowsFeedback` static-bound check
+    /// on the source's primary node type, and read their source through a
+    /// copy latched at the start of the frame (one sample late), so their
+    /// timing never depends on the schedule.
     pub is_feedback: bool,
     /// Endpoint kind of the source expression, resolved once at edge
     /// creation (endpoint kinds never change after `infer_endpoint_types`).

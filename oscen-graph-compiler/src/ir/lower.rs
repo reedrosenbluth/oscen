@@ -51,6 +51,7 @@ pub fn lower(mut graph_def: GraphDef, diags: &mut Diagnostics) -> Option<IrGraph
     build_edges(&mut prelowered, &mut ir, &name_to_id, diags);
     analyze_rates(&mut ir, diags);
     refine_kernels(&mut ir);
+    validate_feedback_edges(&ir, diags);
     topo_sort(&mut ir, diags);
     validate_cross_rate_kinds(&ir, diags);
     validate_typed_value_endpoints(&ir, diags);
@@ -396,13 +397,8 @@ fn collect_node_decl(
     }
 }
 
-/// Build the endpoint map for a synthesised `::oscen::Delay` node.
-///
-/// Mirrors the actual Delay endpoint descriptors from `oscen-lib/src/delay/mod.rs`:
-/// - `input`         → Stream
-/// - `output`        → Stream
-/// - `delay_samples` → Value
-/// - `feedback`      → Value
+/// Endpoint descriptors of the synthesised `::oscen::SampleDelay`
+/// (`oscen-lib/src/delay/sample.rs`): `input` and `output`, both streams.
 fn synth_delay_endpoints(span: proc_macro2::Span) -> HashMap<Ident, EndpointInfo> {
     use crate::ast::EndpointKind;
     let mut m = HashMap::new();
@@ -413,14 +409,6 @@ fn synth_delay_endpoints(span: proc_macro2::Span) -> HashMap<Ident, EndpointInfo
     m.insert(
         Ident::new("output", span),
         EndpointInfo::new(EndpointKind::Stream),
-    );
-    m.insert(
-        Ident::new("delay_samples", span),
-        EndpointInfo::new(EndpointKind::Value),
-    );
-    m.insert(
-        Ident::new("feedback", span),
-        EndpointInfo::new(EndpointKind::Value),
     );
     m
 }
@@ -587,8 +575,8 @@ fn infer_endpoint_types(prelowered: &[PreloweredStmt], ir: &mut IrGraph) {
 /// - `src -> dst` (no via): one edge, `is_feedback: false`.
 /// - `src -> [name] -> dst` (Node via): two edges through the declared node —
 ///   `src → via.input` (non-feedback) and `via.output → dst` (feedback).
-/// - `src -> [N] -> dst` (Samples via): synthesises an anonymous `::oscen::Delay`
-///   node with N samples, then emits two edges through it —
+/// - `src -> [N] -> dst` (Samples via): synthesises an anonymous
+///   `::oscen::SampleDelay` of N - 1 samples, then emits two edges through it —
 ///   `src → synth.input` (non-feedback) and `synth.output → dst` (feedback).
 ///
 /// Validates type compatibility (source kind vs dest kind).
@@ -862,10 +850,15 @@ fn expand_via_node(
     );
 }
 
-/// Expand `src -> [N] -> dst`: synthesise an anonymous `::oscen::Delay` node
-/// with N samples and route two edges through it:
+/// Expand `src -> [N] -> dst`: synthesise an anonymous
+/// `::oscen::SampleDelay` of `N - 1` samples and route two edges through it:
 ///   Edge 1: src → synth.input    (non-feedback)
 ///   Edge 2: synth.output → dst   (feedback — breaks the cycle)
+///
+/// A feedback edge reads its source as of the start of the frame (codegen
+/// latches it), which is the remaining sample: the bracket delays by exactly
+/// `N` however the nodes are scheduled. The synthesised node runs at the
+/// destination's rate so the latched edge is same-rate.
 #[allow(clippy::too_many_arguments)]
 fn expand_via_samples(
     ir: &mut IrGraph,
@@ -878,22 +871,31 @@ fn expand_via_samples(
     diags: &mut Diagnostics,
 ) {
     // Parse the literal sample count.
-    let n: u32 = match value.base10_parse::<u32>() {
+    let n: usize = match value.base10_parse::<usize>() {
         Ok(n) => n,
         Err(err) => {
             diags.push_error(err);
             return;
         }
     };
+    if n == 0 {
+        diags.push_error(syn::Error::new(
+            span,
+            "an inline delay must be at least one sample (`-> [1] ->`); \
+             connect directly with `->` for no delay",
+        ));
+        return;
+    }
 
     // Unique synthetic name for this inline delay.
     let synth_name = Ident::new(&format!("__inline_delay_{}", synth_counter), span);
     *synth_counter += 1;
 
-    // Build the constructor expression: ::oscen::Delay::new(N as f32, 0.0)
-    let n_lit = proc_macro2::Literal::u32_unsuffixed(n);
-    let ctor_expr: syn::Expr = syn::parse_quote!(::oscen::Delay::new(#n_lit as f32, 0.0));
-    let ty: syn::Path = syn::parse_quote!(::oscen::Delay);
+    // ::oscen::SampleDelay::new(N - 1); the latched feedback edge adds one.
+    let len_lit = proc_macro2::Literal::usize_unsuffixed(n - 1);
+    let ctor_expr: syn::Expr = syn::parse_quote!(::oscen::SampleDelay::new(#len_lit));
+    let ty: syn::Path = syn::parse_quote!(::oscen::SampleDelay);
+    let rate = ir.nodes[ir_dest.node].rate;
 
     let synth_id = ir.nodes.insert_with_key(|id| IrNode {
         id,
@@ -902,7 +904,7 @@ fn expand_via_samples(
             ctor_expr,
         },
         name: synth_name,
-        rate: crate::ast::NodeRate::Same,
+        rate,
         latency_samples: 0,
         span,
         endpoints: synth_delay_endpoints(span),
@@ -1516,6 +1518,34 @@ fn resolve_node_endpoint(
 // ---------------------------------------------------------------------------
 // Step 6: Topological sort
 // ---------------------------------------------------------------------------
+
+/// Codegen latches every feedback edge's source at the start of its rate's
+/// tick and drives the destination from that copy, so the edge must be a
+/// same-rate stream/value edge: a cross-rate edge has no single tick to latch
+/// at, and an event queue is not a value to copy.
+fn validate_feedback_edges(ir: &IrGraph, diags: &mut Diagnostics) {
+    for &eid in &ir.edge_order {
+        let edge = &ir.edges[eid];
+        if !edge.is_feedback {
+            continue;
+        }
+        let what = match edge.kernel {
+            EdgeKernel::None => continue,
+            EdgeKernel::Event { .. } => "carries events",
+            EdgeKernel::Up { .. } | EdgeKernel::Down { .. } => "crosses rates",
+        };
+        let via = primary_node(&edge.source)
+            .map(|id| format!("`{}`", ir.nodes[id].name))
+            .unwrap_or_else(|| "the delay".to_string());
+        diags.push_error(syn::Error::new(
+            edge.span,
+            format!(
+                "the feedback edge out of {via} {what}; a delay route must feed a \
+                 stream or value input running at the same rate as {via}"
+            ),
+        ));
+    }
+}
 
 /// Step 6: Sort `ir.processors` into topological (dependency) order using
 /// Kahn's algorithm.

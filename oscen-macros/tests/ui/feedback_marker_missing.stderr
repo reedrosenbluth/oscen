@@ -18,11 +18,16 @@ help: the trait `AllowsFeedback` is not implemented for `Delay`
    |
 15 | pub struct Delay {
    | ^^^^^^^^^^^^^^^^
-help: the trait `AllowsFeedback` is implemented for `oscen::Delay`
-  --> $WORKSPACE/oscen-lib/src/delay/mod.rs
+help: the following other types implement trait `AllowsFeedback`
+  --> $WORKSPACE/oscen-lib/src/delay/sample.rs
+   |
+   | impl AllowsFeedback for SampleDelay {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `SampleDelay`
+   |
+  ::: $WORKSPACE/oscen-lib/src/delay/mod.rs
    |
    | impl AllowsFeedback for Delay {}
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `oscen::Delay`
 note: required by a bound in `_assert_allows_feedback`
   --> tests/ui/feedback_marker_missing.rs:41:9
    |

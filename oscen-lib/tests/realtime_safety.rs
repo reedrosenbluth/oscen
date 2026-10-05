@@ -391,6 +391,40 @@ fn set_param_dispatch_does_not_allocate() {
     assert!(last.is_finite());
 }
 
+graph! {
+    name: FeedbackNoAllocGraph;
+
+    output stream out;
+
+    nodes {
+        osc = oscen::PolyBlepOscillator::saw(440.0, 0.6);
+        filter = oscen::TptFilter::new(1000.0, 0.7);
+    }
+
+    connections {
+        osc.output -> filter.input;
+        filter.output * 0.5 -> [64] -> filter.input;
+        filter.output -> out;
+    }
+}
+
+#[test]
+fn inline_delay_feedback_does_not_allocate() {
+    // The synthesized `SampleDelay` and the frame-start feedback latch run
+    // on the audio thread, per sample and per block.
+    let mut graph = FeedbackNoAllocGraph::new();
+    graph.init(44100.0);
+
+    let last = assert_no_alloc(|| {
+        for _ in 0..512 {
+            graph.process();
+        }
+        graph.process_block(256);
+        graph.out
+    });
+    assert!(last.is_finite());
+}
+
 #[test]
 fn fft_plan_forward_inverse_does_not_allocate() {
     let mut plan = FftPlan::new(1024);

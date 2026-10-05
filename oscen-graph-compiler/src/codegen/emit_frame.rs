@@ -27,6 +27,7 @@ impl<'a> CodegenContext<'a> {
     pub(super) fn generate_frame_core(&self) -> Result<TokenStream> {
         if self.max_factor() <= 1 {
             let process_body = self.generate_process_body()?;
+            let feedback_latches = self.emit_feedback_latches(false);
             Ok(quote! {
                 #[inline(always)]
                 #[allow(unused_variables)]
@@ -35,6 +36,9 @@ impl<'a> CodegenContext<'a> {
 
                     // Advance ramped value inputs
                     self.tick_ramps();
+
+                    // Feedback edges read their sources as of frame start.
+                    #(#feedback_latches)*
 
                     #(#process_body)*
                 }
@@ -141,6 +145,8 @@ impl<'a> CodegenContext<'a> {
         let down_finalizes = self.emit_all_down_finalizes();
         let same_rate_output_trailer =
             self.generate_graph_output_assignments_filtered(is_same_rate_kernel);
+        let outer_feedback_latches = self.emit_feedback_latches(false);
+        let inner_feedback_latches = self.emit_feedback_latches(true);
 
         Ok(quote! {
             {
@@ -148,6 +154,10 @@ impl<'a> CodegenContext<'a> {
 
                 // 2. Tick ramped value inputs at outer rate.
                 self.tick_ramps();
+
+                // 2.5. Outer-rate feedback edges read their sources as of
+                // the start of the outer tick.
+                #(#outer_feedback_latches)*
 
                 // 3. Outer-rate (Same) nodes process once per outer tick.
                 #(#outer_process)*
@@ -166,6 +176,8 @@ impl<'a> CodegenContext<'a> {
 
                 // 6. Inner loop: ×N nodes run N times per outer tick.
                 for __inner in 0..#max_factor {
+                    // Inner-rate feedback edges latch per inner tick.
+                    #(#inner_feedback_latches)*
                     #(#inner_writes)*
                     #(#inner_processes)*
                     #(#down_captures)*

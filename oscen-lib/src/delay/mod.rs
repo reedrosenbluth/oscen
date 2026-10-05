@@ -3,6 +3,9 @@ use crate::graph::{AllowsFeedback, SampleRate, SignalProcessor};
 use crate::ring_buffer::RingBuffer;
 use oscen_macros::Node;
 
+mod sample;
+pub use sample::*;
+
 /// Below this magnitude the recirculating feedback tail hits denormals, which
 /// cost ~100× on x86. Same threshold as the halfband IIR's recursive state.
 const DENORMAL_THRESHOLD: f32 = 1e-15;

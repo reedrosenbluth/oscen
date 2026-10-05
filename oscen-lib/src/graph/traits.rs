@@ -52,11 +52,13 @@ pub trait SignalProcessor: Send + std::fmt::Debug {
 }
 
 /// Marker trait for nodes that can sit inside a feedback cycle in a `graph!`
-/// macro. The macro emits a `T: AllowsFeedback` static assertion for each node
-/// it picks as a cycle-breaker, so a type that the macro treats as feedback-
-/// allowing must implement this trait or the generated code fails to compile.
+/// macro. The macro emits a `T: AllowsFeedback` static assertion for the node
+/// named in a `src -> [node] -> dst` route, so the type must implement this
+/// trait or the generated code fails to compile.
 ///
-/// The library implements this for [`crate::delay::Delay`] only. Custom types
-/// that introduce an explicit one-sample delay (and therefore safely break
-/// cycles) can opt in by adding their own `impl AllowsFeedback for MyType {}`.
+/// The feedback edge out of such a node reads the node's output as it was at
+/// the start of the frame (one sample late), so a route adds the node's own
+/// latency plus one sample. The library implements this for
+/// [`crate::delay::Delay`] and [`crate::delay::SampleDelay`]. Custom
+/// delay-like types can opt in with `impl AllowsFeedback for MyType {}`.
 pub trait AllowsFeedback: SignalProcessor {}
