@@ -1026,3 +1026,28 @@ fn value_cross_rate_latches_across_inner_ticks() {
         );
     }
 }
+
+// A fully qualified constructor path with a rate suffix: the parser used to
+// read `oscen::Gain::new(0.5) * 2` as multiplying the node by 2.
+graph! {
+    name: QualifiedOversampledGain;
+    input stream x;
+    output stream y;
+    nodes { g = oscen::Gain::new(0.5) * 2; }
+    connections { x -> g.input; g.output -> y; }
+}
+
+#[test]
+fn qualified_constructor_path_takes_its_rate() {
+    let mut graph = QualifiedOversampledGain::new();
+    graph.init(48_000.0);
+    // Only an oversampled section adds downsampler latency.
+    assert!(graph.latency_samples() > 0);
+    let mut y = 0.0;
+    for _ in 0..512 {
+        graph.x = 1.0;
+        graph.process();
+        y = graph.y;
+    }
+    assert!((y - 0.5).abs() < 1e-3, "settled output {y}");
+}

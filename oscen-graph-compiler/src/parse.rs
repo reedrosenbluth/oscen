@@ -821,7 +821,15 @@ fn rate_chain_ends_in_repeat(expr: &Expr) -> bool {
 ///                                                    → Err (conflict: `[X; N] * M * P`)
 ///   1. Expr::Binary(Mul|Div, lhs=Repeat, rhs=IntLit) → (inner, size, Some(rate))
 ///   2. Expr::Repeat                                  → (inner, size, None)
-///   3. anything else                                 → (expr,  None,  None)
+///   3. Expr::Binary(Mul|Div, lhs=<shape 4>, rhs=IntLit)    → Err (two rate factors)
+///   4. Expr::Binary(Mul|Div, lhs, rhs=IntLit)        → (lhs,   None,  Some(rate))
+///   5. anything else                                 → (expr,  None,  None)
+///
+/// Shapes 3–4 cover constructors that `parse_constructor_with_type` can only
+/// read as a general expression (a qualified path such as
+/// `oscen::Gain::new(1.0) * 2`), which swallows the trailing rate into a
+/// multiplication. A node is never an integer product, so a top-level
+/// `* N` / `/ N` by an integer literal is always the rate.
 fn extract_array_and_embedded_rate(expr: Expr) -> Result<(Expr, Option<usize>, Option<NodeRate>)> {
     use syn::{BinOp, ExprLit, Lit};
 
@@ -880,20 +888,7 @@ fn extract_array_and_embedded_rate(expr: Expr) -> Result<(Expr, Option<usize>, O
                 ..
             }) = &*bin.right
             {
-                let n: u32 = n_lit.base10_parse()?;
-                if !matches!(n, 1 | 2 | 4 | 8) {
-                    return Err(syn::Error::new(
-                        n_lit.span(),
-                        "rate factor must be 1, 2, 4, or 8",
-                    ));
-                }
-                let rate = if n == 1 {
-                    NodeRate::Same
-                } else if is_up {
-                    NodeRate::Up(n)
-                } else {
-                    NodeRate::Down(n)
-                };
+                let rate = rate_factor(is_up, n_lit)?;
                 // Re-destructure to get owned values out of `expr`.
                 let Expr::Binary(bin) = expr else {
                     unreachable!()
@@ -913,8 +908,69 @@ fn extract_array_and_embedded_rate(expr: Expr) -> Result<(Expr, Option<usize>, O
         return Ok((inner, count, None));
     }
 
-    // Shape 3: anything else
+    // Shapes 3–4: a scalar constructor with a rate swallowed by the
+    // expression parser.
+    if let Some((is_up, n_lit)) = rate_suffix(&expr) {
+        if let Expr::Binary(bin) = &expr {
+            if let Some((inner_up, inner_lit)) = rate_suffix(&bin.left) {
+                let op = if inner_up { "*" } else { "/" };
+                return Err(syn::Error::new(
+                    n_lit.span(),
+                    format!(
+                        "node already has a rate (`{op} {}`); write a single `* N` or `/ N`",
+                        inner_lit.base10_digits(),
+                    ),
+                ));
+            }
+        }
+        let rate = rate_factor(is_up, &n_lit)?;
+        let Expr::Binary(bin) = expr else {
+            unreachable!()
+        };
+        return Ok((*bin.left, None, Some(rate)));
+    }
+
+    // Shape 5: anything else
     Ok((expr, None, None))
+}
+
+/// `(is_up, N)` when `expr` is `<lhs> * N` or `<lhs> / N` with an integer
+/// literal `N`.
+fn rate_suffix(expr: &Expr) -> Option<(bool, syn::LitInt)> {
+    use syn::{BinOp, ExprLit, Lit};
+    let Expr::Binary(bin) = expr else {
+        return None;
+    };
+    let is_up = match bin.op {
+        BinOp::Mul(_) => true,
+        BinOp::Div(_) => false,
+        _ => return None,
+    };
+    match &*bin.right {
+        Expr::Lit(ExprLit {
+            lit: Lit::Int(n), ..
+        }) => Some((is_up, n.clone())),
+        _ => None,
+    }
+}
+
+/// The rate a `* N` (`is_up`) or `/ N` suffix denotes; `N` must be 1, 2, 4,
+/// or 8.
+fn rate_factor(is_up: bool, n_lit: &syn::LitInt) -> Result<NodeRate> {
+    let n: u32 = n_lit.base10_parse()?;
+    if !matches!(n, 1 | 2 | 4 | 8) {
+        return Err(syn::Error::new(
+            n_lit.span(),
+            "rate factor must be 1, 2, 4, or 8",
+        ));
+    }
+    Ok(if n == 1 {
+        NodeRate::Same
+    } else if is_up {
+        NodeRate::Up(n)
+    } else {
+        NodeRate::Down(n)
+    })
 }
 
 // Parse a simple expression that won't consume brackets

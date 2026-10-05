@@ -151,6 +151,93 @@ fn upsampled_node_carries_rate_factor() {
     );
 }
 
+/// A qualified constructor path is parsed as a general expression, which
+/// used to swallow the rate into a `Node * N` multiplication (and lose the
+/// node's type). The rate and type must survive.
+#[test]
+fn qualified_constructor_path_keeps_rate_and_type() {
+    let (ir, diags) = lower_quote(quote! {
+        name: Qualified;
+        input stream s;
+        output stream out;
+        nodes {
+            up = oscen::Gain::new(1.0) * 4;
+            rooted = ::oscen::Gain::new(1.0) * 4;
+        }
+        connections {
+            s -> up.input;
+            up.output -> rooted.input;
+            rooted.output -> out;
+        }
+    });
+    let ir = ir.unwrap_or_else(|| panic!("lower failed: {:?}", diags.items));
+    let node = |name: &str| {
+        ir.nodes
+            .values()
+            .find(|n| n.name == name)
+            .unwrap_or_else(|| panic!("node `{name}`"))
+    };
+    assert_eq!(node("up").rate, oscen_graph_compiler::ast::NodeRate::Up(4));
+    assert_eq!(
+        node("rooted").rate,
+        oscen_graph_compiler::ast::NodeRate::Up(4)
+    );
+    for name in ["up", "rooted"] {
+        match &node(name).kind {
+            oscen_graph_compiler::ir::graph::IrNodeKind::Processor { ty, ctor_expr } => {
+                let ty = ty.as_ref().expect("node type extracted");
+                assert_eq!(
+                    quote!(#ty)
+                        .to_string()
+                        .replace(' ', "")
+                        .trim_start_matches("::"),
+                    "oscen::Gain"
+                );
+                let ctor = quote!(#ctor_expr).to_string();
+                assert!(
+                    !ctor.contains('*') && !ctor.contains('/'),
+                    "rate left in ctor: {ctor}"
+                );
+            }
+            _ => panic!("`{name}` should be a processor"),
+        }
+    }
+}
+
+#[test]
+fn qualified_constructor_path_rate_errors() {
+    let double = lower_errors(quote! {
+        name: G;
+        nodes { g = oscen::Gain::new(1.0) * 2 * 4; }
+    });
+    assert!(
+        double
+            .iter()
+            .any(|e| e.contains("already has a rate (`* 2`)")),
+        "expected a double-rate error; got {double:?}"
+    );
+    let invalid = lower_errors(quote! {
+        name: G;
+        nodes { g = oscen::Gain::new(1.0) * 3; }
+    });
+    assert!(
+        invalid
+            .iter()
+            .any(|e| e.contains("rate factor must be 1, 2, 4, or 8")),
+        "expected an invalid-factor error; got {invalid:?}"
+    );
+    // `/ N` is read as a rate too (and then rejected as unsupported), not
+    // as a division of the node.
+    let down = lower_errors(quote! {
+        name: G;
+        nodes { g = oscen::Gain::new(1.0) / 2; }
+    });
+    assert!(
+        down.iter().any(|e| e.contains("undersampling")),
+        "expected the undersampling error; got {down:?}"
+    );
+}
+
 #[test]
 fn cross_rate_edge_picks_correct_kernel() {
     let (ir, diags) = lower_quote(quote! {
